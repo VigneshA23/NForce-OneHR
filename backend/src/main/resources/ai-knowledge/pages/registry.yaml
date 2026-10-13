@@ -391,7 +391,9 @@ pages:
     module: performance
     placeholder: true
     variants:
-      # Three different labels for the same placeholder - one per role, per nav.config.ts.
+      # Two different labels for the same placeholder - one per role, per nav.config.ts.
+      # HR_ADMIN used to have a third variant here, but it was replaced by the real
+      # talent-performance page below (Organization > Talent & Skills) - see that entry.
       - roles: [EMPLOYEE]
         label: "Performance & Growth"
         route: /performance
@@ -400,10 +402,14 @@ pages:
         label: "Team Performance"
         route: /performance
         description: "Planned for a future phase. Currently shows a roadmap placeholder, and no performance functionality exists yet."
-      - roles: [HR_ADMIN]
-        label: "Performance & Engagement"
-        route: /performance
-        description: "Planned for a future phase. Currently shows a roadmap placeholder, and no performance functionality exists yet."
+
+  - pageId: talent-performance
+    module: performance
+    variants:
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Performance"
+        route: /talent-performance
+        description: "Org-wide Talent & Skills: a Dashboard of KPIs/charts (clickable to drill into the employees behind any stat), Talent Search (find who has a given skill, with proficiency/certified/department/location/manager/learning-status filters and saved searches), the full Employee Directory with CSV export, and Settings (manage the skills/proficiency-level/certificate-category master lists and resolve employee skill requests). View-only on individual employee data - only the employee themselves can edit their own skills/certificates/learning."
 
   - pageId: integrations
     module: administration

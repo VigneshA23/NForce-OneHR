@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, CheckCircle2 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { usePreviewMode } from '../lib/previewMode';
+import { previewNotifications } from '../pages/dashboard-ui-preview/dashboardPreviewData';
 import { notificationsApi, type NotificationItem } from '../api/notifications';
 import { getPriority } from '../lib/notificationPriority';
 
@@ -30,21 +32,23 @@ function timeAgo(iso: string): string {
  */
 export function RecentNotificationsWidget({ className }: { className?: string }) {
   const token = useAuthStore(s => s.token) ?? '';
+  const isPreview = usePreviewMode();
   const navigate = useNavigate();
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (isPreview) { setItems(previewNotifications()); setLoading(false); return; }
     let cancelled = false;
     notificationsApi.unread(token, 0, MAX_ROWS)
       .then(data => { if (!cancelled) setItems(data.content); })
       .catch(() => { if (!cancelled) setItems([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, isPreview]);
 
   function open(n: NotificationItem) {
-    notificationsApi.markRead(token, n.id).catch(() => {});
+    if (!isPreview) notificationsApi.markRead(token, n.id).catch(() => {});
     setItems(prev => prev.filter(i => i.id !== n.id));
     if (n.linkPath) navigate(n.linkPath);
   }

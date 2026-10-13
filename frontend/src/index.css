@@ -1095,24 +1095,29 @@ input[type="date"] {
    selected/today/disabled styles already set per-cell. */
 .nf-cal-cell:not(:disabled):hover { border-color: var(--brand) !important; transform: translateY(-1px); }
 .nf-cal-cell { transition: border-color .15s, transform .15s, background .15s, box-shadow .15s; }
-/* Day-cell status pill — the grid tracks are minmax(0, 1fr), so the pill is capped to its cell
-   instead of widening the column past the panel (which clipped the calendar via overflow:
-   hidden). It wraps only at spaces/hyphens ("Weekly-/off", "Partial/Day"); a single word too
-   long for the cell ("Regularization") is truncated, never broken mid-word. The pills set
-   white-space: nowrap inline, hence !important. */
-.nf-month-cal { container-type: inline-size; }
-.nf-cal-badge { display: flex; min-width: 0; }
-.nf-cal-badge > span { max-width: 100%; min-width: 0; white-space: normal !important; overflow: hidden; text-overflow: ellipsis; }
-/* Too narrow for any label (cells under ~70px — tablet/phone): each pill becomes a slim colour
-   bar in its own status colour, matching the legend above the grid (the same idea as the
-   compact rail calendar's dots). The label text stays in the DOM for screen readers. */
-@container (max-width: 559px) {
-  .nf-cal-badge > span {
-    font-size: 0 !important; padding: 0 !important; height: 5px; width: 100%; border-radius: 3px;
-    background: currentColor !important; border: none !important; opacity: .8;
-  }
-  .nf-cal-badge > span > span { display: none; }
+/* Calendar day cells carry only the date and a status mark; detail lives in the hover/focus tip. */
+.nf-cal-cell:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* Attendance Log date cell — weekday + badge share one line; the badge's own top margin is
+   dropped so the cell stays two lines tall. */
+.nf-log-date-meta { display: flex; align-items: center; gap: 2px 6px; min-height: 16px; flex-wrap: wrap; min-width: 0; }
+.nf-log-date-meta > span { margin-top: 0 !important; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+/* Attendance KPI block — ONE card: the five stat tiles in a single non-wrapping row, with the
+   Achievements section under a divider. Tiles shrink (min-width: 0) rather than wrapping onto a
+   second row; below 768px the shared .nf-kpi-scroll rule turns the stats into a swipe strip. */
+.nf-kpi-row {
+  display: flex; flex-direction: column; gap: 14px; padding: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 8px 20px -12px rgba(0,0,0,.25);
 }
+.nf-kpi-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+/* The stat value scales with its own tile (container query) so long values like "13h 21m" never
+   cross the card's outline at narrower widths or higher browser zoom. */
+.nf-kpi-stats > .nf-insight-tile { container-type: inline-size; overflow: hidden; }
+.nf-stat-value { font-size: clamp(18px, 17cqw, 28px); }
+.nf-stat-icon { width: clamp(28px, 24cqw, 40px); height: clamp(28px, 24cqw, 40px); }
+.nf-stat-icon > svg { width: 50%; height: 50%; }
 
 /* Attendance Log — sticky header while the table body scrolls */
 .nf-sticky-thead th { position: sticky; top: 0; z-index: 2; }
@@ -1317,32 +1322,37 @@ input[type="date"] {
   .nf-hero-illus { display: none !important; }
 }
 
-/* Today hero — subtle "workflow" filler beside the (now compact) Working Progress bar, so the
-   leftover row space reads as an intentional detail instead of dead air. Hidden once the row is
-   narrow enough that it would otherwise get squeezed against its neighbors. */
+/* Today hero — the live clock beside the Working Progress bar. Hidden once the row is narrow enough
+   that it would otherwise get squeezed against its neighbors. */
 @media (max-width: 900px) {
   .nf-workprogress-flow { display: none !important; }
 }
-.nf-flow-dot {
-  position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%;
-  background: var(--ok); transform: translate(-50%, -50%);
-  opacity: 0;
-  transition: filter .15s;
+/* Today hero's middle row: working progress | keep-going, with the clock floating at the right end. Below
+   900px the clock is hidden and the row falls back to a simple wrapping flex. */
+.nf-hero-midrow { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; padding-right: calc(clamp(184px, 16vw, 208px) + 16px); }
+.nf-hero-midrow > .nf-hero-keepgoing { order: 2; }
+/* The clock floats at the right end of the row and overhangs the empty space above it (and a little below), so
+   it does not stretch the row — which would open gaps around the progress bar. */
+.nf-hero-midrow > .nf-workprogress-flow { position: absolute; right: 0; bottom: -26px; }
+@media (max-width: 900px) {
+  .nf-hero-midrow { display: flex; flex-wrap: wrap; align-items: stretch; padding-right: 0; }
 }
+.nf-live-clock { width: 100%; height: 100%; }
+.nf-live-clock svg { display: block; overflow: hidden; }
+/* The hands' angles are written from the system clock by LiveClock.tsx (no CSS timers, so no drift). */
+.nf-clock-hand { transform-box: view-box; will-change: transform; }
+.nf-clock-ripple { opacity: 0; transform-origin: 100px 60px; transform-box: view-box; }
 @media (prefers-reduced-motion: no-preference) {
-  .nf-flow-dot { animation: nf-flow-move 4.8s ease-in-out infinite; }
-  .nf-flow-dot-1 { animation-delay: 0s; }
-  .nf-flow-dot-2 { animation-delay: 1.6s; }
-  .nf-flow-dot-3 { animation-delay: 3.2s; }
+  .nf-clock-orbit { animation: nf-clock-orbit 14s linear infinite; }
+  .nf-clock-ripple { animation: nf-clock-ripple 3.6s ease-out infinite; }
+  .nf-clock-ripple-2 { animation-delay: 1.2s; }
+  .nf-clock-ripple-3 { animation-delay: 2.4s; }
 }
-@keyframes nf-flow-move {
-  0%   { left: 0%;   opacity: 0; }
-  8%   { opacity: .85; }
-  50%  { opacity: .85; }
-  92%  { opacity: 0; }
-  100% { left: 100%; opacity: 0; }
+@keyframes nf-clock-orbit { to { transform: rotate(360deg); } }
+@keyframes nf-clock-ripple {
+  0%   { transform: scale(1);   opacity: .45; }
+  100% { transform: scale(1.32); opacity: 0; }
 }
-.nf-flow-track:hover .nf-flow-dot { filter: brightness(1.35); }
 
 /* ============================================================
    Organization Masters — presentational polish only.
@@ -1447,3 +1457,45 @@ input[type="date"] {
   background: color-mix(in srgb, var(--brand) 10%, var(--raised));
 }
 .nf-chip:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Dashboard tiles (components/DashTile.tsx) — the tile is a size container, so the number and icon
+   scale with the tile itself and never cross its outline at narrow widths or higher browser zoom. */
+.nf-dash-tile { container-type: inline-size; overflow: hidden; transition: transform .15s, box-shadow .15s; }
+.nf-dash-tile:hover { transform: translateY(-2px); }
+.nf-dash-value { font-size: clamp(20px, 17cqw, 30px); }
+.nf-dash-icon { width: clamp(30px, 22cqw, 42px); height: clamp(30px, 22cqw, 42px); }
+.nf-dash-icon > svg { width: 50%; height: 50%; }
+@media (prefers-reduced-motion: reduce) { .nf-dash-tile:hover { transform: none; } }
+
+
+/* Dialog polish (Quick Actions pop-ups and the other request dialogs on the Attendance page). The cards
+   themselves are styled in AttendancePage's modalStyle / ModalHeader; this covers what inline styles
+   can't reach — focus rings, the action buttons and the close button's hover. */
+.nf-modal-close:hover { background: var(--raised) !important; color: var(--txt) !important; }
+.nf-modal input:focus, .nf-modal textarea:focus, .nf-modal select:focus {
+  outline: none !important; border-color: var(--brand) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent) !important;
+}
+.nf-modal textarea, .nf-modal select { border-radius: 10px !important; }
+.nf-modal label { letter-spacing: .07em; }
+.nf-modal-actions > button { border-radius: 10px !important; padding: 10px 20px !important; font-size: 13px !important; font-weight: 600 !important; transition: filter .15s; }
+.nf-modal-actions > button:last-child:not(:first-child) { background: var(--brand) !important; color: #fff !important; border: none !important; }
+.nf-modal-actions > button:first-child:not(:last-child) { background: var(--raised) !important; border: 1px solid var(--line2) !important; color: var(--txt-mut) !important; }
+.nf-modal-actions > button:not(:disabled):hover { filter: brightness(1.08); }
+
+/* Request-table row actions: a plain View button (+ compact Approve / Reject for pending rows an approver can decide). */
+.nf-row-view {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+  background: var(--raised); border: 1px solid var(--line2); color: var(--txt); font-size: 12px; font-weight: 600; white-space: nowrap;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.nf-row-view:hover { border-color: var(--brand); color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, var(--raised)); }
+.nf-row-view:focus-visible, .nf-row-icon:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.nf-row-icon {
+  display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+  background: var(--raised); border: 1px solid var(--line2); transition: background .15s, border-color .15s;
+}
+.nf-row-icon--approve { color: var(--ok); }
+.nf-row-icon--approve:hover { background: color-mix(in srgb, var(--ok) 14%, var(--raised)); border-color: var(--ok); }
+.nf-row-icon--reject { color: var(--risk); }
+.nf-row-icon--reject:hover { background: color-mix(in srgb, var(--risk) 14%, var(--raised)); border-color: var(--risk); }

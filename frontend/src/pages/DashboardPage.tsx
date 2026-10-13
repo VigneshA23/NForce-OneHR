@@ -10,6 +10,9 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts';
+import DashTile from '../components/DashTile';
+import { usePreviewMode } from '../lib/previewMode';
+import { previewMonthHistory, PREVIEW_CONFIG, PREVIEW_STATS, PREVIEW_BALANCES, previewRequests, previewHolidays } from './dashboard-ui-preview/dashboardPreviewData';
 import { useAuthStore } from '../store/authStore';
 import { dashboardApi, type TeamJoiner, type ManagerDashboard } from '../api/dashboard';
 import { usersApi, type EmployeeRecord } from '../api/employees';
@@ -67,7 +70,7 @@ function monthFromOffset(offset: number): { year: number; month: number; from: s
 }
 
 function formatWorkedMinutes(mins: number | null): string {
-  if (mins == null) return '—';
+  if (mins == null) return '–';
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   if (h === 0) return `${m}m`;
@@ -149,9 +152,9 @@ function calCellTextColor(day: MonthDay): string {
 function calCellTooltip(day: MonthDay): string {
   const d = new Date(day.date + 'T12:00:00');
   const label = d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
-  if (day.isWeekend) return `${label} — Off day`;
-  if (day.isFuture)  return `${label} — Upcoming`;
-  if (day.status == null) return `${label} — No record`;
+  if (day.isWeekend) return `${label} · Off day`;
+  if (day.isFuture)  return `${label} · Upcoming`;
+  if (day.status == null) return `${label} · No record`;
   const statusLabel: Record<string, string> = {
     PRESENT:          'Present',
     // formatWorkedMinutes gives "1h 30m"/"1h"/"45m", consistent with the "worked" text below
@@ -162,7 +165,7 @@ function calCellTooltip(day: MonthDay): string {
     MISSING_CHECKOUT: 'Missing checkout',
   };
   const worked = day.workedMinutes != null ? ` · ${formatWorkedMinutes(day.workedMinutes)} worked` : '';
-  return `${label} — ${statusLabel[day.status] ?? day.status}${worked}`;
+  return `${label} · ${statusLabel[day.status] ?? day.status}${worked}`;
 }
 
 // ── Shared placeholder ───────────────────────────────────────────────────────────
@@ -209,7 +212,7 @@ function buildJoinerData(joiners: TeamJoiner[]): { month: string; joiners: numbe
   }));
 }
 
-function JoinersChart({ joiners, title = 'Team Joiners per Month', description = 'New team members joining per calendar month. Click for details.', modalTitle = 'Team Joiners — Last 12 Months', emptyMessage = 'No one joined your team in the last 12 months.' }: {
+function JoinersChart({ joiners, title = 'Team Joiners per Month', description = 'New team members joining per calendar month. Click for details.', modalTitle = 'Team Joiners · Last 12 Months', emptyMessage = 'No one joined your team in the last 12 months.' }: {
   joiners: TeamJoiner[];
   title?: string;
   description?: string;
@@ -259,7 +262,7 @@ function JoinersChart({ joiners, title = 'Team Joiners per Month', description =
   );
 }
 
-function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Last 12 Months', emptyMessage = 'No one joined your team in the last 12 months.' }: {
+function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners · Last 12 Months', emptyMessage = 'No one joined your team in the last 12 months.' }: {
   joiners: TeamJoiner[];
   onClose: () => void;
   modalTitle?: string;
@@ -336,7 +339,7 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners — Las
                   {!j.active && <StatusBadge active={j.active} />}
                 </div>
                 <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>
-                  {j.designationName ?? '—'}{j.departmentName ? ` · ${j.departmentName}` : ''}
+                  {j.designationName ?? '–'}{j.departmentName ? ` · ${j.departmentName}` : ''}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{j.employeeCode}</div>
                 <div style={{ fontSize: 11.5, color: 'var(--brand)', marginTop: 6 }}>
@@ -408,9 +411,9 @@ function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
               <EmployeeCard userId={r.employeeUserId} name={r.fullName} code={r.employeeCode} />
               <div style={{ textAlign: 'right' }}>
                 {/* sessionStartedAt is the latest check-in of the day; checkInAt is fixed to the
-                    day's first one and never updated on a same-day checkout+checkin resume — see
+                    day's first one and never updated on a same-day checkout+checkin resume · see
                     AttendanceService.checkIn. Same fallback as AttendanceHeroBanner/AttendancePage. */}
-                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.sessionStartedAt ?? r.checkInAt) ?? '—'}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.sessionStartedAt ?? r.checkInAt) ?? '–'}</div>
                 {r.status === 'LATE' && (
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--risk)', marginTop: 2 }}>
                     Late{r.lateByMinutes ? ` by ${formatWorkedMinutes(r.lateByMinutes)}` : ''}
@@ -529,7 +532,7 @@ function useTeamAttendanceToday(token: string, scope: DashboardScope) {
 }
 
 function formatRole(code: string | null | undefined): string {
-  if (!code) return '—';
+  if (!code) return '–';
   return code.split('_').map(w => w[0] + w.slice(1).toLowerCase()).join(' ');
 }
 
@@ -611,64 +614,30 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
 
       <QuickActions actions={isHr ? HR_ADMIN_QUICK_ACTIONS : MANAGER_QUICK_ACTIONS} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Users size={14} style={{ color: 'var(--brand)' }} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-              {isHr ? 'Total Employees' : 'Direct Reports'}
-            </span>
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
-            {loading ? '—' : error ? '—' : (data?.directReportCount ?? 0)}
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
-            {isHr ? 'across the organization' : 'current reports from HR record'}
-          </div>
-        </div>
-
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <UserCheck size={14} style={{ color: 'var(--ok)' }} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Active</span>
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
-            {loading ? '—' : error ? '—' : (data?.directReports.filter(r => r.active).length ?? 0)}
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
-            {isHr ? 'active org-wide' : 'active in team'}
-          </div>
-        </div>
-
-        <button
+      <div className="nf-dash-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
+        <DashTile
+          icon={<Users size={16} />} accent="#4E9EE8"
+          label={isHr ? 'Total Employees' : 'Direct Reports'}
+          value={String(loading ? '–' : error ? '–' : (data?.directReportCount ?? 0))}
+          sub={isHr ? 'across the organization' : 'current reports from HR record'}
+        />
+        <DashTile
+          icon={<UserCheck size={16} />} accent="#2FB67C" label="Active"
+          value={String(loading ? '–' : error ? '–' : (data?.directReports.filter(r => r.active).length ?? 0))}
+          sub={isHr ? 'active org-wide' : 'active in team'}
+        />
+        <DashTile
+          icon={<Clock size={16} />} accent="var(--brand)" label="Present Today"
+          value={teamLoading ? '–' : `${presentCount}/${teamToday.length}`}
+          sub="checked in so far today · view list →"
           onClick={() => setShowPresentModal(true)}
-          style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Clock size={14} style={{ color: 'var(--brand)' }} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Present Today</span>
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
-            {teamLoading ? '—' : `${presentCount}/${teamToday.length}`}
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>checked in so far today · view list →</div>
-        </button>
-
-        <button
+        />
+        <DashTile
+          icon={<Calendar size={16} />} accent="#8B5CF6" label="On Leave"
+          value={String(onLeaveLoading ? '–' : onLeaveCount)}
+          sub="on leave today · view list →"
           onClick={() => setShowLeaveModal(true)}
-          style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Calendar size={14} style={{ color: 'var(--brand)' }} />
-            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>On Leave</span>
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>
-            {onLeaveLoading ? '—' : onLeaveCount}
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
-            on leave today · view list →
-          </div>
-        </button>
+        />
       </div>
 
       <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -721,7 +690,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
                         <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 1, overflowWrap: 'break-word' }}>{r.fullName}</div>
                         <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</div>
                       </td>
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'break-word' }}>{r.designationName ?? '—'}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'break-word' }}>{r.designationName ?? '–'}</td>
                       {isHr && (
                         <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'break-word' }}>{formatRole(r.roleCode)}</td>
                       )}
@@ -749,7 +718,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
           description={isHr
             ? 'New employees joining the organization per calendar month. Click for details.'
             : 'New team members joining per calendar month. Click for details.'}
-          modalTitle={isHr ? 'Organization Joiners — Last 12 Months' : 'Team Joiners — Last 12 Months'}
+          modalTitle={isHr ? 'Organization Joiners · Last 12 Months' : 'Team Joiners · Last 12 Months'}
           emptyMessage={isHr ? 'No one joined the organization in the last 12 months.' : 'No one joined your team in the last 12 months.'}
         />
       </div>
@@ -832,64 +801,41 @@ interface QuickActionItem {
   color: string;
 }
 
-function QuickActions({ actions }: { actions: QuickActionItem[] }) {
+export function QuickActions({ actions }: { actions: QuickActionItem[] }) {
   const navigate = useNavigate();
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+    <div className="nf-dash-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
       {actions.map(({ icon: Icon, label, sub, path, color }) => (
-        <button
-          key={label}
-          onClick={() => navigate(path)}
-          style={{
-            background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10,
-            padding: '16px 18px', cursor: 'pointer', textAlign: 'left',
-            display: 'flex', flexDirection: 'column', gap: 8, transition: 'border-color 0.15s',
-          }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = color; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--line)'; }}
-        >
-          <div style={{
-            width: 34, height: 34, borderRadius: 8,
-            background: `color-mix(in srgb, ${color} 12%, var(--raised2))`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color,
-          }}>
-            <Icon size={16} />
-          </div>
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 2 }}>{label}</div>
-            <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{sub}</div>
-          </div>
-        </button>
+        <DashTile key={label} icon={<Icon size={16} />} label={label} sub={sub} accent={color} onClick={() => navigate(path)} />
       ))}
     </div>
   );
 }
 
-const EMPLOYEE_QUICK_ACTIONS: QuickActionItem[] = [
+export const EMPLOYEE_QUICK_ACTIONS: QuickActionItem[] = [
   { icon: Calendar,   label: 'Apply Leave',     sub: 'Request time off',        path: '/leave',     color: '#4E9EE8' },
   { icon: HelpCircle, label: 'Raise a Ticket',  sub: 'Report an issue or query', path: '/help',     color: '#8B5CF6' },
   { icon: Zap,        label: 'Submit Expense',   sub: 'Log reimbursement claim', path: '/assets',   color: '#E0A93B' },
   { icon: FileText,   label: 'My Requests',      sub: 'Track your submissions',  path: '/requests', color: '#2FB67C' },
 ];
 
-const MANAGER_QUICK_ACTIONS: QuickActionItem[] = [
+export const MANAGER_QUICK_ACTIONS: QuickActionItem[] = [
   { icon: CheckSquare, label: 'Approval Center',      sub: 'Process pending requests',  path: '/approvals',  color: '#2FB67C' },
   { icon: Users,       label: 'My Team',              sub: 'View your direct reports',  path: '/my-team',    color: '#4E9EE8' },
   { icon: Clock,       label: 'Team Attendance',      sub: 'Monitor team check-ins',    path: '/attendance', color: '#E0A93B' },
   { icon: Calendar,    label: 'Team Leave',           sub: 'Leave & holidays overview', path: '/leave',      color: '#8B5CF6' },
 ];
 
-const HR_ADMIN_QUICK_ACTIONS: QuickActionItem[] = [
+export const HR_ADMIN_QUICK_ACTIONS: QuickActionItem[] = [
   { icon: Users,      label: 'Employee Master',         sub: 'View & edit employee records', path: '/employees',  color: '#4E9EE8' },
   { icon: CheckSquare,label: 'Approval Center',         sub: 'Process pending requests',     path: '/approvals',  color: '#2FB67C' },
   { icon: FileCheck,  label: 'Documents & Compliance',  sub: 'Manage org documents',         path: '/documents',  color: '#E0A93B' },
   { icon: Megaphone,  label: 'Policies',                sub: 'Announcements & policies',     path: '/policies',   color: '#8B5CF6' },
 ];
 
-const SUPER_ADMIN_QUICK_ACTIONS: QuickActionItem[] = [
-  { icon: Shield,      label: 'User Management',      sub: 'All users, roles & lifecycle', path: '/access',    color: '#E4373D' },
+export const SUPER_ADMIN_QUICK_ACTIONS: QuickActionItem[] = [
+  { icon: Shield,      label: 'User Management',      sub: 'All users, roles & lifecycle', path: '/access',    color: 'var(--brand)' },
   { icon: Layers,      label: 'Org Masters',          sub: 'Departments, locations, shifts', path: '/masters', color: '#8B5CF6' },
   { icon: ShieldCheck, label: 'Audit & Security',     sub: 'System-wide security events',  path: '/audit',     color: '#E0A93B' },
   { icon: CheckSquare, label: 'Approval Center',      sub: 'Company-wide pending queue',   path: '/approvals', color: '#2FB67C' },
@@ -908,7 +854,7 @@ function usableRemaining(balances: LeaveBalance[]): number {
     .reduce((sum, b) => sum + Math.max(0, Number(b.remainingDays)), 0));
 }
 
-function EmployeeStatTiles({
+export function EmployeeStatTiles({
   stats, balances, statsLoading,
 }: {
   stats: AttendanceStats | null;
@@ -924,57 +870,41 @@ function EmployeeStatTiles({
     {
       icon: <CalendarCheck size={16} />,
       label: 'Present this month',
-      value: statsLoading ? '—' : String(stats?.me.presentDays ?? 0),
+      value: statsLoading ? '–' : String(stats?.me.presentDays ?? 0),
       sub: 'working days checked in',
       accent: '#2FB67C',
     },
     {
       icon: <Clock size={16} />,
       label: 'Avg hours per day',
-      value: statsLoading ? '—' : stats?.me.avgHoursPerDay != null
+      value: statsLoading ? '–' : stats?.me.avgHoursPerDay != null
         ? formatWorkedMinutes(Math.round(stats.me.avgHoursPerDay * 60))
-        : '—',
+        : '–',
       sub: 'on days you were present',
       accent: '#4E9EE8',
     },
     {
       icon: <BarChart2 size={16} />,
       label: 'On-time arrival',
-      value: statsLoading ? '—' : stats?.me.onTimeArrivalPercent != null
+      value: statsLoading ? '–' : stats?.me.onTimeArrivalPercent != null
         ? `${Math.round(stats.me.onTimeArrivalPercent)}%`
-        : '—',
+        : '–',
       sub: 'of present days',
       accent: '#E0A93B',
     },
     {
       icon: <Calendar size={16} />,
       label: 'Leave remaining',
-      value: balances.length === 0 && !statsLoading ? '—' : String(totalLeaveRemaining),
+      value: balances.length === 0 && !statsLoading ? '–' : String(totalLeaveRemaining),
       sub: 'days across all leave types',
-      accent: '#B11116',
+      accent: 'var(--brand)',
     },
   ];
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+    <div className="nf-dash-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
       {tiles.map(({ icon, label, value, sub, accent }) => (
-        <div key={label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px' }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 8, marginBottom: 12,
-            background: `color-mix(in srgb, ${accent} 12%, var(--raised2))`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent,
-          }}>
-            {icon}
-          </div>
-          <div style={{
-            fontSize: 28, fontWeight: 700, color: accent, lineHeight: 1, marginBottom: 6,
-            fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums',
-          }}>
-            {value}
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 500, marginBottom: 2 }}>{label}</div>
-          <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{sub}</div>
-        </div>
+        <DashTile key={label} icon={icon} label={label} value={value} sub={sub} accent={accent} />
       ))}
     </div>
   );
@@ -987,6 +917,7 @@ const CAL_CELL_PX = 58;
 const CAL_GAP = 6;
 
 function AttendanceCalendar({ token, config }: { token: string; config: AttendanceConfig | null }) {
+  const isPreview = usePreviewMode();
   const [monthOffset, setMonthOffset] = useState(0);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setCalLoading] = useState(true);
@@ -1001,12 +932,13 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
   }, [monthOffset]);
 
   useEffect(() => {
+    if (isPreview) { setRecords(previewMonthHistory(from, to)); setCalLoading(false); return; }
     setCalLoading(true);
     attendanceApi.myHistory(from, to, token)
       .then(setRecords)
       .catch(() => setRecords([]))
       .finally(() => setCalLoading(false));
-  }, [from, to, token]);
+  }, [from, to, token, isPreview]);
 
   const weeklyOffDays = config?.weeklyOffDays ?? ['SATURDAY', 'SUNDAY'];
   const days = useMemo(
@@ -1489,8 +1421,9 @@ function UpcomingHolidays({ holidays }: { holidays: HolidayRow[] }) {
 
 // ── Employee Dashboard View ──────────────────────────────────────────────────────
 
-function EmployeeDashboardView() {
+export function EmployeeDashboardView() {
   const token  = useAuthStore(s => s.token) ?? '';
+  const isPreview = usePreviewMode();
   const user   = useAuthStore(s => s.user);
 
   const firstName = user?.fullName ?? user?.email?.split('@')[0] ?? 'there';
@@ -1532,18 +1465,25 @@ function EmployeeDashboardView() {
   }, [token]);
 
   useEffect(() => {
+    if (isPreview) {
+      // /dashboard-ui-preview only: canned data, no API calls.
+      setStats(PREVIEW_STATS); setBalances(PREVIEW_BALANCES); setStatsLoading(false);
+      setRequests(previewRequests()); setHolidays(previewHolidays()); setConfig(PREVIEW_CONFIG);
+      return;
+    }
     loadEmployeeStats();
     myRequestsApi.list(token).then(setRequests).catch(() => {});
     holidaysApi.listForMyLocation(token).then(setHolidays).catch(() => {});
     attendanceApi.config(token).then(setConfig).catch(() => {});
-  }, [token, loadEmployeeStats]);
+  }, [token, loadEmployeeStats, isPreview]);
 
   // Background refresh only — no loading state is toggled on these ticks (silent: true), so
   // the stat tiles update quietly instead of flashing back to "—" every 60s.
   useEffect(() => {
+    if (isPreview) return;
     const id = setInterval(() => loadEmployeeStats({ silent: true }), 60000);
     return () => clearInterval(id);
-  }, [loadEmployeeStats]);
+  }, [loadEmployeeStats, isPreview]);
 
   const today = new Date();
   const dateLabel = today.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -1810,7 +1750,7 @@ function SuperAdminDashboardView() {
     {
       icon: <Users size={16} />,
       label: 'Total Users',
-      value: usersLoading ? '—' : String(allUsers.length),
+      value: usersLoading ? '–' : String(allUsers.length),
       sub: usersLoading ? '' : `${activeUsers} active · ${inactiveUsers} inactive · view directory →`,
       accent: '#4E9EE8',
       onClick: () => navigate('/directory'),
@@ -1818,7 +1758,7 @@ function SuperAdminDashboardView() {
     {
       icon: <UserCheck size={16} />,
       label: 'Present Today',
-      value: attendanceLoading ? '—' : `${presentCount}/${todayRecords.length}`,
+      value: attendanceLoading ? '–' : `${presentCount}/${todayRecords.length}`,
       sub: 'org-wide check-ins · view list →',
       accent: '#2FB67C',
       onClick: () => setShowPresentModal(true),
@@ -1826,7 +1766,7 @@ function SuperAdminDashboardView() {
     {
       icon: <Package size={16} />,
       label: 'Total Assets',
-      value: assetsLoading ? '—' : totalAssets === null ? '—' : String(totalAssets),
+      value: assetsLoading ? '–' : totalAssets === null ? '–' : String(totalAssets),
       sub: 'company-wide inventory · view inventory →',
       accent: '#F97316',
       onClick: () => navigate('/assets'),
@@ -1834,9 +1774,9 @@ function SuperAdminDashboardView() {
     {
       icon: <ShieldCheck size={16} />,
       label: 'Audit Events Today',
-      value: auditStatsLoading ? '—' : auditStats ? String(auditStats.todayCount) : '—',
+      value: auditStatsLoading ? '–' : auditStats ? String(auditStats.todayCount) : '–',
       sub: 'security events logged · view log →',
-      accent: '#B11116',
+      accent: 'var(--brand)',
       onClick: () => {
         const today = todayIsoDate();
         navigate(`/audit?from=${today}&to=${today}`);
@@ -1875,29 +1815,9 @@ function SuperAdminDashboardView() {
       <QuickActions actions={SUPER_ADMIN_QUICK_ACTIONS} />
 
       {/* Row 2 — Stat tiles, each clickable through to its detail view */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+      <div className="nf-dash-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
         {statTiles.map(({ icon, label, value, sub, accent, onClick }) => (
-          <button
-            key={label}
-            onClick={onClick}
-            style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', textAlign: 'left', cursor: 'pointer', font: 'inherit', width: '100%' }}
-          >
-            <div style={{
-              width: 34, height: 34, borderRadius: 8, marginBottom: 12,
-              background: `color-mix(in srgb, ${accent} 12%, var(--raised2))`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', color: accent,
-            }}>
-              {icon}
-            </div>
-            <div style={{
-              fontSize: 28, fontWeight: 700, color: accent, lineHeight: 1, marginBottom: 6,
-              fontFamily: 'Inter, sans-serif', fontVariantNumeric: 'tabular-nums',
-            }}>
-              {value}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 500, marginBottom: 2 }}>{label}</div>
-            <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{sub}</div>
-          </button>
+          <DashTile key={label} icon={icon} label={label} value={value} sub={sub} accent={accent} onClick={onClick} />
         ))}
       </div>
 
@@ -1978,7 +1898,7 @@ function SuperAdminDashboardView() {
         <div style={cardStyle}>
           {cardTitle('Account Health')}
           {/* Each row is fed by its own independent fetch (see loadSuperAdminData), so it shows
-              its own '—' placeholder only while ITS source is still loading, instead of the
+              its own '–' placeholder only while ITS source is still loading, instead of the
               whole card waiting on the slowest of four unrelated calls. */}
           <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between', gap: 16 }}>
               <div>
@@ -1986,14 +1906,14 @@ function SuperAdminDashboardView() {
                 {[
                   {
                     label: 'Docs Pending Verification',
-                    value: docKpisLoading ? '—' : docKpis?.pendingVerification ?? '—',
+                    value: docKpisLoading ? '–' : docKpis?.pendingVerification ?? '–',
                     sub: docKpisLoading ? 'loading…' : docKpis ? `${docKpis.employeesWithPending} employees affected` : 'unavailable',
                     color: '#E0A93B',
                     onClick: () => navigate('/documents'),
                   },
                   {
                     label: 'Employees Without Manager',
-                    value: usersLoading ? '—' : noManagerCount,
+                    value: usersLoading ? '–' : noManagerCount,
                     sub: usersLoading ? 'loading…' : 'active employees with no reporting line',
                     color: '#F97316',
                     onClick: () => navigate('/directory'),
@@ -2032,28 +1952,28 @@ function SuperAdminDashboardView() {
                 {[
                   {
                     label: 'Joined This Month',
-                    value: usersLoading ? '—' : joinedThisMonth,
+                    value: usersLoading ? '–' : joinedThisMonth,
                     sub: usersLoading ? 'loading…' : 'new accounts by joining date',
                     color: '#2FB67C',
                     onClick: () => navigate('/directory'),
                   },
                   {
                     label: 'Inactive Accounts',
-                    value: usersLoading ? '—' : inactiveUsers,
+                    value: usersLoading ? '–' : inactiveUsers,
                     sub: usersLoading ? 'loading…' : 'deactivated in system',
                     color: '#6B7280',
                     onClick: () => navigate('/access'),
                   },
                   {
                     label: 'Role Changes This Month',
-                    value: roleChangesLoading ? '—' : roleChangesMonth ?? '—',
+                    value: roleChangesLoading ? '–' : roleChangesMonth ?? '–',
                     sub: roleChangesLoading ? 'loading…' : 'users with role updated',
                     color: '#8B5CF6',
                     onClick: () => navigate('/audit'),
                   },
                   {
                     label: 'Password Resets This Month',
-                    value: passwordResetsLoading ? '—' : passwordResetsMonth ?? '—',
+                    value: passwordResetsLoading ? '–' : passwordResetsMonth ?? '–',
                     sub: passwordResetsLoading ? 'loading…' : 'admin-initiated resets',
                     color: '#B11116',
                     onClick: () => navigate('/audit'),

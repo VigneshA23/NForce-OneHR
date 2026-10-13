@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles, Award, BookOpen, Target, ExternalLink } from 'lucide-react';
+import { ChevronDown, ChevronUp, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles, Award, BookOpen, Target, ExternalLink } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
@@ -38,6 +38,12 @@ import { teamGrowthApi, type TeamGrowthSummary } from '../api/teamGrowth';
 import { DetailModalShell } from '../components/TeamGrowthModal';
 import { ChipGroup, TabBar } from '../components/TabBar';
 import type { CertificateEntry, LearningEntry } from '../api/profile';
+import {
+  MyTeamHero, TeamStatusCard, AttendanceSummaryCard, QuickActionsCard, TeamCalendarPanel,
+  MemberGridSection, MemberGrid, MemberCard, Pill, prettyEmploymentType,
+  buildDayContext, summarizeMonth, buildQuickActions,
+  type MemberRow, type TeamMetrics, type AvatarRenderer,
+} from './my-team/MyTeamRedesign';
 
 /* ── Date helpers (local to this page, matching the codebase's per-page convention) ── */
 function todayIsoDate(): string {
@@ -104,7 +110,6 @@ function fmtDateShort(iso?: string | null) {
 function fmtEffectiveDate(iso: string) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
-const WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 const WEEK_CHIPS = ['M', 'T', 'W', 'T', 'F'];
 // Team calendar rows per page — a full month's daily indicators makes each row wide, so a large
 // team (30+ direct reports) otherwise turns the calendar into an unbroken multi-screen scroll.
@@ -136,23 +141,6 @@ function Avatar({ userId, name, size = 34 }: { userId?: string | null; name: str
 
 type RosterStatus = 'IN' | 'OUT' | 'NOT_IN_YET' | 'LEAVE';
 const STATUS_LABEL: Record<RosterStatus, string> = { IN: 'In', OUT: 'Out', NOT_IN_YET: 'Not in yet', LEAVE: 'Leave' };
-const STATUS_STYLE: Record<RosterStatus, { bg: string; fg: string }> = {
-  IN: { bg: 'rgba(47,182,124,.15)', fg: 'var(--ok)' },
-  OUT: { bg: 'rgba(228,55,61,.15)', fg: 'var(--risk)' },
-  NOT_IN_YET: { bg: 'rgba(76,141,214,.16)', fg: 'var(--info)' },
-  LEAVE: { bg: 'rgba(99,102,241,.18)', fg: '#818CF8' },
-};
-
-function StatusPill({ status }: { status: RosterStatus }) {
-  const s = STATUS_STYLE[status];
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, padding: '4px 9px 4px 7px', borderRadius: 20, background: s.bg, color: s.fg, whiteSpace: 'nowrap' }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.fg, flexShrink: 0 }} />
-      {STATUS_LABEL[status]}
-    </span>
-  );
-}
-
 interface RosterRow {
   dr: DirectReport;
   record: AttendanceRecord | undefined;
@@ -2061,6 +2049,8 @@ function PeersView({ token }: { token: string }) {
   // Business-zone date (not the UTC-derived todayIsoDate) — the backend roster is keyed on the
   // org business day, and a UTC date is still "yesterday" before 05:30 IST.
   const today = businessTodayIsoDate();
+  const user = useAuthStore(s => s.user);
+  const role = toShellRole(user?.role);
 
   const [peers, setPeers] = useState<DirectoryEntry[]>([]);
   const [todayRecords, setTodayRecords] = useState<AttendanceRecord[]>([]);
@@ -2153,38 +2143,35 @@ function PeersView({ token }: { token: string }) {
       || (r.peer.designationName ?? '').toLowerCase().includes(q);
   });
 
-  const year = viewDate.getFullYear(), month = viewDate.getMonth();
-  const totalDays = daysInMonth(year, month);
-  const holidaySet = useMemo(() => new Set(holidays.map(h => h.holidayDate)), [holidays]);
-  const monthAttByKey = useMemo(() => {
-    const m = new Map<string, AttendanceRecord>();
-    monthAttendance.forEach(r => m.set(`${r.employeeUserId}:${r.workDate}`, r));
-    return m;
-  }, [monthAttendance]);
-  const monthWfhKeys = useMemo(() => wfhDayKeysFrom(monthWfh), [monthWfh]);
-
-  function classifyDay(iso: string, dow: number, employeeUserId: string): DayCategory {
-    if (holidaySet.has(iso)) return 'holiday';
-    if (dow === 0 || dow === 6) return 'weekly-off';
-    const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
-    if (onLeave) return 'leave';
-    if (monthWfhKeys.has(`${employeeUserId}:${iso}`)) return 'wfh';
-    const record = monthAttByKey.get(`${employeeUserId}:${iso}`);
-    if (record) return 'plain';
-    if (iso >= today) return 'plain';
-    return 'missing';
-  }
-
   const OVERFLOW_LIMIT = 6;
 
-  // Team calendar pagination — see the manager-facing view's own comment on TEAM_CALENDAR_PAGE_SIZE.
-  const calendarTotalPages = Math.max(1, Math.ceil(peers.length / TEAM_CALENDAR_PAGE_SIZE));
-  const calendarPageSafe = Math.min(calendarPage, calendarTotalPages - 1);
-  const pagedPeers = peers.slice(
-    calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE, calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + TEAM_CALENDAR_PAGE_SIZE);
+  // ── Redesigned presentation (UI only) — derived from the same state/data as above ──
+  const members: MemberRow[] = useMemo(() => peerRows.map(r => ({
+    userId: r.peer.userId, fullName: r.peer.fullName, designation: r.peer.designationName,
+    department: r.peer.departmentName, active: r.peer.active, status: r.status,
+  })), [peerRows]);
+  const teamMetrics: TeamMetrics = useMemo(() => ({
+    total: peerRows.length,
+    checkedIn: peerRows.filter(r => r.status === 'IN' || r.status === 'OUT').length,
+    onLeave: onLeaveList.length,
+    notIn: notInYet.length,
+    loading,
+  }), [peerRows, onLeaveList, notInYet, loading]);
+  const monthWfhKeys = useMemo(() => wfhDayKeysFrom(monthWfh), [monthWfh]);
+  const dayCtx = useMemo(() => buildDayContext({
+    today, holidays, leaves: monthLeave, wfhKeys: monthWfhKeys, attendance: monthAttendance,
+  }), [today, holidays, monthLeave, monthWfhKeys, monthAttendance]);
+  const monthSummary = useMemo(() => summarizeMonth(members, viewDate, dayCtx), [members, viewDate, dayCtx]);
+  const quickActions = useMemo(() => buildQuickActions(role, { reportsTab: false }), [role]);
+  const renderAvatar: AvatarRenderer = (id, name, size) => <Avatar userId={id} name={name} size={size} />;
+
 
   return (
-    <div>
+    <div className="mt-root">
+      <MyTeamHero userName={user?.fullName} memberLabel="Project Team Members" metrics={teamMetrics}
+        subtitle="Here's a quick overview of your project team's attendance and activity today." />
+
+
       {/* Reporting manager — "Appreciate your lead" */}
       {manager && (
         <div style={{ ...panelStyle, marginBottom: 20, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -2195,6 +2182,84 @@ function PeersView({ token }: { token: string }) {
           </div>
           <AppreciateButton label="Appreciate your lead" onClick={() => setKudosTarget(manager)} />
         </div>
+      )}
+
+      <div className="mt-trio">
+        <TeamStatusCard metrics={teamMetrics} memberLabel="project team members" />
+        <AttendanceSummaryCard summary={monthSummary} loading={loading} monthLabel={viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} />
+        <QuickActionsCard actions={quickActions} />
+      </div>
+
+      <TeamCalendarPanel
+        subtitle="Attendance status for your project team" memberHeader="Teammate" members={members}
+        viewDate={viewDate} onMonthChange={setViewDate} ctx={dayCtx} renderAvatar={renderAvatar}
+        page={calendarPage} onPageChange={setCalendarPage} pageSize={TEAM_CALENDAR_PAGE_SIZE} />
+
+      <MemberGridSection
+        title={`Project Team (${filteredPeers.length})`}
+        subtitle="Avatar, designation, live status, location, department and email — find and reach a teammate without leaving this page."
+        search={search} onSearch={setSearch} searchPlaceholder="Search by name, designation, or department…"
+      >
+        <MemberGrid empty={
+          loading ? 'Loading…'
+            : peers.length === 0 ? "No project team members found — you don't currently share a manager with anyone else in the system."
+            : filteredPeers.length === 0 ? 'No one matches this filter.' : undefined
+        }>
+          {filteredPeers.map(row => {
+            const employment = prettyEmploymentType(row.peer.employmentType);
+            return (
+              <MemberCard
+                key={row.peer.userId}
+                avatar={<Avatar userId={row.peer.userId} name={row.peer.fullName} size={44} />}
+                name={row.peer.fullName} designation={row.peer.designationName} active={row.peer.active} status={row.status}
+                tags={<>
+                  {row.peer.departmentName && <Pill>{row.peer.departmentName}</Pill>}
+                  {employment && <Pill tone="ok">{employment}</Pill>}
+                  {row.status === 'LEAVE' && row.leaveTypeName && <Pill tone="leave">{row.leaveTypeName}</Pill>}
+                </>}
+                extras={<>
+                  {row.peer.locationName && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--txt-mut)' }}>
+                      <MapPin size={11} /> {row.peer.locationName}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--txt-mut)', overflow: 'hidden' }}>
+                    <Mail size={11} style={{ flexShrink: 0 }} />
+                    <a href={`mailto:${row.peer.email}`} style={{ color: 'var(--txt-mut)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.peer.email}</a>
+                  </div>
+                </>}
+                secondaryAction={row.peer.active && (
+                  <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.peer.userId, name: row.peer.fullName })} />
+                )}
+              />
+            );
+          })}
+        </MemberGrid>
+      </MemberGridSection>
+
+
+      {/* KPI row — fixed 4-column grid (not auto-fit) so 4 cards always fill one row evenly,
+       * instead of auto-fit computing more tracks than there are cards and leaving a gap.
+       * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
+       * row of fixed-width cards instead of squeezing all 4 into the narrow viewport. */}
+      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '…' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
+        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '…' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
+        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '…' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
+        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '…' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
+      </div>
+      {kpiModal && (
+        <KpiEmployeesModal
+          title={kpiModal === 'onTime' ? 'Employees On Time' : kpiModal === 'late' ? 'Late Arrivals' : kpiModal === 'wfh' ? 'WFH / On Duty' : 'Remote Clock-ins'}
+          description={
+            kpiModal === 'onTime' ? `${onTimeCount} employee${onTimeCount === 1 ? '' : 's'} arrived on schedule today`
+              : kpiModal === 'late' ? `${lateCount} employee${lateCount === 1 ? '' : 's'} arrived late today`
+              : kpiModal === 'wfh' ? `${wfhOnDutyCount} employee${wfhOnDutyCount === 1 ? '' : 's'} remote or hybrid today`
+              : `${remoteClockInCount} employee${remoteClockInCount === 1 ? '' : 's'} clocked in via Web Clock-In today`
+          }
+          people={kpiModal === 'onTime' ? onTimeEmployees : kpiModal === 'late' ? lateEmployees : kpiModal === 'wfh' ? wfhOnDutyEmployees : remoteClockInEmployees}
+          onClose={() => setKpiModal(null)}
+        />
       )}
 
       {/* Who's on leave / Not in yet */}
@@ -2277,173 +2342,6 @@ function PeersView({ token }: { token: string }) {
           onClose={() => setShowAllNotIn(false)}
         />
       )}
-
-      {/* KPI row — fixed 4-column grid (not auto-fit) so 4 cards always fill one row evenly,
-       * instead of auto-fit computing more tracks than there are cards and leaving a gap.
-       * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
-       * row of fixed-width cards instead of squeezing all 4 into the narrow viewport. */}
-      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
-        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
-        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
-        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
-      </div>
-      {kpiModal && (
-        <KpiEmployeesModal
-          title={kpiModal === 'onTime' ? 'Employees On Time' : kpiModal === 'late' ? 'Late Arrivals' : kpiModal === 'wfh' ? 'WFH / On Duty' : 'Remote Clock-ins'}
-          description={
-            kpiModal === 'onTime' ? `${onTimeCount} employee${onTimeCount === 1 ? '' : 's'} arrived on schedule today`
-              : kpiModal === 'late' ? `${lateCount} employee${lateCount === 1 ? '' : 's'} arrived late today`
-              : kpiModal === 'wfh' ? `${wfhOnDutyCount} employee${wfhOnDutyCount === 1 ? '' : 's'} remote or hybrid today`
-              : `${remoteClockInCount} employee${remoteClockInCount === 1 ? '' : 's'} clocked in via Web Clock-In today`
-          }
-          people={kpiModal === 'onTime' ? onTimeEmployees : kpiModal === 'late' ? lateEmployees : kpiModal === 'wfh' ? wfhOnDutyEmployees : remoteClockInEmployees}
-          onClose={() => setKpiModal(null)}
-        />
-      )}
-
-
-      {/* Team calendar */}
-      <div style={{ ...panelStyle, marginBottom: 16 }}>
-        <div style={panelHeadStyle}>
-          <span style={panelTitleStyle}>Team calendar</span>
-          <span style={panelCountStyle}>
-            {calendarTotalPages > 1
-              ? `${calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + 1}–${Math.min(peers.length, (calendarPageSafe + 1) * TEAM_CALENDAR_PAGE_SIZE)} of ${peers.length} · project team`
-              : `${peers.length} ${peers.length === 1 ? 'person' : 'people'} · project team`}
-          </span>
-        </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 8, padding: 4 }}>
-            <button onClick={() => setViewDate(new Date(year, month - 1, 1))} aria-label="Previous month" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6, display: 'flex' }}><ChevronLeft size={14} /></button>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', padding: '0 8px', whiteSpace: 'nowrap' }}>{viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
-            <button onClick={() => setViewDate(new Date(year, month + 1, 1))} aria-label="Next month" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6, display: 'flex' }}><ChevronRight size={14} /></button>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 10.5, color: 'var(--txt-mut)' }}>
-            {(['holiday', 'weekly-off', 'leave', 'wfh', 'missing'] as const).map(cat => (
-              <span key={cat} style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
-                <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0, background: DAY_COLORS[cat] }} />
-                {cat === 'holiday' ? 'Holiday' : cat === 'weekly-off' ? 'Weekly off' : cat === 'leave' ? 'On leave' : cat === 'wfh' ? 'WFH / On duty' : 'Missing attendance'}
-              </span>
-            ))}
-          </div>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ position: 'sticky', left: 0, zIndex: 2, textAlign: 'left', padding: '7px 18px', minWidth: 168, background: 'var(--raised)', fontSize: 9.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>Teammate</th>
-                {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
-                  const iso = toISODate(year, month, d);
-                  const isToday = iso === today;
-                  return (
-                    <th key={d} style={{ padding: '7px 3px', fontSize: 9.5, fontWeight: 700, color: isToday ? 'var(--brand-bright)' : 'var(--txt-dim)', textAlign: 'center', borderBottom: '1px solid var(--line)', background: 'var(--raised)', textTransform: 'uppercase' }}>
-                      {WEEKDAY_LABELS[new Date(year, month, d).getDay()]}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {pagedPeers.map(p => (
-                <tr key={p.userId} style={inactiveDimStyle(p.active)}>
-                  <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar userId={p.userId} name={p.fullName} size={24} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{p.fullName}</span>
-                      {!p.active && <StatusBadge active={false} />}
-                    </div>
-                  </td>
-                  {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
-                    const iso = toISODate(year, month, d);
-                    const dow = new Date(year, month, d).getDay();
-                    const category = classifyDay(iso, dow, p.userId);
-                    const isToday = iso === today;
-                    return (
-                      <td key={d} style={{ padding: 3, textAlign: 'center', borderBottom: '1px solid var(--line)' }}>
-                        <div style={{
-                          width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
-                          fontSize: 10, fontWeight: 600,
-                          background: (category === 'plain' || category === 'not-joined') ? 'transparent' : DAY_COLORS[category],
-                          color: (category === 'plain' || category === 'not-joined') ? 'var(--txt-dim)' : '#fff',
-                          boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
-                        }}>
-                          {d}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {calendarTotalPages > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid var(--line)' }}>
-            <button onClick={() => setCalendarPage(p => Math.max(0, p - 1))} disabled={calendarPageSafe === 0} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe === 0 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe === 0 ? 0.5 : 1 }}>← Prev</button>
-            <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Page {calendarPageSafe + 1} of {calendarTotalPages}</span>
-            <button onClick={() => setCalendarPage(p => Math.min(calendarTotalPages - 1, p + 1))} disabled={calendarPageSafe >= calendarTotalPages - 1} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe >= calendarTotalPages - 1 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe >= calendarTotalPages - 1 ? 0.5 : 1 }}>Next →</button>
-          </div>
-        )}
-      </div>
-
-      {/* Peer directory grid — same information density as DirectoryPage.tsx's detail drawer
-       * (avatar, designation, status, location, department, email), reshaped as cards per ONEHR-73. */}
-      <div style={panelStyle}>
-        <div style={panelHeadStyle}>
-          <div>
-            <span style={panelTitleStyle}>Project Team ({filteredPeers.length})</span>
-            <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 3 }}>Avatar, designation, live status, location, department and email — find and reach a teammate without leaving this page.</div>
-          </div>
-        </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ flex: 1, minWidth: 160, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
-            <Search size={13} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, designation, or department…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
-          </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10, padding: '14px 18px' }}>
-          {loading ? (
-            <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>Loading…</div>
-          ) : peers.length === 0 ? (
-            <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>
-              No project team members found — you don't currently share a manager with anyone else in the system.
-            </div>
-          ) : filteredPeers.length === 0 ? (
-            <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>No one matches this filter.</div>
-          ) : filteredPeers.map(row => (
-            <div key={row.peer.userId} style={{ ...inactiveDimStyle(row.peer.active), background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                <Avatar userId={row.peer.userId} name={row.peer.fullName} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>{row.peer.fullName}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.peer.designationName ?? '—'}</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                {row.peer.active ? <StatusPill status={row.status} /> : <StatusBadge active={false} />}
-                {row.peer.departmentName && (
-                  <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, background: 'rgba(76,141,214,.14)', color: 'var(--info)' }}>{row.peer.departmentName}</span>
-                )}
-              </div>
-              {row.peer.locationName && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--txt-mut)' }}>
-                  <MapPin size={11} /> {row.peer.locationName}
-                </div>
-              )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--txt-mut)', overflow: 'hidden' }}>
-                <Mail size={11} style={{ flexShrink: 0 }} />
-                <a href={`mailto:${row.peer.email}`} style={{ color: 'var(--txt-mut)', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.peer.email}</a>
-              </div>
-              {row.peer.active && (
-                <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                  <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.peer.userId, name: row.peer.fullName })} />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
 
       <KudosModal target={kudosTarget} token={token} onClose={() => setKudosTarget(null)} />
     </div>
@@ -3330,29 +3228,7 @@ export default function MyTeamPage() {
     setPendingItems(prev => prev.filter(i => i.id !== id));
   }
 
-  // ── Calendar data ──
-  const year = viewDate.getFullYear(), month = viewDate.getMonth();
-  const totalDays = daysInMonth(year, month);
-  const holidaySet = useMemo(() => new Set(holidays.map(h => h.holidayDate)), [holidays]);
-  const monthAttByKey = useMemo(() => {
-    const m = new Map<string, AttendanceRecord>();
-    monthAttendance.forEach(r => m.set(`${r.employeeUserId}:${r.workDate}`, r));
-    return m;
-  }, [monthAttendance]);
   const monthWfhKeys = useMemo(() => wfhDayKeysFrom(monthWfh), [monthWfh]);
-
-  function classifyDay(iso: string, dow: number, employeeUserId: string, joiningDate?: string | null): DayCategory {
-    if (joiningDate && iso < joiningDate) return 'not-joined';
-    if (holidaySet.has(iso)) return 'holiday';
-    if (dow === 0 || dow === 6) return 'weekly-off';
-    const onLeave = monthLeave.some(l => l.employeeUserId === employeeUserId && iso >= l.startDate && iso <= l.endDate);
-    if (onLeave) return 'leave';
-    if (monthWfhKeys.has(`${employeeUserId}:${iso}`)) return 'wfh';
-    const record = monthAttByKey.get(`${employeeUserId}:${iso}`);
-    if (record) return 'plain';
-    if (iso >= today) return 'plain';
-    return 'missing';
-  }
 
   // ── Out this week ──
   const weekDayDates = [0, 1, 2, 3, 4].map(i => addDays(weekStart, i));
@@ -3362,20 +3238,43 @@ export default function MyTeamPage() {
   // longer exists at all (e.g. the team shrank).
   const calendarTotalPages = Math.max(1, Math.ceil(directReports.length / TEAM_CALENDAR_PAGE_SIZE));
   const calendarPageSafe = Math.min(calendarPage, calendarTotalPages - 1);
-  const pagedDirectReports = directReports.slice(
-    calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE, calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + TEAM_CALENDAR_PAGE_SIZE);
+
+
+  // ── Redesigned presentation (UI only) — derived from the same state/data as above ──
+  const members: MemberRow[] = useMemo(() => rosterRows.map(r => ({
+    userId: r.dr.userId, fullName: r.dr.fullName, designation: r.dr.designationName, department: r.dr.departmentName,
+    active: r.dr.active, joiningDate: r.dr.joiningDate, status: r.status,
+  })), [rosterRows]);
+  const teamMetrics: TeamMetrics = useMemo(() => ({
+    total: rosterRows.length,
+    checkedIn: rosterRows.filter(r => r.status === 'IN' || r.status === 'OUT').length,
+    onLeave: rosterRows.filter(r => r.status === 'LEAVE').length,
+    notIn: notInYet.length,
+    loading,
+  }), [rosterRows, notInYet, loading]);
+  const dayCtx = useMemo(() => buildDayContext({
+    today, holidays, leaves: monthLeave, wfhKeys: monthWfhKeys, attendance: monthAttendance,
+  }), [today, holidays, monthLeave, monthWfhKeys, monthAttendance]);
+  const monthSummary = useMemo(() => summarizeMonth(members, viewDate, dayCtx), [members, viewDate, dayCtx]);
+  const quickActions = useMemo(() => buildQuickActions(role, {
+    reportsTab: allowedTabs.includes('reports'), onOpenReports: () => setTab('reports'),
+  }), [role, allowedTabs, setTab]);
+  const renderAvatar: AvatarRenderer = (id, name, size) => <Avatar userId={id} name={name} size={size} />;
+
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <div>
-          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>
-            {viewMode === 'direct'
-              ? "Attendance, leave, and open requests for your direct reports — one place, so you don't have to check four separate pages to know how your team is doing today."
-              : "Who's around today on your project team, plus a quick way to find and reach a teammate — without opening the full company directory."}
-          </p>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+        {/* The redesigned Overview / Project Team views carry their own "My Team" hero title;
+            the classic title only shows above the manager-tool tabs, which keep their old layout. */}
+        {viewMode === 'direct' && tab !== 'overview' ? (
+          <div>
+            <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
+            <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>
+              Attendance, leave, and open requests for your direct reports, in one place, so you don't have to check four separate pages to know how your team is doing today.
+            </p>
+          </div>
+        ) : <span />}
         {!isEmployee && directReportCount > 0 && (
           // A view toggle (whose team), not page navigation — so a chip group, not tabs.
           <ChipGroup
@@ -3412,7 +3311,172 @@ export default function MyTeamPage() {
         ] satisfies { key: MyTeamTab; label: string }[]).filter(t => allowedTabs.includes(t.key))}
       />
 
-      {tab === 'overview' && (<>
+      {tab === 'overview' && (
+      <div className="mt-root">
+        <MyTeamHero userName={user?.fullName} memberLabel="Total Team Members" metrics={teamMetrics}
+          subtitle="Here's a quick overview of your team's attendance and activity today." />
+        <div className="mt-trio">
+          <TeamStatusCard metrics={teamMetrics} memberLabel="team members" />
+          <AttendanceSummaryCard summary={monthSummary} loading={loading} monthLabel={viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} />
+          <QuickActionsCard actions={quickActions} />
+        </div>
+        <TeamCalendarPanel
+          subtitle="Attendance status for your team" memberHeader="Team Member" members={members}
+          viewDate={viewDate} onMonthChange={setViewDate} ctx={dayCtx} renderAvatar={renderAvatar}
+          page={calendarPageSafe} onPageChange={setCalendarPage} pageSize={TEAM_CALENDAR_PAGE_SIZE} />
+
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'flex-start' }}>
+        {/* Team members */}
+        <div ref={rosterRef} style={{ minWidth: 0 }}>
+          <MemberGridSection
+            title="Team Members" subtitle="Your direct reports and their details"
+            search={search} onSearch={setSearch} searchPlaceholder="Search by name or employee code…"
+            chips={(
+              <ChipGroup
+                ariaLabel="Roster status"
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={[
+                  { key: 'all', label: 'All' },
+                  { key: 'IN', label: 'In' },
+                  { key: 'OUT', label: 'Out' },
+                  { key: 'NOT_IN_YET', label: 'Not in yet' },
+                  { key: 'LEAVE', label: 'On leave' },
+                ]}
+              />
+            )}
+          >
+            <MemberGrid empty={loading ? 'Loading…' : filteredRoster.length === 0 ? 'No one matches this filter.' : undefined}>
+              {filteredRoster.map(row => {
+                const employment = prettyEmploymentType(directoryByEmployee.get(row.dr.userId)?.employmentType);
+                return (
+                  <MemberCard
+                    key={row.dr.userId}
+                    avatar={<Avatar userId={row.dr.userId} name={row.dr.fullName} size={44} />}
+                    name={row.dr.fullName} designation={row.dr.designationName} active={row.dr.active} status={row.status}
+                    tags={<>
+                      {row.dr.departmentName && <Pill>{row.dr.departmentName}</Pill>}
+                      {employment && <Pill tone="ok">{employment}</Pill>}
+                      {row.isLate && <Pill tone="warn">Late</Pill>}
+                      {row.status === 'LEAVE' && row.leaveTypeName && <Pill tone="leave">{row.leaveTypeName}</Pill>}
+                    </>}
+                    extras={<>
+                      <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, fontFamily: 'Inter, sans-serif', marginTop: -4 }}>{row.dr.employeeCode}</div>
+                      <LeaveBalanceLine balances={teamBalances === null ? null : balancesByEmployee.get(row.dr.userId) ?? []} />
+                      {row.requests.length > 0 && (
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                          {groupRequestsByType(row.requests).map(({ type, count }) => (
+                            <TypeBadge key={type} type={type} count={count} />
+                          ))}
+                        </div>
+                      )}
+                    </>}
+                    secondaryAction={row.dr.active && (
+                      <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.dr.userId, name: row.dr.fullName })} />
+                    )}
+                    onViewProfile={() => setViewing(row)}
+                  />
+                );
+              })}
+            </MemberGrid>
+          </MemberGridSection>
+        </div>
+
+        {/* Right column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={panelStyle}>
+            <div style={panelHeadStyle}>
+              <span style={panelTitleStyle}>Needs your attention</span>
+              <span style={panelCountStyle}>{attentionItems.length} pending</span>
+            </div>
+            {attentionItems.length === 0 ? (
+              <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Nothing pending right now.</div>
+            ) : (
+              attentionItems.map(item => (
+                <AttentionQueueItem key={`${item.requestType}:${item.id}`} item={item} token={token} onDone={removeAttentionItem} />
+              ))
+            )}
+          </div>
+
+          <div style={panelStyle}>
+            <div style={panelHeadStyle}>
+              <span style={panelTitleStyle}>Out this week</span>
+            </div>
+            <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {weekLeave.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your team is out this week.</div>
+              ) : weekLeave.map(l => {
+                const active = directReportsById.get(l.employeeUserId)?.active ?? true;
+                return (
+                <div key={l.id} style={{ ...inactiveDimStyle(active), display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.employeeName}</div>
+                      {!active && <StatusBadge active={false} />}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{l.leaveTypeName}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                    {weekDayDates.map((d, i) => {
+                      const on = toISO(d) >= l.startDate && toISO(d) <= l.endDate;
+                      return (
+                        <div key={i} style={{ width: 18, height: 18, borderRadius: 4, display: 'grid', placeItems: 'center', fontSize: 8.5, fontWeight: 700, background: on ? DAY_COLORS.leave : 'var(--raised2)', color: on ? '#fff' : 'var(--txt-dim)' }}>
+                          {WEEK_CHIPS[i]}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* KPI row — fixed 6-column grid (not auto-fit) so all 6 cards always fill one row evenly;
+       * auto-fit was computing 5 tracks (fit for the viewport), so the 6th card wrapped alone
+       * onto its own row and left the rest of that row empty.
+       * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
+       * row of fixed-width cards instead of squeezing all 6 into the narrow viewport. */}
+      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
+        <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={loading ? '…' : directReports.length} note="direct reports" onClick={directReports.length > 0 ? () => setKpiModal('teamSize') : undefined} />
+        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '…' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
+        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '…' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
+        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '…' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
+        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '…' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
+        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '…' : attentionItems.length} note="pending leave, regularization, asset & expense requests" onClick={attentionItems.length > 0 ? () => setKpiModal('attention') : undefined} />
+      </div>
+      {kpiModal && (
+        <KpiEmployeesModal
+          title={
+            kpiModal === 'teamSize' ? 'Team Size'
+              : kpiModal === 'onTime' ? 'Employees On Time'
+              : kpiModal === 'late' ? 'Late Arrivals'
+              : kpiModal === 'wfh' ? 'WFH / On Duty'
+              : kpiModal === 'remote' ? 'Remote Clock-ins'
+              : 'Needs Your Attention'
+          }
+          description={
+            kpiModal === 'teamSize' ? `${directReports.length} direct report${directReports.length === 1 ? '' : 's'}`
+              : kpiModal === 'onTime' ? `${onTimeCount} employee${onTimeCount === 1 ? '' : 's'} arrived on schedule today`
+              : kpiModal === 'late' ? `${lateCount} employee${lateCount === 1 ? '' : 's'} arrived late today`
+              : kpiModal === 'wfh' ? `${wfhOnDutyCount} employee${wfhOnDutyCount === 1 ? '' : 's'} remote or hybrid today`
+              : kpiModal === 'remote' ? `${remoteClockInCount} employee${remoteClockInCount === 1 ? '' : 's'} clocked in via Web Clock-In today`
+              : `${attentionItems.length} pending request${attentionItems.length === 1 ? '' : 's'}`
+          }
+          people={
+            kpiModal === 'teamSize' ? teamSizeEmployees
+              : kpiModal === 'onTime' ? onTimeEmployees
+              : kpiModal === 'late' ? lateEmployees
+              : kpiModal === 'wfh' ? wfhOnDutyEmployees
+              : kpiModal === 'remote' ? remoteClockInEmployees
+              : attentionEmployees
+          }
+          onClose={() => setKpiModal(null)}
+        />
+      )}
+
       {/* Who's on leave / Not in yet */}
       <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div style={panelStyle}>
@@ -3473,256 +3537,6 @@ export default function MyTeamPage() {
         </div>
       </div>
 
-      {/* KPI row — fixed 6-column grid (not auto-fit) so all 6 cards always fill one row evenly;
-       * auto-fit was computing 5 tracks (fit for the viewport), so the 6th card wrapped alone
-       * onto its own row and left the rest of that row empty.
-       * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
-       * row of fixed-width cards instead of squeezing all 6 into the narrow viewport. */}
-      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={loading ? '—' : directReports.length} note="direct reports" onClick={directReports.length > 0 ? () => setKpiModal('teamSize') : undefined} />
-        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
-        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
-        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
-        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
-        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '—' : attentionItems.length} note="pending leave, regularization, asset & expense requests" onClick={attentionItems.length > 0 ? () => setKpiModal('attention') : undefined} />
-      </div>
-      {kpiModal && (
-        <KpiEmployeesModal
-          title={
-            kpiModal === 'teamSize' ? 'Team Size'
-              : kpiModal === 'onTime' ? 'Employees On Time'
-              : kpiModal === 'late' ? 'Late Arrivals'
-              : kpiModal === 'wfh' ? 'WFH / On Duty'
-              : kpiModal === 'remote' ? 'Remote Clock-ins'
-              : 'Needs Your Attention'
-          }
-          description={
-            kpiModal === 'teamSize' ? `${directReports.length} direct report${directReports.length === 1 ? '' : 's'}`
-              : kpiModal === 'onTime' ? `${onTimeCount} employee${onTimeCount === 1 ? '' : 's'} arrived on schedule today`
-              : kpiModal === 'late' ? `${lateCount} employee${lateCount === 1 ? '' : 's'} arrived late today`
-              : kpiModal === 'wfh' ? `${wfhOnDutyCount} employee${wfhOnDutyCount === 1 ? '' : 's'} remote or hybrid today`
-              : kpiModal === 'remote' ? `${remoteClockInCount} employee${remoteClockInCount === 1 ? '' : 's'} clocked in via Web Clock-In today`
-              : `${attentionItems.length} pending request${attentionItems.length === 1 ? '' : 's'}`
-          }
-          people={
-            kpiModal === 'teamSize' ? teamSizeEmployees
-              : kpiModal === 'onTime' ? onTimeEmployees
-              : kpiModal === 'late' ? lateEmployees
-              : kpiModal === 'wfh' ? wfhOnDutyEmployees
-              : kpiModal === 'remote' ? remoteClockInEmployees
-              : attentionEmployees
-          }
-          onClose={() => setKpiModal(null)}
-        />
-      )}
-
-      {/* Team calendar */}
-      <div style={{ ...panelStyle, marginBottom: 16 }}>
-        <div style={panelHeadStyle}>
-          <span style={panelTitleStyle}>Team calendar</span>
-          <span style={panelCountStyle}>
-            {calendarTotalPages > 1
-              ? `${calendarPageSafe * TEAM_CALENDAR_PAGE_SIZE + 1}–${Math.min(directReports.length, (calendarPageSafe + 1) * TEAM_CALENDAR_PAGE_SIZE)} of ${directReports.length}`
-              : `${directReports.length} ${directReports.length === 1 ? 'person' : 'people'}`}
-          </span>
-        </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 8, padding: 4 }}>
-            <button onClick={() => setViewDate(new Date(year, month - 1, 1))} aria-label="Previous month" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6, display: 'flex' }}><ChevronLeft size={14} /></button>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', padding: '0 8px', whiteSpace: 'nowrap' }}>{viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
-            <button onClick={() => setViewDate(new Date(year, month + 1, 1))} aria-label="Next month" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6, display: 'flex' }}><ChevronRight size={14} /></button>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontSize: 10.5, color: 'var(--txt-mut)' }}>
-            {(['holiday', 'weekly-off', 'leave', 'wfh', 'missing'] as const).map(cat => (
-              <span key={cat} style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
-                <span style={{ width: 10, height: 10, borderRadius: 3, flexShrink: 0, background: DAY_COLORS[cat] }} />
-                {cat === 'holiday' ? 'Holiday' : cat === 'weekly-off' ? 'Weekly off' : cat === 'leave' ? 'On leave' : cat === 'wfh' ? 'WFH / On duty' : 'Missing attendance'}
-              </span>
-            ))}
-          </div>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={{ position: 'sticky', left: 0, zIndex: 2, textAlign: 'left', padding: '7px 18px', minWidth: 168, background: 'var(--raised)', fontSize: 9.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>Team member</th>
-                {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
-                  const iso = toISODate(year, month, d);
-                  const isToday = iso === today;
-                  return (
-                    <th key={d} style={{ padding: '7px 3px', fontSize: 9.5, fontWeight: 700, color: isToday ? 'var(--brand-bright)' : 'var(--txt-dim)', textAlign: 'center', borderBottom: '1px solid var(--line)', background: 'var(--raised)', textTransform: 'uppercase' }}>
-                      {WEEKDAY_LABELS[new Date(year, month, d).getDay()]}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {pagedDirectReports.map(dr => (
-                <tr key={dr.userId} style={inactiveDimStyle(dr.active)}>
-                  <td style={{ position: 'sticky', left: 0, background: 'var(--panel)', zIndex: 1, padding: '6px 18px', textAlign: 'left', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar userId={dr.userId} name={dr.fullName} size={24} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{dr.fullName}</span>
-                      {!dr.active && <StatusBadge active={false} />}
-                    </div>
-                  </td>
-                  {Array.from({ length: totalDays }, (_, i) => i + 1).map(d => {
-                    const iso = toISODate(year, month, d);
-                    const dow = new Date(year, month, d).getDay();
-                    const category = classifyDay(iso, dow, dr.userId, dr.joiningDate);
-                    const isToday = iso === today;
-                    return (
-                      <td key={d} style={{ padding: 3, textAlign: 'center', borderBottom: '1px solid var(--line)' }}>
-                        <div title={category === 'not-joined' ? 'Not yet joined' : undefined} style={{
-                          width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', margin: '0 auto',
-                          fontSize: 10, fontWeight: 600,
-                          background: category === 'plain' || category === 'not-joined' ? 'transparent' : DAY_COLORS[category],
-                          color: category === 'not-joined' ? 'var(--txt-dim)' : category === 'plain' ? 'var(--txt-dim)' : '#fff',
-                          opacity: category === 'not-joined' ? 0.35 : 1,
-                          boxShadow: isToday ? '0 0 0 2px var(--brand-bright)' : 'none',
-                        }}>
-                          {category === 'not-joined' ? '' : d}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {calendarTotalPages > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid var(--line)' }}>
-            <button onClick={() => setCalendarPage(p => Math.max(0, p - 1))} disabled={calendarPageSafe === 0} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe === 0 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe === 0 ? 0.5 : 1 }}>← Prev</button>
-            <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Page {calendarPageSafe + 1} of {calendarTotalPages}</span>
-            <button onClick={() => setCalendarPage(p => Math.min(calendarTotalPages - 1, p + 1))} disabled={calendarPageSafe >= calendarTotalPages - 1} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: calendarPageSafe >= calendarTotalPages - 1 ? 'not-allowed' : 'pointer', opacity: calendarPageSafe >= calendarTotalPages - 1 ? 0.5 : 1 }}>Next →</button>
-          </div>
-        )}
-      </div>
-
-      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'flex-start' }}>
-        {/* Roster */}
-        <div ref={rosterRef} style={panelStyle}>
-          <div style={panelHeadStyle}>
-            <span style={panelTitleStyle}>Team roster</span>
-            <span style={panelCountStyle}>{filteredRoster.length} {filteredRoster.length === 1 ? 'person' : 'people'}</span>
-          </div>
-          <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{ flex: 1, minWidth: 160, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
-              <Search size={13} />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or employee code…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
-            </div>
-            <ChipGroup
-              ariaLabel="Roster status"
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={[
-                { key: 'all', label: 'All' },
-                { key: 'IN', label: 'In' },
-                { key: 'OUT', label: 'Out' },
-                { key: 'NOT_IN_YET', label: 'Not in yet' },
-                { key: 'LEAVE', label: 'On leave' },
-              ]}
-            />
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10, padding: '14px 18px' }}>
-            {loading ? (
-              <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>Loading…</div>
-            ) : filteredRoster.length === 0 ? (
-              <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>No one matches this filter.</div>
-            ) : filteredRoster.map(row => (
-              <div key={row.dr.userId} style={{ ...inactiveDimStyle(row.dr.active), background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <Avatar userId={row.dr.userId} name={row.dr.fullName} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>{row.dr.fullName}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.dr.designationName ?? '—'}</div>
-                    <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{row.dr.employeeCode}</div>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minHeight: 22 }}>
-                  {row.dr.active ? <StatusPill status={row.status} /> : <StatusBadge active={false} />}
-                  {row.isLate && (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, padding: '4px 9px 4px 7px', borderRadius: 20, background: 'rgba(224,169,59,.16)', color: 'var(--warn)' }}>
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--warn)' }} />Late
-                    </span>
-                  )}
-                  {row.status === 'LEAVE' && row.leaveTypeName && (
-                    <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{row.leaveTypeName}</span>
-                  )}
-                </div>
-                <LeaveBalanceLine balances={teamBalances === null ? null : balancesByEmployee.get(row.dr.userId) ?? []} />
-                {row.requests.length > 0 && (
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                    {groupRequestsByType(row.requests).map(({ type, count }) => (
-                      <TypeBadge key={type} type={type} count={count} />
-                    ))}
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                  {row.dr.active && (
-                    <AppreciateButton label="Appreciate" size="small" onClick={() => setKudosTarget({ userId: row.dr.userId, name: row.dr.fullName })} />
-                  )}
-                  <button onClick={() => setViewing(row)} style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 10px', cursor: 'pointer' }}>View</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Right column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={panelStyle}>
-            <div style={panelHeadStyle}>
-              <span style={panelTitleStyle}>Needs your attention</span>
-              <span style={panelCountStyle}>{attentionItems.length} pending</span>
-            </div>
-            {attentionItems.length === 0 ? (
-              <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Nothing pending right now.</div>
-            ) : (
-              attentionItems.map(item => (
-                <AttentionQueueItem key={`${item.requestType}:${item.id}`} item={item} token={token} onDone={removeAttentionItem} />
-              ))
-            )}
-          </div>
-
-          <div style={panelStyle}>
-            <div style={panelHeadStyle}>
-              <span style={panelTitleStyle}>Out this week</span>
-            </div>
-            <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {weekLeave.length === 0 ? (
-                <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your team is out this week.</div>
-              ) : weekLeave.map(l => {
-                const active = directReportsById.get(l.employeeUserId)?.active ?? true;
-                return (
-                <div key={l.id} style={{ ...inactiveDimStyle(active), display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.employeeName}</div>
-                      {!active && <StatusBadge active={false} />}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{l.leaveTypeName}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
-                    {weekDayDates.map((d, i) => {
-                      const on = toISO(d) >= l.startDate && toISO(d) <= l.endDate;
-                      return (
-                        <div key={i} style={{ width: 18, height: 18, borderRadius: 4, display: 'grid', placeItems: 'center', fontSize: 8.5, fontWeight: 700, background: on ? DAY_COLORS.leave : 'var(--raised2)', color: on ? '#fff' : 'var(--txt-dim)' }}>
-                          {WEEK_CHIPS[i]}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
-
       {viewing && <EmployeeDetailModal row={viewing} onClose={() => setViewing(null)} />}
       <KudosModal target={kudosTarget} token={token} onClose={() => setKudosTarget(null)} />
       {viewingEmployeeDetails && <EmployeeDetailsModal entry={viewingEmployeeDetails} onClose={() => setViewingEmployeeDetails(null)} />}
@@ -3737,7 +3551,8 @@ export default function MyTeamPage() {
           onClose={() => setShowAllNotIn(false)}
         />
       )}
-      </>)}
+      </div>
+      )}
 
       {tab === 'effort' && <EffortTab token={token} />}
       {tab === 'negligence' && <NegligenceTab token={token} />}

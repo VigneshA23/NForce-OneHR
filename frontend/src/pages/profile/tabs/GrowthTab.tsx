@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import { profileSkillsApi, profileLearningApi, profileCertificatesApi, type SkillEntry, type LearningEntry, type LearningStatus, type CertificateEntry } from '../../../api/profile';
+import { skillRequestApi, type SkillRequestEntry } from '../../../api/talentMasterData';
 import { SectionHeader } from '../shared';
 import { SkillModal } from './SkillModal';
 import { LearningEntryModal } from './LearningEntryModal';
@@ -69,15 +70,21 @@ function certificateStatus(expiry: string | null): { label: string; tone: string
   return { label: 'Active', tone: 'var(--ok)' };
 }
 
+const REQUEST_STATUS_TONE: Record<string, string> = {
+  Pending: 'var(--warn)', Approved: 'var(--ok)', Mapped: 'var(--ok)', Rejected: 'var(--risk)',
+};
+
 function SkillsCard({ token }: { token: string }) {
   const { showToast } = useToast();
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalTarget, setModalTarget] = useState<SkillEntry | 'new' | null>(null);
+  const [requests, setRequests] = useState<SkillRequestEntry[]>([]);
 
   function reload() {
     setLoading(true);
     profileSkillsApi.list(token).then(setSkills).catch(() => {}).finally(() => setLoading(false));
+    skillRequestApi.listMine(token).then(setRequests).catch(() => {});
   }
   useEffect(reload, [token]);
 
@@ -113,8 +120,11 @@ function SkillsCard({ token }: { token: string }) {
               <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{s.skillName}</span>
               <span style={{
                 fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
-                background: `color-mix(in srgb, ${LEVEL_TONE[s.proficiencyLevel]} 16%, transparent)`,
-                color: LEVEL_TONE[s.proficiencyLevel],
+                // Proficiency levels are admin-configurable (Organization > Talent & Skills >
+                // Settings) as of the picker rework, so a custom-renamed level falls back to a
+                // neutral tone here rather than rendering `undefined` into the color-mix().
+                background: `color-mix(in srgb, ${LEVEL_TONE[s.proficiencyLevel] ?? 'var(--txt-dim)'} 16%, transparent)`,
+                color: LEVEL_TONE[s.proficiencyLevel] ?? 'var(--txt-dim)',
               }}>
                 {s.proficiencyLevel}
               </span>
@@ -122,6 +132,30 @@ function SkillsCard({ token }: { token: string }) {
               <button onClick={() => handleDelete(s.id)} aria-label="Delete skill" style={{ ...ICON_BTN_STYLE, color: 'var(--risk)' }}><Trash2 size={11} /></button>
             </div>
           ))}
+        </div>
+      )}
+      {requests.length > 0 && (
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+            My Skill Requests
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {requests.map(r => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+                <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{r.name}</span>
+                <span style={{
+                  fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
+                  background: `color-mix(in srgb, ${REQUEST_STATUS_TONE[r.status]} 16%, transparent)`,
+                  color: REQUEST_STATUS_TONE[r.status],
+                }}>
+                  {r.status}
+                </span>
+                {r.mappedSkillName && r.mappedSkillName !== r.name && (
+                  <span style={{ color: 'var(--txt-dim)' }}>→ added as "{r.mappedSkillName}"</span>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {modalTarget && (
@@ -135,6 +169,7 @@ function SkillsCard({ token }: { token: string }) {
               return idx >= 0 ? prev.map((s, i) => i === idx ? saved : s) : [...prev, saved];
             });
           }}
+          onRequestSubmitted={() => skillRequestApi.listMine(token).then(setRequests).catch(() => {})}
         />
       )}
     </div>

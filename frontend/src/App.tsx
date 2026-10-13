@@ -10,6 +10,7 @@ import DashboardPage from './pages/DashboardPage';
 import AttendancePage from './pages/AttendancePage';
 import SuperAdminRegularizationPage from './pages/SuperAdminRegularizationPage';
 import OrgSetupPage from './pages/OrgSetupPage';
+import TalentPerformancePage from './pages/talent/TalentPerformancePage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
 import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
 import UserManagementPage from './pages/UserManagementPage';
@@ -53,6 +54,14 @@ import AttendanceStatusPreviewPage from './pages/attendance-status-preview/Atten
 // Design-review mock only — Dashboard Hero Male/Female/Non-binary/Fallback variants, reusing the
 // real HeroIllustrationArt component. See the file header in HeroGenderPreviewPage.tsx for details.
 import HeroGenderPreviewPage from './pages/hero-gender-preview/HeroGenderPreviewPage';
+// Design-review mock only — the real AttendancePage in forced mock-data mode. See the route below.
+import AttendancePreviewShell from './pages/attendance-ui-preview/AttendancePreviewShell';
+// Design-review mock only — Home dashboard tile rows per role. See the route below.
+import DashboardPreviewShell from './pages/dashboard-ui-preview/DashboardPreviewShell';
+
+// Role-switchable mock preview of the redesigned My Team page (?role=manager|hr-admin|super-admin|employee).
+// Mock data only — see the file header in my-team/MyTeamPreviewPage.tsx.
+import MyTeamPreviewPage from './pages/my-team/MyTeamPreviewPage';
 import { toShellRole } from './lib/nav.config';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -143,6 +152,19 @@ export default function App() {
             components/HeroIllustration.tsx — see the file's own header for details. */}
         <Route path="/hero-gender-preview" element={<HeroGenderPreviewPage />} />
 
+        {/* Design-review mock only — the REAL AttendancePage rendered with forced mock data (no
+            auth, no API calls), inside a minimal frame instead of the authenticated Shell. Not
+            linked from the app nav. Add ?tab=calendar for the Calendar tab. */}
+        <Route path="/attendance-ui-preview" element={<AttendancePreviewShell />} />
+
+        {/* Design-review mock only — the Home dashboard's tile rows (Quick Actions + stat tiles) for
+            each role, built from the real components with invented numbers; no auth, no API calls. */}
+        <Route path="/dashboard-ui-preview" element={<DashboardPreviewShell />} />
+
+        {/* Design-review mock only — redesigned My Team page, no auth, no network, not linked from
+            the app nav. ?role=manager|hr-admin|super-admin|employee picks the mock dataset only. */}
+        <Route path="/my-team-preview" element={<MyTeamPreviewPage />} />
+
         {/* Auth required, password-change gate */}
         <Route
           path="/change-password"
@@ -180,6 +202,7 @@ export default function App() {
           <Route path="/bench"        element={<BenchPage />} />
           <Route path="/bench-opportunities" element={<BenchOpportunitiesPage />} />
           <Route path="/my-skills"    element={<MySkillsPage />} />
+          <Route path="/talent-performance" element={<TalentPerformancePage />} />
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
           <Route path="/profile"        element={<ProfilePage />} />

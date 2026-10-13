@@ -45,7 +45,7 @@ function noAttendanceBlocks(policy: PenalizationPolicy): PolicyBlock[] {
   }
   const blocks: PolicyBlock[] = [
     { type: 'heading', text: 'No Attendance' },
-    { type: 'text', text: `You will be penalized ${na.deductionDays ?? '—'} day(s) for every day with no recorded attendance.` },
+    { type: 'text', text: `You will be penalized ${na.deductionDays ?? '–'} day(s) for every day with no recorded attendance.` },
   ];
   if (policy.basicInfo.bufferPeriodDays) {
     blocks.push({ type: 'callout', text: `You have a buffer period of ${policy.basicInfo.bufferPeriodDays} day(s) to regularize your attendance before the penalization applies.` });
@@ -66,16 +66,16 @@ function lateArrivalBlocks(policy: PenalizationPolicy): PolicyBlock[] {
     if (la.gracePeriodMinutes != null) {
       blocks.push({ type: 'callout', text: `You have a grace period of ${la.gracePeriodMinutes} minute(s) beyond which your arrival is considered late.` });
     }
-    blocks.push({ type: 'text', text: `Once your total late minutes in a ${la.exemptPeriod.toLowerCase()} exceed ${la.allowedHours ?? '—'} hour(s), a penalty applies based on the tier your total falls into:` });
+    blocks.push({ type: 'text', text: `Once your total late minutes in a ${la.exemptPeriod.toLowerCase()} exceed ${la.allowedHours ?? '–'} hour(s), a penalty applies based on the tier your total falls into:` });
     if (la.lateHoursTiers.length > 0) {
       blocks.push({ type: 'bullets', items: la.lateHoursTiers.map(t => `More than ${t.thresholdHours} total hour(s) late: ${t.deductionDays} day(s) penalty`) });
     }
   } else {
     const perShifts = la.deductionPerShifts && la.deductionPerShifts > 1 ? la.deductionPerShifts : 1;
     const rateText = perShifts > 1
-      ? `you will be penalized ${la.deductionDays ?? '—'} day(s) for every ${perShifts} incident(s) beyond that`
-      : `you will be penalized ${la.deductionDays ?? '—'} day(s) for every incident beyond that`;
-    blocks.push({ type: 'text', text: `You can arrive late ${la.exemptCount ?? 0} time(s) per ${la.exemptPeriod.toLowerCase()} without penalty — ${rateText}.` });
+      ? `you will be penalized ${la.deductionDays ?? '–'} day(s) for every ${perShifts} incident(s) beyond that`
+      : `you will be penalized ${la.deductionDays ?? '–'} day(s) for every incident beyond that`;
+    blocks.push({ type: 'text', text: `You can arrive late ${la.exemptCount ?? 0} time(s) per ${la.exemptPeriod.toLowerCase()} without penalty, ${rateText}.` });
   }
   if (la.ignoreWhenEffectiveHoursMetEnabled) {
     blocks.push({ type: 'callout', text: 'If your required effective hours are still met for the day, that day is not penalized for late arrival.' });
@@ -116,13 +116,13 @@ function missingLogsBlocks(policy: PenalizationPolicy): PolicyBlock[] {
   }
   const perShifts = ml.deductionMode === 'IRRESPECTIVE' ? null : (ml.deductionPerShifts && ml.deductionPerShifts > 1 ? ml.deductionPerShifts : 1);
   const rateText = ml.deductionMode === 'IRRESPECTIVE'
-    ? `you will be penalized ${ml.deductionDays ?? '—'} day(s) once for the period`
+    ? `you will be penalized ${ml.deductionDays ?? '–'} day(s) once for the period`
     : perShifts && perShifts > 1
-      ? `you will be penalized ${ml.deductionDays ?? '—'} day(s) for every ${perShifts} occurrence(s) beyond that`
-      : `you will be penalized ${ml.deductionDays ?? '—'} day(s) for every occurrence beyond that`;
+      ? `you will be penalized ${ml.deductionDays ?? '–'} day(s) for every ${perShifts} occurrence(s) beyond that`
+      : `you will be penalized ${ml.deductionDays ?? '–'} day(s) for every occurrence beyond that`;
   const blocks: PolicyBlock[] = [
     { type: 'heading', text: 'Missing Swipes' },
-    { type: 'text', text: `You can have ${ml.exemptDays ?? 0} missing-swipe day(s) per ${ml.exemptPeriod.toLowerCase()} without penalty — ${rateText}.` },
+    { type: 'text', text: `You can have ${ml.exemptDays ?? 0} missing-swipe day(s) per ${ml.exemptPeriod.toLowerCase()} without penalty, ${rateText}.` },
   ];
   if (policy.basicInfo.bufferPeriodDays) {
     blocks.push({ type: 'callout', text: `You have a buffer period of ${policy.basicInfo.bufferPeriodDays} day(s) to regularize your attendance before the penalization applies.` });
@@ -203,7 +203,7 @@ function PolicyBlockView({ block }: { block: PolicyBlock }) {
       <ul style={{ listStyle: 'none', margin: '8px 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {block.items.map((item, i) => (
           <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13.5, color: 'var(--txt-mut)', lineHeight: 1.65 }}>
-            <span style={{ flexShrink: 0, marginTop: 8, width: 6, height: 6, borderRadius: '50%', border: '1.5px solid var(--txt-dim)' }} />
+            <span style={{ flexShrink: 0, marginTop: 8, width: 7, height: 7, borderRadius: '50%', background: 'var(--brand)' }} />
             <span>{item}</span>
           </li>
         ))}

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Cake, PartyPopper, Sparkles } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { usePreviewMode } from '../lib/previewMode';
+import { previewBirthdays } from '../pages/dashboard-ui-preview/dashboardPreviewData';
 import { birthdaysApi, type BirthdayEntry } from '../api/birthdays';
 import { EmployeeAvatar } from './EmployeeAvatar';
 import { BirthdayWishModal } from './BirthdayWishModal';
@@ -62,7 +64,7 @@ function BirthdayRow({ entry, tier, onSendWishes, isSelf }: { entry: BirthdayEnt
           {entry.fullName}
         </div>
         <div style={{ fontSize: 11, color: 'var(--txt-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {entry.departmentName ?? '—'} · {MONTH_NAMES[entry.birthdayMonth - 1]} {entry.birthdayDay}
+          {entry.departmentName ?? '–'} · {MONTH_NAMES[entry.birthdayMonth - 1]} {entry.birthdayDay}
         </div>
       </div>
 
@@ -119,6 +121,7 @@ function TierSection({ tier, entries, marginBottom, onSendWishes, selfName }: {
  */
 export function BirthdayWidget() {
   const token = useAuthStore(s => s.token) ?? '';
+  const isPreview = usePreviewMode();
   // AuthUser carries no stable id (see store/authStore.ts), only fullName — a best-effort match to
   // hide "Send Wishes" on the viewer's own row. Purely a UI nicety: BirthdayWishService rejects a
   // self-wish server-side regardless, so a rare same-name collision fails safe, not silently.
@@ -128,13 +131,14 @@ export function BirthdayWidget() {
   const [wishTarget, setWishTarget] = useState<BirthdayEntry | null>(null);
 
   useEffect(() => {
+    if (isPreview) { setEntries(previewBirthdays()); setLoading(false); return; }
     let cancelled = false;
     birthdaysApi.upcoming(token)
       .then(rows => { if (!cancelled) setEntries(rows); })
       .catch(() => { if (!cancelled) setEntries([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, isPreview]);
 
   const { today, thisWeek } = groupBirthdaysBySection(entries);
 
