@@ -1,5 +1,6 @@
 package com.nforce.onehr.dto.bench;
 
+import com.nforce.onehr.entity.BenchCloseReason;
 import com.nforce.onehr.entity.BenchReasonCode;
 import lombok.*;
 
@@ -15,4 +16,7 @@ public class BenchStatusResponse {
     private LocalDate startDate;
     private LocalDate endDate;
     private boolean active;
+    private String agingBucket;
+    private BenchCloseReason closeReason;
+    private UUID allocationId;
 }

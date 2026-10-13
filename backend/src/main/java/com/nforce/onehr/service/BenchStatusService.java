@@ -42,6 +42,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class BenchStatusService {
 
+    // target_id is the affected employee (the audit trail's convention, so the Audit page can show a name);
+    // the bench record's own id travels in the before/after snapshot as benchStatusId.
     static final String AUDIT_ACTION = "BENCH_STATUS_CHANGE";
 
     private final BenchStatusRepository benchRepository;
@@ -52,6 +54,7 @@ public class BenchStatusService {
     private final DirectReportScopeService directReportScopeService;
     private final AuditService auditService;
     private final AuditSnapshotSerializer snapshotSerializer;
+    private final BenchAgingService agingService;
 
     @Transactional
     public BenchStatusResponse start(String actorEmail, BenchStatusRequest req) {
@@ -60,12 +63,15 @@ public class BenchStatusService {
         if (benchRepository.existsByEmployeeUserIdAndActiveTrue(employee.getUserId())) {
             throw new IllegalStateException("Employee is already on bench");
         }
+        LocalDate start = req.getStartDate() != null ? req.getStartDate() : LocalDate.now();
         BenchStatus saved = benchRepository.save(BenchStatus.builder()
                 .employeeUserId(employee.getUserId())
                 .reasonCode(req.getReasonCode())
-                .startDate(req.getStartDate() != null ? req.getStartDate() : LocalDate.now())
+                .startDate(start)
+                .agingBucket(agingService.bucketFor(Math.max(0, ChronoUnit.DAYS.between(start, LocalDate.now()))))
                 .build());
-        auditService.log(actor.getId(), AUDIT_ACTION, saved.getId(), null, snapshot(saved));
+        String after = snapshot(saved);
+        AuditService.afterCommit(() -> auditService.log(actor.getId(), AUDIT_ACTION, saved.getEmployeeUserId(), null, after));
         return toResponse(saved, employee);
     }
 
@@ -74,18 +80,56 @@ public class BenchStatusService {
         User actor = resolveUser(actorEmail);
         BenchStatus bench = benchRepository.findById(benchStatusId)
                 .orElseThrow(() -> new NoSuchElementException("Bench status not found"));
+        return close(actor.getId(), bench, req);
+    }
+
+    /**
+     * US-A12 seam: ends this employee's active episode because they were just allocated. The same
+     * {@link #close} path as a manual end (US-A06), so validation and auditing never diverge, and it
+     * joins the caller's transaction so a later failure rolls the bench end back too.
+     */
+    @Transactional
+    public BenchStatusResponse endForAllocation(UUID actorUserId, UUID employeeUserId, UUID allocationId, LocalDate endDate) {
+        BenchStatus bench = benchRepository.findByEmployeeUserIdAndActiveTrue(employeeUserId)
+                .orElseThrow(() -> new IllegalStateException("Employee is not on bench"));
+        EndBenchRequest req = new EndBenchRequest();
+        req.setAllocationId(allocationId);
+        // The allocation may start before the bench episode did (back-dated); clamp so the episode
+        // never ends before it began rather than rejecting a legitimate assignment.
+        req.setEndDate(endDate != null && endDate.isBefore(bench.getStartDate()) ? bench.getStartDate() : endDate);
+        return close(actorUserId, bench, req);
+    }
+
+    /**
+     * US-A06: ends an episode (never deletes it — start/end/duration stay for reporting). Without an
+     * allocation a close-out reason is mandatory; with one it must exist and belong to this employee.
+     */
+    private BenchStatusResponse close(UUID actorId, BenchStatus bench, EndBenchRequest req) {
         if (!bench.isActive()) {
             throw new IllegalStateException("Bench status has already ended");
         }
-        LocalDate endDate = req != null && req.getEndDate() != null ? req.getEndDate() : LocalDate.now();
+        if (req.getAllocationId() != null) {
+            ProjectAllocation allocation = allocationRepository.findById(req.getAllocationId())
+                    .orElseThrow(() -> new NoSuchElementException("Allocation not found"));
+            if (!allocation.getEmployeeUserId().equals(bench.getEmployeeUserId())) {
+                throw new IllegalArgumentException("Allocation belongs to a different employee");
+            }
+        } else if (req.getCloseReason() == null) {
+            throw new IllegalArgumentException("A close-out reason is required when ending bench without an allocation");
+        }
+        LocalDate endDate = req.getEndDate() != null ? req.getEndDate() : LocalDate.now();
         if (endDate.isBefore(bench.getStartDate())) {
             throw new IllegalArgumentException("End date cannot be before start date");
         }
         String before = snapshot(bench);
         bench.setEndDate(endDate);
         bench.setActive(false);
+        bench.setAllocationId(req.getAllocationId());
+        bench.setCloseReason(req.getAllocationId() == null ? req.getCloseReason() : null);
+        bench.setCloseNote(req.getCloseNote());
         BenchStatus saved = benchRepository.save(bench);
-        auditService.log(actor.getId(), AUDIT_ACTION, saved.getId(), before, snapshot(saved));
+        String after = snapshot(saved);
+        AuditService.afterCommit(() -> auditService.log(actorId, AUDIT_ACTION, saved.getEmployeeUserId(), before, after));
         return toResponse(saved, findEmployee(saved.getEmployeeUserId()));
     }
 
@@ -135,11 +179,14 @@ public class BenchStatusService {
 
     private String snapshot(BenchStatus b) {
         Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("benchStatusId", b.getId());
         fields.put("employeeId", b.getEmployeeUserId());
         fields.put("reasonCode", b.getReasonCode());
         fields.put("startDate", b.getStartDate());
         fields.put("endDate", b.getEndDate());
         fields.put("active", b.isActive());
+        fields.put("closeReason", b.getCloseReason());
+        fields.put("allocationId", b.getAllocationId());
         return snapshotSerializer.toJson(fields);
     }
 
@@ -152,6 +199,9 @@ public class BenchStatusService {
                 .startDate(b.getStartDate())
                 .endDate(b.getEndDate())
                 .active(b.isActive())
+                .agingBucket(b.getAgingBucket())
+                .closeReason(b.getCloseReason())
+                .allocationId(b.getAllocationId())
                 .build();
     }
 

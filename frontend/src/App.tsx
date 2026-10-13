@@ -38,6 +38,8 @@ import ReportsPage from './pages/ReportsPage';
 import ApiUsagePage from './pages/ApiUsagePage';
 import ProjectAllocationsPage from './pages/ProjectAllocationsPage';
 import BenchPage from './pages/BenchPage';
+import BenchOpportunitiesPage from './pages/BenchOpportunitiesPage';
+import MySkillsPage from './pages/MySkillsPage';
 // Role-specific mock/visual-preview page only — not part of the real Leave Management module.
 // See the file header in LeavePreviewPage.tsx for details.
 import LeavePreviewPage from './pages/leave-preview/LeavePreviewPage';
@@ -176,6 +178,8 @@ export default function App() {
           <Route path="/organization" element={<OrgSetupPage />} />
           <Route path="/allocations"  element={<ProjectAllocationsPage />} />
           <Route path="/bench"        element={<BenchPage />} />
+          <Route path="/bench-opportunities" element={<BenchOpportunitiesPage />} />
+          <Route path="/my-skills"    element={<MySkillsPage />} />
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
           <Route path="/profile"        element={<ProfilePage />} />

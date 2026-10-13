@@ -69,7 +69,7 @@ public enum AuditActionCategory {
             // two actions that are always an HR/Super Admin operational decision are included.
             "HELPDESK_TICKET_STATUS_CHANGED", "HELPDESK_TICKET_ASSIGNED",
             // BenchStatusService — HR Admin marking/ending an employee's bench status
-            "BENCH_STATUS_CHANGE"
+            "BENCH_STATUS_CHANGE", "INTERNAL_OPPORTUNITY_CLOSED"
     ));
 
     private final Set<String> actions;

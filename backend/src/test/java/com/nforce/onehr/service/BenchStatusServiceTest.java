@@ -4,6 +4,7 @@ import com.nforce.onehr.dto.bench.BenchStatusRequest;
 import com.nforce.onehr.dto.bench.BenchStatusResponse;
 import com.nforce.onehr.dto.bench.EndBenchRequest;
 import com.nforce.onehr.dto.bench.TeamBenchResponse;
+import com.nforce.onehr.entity.BenchCloseReason;
 import com.nforce.onehr.entity.BenchReasonCode;
 import com.nforce.onehr.entity.BenchStatus;
 import com.nforce.onehr.entity.Employee;
@@ -51,6 +52,7 @@ class BenchStatusServiceTest {
     @Mock private DirectReportScopeService directReportScopeService;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer snapshotSerializer;
+    @Mock private BenchAgingService agingService;
 
     private BenchStatusService service;
 
@@ -61,7 +63,7 @@ class BenchStatusServiceTest {
     @BeforeEach
     void setUp() {
         service = new BenchStatusService(benchRepository, employeeRepository, userRepository, allocationRepository,
-                projectRepository, directReportScopeService, auditService, snapshotSerializer);
+                projectRepository, directReportScopeService, auditService, snapshotSerializer, agingService);
         User actor = new User();
         actor.setId(actorId);
         employee = Employee.builder().userId(employeeId).fullName("Asha Rao").build();
@@ -92,7 +94,7 @@ class BenchStatusServiceTest {
         assertEquals(LocalDate.now(), res.getStartDate());
         assertEquals(BenchReasonCode.PROJECT_ENDED, res.getReasonCode());
         assertTrue(res.isActive());
-        verify(auditService).log(eq(actorId), eq("BENCH_STATUS_CHANGE"), eq(res.getId()), isNull(), eq("{}"));
+        verify(auditService).log(eq(actorId), eq("BENCH_STATUS_CHANGE"), eq(employeeId), isNull(), eq("{}"));
     }
 
     @Test
@@ -123,11 +125,15 @@ class BenchStatusServiceTest {
         when(benchRepository.findById(bench.getId())).thenReturn(Optional.of(bench));
         when(snapshotSerializer.toJson(any())).thenReturn("before", "after");
 
-        BenchStatusResponse res = service.end(ACTOR_EMAIL, bench.getId(), new EndBenchRequest());
+        EndBenchRequest req = new EndBenchRequest();
+        req.setCloseReason(BenchCloseReason.RETURNED_TO_ACTIVE);
+
+        BenchStatusResponse res = service.end(ACTOR_EMAIL, bench.getId(), req);
 
         assertFalse(res.isActive());
         assertEquals(LocalDate.now(), res.getEndDate());
-        verify(auditService).log(actorId, "BENCH_STATUS_CHANGE", bench.getId(), "before", "after");
+        assertEquals(BenchCloseReason.RETURNED_TO_ACTIVE, res.getCloseReason());
+        verify(auditService).log(actorId, "BENCH_STATUS_CHANGE", employeeId, "before", "after");
     }
 
     @Test
@@ -136,8 +142,87 @@ class BenchStatusServiceTest {
         when(benchRepository.findById(bench.getId())).thenReturn(Optional.of(bench));
         EndBenchRequest req = new EndBenchRequest();
         req.setEndDate(LocalDate.of(2026, 9, 1));
+        req.setCloseReason(BenchCloseReason.OTHER);
 
         assertThrows(IllegalArgumentException.class, () -> service.end(ACTOR_EMAIL, bench.getId(), req));
+    }
+
+    // ---- US-A06 ----
+
+    @Test
+    void end_withoutAllocationOrReason_isRejected() {
+        BenchStatus bench = activeBench(employeeId, LocalDate.of(2026, 9, 1));
+        when(benchRepository.findById(bench.getId())).thenReturn(Optional.of(bench));
+
+        assertThrows(IllegalArgumentException.class, () -> service.end(ACTOR_EMAIL, bench.getId(), new EndBenchRequest()));
+        assertTrue(bench.isActive());
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void end_withAnAllocation_linksItAndNeedsNoReason() {
+        BenchStatus bench = activeBench(employeeId, LocalDate.now().minusDays(5));
+        UUID allocationId = UUID.randomUUID();
+        when(benchRepository.findById(bench.getId())).thenReturn(Optional.of(bench));
+        when(allocationRepository.findById(allocationId)).thenReturn(Optional.of(
+                ProjectAllocation.builder().id(allocationId).employeeUserId(employeeId).build()));
+        EndBenchRequest req = new EndBenchRequest();
+        req.setAllocationId(allocationId);
+
+        BenchStatusResponse res = service.end(ACTOR_EMAIL, bench.getId(), req);
+
+        assertFalse(res.isActive());
+        assertEquals(allocationId, res.getAllocationId());
+        assertNull(res.getCloseReason());
+    }
+
+    @Test
+    void end_rejectsAnAllocationThatBelongsToSomeoneElse() {
+        BenchStatus bench = activeBench(employeeId, LocalDate.now().minusDays(5));
+        UUID allocationId = UUID.randomUUID();
+        when(benchRepository.findById(bench.getId())).thenReturn(Optional.of(bench));
+        when(allocationRepository.findById(allocationId)).thenReturn(Optional.of(
+                ProjectAllocation.builder().id(allocationId).employeeUserId(UUID.randomUUID()).build()));
+        EndBenchRequest req = new EndBenchRequest();
+        req.setAllocationId(allocationId);
+
+        assertThrows(IllegalArgumentException.class, () -> service.end(ACTOR_EMAIL, bench.getId(), req));
+        assertTrue(bench.isActive());
+    }
+
+    @Test
+    void end_rejectsAnUnknownAllocation() {
+        BenchStatus bench = activeBench(employeeId, LocalDate.now().minusDays(5));
+        UUID allocationId = UUID.randomUUID();
+        when(benchRepository.findById(bench.getId())).thenReturn(Optional.of(bench));
+        when(allocationRepository.findById(allocationId)).thenReturn(Optional.empty());
+        EndBenchRequest req = new EndBenchRequest();
+        req.setAllocationId(allocationId);
+
+        assertThrows(NoSuchElementException.class, () -> service.end(ACTOR_EMAIL, bench.getId(), req));
+    }
+
+    @Test
+    void endForAllocation_clampsABackdatedEndToTheBenchStart_andAudits() {
+        LocalDate benchStart = LocalDate.now().minusDays(3);
+        BenchStatus bench = activeBench(employeeId, benchStart);
+        UUID allocationId = UUID.randomUUID();
+        when(benchRepository.findByEmployeeUserIdAndActiveTrue(employeeId)).thenReturn(Optional.of(bench));
+        when(allocationRepository.findById(allocationId)).thenReturn(Optional.of(
+                ProjectAllocation.builder().id(allocationId).employeeUserId(employeeId).build()));
+
+        BenchStatusResponse res = service.endForAllocation(actorId, employeeId, allocationId, benchStart.minusDays(10));
+
+        assertEquals(benchStart, res.getEndDate());
+        verify(auditService).log(eq(actorId), eq("BENCH_STATUS_CHANGE"), eq(employeeId), any(), any());
+    }
+
+    @Test
+    void endForAllocation_failsWhenTheEmployeeIsNotOnBench() {
+        when(benchRepository.findByEmployeeUserIdAndActiveTrue(employeeId)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalStateException.class,
+                () -> service.endForAllocation(actorId, employeeId, UUID.randomUUID(), LocalDate.now()));
     }
 
     @Test

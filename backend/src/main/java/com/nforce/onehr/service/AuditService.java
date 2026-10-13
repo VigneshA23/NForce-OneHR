@@ -7,6 +7,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.UUID;
 
@@ -41,6 +43,27 @@ public class AuditService {
             auditLogRepository.save(entry);
         } catch (Exception e) {
             log.error("Failed to write audit log: action={} actor={}", action, actorId, e);
+        }
+    }
+
+    /**
+     * Runs {@code audit} only once the surrounding transaction has committed (immediately when there
+     * is none). The log() methods above deliberately commit on their own so an audit failure never
+     * rolls the caller back, but the flip side is that an audit written inside a transaction that
+     * later rolls back would record an action that never happened. Compound, all-or-nothing
+     * operations (bench end + allocation + opportunity close) use this so the trail only ever
+     * contains what actually took effect.
+     */
+    public static void afterCommit(Runnable audit) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    audit.run();
+                }
+            });
+        } else {
+            audit.run();
         }
     }
 }

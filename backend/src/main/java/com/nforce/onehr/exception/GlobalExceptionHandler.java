@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -119,6 +120,16 @@ public class GlobalExceptionHandler {
     // A query/path param that can't be converted to its declared type — e.g. a filter id that
     // isn't a well-formed UUID. Without this handler it falls through to the generic 500 below,
     // indistinguishable from a real server error, for what is actually a malformed request.
+    // A missing, malformed or wrongly-typed JSON body (including a value that is not one of an enum's
+    // constants, e.g. a bench reason outside the controlled list) is a client error, not the generic
+    // 500 "unexpected error" that is indistinguishable from a real server defect. The parser's own
+    // message is deliberately not echoed back.
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiError("Request body is missing or invalid"));
+    }
+
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
         String expectedType = e.getRequiredType() != null ? e.getRequiredType().getSimpleName() : "the expected type";

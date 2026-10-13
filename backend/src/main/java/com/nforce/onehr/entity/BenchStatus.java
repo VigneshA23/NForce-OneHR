@@ -33,6 +33,24 @@ public class BenchStatus {
     @Builder.Default
     private boolean active = true;
 
+    /** US-A04: denormalized current aging bucket label, refreshed nightly (and set on creation). */
+    @Column(name = "aging_bucket", length = 40)
+    private String agingBucket;
+
+    /** US-A05: set once the threshold-crossing notification has fired, so it never repeats. */
+    @Column(name = "notified_at", columnDefinition = "TIMESTAMPTZ")
+    private Instant notifiedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "close_reason", length = 40)
+    private BenchCloseReason closeReason;
+
+    @Column(name = "close_note", length = 500)
+    private String closeNote;
+
+    @Column(name = "allocation_id")
+    private UUID allocationId;
+
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "TIMESTAMPTZ")
     @Builder.Default
     private Instant createdAt = Instant.now();

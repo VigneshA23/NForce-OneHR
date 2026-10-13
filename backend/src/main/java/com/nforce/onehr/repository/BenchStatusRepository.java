@@ -14,6 +14,13 @@ public interface BenchStatusRepository extends JpaRepository<BenchStatus, UUID> 
 
     boolean existsByEmployeeUserIdAndActiveTrue(UUID employeeUserId);
 
+    Optional<BenchStatus> findByEmployeeUserIdAndActiveTrue(UUID employeeUserId);
+
     /** US-A02: the active bench rows for an already-scoped set of employees. */
     List<BenchStatus> findByActiveTrueAndEmployeeUserIdIn(Collection<UUID> employeeUserIds);
+
+    /** Every active episode: the nightly job, the HR list, the dashboard and the cost view all start here. */
+    List<BenchStatus> findByActiveTrue();
+
+    long countByActiveTrue();
 }
