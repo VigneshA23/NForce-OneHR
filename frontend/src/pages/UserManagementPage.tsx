@@ -9,15 +9,6 @@ import { useToast } from '../context/ToastContext';
 import { ShiftFormModal, fmtShiftTime } from './OrgSetupPage';
 import { InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
 import { businessTodayIsoDate } from '../utils/businessDate';
-import { ConfirmDialog } from '../components/ConfirmDialog';
-
-// Additive secondary roles (see UserManagementService#grantAdditionalRole) — granted/revoked via
-// their own endpoints, never submitted through the primary Role select above. Each one here is
-// treated as a high-risk grant (always at ALL scope) requiring the ConfirmDialog step, matching
-// the Account Owner story's "payroll + ALL scope" high-risk trigger.
-const ADDITIONAL_ROLES = [
-  { value: 'PAYROLL_ADMIN', label: 'Payroll Admin' },
-];
 
 /** "Sep 16, 2026" from a plain "YYYY-MM-DD" date-input value — for the Effective From helper text. */
 function fmtEffectiveDate(iso: string): string {
@@ -791,42 +782,13 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
 }
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
-function EditModal({ user, isSelf, onClose, onUpdated, token, opts, setOpts }: {
-  user: EmployeeRecord; isSelf: boolean; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string;
+function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
+  user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string;
   // Shared with AddModal — see AddModal's own comment on these two props for why this isn't
   // fetched fresh here.
   opts: OrgOptions; setOpts: React.Dispatch<React.SetStateAction<OrgOptions>>;
 }) {
   const { showToast } = useToast();
-  // Which additional role is pending the high-risk-grant confirmation step — null when none.
-  const [grantPending, setGrantPending] = useState<string | null>(null);
-  const [roleActionLoading, setRoleActionLoading] = useState<string | null>(null);
-  const [roleActionError, setRoleActionError] = useState<string | null>(null);
-
-  async function doGrant(roleCode: string) {
-    setRoleActionLoading(roleCode); setRoleActionError(null);
-    try {
-      const updated = await usersApi.grantAdditionalRole(user.userId, roleCode, token);
-      onUpdated(updated);
-      showToast('success', `${ADDITIONAL_ROLES.find(r => r.value === roleCode)?.label ?? roleCode} granted to ${updated.fullName}`);
-      setGrantPending(null);
-    } catch (err) {
-      setRoleActionError(err instanceof Error ? err.message : 'Grant failed');
-    } finally { setRoleActionLoading(null); }
-  }
-
-  async function doRevoke(roleCode: string) {
-    setRoleActionLoading(roleCode); setRoleActionError(null);
-    try {
-      const updated = await usersApi.revokeAdditionalRole(user.userId, roleCode, token);
-      onUpdated(updated);
-      showToast('success', `${ADDITIONAL_ROLES.find(r => r.value === roleCode)?.label ?? roleCode} revoked from ${updated.fullName}`);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Revoke failed';
-      setRoleActionError(msg);
-      showToast('error', msg);
-    } finally { setRoleActionLoading(null); }
-  }
   const [form, setForm] = useState<UpdateUserPayload>({
     fullName: user.fullName,
     email: user.email,
@@ -903,7 +865,7 @@ function EditModal({ user, isSelf, onClose, onUpdated, token, opts, setOpts }: {
             )}
           </div>
           <Field label="Role">
-            <select style={inputStyle} disabled={gatedFieldsLocked || isSelf} value={form.role ?? 'EMPLOYEE'} onChange={e => {
+            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.role ?? 'EMPLOYEE'} onChange={e => {
               const newRole = e.target.value;
               const newMgrs = getManagersForRole(newRole, opts.managers).filter(m => m.userId !== user.userId);
               setForm(f => ({
@@ -913,11 +875,6 @@ function EditModal({ user, isSelf, onClose, onUpdated, token, opts, setOpts }: {
             }}>
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
-            {isSelf && (
-              <div style={{ fontSize: 11, color: 'var(--txt-mut)', marginTop: 4 }}>
-                You can't change your own role. Ask another Super Admin to do this.
-              </div>
-            )}
           </Field>
           <Field label="Employment Type">
             <select style={inputStyle} disabled={gatedFieldsLocked} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
@@ -1015,51 +972,12 @@ function EditModal({ user, isSelf, onClose, onUpdated, token, opts, setOpts }: {
           {isInactive && (
             <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Role, Reporting Manager, Department, Designation, or Employment Type" />
           )}
-          {!isSelf && (
-            <div style={{ gridColumn: '1/-1' }}>
-              <Field label="Additional Roles">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {ADDITIONAL_ROLES.map(r => {
-                    const held = user.additionalRoles?.includes(r.value) ?? false;
-                    const busy = roleActionLoading === r.value;
-                    return (
-                      <label key={r.value} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 9, padding: '10px 12px', cursor: busy ? 'wait' : 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={held}
-                          disabled={busy}
-                          onChange={() => { held ? doRevoke(r.value) : setGrantPending(r.value); }}
-                          style={{ width: 16, height: 16, accentColor: 'var(--brand)' }}
-                        />
-                        <span style={{ fontSize: 13, color: 'var(--txt)' }}>{r.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-                {roleActionError && <div style={{ color: 'var(--risk)', marginTop: 6, fontSize: 12.5 }}>{roleActionError}</div>}
-              </Field>
-            </div>
-          )}
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={secondaryBtnStyle}>Cancel</button>
             <button type="submit" disabled={submitting || gatedFieldsLocked} style={{ ...primaryBtnStyle, cursor: (submitting || gatedFieldsLocked) ? 'not-allowed' : 'pointer', opacity: (submitting || gatedFieldsLocked) ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
           </div>
         </form>
       </div>
-      {grantPending && (
-        <ConfirmDialog
-          title="Grant high-risk access"
-          body={<>
-            Granting <b style={{ color: 'var(--txt)' }}>{ADDITIONAL_ROLES.find(r => r.value === grantPending)?.label}</b> gives{' '}
-            <b style={{ color: 'var(--txt)' }}>{user.fullName}</b> full access to a sensitive module. This is audited and can be revoked at any time.
-          </>}
-          confirmLabel="Grant Access"
-          loading={roleActionLoading === grantPending}
-          error={roleActionError}
-          onConfirm={() => doGrant(grantPending)}
-          onCancel={() => { setGrantPending(null); setRoleActionError(null); }}
-        />
-      )}
     </div>
   );
 }
@@ -1538,13 +1456,9 @@ export default function UserManagementPage() {
       </div>
 
       {showAdd && <AddModal token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
-      {editing && <EditModal user={editing} isSelf={!!currentUserEmail && editing.email.toLowerCase() === currentUserEmail} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => {
+      {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => {
         setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
         setOrgOptions(o => ({ ...o, managers: syncManagerOption(o.managers, updated) }));
-        // Keep the open modal's `user` prop fresh too — grantAdditionalRole/revokeAdditionalRole
-        // fire mid-edit (the modal stays open), so without this the Additional Roles checkboxes
-        // would keep reflecting the stale snapshot from when the modal was first opened.
-        setEditing(prev => (prev && prev.userId === updated.userId) ? updated : prev);
       }} />}
       {resetting && <ResetPasswordModal user={resetting} token={token} onClose={() => setResetting(null)} />}
       {toggling && (

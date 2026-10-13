@@ -805,18 +805,12 @@ public class UserManagementService {
      */
     private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword, Shift effectiveShift) {
         String role = RoleUtils.primaryRoleCode(user.getRoles(), "");
-        List<String> additionalRoles = user.getRoles().stream()
-                .map(Role::getCode)
-                .filter(code -> !PHASE1_ROLES.contains(code))
-                .sorted()
-                .toList();
         return EmployeeResponse.builder()
                 .userId(emp.getUserId())
                 .employeeCode(emp.getEmployeeCode())
                 .fullName(emp.getFullName())
                 .email(user.getEmail())
                 .role(role)
-                .additionalRoles(additionalRoles)
                 .businessUnitId(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId().toString() : null)
                 .businessUnitName(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null)
                 .departmentId(emp.getDepartment() != null ? emp.getDepartment().getId().toString() : null)

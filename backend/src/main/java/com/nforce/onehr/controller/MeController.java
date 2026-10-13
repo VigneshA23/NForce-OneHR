@@ -35,7 +35,7 @@ public class MeController {
         List<String> roleCodes = user.getRoles().stream().map(Role::getCode).sorted().toList();
         String primaryRole = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
 
-        return new MyPermissionsResponse(user.getId(), primaryRole, roleCodes, user.isAccountOwner(),
+        return new MyPermissionsResponse(primaryRole, roleCodes,
                 effectivePermissionService.effectivePermissions(user.getRoles()));
     }
 }

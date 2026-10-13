@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
-import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
 import {
   listAllPolicies, publishPolicy, editPolicy, publishPolicyVersion, policyVersionHistory,
@@ -553,13 +552,6 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
 
 export default function PoliciesPage() {
   const token = useAuthStore(s => s.token)!;
-  const permissions = useAuthStore(s => s.permissions);
-  // A fenced Super Admin still has policies:VIEW:ALL (reading isn't fenced, only authoring) but
-  // loses these three — see V228's default fences and AccountOwnerPage. Hidden here, not just
-  // disabled, since a hidden action can't be clicked into a 403 in the first place.
-  const canCreatePolicy = hasPermission(permissions, 'policies', 'CREATE', 'ALL');
-  const canEditPolicy = hasPermission(permissions, 'policies', 'EDIT', 'ALL');
-  const canDeletePolicy = hasPermission(permissions, 'policies', 'DELETE', 'ALL');
   const { showToast } = useToast();
   const [tab, setTab] = useState<'policies' | 'announcements'>('policies');
   const [policies, setPolicies] = useState<Policy[]>([]);
@@ -711,12 +703,10 @@ export default function PoliciesPage() {
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
             <Megaphone size={14} /> New Announcement
           </button>
-          {canCreatePolicy && (
-            <button onClick={() => setShowPublish(true)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#A01418', border: 'none', borderRadius: 7, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-              <Plus size={14} /> New Policy
-            </button>
-          )}
+          <button onClick={() => setShowPublish(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#A01418', border: 'none', borderRadius: 7, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+            <Plus size={14} /> New Policy
+          </button>
         </div>
       </div>
 
@@ -824,12 +814,10 @@ export default function PoliciesPage() {
                       </td>
                       <td style={{ ...tdS, width: 48 }}>
                         <KebabMenu items={[
-                          ...(canEditPolicy ? [
-                            { label: 'Edit', onClick: () => setEditPolicyTarget(p) },
-                            { label: 'Publish New Version', onClick: () => setPublishVersionTarget(p) },
-                            (p.active ? { label: 'Deactivate', onClick: () => doDeactivatePolicy(p.id) } : { label: 'Reactivate', onClick: () => doReactivatePolicy(p.id) }),
-                          ] : []),
-                          ...(canDeletePolicy ? [{ label: 'Delete', onClick: () => doDeletePolicy(p.id), danger: true }] : []),
+                          { label: 'Edit', onClick: () => setEditPolicyTarget(p) },
+                          { label: 'Publish New Version', onClick: () => setPublishVersionTarget(p) },
+                          ...(p.active ? [{ label: 'Deactivate', onClick: () => doDeactivatePolicy(p.id) }] : [{ label: 'Reactivate', onClick: () => doReactivatePolicy(p.id) }]),
+                          { label: 'Delete', onClick: () => doDeletePolicy(p.id), danger: true },
                         ]} />
                       </td>
                     </tr>

@@ -1477,10 +1477,6 @@ export default function OrgSetupPage() {
   // action at all, matching the "don't just hide the button" requirement by never being the
   // only line of defense.
   const canManageShifts = hasPermission(permissions, 'organization_shifts', 'EDIT', 'ALL');
-  // Leave Type authoring is fenced by default for Super Admin (see V228's default fences and
-  // AccountOwnerPage) — a fenced Super Admin keeps leave:VIEW access elsewhere (balances,
-  // requests) but loses leave:CONFIGURE, so this toolbar's Add and each row's Edit disappear.
-  const canConfigureLeaveTypes = hasPermission(permissions, 'leave', 'CONFIGURE', 'ALL');
 
   const [activeTab, setActiveTab] = useState<OrgTab>('departments');
   const [penalizationSubTab, setPenalizationSubTab] = useState<'policy' | 'allocation'>('policy');
@@ -1915,7 +1911,7 @@ export default function OrgSetupPage() {
             })}
           </div>
           {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
-            && activeTab !== 'ai-assistant' && (activeTab !== 'leavetypes' || canConfigureLeaveTypes) && (
+            && activeTab !== 'ai-assistant' && (
             // Its own row directly under the tabs, right-aligned, with a divider + vertical
             // breathing room so it reads as a clearly separate toolbar strip rather than
             // crowding — or at some widths visually overlapping — the section tabs above it.
@@ -2089,16 +2085,14 @@ export default function OrgSetupPage() {
                       <>
                         <Icon size={32} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 12px' }} />
                         <div style={{ color: 'var(--txt-mut)', fontSize: 13, marginBottom: 14 }}>{tab.emptyLine}</div>
-                        {(activeTab !== 'leavetypes' || canConfigureLeaveTypes) && (
-                          <button onClick={openAdd} style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px',
-                            background: 'var(--raised)', color: 'var(--txt)', border: '1px solid var(--line2)',
-                            borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer',
-                          }}>
-                            <Plus size={12} aria-hidden="true" />
-                            {tab.addLabel}
-                          </button>
-                        )}
+                        <button onClick={openAdd} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+                          background: 'var(--raised)', color: 'var(--txt)', border: '1px solid var(--line2)',
+                          borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                        }}>
+                          <Plus size={12} aria-hidden="true" />
+                          {tab.addLabel}
+                        </button>
                       </>
                     )}
                   </td>
@@ -2210,9 +2204,9 @@ export default function OrgSetupPage() {
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{lt.code}</td>
                     <td style={{ padding: '10px 16px' }}><ClassificationBadge classification={lt.classification} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                      <KebabMenu items={canConfigureLeaveTypes ? [
+                      <KebabMenu items={[
                         { label: 'Edit', onClick: () => openEditLeaveType(lt) },
-                      ] : []} />
+                      ]} />
                     </td>
                   </tr>
                 ))

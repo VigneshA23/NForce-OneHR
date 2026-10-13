@@ -20,8 +20,6 @@ export interface EmployeeRecord {
   fullName: string;
   email: string;
   role: string;
-  /** Additive secondary roles (e.g. PAYROLL_ADMIN) held alongside `role` above — see usersApi.grantAdditionalRole. */
-  additionalRoles: string[];
   businessUnitId: string | null;
   businessUnitName: string | null;
   departmentId: string | null;
@@ -155,11 +153,4 @@ export const usersApi = {
         throw new Error((body as any).message ?? `Request failed (${res.status})`);
       }
     }),
-
-  /** Additive secondary role (e.g. PAYROLL_ADMIN) — distinct from the primary role set via `update`. */
-  grantAdditionalRole: (userId: string, roleCode: string, token: string) =>
-    fetch(`${BASE}/users/${userId}/additional-roles/${roleCode}`, { method: 'POST', headers: authHeaders(token) }).then(handle<EmployeeRecord>),
-
-  revokeAdditionalRole: (userId: string, roleCode: string, token: string) =>
-    fetch(`${BASE}/users/${userId}/additional-roles/${roleCode}`, { method: 'DELETE', headers: authHeaders(token) }).then(handle<EmployeeRecord>),
 };

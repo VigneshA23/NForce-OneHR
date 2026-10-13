@@ -301,14 +301,6 @@ pages:
         route: /access
         description: "User accounts and role assignment: invite users, change roles, reset passwords, and deactivate or restore accounts."
 
-  - pageId: account-owner
-    module: access
-    variants:
-      - roles: [SUPER_ADMIN]
-        label: "Account Owner Controls"
-        route: /account-owner
-        description: "Visible only to the account holding the Account Owner flag. Sets the ceiling on what Super Admin can access by fencing/un-fencing sensitive modules such as Payroll and policy authoring."
-
   - pageId: workflows
     module: administration
     variants:

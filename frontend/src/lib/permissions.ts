@@ -63,10 +63,6 @@ const NAV_ITEM_REQUIREMENTS: Partial<Record<string, PermissionRequirement[]>> = 
  *  (not yet fetched) fails closed for gated items — never shows an admin module before the real
  *  check lands, same as a brand-new page load would see from the server anyway. */
 export function isNavItemVisible(item: NavItem, permissions: MyPermissionsResponse | null | undefined): boolean {
-  // Account Owner is a standalone flag on the actor, not part of the role_permissions engine
-  // (deliberately — see AccountOwnerService's own Javadoc), so it can't be expressed as a
-  // module/action/scope requirement like every other entry below.
-  if (item.key === 'account-owner') return !!permissions?.accountOwner;
   const requirements = NAV_ITEM_REQUIREMENTS[item.key];
   if (!requirements) return true;
   return hasAnyPermission(permissions, requirements);
