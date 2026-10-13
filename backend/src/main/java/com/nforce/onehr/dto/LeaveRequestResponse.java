@@ -20,6 +20,7 @@ public class LeaveRequestResponse {
     private LocalDate startDate;
     private LocalDate endDate;
     private boolean halfDay;
+    private String halfDaySession;
     private BigDecimal totalDays;
     private String status;
     private String employeeReason;

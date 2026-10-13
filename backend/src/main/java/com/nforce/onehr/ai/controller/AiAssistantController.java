@@ -1,17 +1,23 @@
 package com.nforce.onehr.ai.controller;
 
 import com.nforce.onehr.ai.contract.AssistantResponse;
+import com.nforce.onehr.ai.dto.AiBillingResponse;
+import com.nforce.onehr.ai.dto.AiBillingSettingsResponse;
 import com.nforce.onehr.ai.dto.AiRateLimitSettingsResponse;
+import com.nforce.onehr.ai.dto.AiUsageStatsResponse;
 import com.nforce.onehr.ai.dto.AssistantChatRequest;
 import com.nforce.onehr.ai.dto.AssistantFeedbackRequest;
 import com.nforce.onehr.ai.dto.AssistantHealthResponse;
 import com.nforce.onehr.ai.dto.AssistantMessageDto;
+import com.nforce.onehr.ai.dto.UpdateAiBillingSettingsRequest;
 import com.nforce.onehr.ai.dto.UpdateAiRateLimitSettingsRequest;
 import com.nforce.onehr.ai.config.AiProperties;
 import com.nforce.onehr.ai.knowledge.KnowledgeIndexingService;
 import com.nforce.onehr.ai.observability.AiInteractionLogger;
 import com.nforce.onehr.ai.service.AiAssistantService;
+import com.nforce.onehr.ai.service.AiBillingSettingsService;
 import com.nforce.onehr.ai.service.AiRateLimitSettingsService;
+import com.nforce.onehr.ai.service.AiUsageStatsService;
 import com.nforce.onehr.ai.service.ConversationService;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
@@ -26,6 +32,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -61,6 +68,8 @@ public class AiAssistantController {
     private final UserRepository userRepository;
     private final AiProperties properties;
     private final AiRateLimitSettingsService rateLimitSettingsService;
+    private final AiUsageStatsService usageStatsService;
+    private final AiBillingSettingsService billingSettingsService;
 
     /** Ask a question. Always returns 200 with a valid response, including for controlled declines. */
     @PostMapping("/chat")
@@ -172,6 +181,42 @@ public class AiAssistantController {
     public AiRateLimitSettingsResponse updateRateLimitSettings(
             @Valid @RequestBody UpdateAiRateLimitSettingsRequest request, Principal principal) {
         return rateLimitSettingsService.update(request, currentUserId(principal));
+    }
+
+    /**
+     * Backs the "API Usage" page under Insights — Super Admin only, same reasoning as the
+     * rate-limit settings above: this is cost/operational visibility, not something every role
+     * needs, and the rest of {@code ai_interaction_log} (audience buckets, retrieved knowledge ids)
+     * is otherwise never exposed at all.
+     */
+    @GetMapping("/admin/usage-stats")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public AiUsageStatsResponse usageStats(@RequestParam(required = false) Integer days) {
+        return usageStatsService.stats(days);
+    }
+
+    /**
+     * This calendar month's estimated spend against the configured budget — the progress bar on
+     * the API Usage page. See {@code AiBillingSettings}/V198 for why this is an estimate computed
+     * from OneHR's own token logs, not real Mistral billing.
+     */
+    @GetMapping("/admin/billing")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public AiBillingResponse billing() {
+        return billingSettingsService.currentMonthBilling();
+    }
+
+    @GetMapping("/admin/billing-settings")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public AiBillingSettingsResponse billingSettings() {
+        return billingSettingsService.getForAdmin();
+    }
+
+    @PutMapping("/admin/billing-settings")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public AiBillingSettingsResponse updateBillingSettings(
+            @Valid @RequestBody UpdateAiBillingSettingsRequest request, Principal principal) {
+        return billingSettingsService.update(request, currentUserId(principal));
     }
 
     private UUID currentUserId(Principal principal) {

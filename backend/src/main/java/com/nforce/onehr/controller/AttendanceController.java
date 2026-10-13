@@ -24,6 +24,7 @@ import com.nforce.onehr.dto.attendance.TeamPunctualityResponse;
 import com.nforce.onehr.service.AttendancePenaltyService;
 import com.nforce.onehr.service.AttendanceService;
 import com.nforce.onehr.service.AttendanceStatsService;
+import com.nforce.onehr.service.ExceptionService;
 import com.nforce.onehr.service.RegularizationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -59,6 +60,7 @@ public class AttendanceController {
     private final AttendanceStatsService attendanceStatsService;
     private final RegularizationService regularizationService;
     private final AttendancePenaltyService attendancePenaltyService;
+    private final ExceptionService exceptionService;
 
     // Gated on the base EMPLOYEE role, which every account holds alongside whatever admin role
     // it's assigned (see UserManagementService.rolesFor) — Manager/HR Admin/Super Admin are
@@ -373,9 +375,10 @@ public class AttendanceController {
     // ── Attendance Penalties: Regularize & Cancel Penalties (Manager scope; HR/Super Admin too) ──
 
     /**
-     * An empty list here means no configured Penalization Policy section currently matches
-     * anything in range for this scope — the expected, correct result, not a bug — see
-     * {@code ExceptionService.upsertException} for where evaluation actually happens.
+     * Penalties plus detected-but-not-penalized late arrivals, early departures and missing
+     * punches (status NOT_PENALIZED) — see {@code AttendancePenaltyService#list}. Detection runs
+     * first, same as the Exceptions dashboard load, so fresh incidents appear without waiting
+     * for the nightly job.
      */
     @GetMapping("/penalties")
     @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
@@ -388,6 +391,7 @@ public class AttendanceController {
             @RequestParam(required = false) String location,
             @RequestParam(required = false) String search,
             Principal principal) {
+        exceptionService.detectForCaller(principal.getName(), from, to);
         return attendancePenaltyService.list(principal.getName(), from, to, status, discrepancyType, department, location, search);
     }
 

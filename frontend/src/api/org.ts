@@ -26,6 +26,9 @@ export interface DepartmentRow {
 }
 export interface DesignationRow {
   id: string; title: string; grade: string | null; level: string | null;
+  // Nullable only for rows created before designations were department-scoped (V202) and not
+  // yet re-saved — every designation created/edited through this page now requires one.
+  departmentId: string | null; departmentName: string | null;
   active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
 }
 export interface LocationRow {
@@ -135,13 +138,13 @@ export const orgApi = {
   listDesignations: (token: string) =>
     fetch(`${BASE}/designations`, { headers: authHeaders(token) }).then(r => handle<DesignationRow[]>(r)),
 
-  createDesignation: (token: string, title: string, grade?: string, level?: string) =>
+  createDesignation: (token: string, title: string, departmentId: string, grade?: string, level?: string) =>
     fetch(`${BASE}/designations`, {
       method: 'POST', headers: authHeaders(token),
-      body: JSON.stringify({ title, grade: grade || undefined, level: level || undefined }),
+      body: JSON.stringify({ title, departmentId, grade: grade || undefined, level: level || undefined }),
     }).then(r => handle<DesignationRow>(r)),
 
-  updateDesignation: (token: string, id: string, payload: { title: string; grade?: string; level?: string }) =>
+  updateDesignation: (token: string, id: string, payload: { title: string; departmentId: string; grade?: string; level?: string }) =>
     fetch(`${BASE}/designations/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(r => handle<DesignationRow>(r)),
 

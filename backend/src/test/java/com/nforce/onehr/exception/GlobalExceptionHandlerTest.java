@@ -36,6 +36,17 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void unreadableRequestBody_returns400_notGeneric500() {
+        ResponseEntity<ApiError> response = handler.handleUnreadableBody(
+                new org.springframework.http.converter.HttpMessageNotReadableException(
+                        "JSON parse error: Cannot deserialize value of type BenchReasonCode from String \"VACATION\"",
+                        mock(org.springframework.http.HttpInputMessage.class)));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("Request body is missing or invalid", response.getBody().getMessage());
+    }
+
+    @Test
     void genuinelyUnhandledException_stillReturns500WithGenericMessage() {
         ResponseEntity<ApiError> response = handler.handleGeneral(new RuntimeException("boom"));
 

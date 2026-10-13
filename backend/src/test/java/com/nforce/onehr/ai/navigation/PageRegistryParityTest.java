@@ -168,8 +168,17 @@ class PageRegistryParityTest {
         }
     }
 
+    private static final Set<String> NON_NAV_PAGES = Set.of(
+            "profile", "notifications",
+            // My Team's own tabs/report categories (ONEHR - My Team AI access): reached via
+            // ?tab=/?category= on the one my-team nav item, never a sidebar entry of their own -
+            // see MyTeamDataProviders and frontend/src/lib/ai/pageTargets.ts's matching entries.
+            "my-team-efforts", "my-team-negligence", "my-team-penalties", "my-team-assignments",
+            "my-team-reports", "my-team-reports-attendance", "my-team-reports-punctuality",
+            "my-team-reports-negligence", "my-team-reports-requests");
+
     private boolean isNonNavPage(String pageId) {
-        return Set.of("profile", "notifications").contains(pageId);
+        return NON_NAV_PAGES.contains(pageId);
     }
 
     /** Extracts {@code NAV} from nav.config.ts as role to (key to item). */

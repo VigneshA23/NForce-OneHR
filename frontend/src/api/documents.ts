@@ -43,7 +43,7 @@ export interface EmployeeDocument {
   fileUrl: string;
   issueDate: string | null;
   expiryDate: string | null;
-  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED';
+  status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED' | 'WITHDRAWN';
   verifiedBy: string | null;
   verifiedAt: string | null;
   rejectionReason: string | null;
@@ -154,6 +154,12 @@ export async function uploadDocument(token: string, params: {
   return handle(await fetch(`${BASE_DOCS}/my/upload`, { method: 'POST', headers: authOnly(token), body: form }));
 }
 
+// Withdraws the caller's own document still awaiting review, freeing the slot for a fresh
+// upload instead of silently orphaning it (see DocumentService.withdrawDocument).
+export async function withdrawDocument(token: string, id: string): Promise<EmployeeDocument> {
+  return handle(await fetch(`${BASE_DOCS}/my/${id}/withdraw`, { method: 'POST', headers: authHeaders(token) }));
+}
+
 // ── HR/SA Admin ────────────────────────────────────────────
 
 export async function listAllDocuments(token: string): Promise<EmployeeDocument[]> {
@@ -190,11 +196,21 @@ export async function fetchDocumentFile(token: string, id: string): Promise<stri
   return URL.createObjectURL(blob);
 }
 
+// HR/SA only, scoped to one employee — e.g. the Onboarding workflow's "View Documents" action.
+// Never returns another employee's documents.
+export async function documentsForEmployee(token: string, employeeUserId: string): Promise<EmployeeDocument[]> {
+  return handle(await fetch(`${BASE_DOCS}/employee/${employeeUserId}`, { headers: authHeaders(token) }));
+}
+
 export async function listMissingDocuments(token: string): Promise<MissingDocument[]> {
   return handle(await fetch(`${BASE_DOCS}/missing`, { headers: authHeaders(token) }));
 }
 
 export async function remindMissingDocument(token: string, employeeUserId: string, documentTypeId: number): Promise<void> {
   const res = await fetch(`${BASE_DOCS}/remind/${employeeUserId}/${documentTypeId}`, { method: 'POST', headers: authOnly(token) });
-  if (!res.ok) throw new Error(`Remind failed (${res.status})`);
+  if (!res.ok) {
+    let body: { message?: string } = {};
+    try { body = await res.json(); } catch { /* non-json */ }
+    throw new Error(body.message ?? `Remind failed (${res.status})`);
+  }
 }

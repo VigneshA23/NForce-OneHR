@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Plus, Check, X, ShieldAlert } from 'lucide-react';
+import { Plus, X, ShieldAlert } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { KebabMenu } from '../components/KebabMenu';
 import {
   workflowRulesApi, type ApprovalRule, type ApprovalRuleMetadata, type ApprovalRulePreview,
 } from '../api/workflowRules';
@@ -47,8 +48,14 @@ export const EMPTY_FORM: RuleFormValues = {
 
 /** MANAGER is always stage one (structural, not configurable — see backend's own validation)
  *  followed by whichever roles the admin picked for the "second approval" branch. */
+// Stages run in this order (see ExpenseService#finalApprove), so they're saved in hierarchy
+// order rather than the order the checkboxes happened to be ticked — ticking Super Admin before
+// HR Admin must still mean Manager → HR Admin → Super Admin.
+const SECOND_APPROVAL_ORDER = ['HR_ADMIN', 'SUPER_ADMIN'];
+
 export function stagesFromForm(values: RuleFormValues): string[] {
-  return ['MANAGER', ...values.secondApprovalRoles.filter(r => r !== 'MANAGER')];
+  const rank = (r: string) => { const i = SECOND_APPROVAL_ORDER.indexOf(r); return i === -1 ? SECOND_APPROVAL_ORDER.length : i; };
+  return ['MANAGER', ...values.secondApprovalRoles.filter(r => r !== 'MANAGER').sort((a, b) => rank(a) - rank(b))];
 }
 
 /** Client-side validation mirroring the backend's ApprovalRuleService#validateCore — backend
@@ -84,6 +91,8 @@ export function validateRuleForm(values: RuleFormValues, metadata: ApprovalRuleM
   }
   if (values.secondApprovalRoles.some(r => r === 'MANAGER')) {
     errors.push('MANAGER is always included automatically and cannot be selected as a second-approval role');
+  } else if (values.secondApprovalRoles.length === 0) {
+    errors.push('At least one second-approval role (HR Admin or Super Admin) is required');
   }
   return errors;
 }
@@ -435,6 +444,24 @@ export default function WorkflowStudioPage() {
         )}
       </div>
 
+      {/* Approval Center's own routing never goes unconfigured — ApprovalRuleEvaluationService
+       * falls back to Manager -> HR Admin, unconditionally, whenever a request type has no active
+       * rule (see its legacyDefault()). That fallback is otherwise invisible here: this page only
+       * ever showed configured rules, never the routing new requests actually get without one. */}
+      {metadata && !loading && !loadError && metadata.requestTypes
+        .filter(rt => !rules.some(r => r.requestType === rt && r.active))
+        .map(rt => (
+          <div key={rt} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 16px', marginBottom: 14,
+            borderRadius: 8, background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.28)',
+          }}>
+            <ShieldAlert size={16} style={{ color: 'var(--info)', flexShrink: 0, marginTop: 1 }} />
+            <span style={{ fontSize: 12.5, color: 'var(--txt)', lineHeight: 1.5 }}>
+              No active rule for <b>{rt}</b> — new {rt.toLowerCase()} requests default to <b>Manager → HR Admin</b> approval until a rule is activated.
+            </span>
+          </div>
+        ))}
+
       <div style={card}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
@@ -466,21 +493,18 @@ export default function WorkflowStudioPage() {
                   <td style={tdS}><StatusPill active={rule.active} /></td>
                   <td style={{ ...tdS, whiteSpace: 'nowrap' }}>{rule.updatedByName ?? rule.createdByName}</td>
                   <td style={{ ...tdS, whiteSpace: 'nowrap' }}>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => openEdit(rule)} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12 }}>Edit</button>
-                      {rule.active ? (
-                        <button onClick={() => setConfirmTarget({ rule, action: 'deactivate' })} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12 }}>Deactivate</button>
-                      ) : (
-                        <>
-                          <button onClick={() => setConfirmTarget({ rule, action: 'activate' })} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12, background: 'rgba(47,182,124,.15)', borderColor: 'rgba(47,182,124,.3)', color: '#2FB67C' }}>
-                            <Check size={12} style={{ verticalAlign: -1 }} /> Activate
-                          </button>
-                          <button onClick={() => setConfirmTarget({ rule, action: 'delete' })} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12, background: 'rgba(228,55,61,.1)', borderColor: 'rgba(228,55,61,.28)', color: '#E4373D' }}>
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    {/* Kebab menu, matching the row-actions pattern used across the other admin
+                        tables (User Management, Policies & Announcements) — see hr-ux-audit
+                        finding UI-004 — rather than this table's own always-visible text links. */}
+                    <KebabMenu items={[
+                      { label: 'Edit', onClick: () => openEdit(rule) },
+                      ...(rule.active
+                        ? [{ label: 'Deactivate', onClick: () => setConfirmTarget({ rule, action: 'deactivate' as const }) }]
+                        : [
+                            { label: 'Activate', onClick: () => setConfirmTarget({ rule, action: 'activate' as const }) },
+                            { label: 'Delete', onClick: () => setConfirmTarget({ rule, action: 'delete' as const }), danger: true },
+                          ]),
+                    ]} />
                   </td>
                 </tr>
               ))}

@@ -30,10 +30,21 @@ import java.util.Optional;
  * <p>So: retrieval filters on buckets; navigation authorises on {@code ShellRole}.
  */
 public enum ShellRole {
-    EMPLOYEE,
-    MANAGER,
-    HR_ADMIN,
-    SUPER_ADMIN;
+    EMPLOYEE("Employee"),
+    MANAGER("Manager"),
+    HR_ADMIN("HR Admin"),
+    SUPER_ADMIN("Super Admin");
+
+    private final String label;
+
+    ShellRole(String label) {
+        this.label = label;
+    }
+
+    /** The role's name as the sidebar and the rest of OneHR write it. */
+    public String label() {
+        return label;
+    }
 
     /**
      * Server-side mirror of {@code nav.config.ts#toShellRole}.

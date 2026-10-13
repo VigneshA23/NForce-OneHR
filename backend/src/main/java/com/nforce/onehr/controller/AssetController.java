@@ -51,6 +51,11 @@ public class AssetController {
         return assetService.myRequests(principal.getName());
     }
 
+    @PostMapping("/requests/{id}/withdraw")
+    public AssetRequestResponse withdrawRequest(@PathVariable Long id, Principal principal) {
+        return assetService.withdrawRequest(id, principal.getName());
+    }
+
     // ── Approval Center: pending requests ─────────────────
     // Decisions are made HERE — not on any other page.
 

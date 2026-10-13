@@ -89,7 +89,7 @@ function NavItemRow({ item }: { item: NavItem }) {
 // ── PDF export ─────────────────────────────────────────────────────────────────
 async function exportRoleGuidePdf(contentRef: React.RefObject<HTMLDivElement | null>, role: Role) {
   if (!contentRef.current) return;
-  const { default: html2canvas } = await import('html2canvas');
+  const { default: html2canvas } = await import('html2canvas-pro');
   const { jsPDF } = await import('jspdf');
 
   const canvas = await html2canvas(contentRef.current, {

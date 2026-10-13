@@ -13,6 +13,7 @@ export interface BirthdayEntry {
   userId: string;
   fullName: string;
   departmentName: string | null;
+  designationName: string | null;
   birthdayMonth: number;
   birthdayDay: number;
   daysUntil: number;

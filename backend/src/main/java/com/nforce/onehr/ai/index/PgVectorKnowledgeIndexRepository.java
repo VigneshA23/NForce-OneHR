@@ -192,6 +192,35 @@ public class PgVectorKnowledgeIndexRepository implements KnowledgeIndexRepositor
         return jdbc.query(sql, RESULT_MAPPER, params.toArray());
     }
 
+    @Override
+    public List<RetrievalResult> findByIds(Set<String> knowledgeIds, Set<AudienceBucket> audiences, double score) {
+        if (knowledgeIds == null || knowledgeIds.isEmpty() || audiences == null || audiences.isEmpty()) {
+            return List.of();
+        }
+
+        StringJoiner idPlaceholders = new StringJoiner(", ");
+        StringJoiner audiencePlaceholders = new StringJoiner(", ");
+        List<Object> params = new ArrayList<>();
+        params.add(score);
+        knowledgeIds.forEach(id -> idPlaceholders.add("?"));
+        params.addAll(knowledgeIds);
+        audiences.forEach(a -> audiencePlaceholders.add("?"));
+        audiences.forEach(a -> params.add(a.name()));
+
+        String sql = """
+                SELECT c.knowledge_id, c.chunk_ordinal, c.knowledge_type, c.module, c.page_id,
+                       c.source_ref, c.title, c.body, ? AS score
+                FROM ai_knowledge_chunk c
+                WHERE c.knowledge_id IN (%s)
+                  AND EXISTS (
+                      SELECT 1 FROM ai_knowledge_chunk_audience a
+                      WHERE a.chunk_id = c.id AND a.audience IN (%s)
+                  )
+                """.formatted(idPlaceholders.toString(), audiencePlaceholders.toString());
+
+        return jdbc.query(sql, RESULT_MAPPER, params.toArray());
+    }
+
     private static final RowMapper<RetrievalResult> RESULT_MAPPER = (rs, rowNum) ->
             RetrievalResult.builder()
                     .knowledgeId(rs.getString("knowledge_id"))

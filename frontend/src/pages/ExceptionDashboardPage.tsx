@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { exceptionsApi, type ExceptionRecord } from '../api/exceptions';
+import { TablePagination, PAGE_SIZE_OPTIONS, clampPage, paginate } from '../components/TablePagination';
 
 const inputStyle: React.CSSProperties = { background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
@@ -64,6 +65,8 @@ export default function ExceptionDashboardPage() {
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'LATE_ARRIVAL' | 'MISSING_PUNCH' | 'WORK_HOURS_SHORTAGE'>('ALL');
   const [exceptions, setExceptions] = useState<ExceptionRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
 
   const isHrOrSuperAdmin = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
   const subtitle = isHrOrSuperAdmin
@@ -93,6 +96,11 @@ export default function ExceptionDashboardPage() {
     () => typeFilter === 'ALL' ? exceptions : exceptions.filter(exc => exc.exceptionType === typeFilter),
     [exceptions, typeFilter],
   );
+  // Back to page 1 whenever the filtered set changes — otherwise narrowing the date range or
+  // type filter can strand the view on a now-empty page past the new (shorter) result count.
+  useEffect(() => { setPage(1); }, [from, to, typeFilter]);
+  const currentPage = clampPage(page, visibleExceptions.length, pageSize);
+  const pageRows = paginate(visibleExceptions, currentPage, pageSize);
 
   const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
   const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
@@ -145,7 +153,7 @@ export default function ExceptionDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleExceptions.map(exc => (
+                {pageRows.map(exc => (
                   <tr key={exc.id}>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{exc.employeeFullName ?? exc.employeeUserId}</td>
                     <td style={tdStyle}><ExceptionTypeBadge type={exc.exceptionType} /></td>
@@ -158,6 +166,11 @@ export default function ExceptionDashboardPage() {
                 ))}
               </tbody>
             </table>
+            <TablePagination
+              page={currentPage} pageSize={pageSize} total={visibleExceptions.length}
+              onPageChange={setPage} onPageSizeChange={size => { setPageSize(size); setPage(1); }}
+              noun="exceptions"
+            />
           </div>
         )}
       </div>

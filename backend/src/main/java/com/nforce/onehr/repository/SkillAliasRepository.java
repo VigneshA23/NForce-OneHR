@@ -1,0 +1,19 @@
+package com.nforce.onehr.repository;
+
+import com.nforce.onehr.entity.SkillAlias;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+@Repository
+public interface SkillAliasRepository extends JpaRepository<SkillAlias, UUID> {
+
+    Optional<SkillAlias> findByNormalizedAlias(String normalizedAlias);
+
+    List<SkillAlias> findBySkillId(UUID skillId);
+
+    void deleteBySkillId(UUID skillId);
+}

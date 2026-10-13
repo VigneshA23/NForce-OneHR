@@ -35,6 +35,11 @@ public interface AttendancePenaltyRepository extends JpaRepository<AttendancePen
     List<AttendancePenalty> findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
             UUID employeeUserId, LocalDate from, LocalDate to, String status);
 
+    // ONEHR-645: backs LeaveService#listMyRequests's penalty-deduction rows — every still-active
+    // penalty that actually debited this employee's leave balance.
+    List<AttendancePenalty> findByEmployeeUserIdAndStatusAndLeaveDeductionDaysGreaterThan(
+            UUID employeeUserId, String status, java.math.BigDecimal minDays);
+
     // Backs PenalisationPolicyManagementService#delete's historical-integrity guard — AttendancePenalty
     // deliberately has no FK on policyId (a deleted policy must never orphan a historical penalty's
     // own record of what happened), so this existence check is the only way to detect the reference

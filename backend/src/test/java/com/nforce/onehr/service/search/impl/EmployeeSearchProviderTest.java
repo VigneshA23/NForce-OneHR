@@ -85,9 +85,22 @@ class EmployeeSearchProviderTest {
     }
 
     @Test
-    void detailUrl_pointsAtExistingDirectoryDeepLink() {
+    void detailUrl_pointsAtFullProfilePage() {
         SearchResultItem item = provider.preview(anyActor(), "john", 10).items().get(0);
-        assertEquals("/directory?userId=u-exact", item.getDetailUrl());
+        assertEquals("/profile/u-exact", item.getDetailUrl());
+    }
+
+    @Test
+    void detailUrl_forActorsOwnRecord_pointsAtSelfServiceProfileNotReadOnlyView() {
+        User self = User.builder().id(UUID.randomUUID()).email("someone@test.com")
+                .roles(Set.of(Role.builder().code("EMPLOYEE").build())).build();
+        lenient().when(employeeService.listDirectory()).thenReturn(List.of(
+                DirectoryEntryDto.builder().userId(self.getId().toString()).fullName("John")
+                        .employeeCode("NF-300").email("john@test.com").active(true).build()
+        ));
+
+        SearchResultItem item = provider.preview(self, "john", 10).items().get(0);
+        assertEquals("/profile", item.getDetailUrl());
     }
 
     @Test

@@ -164,8 +164,10 @@ public class AuthService {
             throw new IllegalArgumentException("New password and confirmation do not match");
         }
 
-        if (passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())) {
-            throw new IllegalArgumentException("New password must differ from current password");
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())
+                || (user.getPreviousPasswordHash() != null
+                        && passwordEncoder.matches(request.getNewPassword(), user.getPreviousPasswordHash()))) {
+            throw new IllegalArgumentException("You cannot reuse your previous password. Please choose a different password.");
         }
 
         // Minimum length, max length, whitespace, and character-class complexity are already
@@ -174,7 +176,7 @@ public class AuthService {
         // second, driftable copy of the same policy. See PasswordPolicy for the single source
         // of truth these annotations share.
 
-        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.updatePasswordHash(passwordEncoder.encode(request.getNewPassword()));
         user.setMustChangePassword(false);
         // Invalidates every JWT already issued to this user (see JwtAuthenticationFilter) —
         // their very next API call fails auth. The token minted just below carries this new
@@ -215,7 +217,7 @@ public class AuthService {
         }
 
         String tempPassword = generateTempPassword();
-        user.setPasswordHash(passwordEncoder.encode(tempPassword));
+        user.updatePasswordHash(passwordEncoder.encode(tempPassword));
         user.setMustChangePassword(true);
         // Invalidates any JWT issued under the old password (see JwtAuthenticationFilter).
         user.setTokenVersion(user.getTokenVersion() + 1);

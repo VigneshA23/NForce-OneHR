@@ -54,11 +54,17 @@ class HelpContentServiceTest {
 
     private final UUID employeeId = UUID.randomUUID();
     private final UUID hrAdminId = UUID.randomUUID();
+    private final UUID otherAdminId = UUID.randomUUID();
+    private final UUID superAdminId = UUID.randomUUID();
     private final String employeeEmail = "employee@test.com";
     private final String hrAdminEmail = "hr@test.com";
+    private final String otherAdminEmail = "hr2@test.com";
+    private final String superAdminEmail = "sa@test.com";
 
     private User employeeUser;
     private User hrAdminUser;
+    private User otherAdminUser;
+    private User superAdminUser;
 
     @BeforeEach
     void setUp() {
@@ -66,12 +72,22 @@ class HelpContentServiceTest {
                 .roles(Set.of(Role.builder().code("EMPLOYEE").build())).build();
         hrAdminUser = User.builder().id(hrAdminId).email(hrAdminEmail).active(true)
                 .roles(Set.of(Role.builder().code("HR_ADMIN").build())).build();
+        // A second HR Admin, unrelated to any content created by hrAdminUser — used to prove
+        // creation access alone never grants ownership of another admin's draft.
+        otherAdminUser = User.builder().id(otherAdminId).email(otherAdminEmail).active(true)
+                .roles(Set.of(Role.builder().code("HR_ADMIN").build())).build();
+        // Super Admin gets no blanket bypass of draft ownership either (unlike its fallback
+        // approval-center authority elsewhere in this service).
+        superAdminUser = User.builder().id(superAdminId).email(superAdminEmail).active(true)
+                .roles(Set.of(Role.builder().code("SUPER_ADMIN").build())).build();
 
         lenient().when(employeeRepo.findById(any())).thenReturn(Optional.empty());
         lenient().when(userRepo.findById(employeeId)).thenReturn(Optional.of(employeeUser));
         lenient().when(userRepo.findById(hrAdminId)).thenReturn(Optional.of(hrAdminUser));
         lenient().when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         lenient().when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        lenient().when(userRepo.findByEmail(otherAdminEmail)).thenReturn(Optional.of(otherAdminUser));
+        lenient().when(userRepo.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
         // No audience rows by default anywhere — "visible to everyone", same as this feature's
         // pre-existing unfiltered behavior. Tests exercising audience targeting override this.
         lenient().when(audienceRepo.findByContentId(any())).thenReturn(List.of());
@@ -189,6 +205,201 @@ class HelpContentServiceTest {
 
         assertThrows(IllegalArgumentException.class, () -> service.create(req, hrAdminEmail));
         verify(repo, never()).save(any());
+    }
+
+    // ── Draft visibility: private to its creator (ONEHR-505) ────
+    //
+    // getForAdmin is the single-item admin read path; listAll's own DRAFT-vs-creator filtering
+    // is Specification-based and covered separately by HelpContentSpecificationsTest (a real
+    // JPA context), consistent with this suite's stated avoidance of testing Specification
+    // composition against mocks.
+
+    @Test
+    void getForAdmin_ownDraft_isVisibleToCreator() {
+        HelpContent draft = faq(); // createdBy = hrAdminId, status defaults to DRAFT
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        HelpContentDetailDto detail = service.getForAdmin(draft.getId(), hrAdminEmail);
+
+        assertEquals(draft.getId(), detail.getId());
+        assertEquals("DRAFT", detail.getStatus());
+    }
+
+    @Test
+    void getForAdmin_anotherAdminsDraft_isNotExposed() {
+        UUID otherAdminId = UUID.randomUUID();
+        String otherAdminEmail = "hr2@test.com";
+        User otherAdmin = User.builder().id(otherAdminId).email(otherAdminEmail).active(true)
+                .roles(Set.of(Role.builder().code("HR_ADMIN").build())).build();
+        when(userRepo.findByEmail(otherAdminEmail)).thenReturn(Optional.of(otherAdmin));
+
+        HelpContent draft = faq(); // createdBy = hrAdminId, not otherAdminId
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        assertThrows(NoSuchElementException.class, () -> service.getForAdmin(draft.getId(), otherAdminEmail));
+    }
+
+    @Test
+    void getForAdmin_anotherAdminsDraft_isNotExposedEvenToSuperAdmin() {
+        // Creation access (or SUPER_ADMIN itself) does not imply access to another user's draft —
+        // only the resolved approver/creator/submit-for-review flow does, and this content was
+        // never submitted.
+        UUID superAdminId = UUID.randomUUID();
+        String superAdminEmail = "sa@test.com";
+        User superAdmin = User.builder().id(superAdminId).email(superAdminEmail).active(true)
+                .roles(Set.of(Role.builder().code("SUPER_ADMIN").build())).build();
+        when(userRepo.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdmin));
+
+        HelpContent draft = faq(); // createdBy = hrAdminId
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        assertThrows(NoSuchElementException.class, () -> service.getForAdmin(draft.getId(), superAdminEmail));
+    }
+
+    @Test
+    void getForAdmin_anotherAdminsPublishedContent_remainsVisible() {
+        // Existing published-content visibility must be unaffected — only DRAFT is restricted.
+        UUID otherAdminId = UUID.randomUUID();
+        String otherAdminEmail = "hr2@test.com";
+        User otherAdmin = User.builder().id(otherAdminId).email(otherAdminEmail).active(true)
+                .roles(Set.of(Role.builder().code("HR_ADMIN").build())).build();
+        when(userRepo.findByEmail(otherAdminEmail)).thenReturn(Optional.of(otherAdmin));
+
+        HelpContent published = HelpContent.builder().id(UUID.randomUUID()).type(HelpContentType.FAQ.name())
+                .title("Published FAQ").status("PUBLISHED").createdBy(hrAdminId).build();
+        when(repo.findById(published.getId())).thenReturn(Optional.of(published));
+
+        HelpContentDetailDto detail = service.getForAdmin(published.getId(), otherAdminEmail);
+
+        assertEquals(published.getId(), detail.getId());
+        assertEquals("PUBLISHED", detail.getStatus());
+    }
+
+    @Test
+    void getForAdmin_anotherAdminsPendingApprovalContent_remainsVisible() {
+        // The existing submit-for-review visibility (any admin can see submitted content in the
+        // shared queue) is an intentional, preserved exception to creator-only visibility.
+        UUID otherAdminId = UUID.randomUUID();
+        String otherAdminEmail = "hr2@test.com";
+        User otherAdmin = User.builder().id(otherAdminId).email(otherAdminEmail).active(true)
+                .roles(Set.of(Role.builder().code("HR_ADMIN").build())).build();
+        when(userRepo.findByEmail(otherAdminEmail)).thenReturn(Optional.of(otherAdmin));
+
+        HelpContent pending = HelpContent.builder().id(UUID.randomUUID()).type(HelpContentType.FAQ.name())
+                .title("Submitted FAQ").status("PENDING_APPROVAL").createdBy(hrAdminId).build();
+        when(repo.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        HelpContentDetailDto detail = service.getForAdmin(pending.getId(), otherAdminEmail);
+
+        assertEquals(pending.getId(), detail.getId());
+        assertEquals("PENDING_APPROVAL", detail.getStatus());
+    }
+
+    // ── Draft ownership: mutation authorization (residual fix, ONEHR-465/505 follow-up) ────
+    //
+    // getForAdmin's creator-only gate (above) also governs every mutation entry point that
+    // accepts a raw content id, via the shared #assertDraftOwner check — verified below for
+    // every write path that can reach a DRAFT (update/submit/delete/attachment mutations).
+    // withdraw is NOT covered here: it only ever operates on PENDING_APPROVAL content (never
+    // DRAFT — see its own status guard), and its pre-existing creator-or-SuperAdmin check (see
+    // withdraw_byNonAuthor_isDenied above) is untouched, intentional workflow.
+
+    @Test
+    void update_anotherAdminsDraft_isRejected() {
+        HelpContent draft = faq(); // createdBy = hrAdminId
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+        UpdateHelpContentRequest req = new UpdateHelpContentRequest();
+        req.setTitle("Hijacked title");
+
+        assertThrows(NoSuchElementException.class, () -> service.update(draft.getId(), req, otherAdminEmail));
+        verify(repo, never()).save(argThat(c -> "Hijacked title".equals(c.getTitle())));
+    }
+
+    @Test
+    void update_anotherAdminsDraft_isRejectedEvenForSuperAdmin() {
+        // Creation access (or SUPER_ADMIN itself) does not imply ownership of another user's draft.
+        HelpContent draft = faq();
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+        UpdateHelpContentRequest req = new UpdateHelpContentRequest();
+        req.setTitle("Hijacked title");
+
+        assertThrows(NoSuchElementException.class, () -> service.update(draft.getId(), req, superAdminEmail));
+    }
+
+    @Test
+    void update_ownDraft_stillSucceeds() {
+        // Regression guard: the new ownership check must not block the legitimate creator.
+        HelpContent draft = faq();
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+        UpdateHelpContentRequest req = new UpdateHelpContentRequest();
+        req.setTitle("Creator's own edit");
+
+        HelpContentDetailDto result = service.update(draft.getId(), req, hrAdminEmail);
+
+        assertEquals("Creator's own edit", result.getTitle());
+    }
+
+    @Test
+    void editingAnotherAdminsPublishedContent_remainsAllowed() {
+        // Existing shared-authority behavior for non-DRAFT content must be unaffected: any admin
+        // may edit PUBLISHED content (forking a new draft revision) even though they didn't
+        // create the original — only a DRAFT is creator-locked.
+        HelpContent published = HelpContent.builder().id(UUID.randomUUID()).type(HelpContentType.FAQ.name())
+                .title("Original").status("PUBLISHED").createdBy(hrAdminId).build();
+        when(repo.findById(published.getId())).thenReturn(Optional.of(published));
+        when(attachmentRepo.findByContentIdOrderByDisplayOrderAsc(published.getId())).thenReturn(List.of());
+        UpdateHelpContentRequest req = new UpdateHelpContentRequest();
+        req.setTitle("Edited by another admin");
+
+        HelpContentDetailDto revision = service.update(published.getId(), req, otherAdminEmail);
+
+        assertEquals("DRAFT", revision.getStatus());
+        assertNotEquals(published.getId(), revision.getId());
+    }
+
+    @Test
+    void submit_anotherAdminsDraft_isRejected() {
+        HelpContent draft = faq();
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        assertThrows(NoSuchElementException.class, () -> service.submit(draft.getId(), otherAdminEmail));
+        verify(approvalRepo, never()).save(any());
+    }
+
+    @Test
+    void delete_anotherAdminsDraft_isRejected() {
+        HelpContent draft = faq();
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        assertThrows(NoSuchElementException.class, () -> service.delete(draft.getId(), otherAdminEmail));
+        verify(repo, never()).delete(any(HelpContent.class));
+    }
+
+    @Test
+    void delete_anotherAdminsDraft_isRejectedEvenForSuperAdmin() {
+        HelpContent draft = faq();
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        assertThrows(NoSuchElementException.class, () -> service.delete(draft.getId(), superAdminEmail));
+    }
+
+    @Test
+    void addAttachment_toAnotherAdminsDraft_isRejected() throws IOException {
+        HelpContent draft = faq();
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+        MockMultipartFile file = new MockMultipartFile("file", "doc.pdf", "application/pdf", "hi".getBytes());
+
+        assertThrows(NoSuchElementException.class, () -> service.addAttachment(draft.getId(), file, otherAdminEmail));
+        verify(attachmentRepo, never()).save(any());
+    }
+
+    @Test
+    void removeAttachment_fromAnotherAdminsDraft_isRejected() {
+        HelpContent draft = faq();
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        assertThrows(NoSuchElementException.class,
+                () -> service.removeAttachment(draft.getId(), UUID.randomUUID(), otherAdminEmail));
     }
 
     // ── Submission & approver resolution ────────────────────────

@@ -52,6 +52,9 @@ export interface ExpenseClaimResponse {
   managerDecidedByName: string | null;
   managerDecidedAt: string | null;
   managerRejectionReason: string | null;
+  // MANAGER / HR_ADMIN / SUPER_ADMIN — which role actually decided the Manager stage.
+  // HR_ADMIN/SUPER_ADMIN means an HR Admin/Super Admin override of the real reporting manager.
+  managerApprovedByRole: string | null;
   finalDecidedByName: string | null;
   finalDecidedAt: string | null;
   finalRejectionReason: string | null;

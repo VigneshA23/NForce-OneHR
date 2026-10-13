@@ -1,7 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Check, Search, X } from 'lucide-react';
+import {
+  CalendarClock, CalendarDays, Check, CheckCircle2, ClipboardCheck, Clock, FileText, Hourglass, Home, Package, Search, Wallet, X,
+  type LucideIcon,
+} from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
 import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApproval';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
@@ -14,13 +18,12 @@ import { attendanceRequestApi } from '../api/attendanceRequests';
 import { overtimeRequestApi } from '../api/overtimeRequests';
 import { useToast } from '../context/ToastContext';
 import { formatDurationMinutes } from '../context/TimeFormatContext';
+import './ApprovalsPage.css';
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
-const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 
 const TYPE_LABELS: Record<RequestType, string> = {
   LEAVE: 'Leave',
@@ -63,9 +66,22 @@ const TYPE_TEXT: Record<RequestType, string> = {
   HELP_CONTENT: '#14B8A6',
 };
 
+const TYPE_ICONS: Record<RequestType, LucideIcon> = {
+  LEAVE: CalendarDays,
+  REGULARIZATION: CalendarClock,
+  EXPENSE: Wallet,
+  ASSET_REQUEST: Package,
+  WFH: Home,
+  PARTIAL_DAY: Hourglass,
+  OVERTIME: Clock,
+  HELP_CONTENT: FileText,
+};
+
 const EMPTY_VALUE = '—';
 
 type ReviewMode = 'approve' | 'reject';
+/** 'review' = opened by clicking the row itself: details first, with both decisions available. */
+type ReviewModalMode = ReviewMode | 'review';
 
 /** Composite identity for a queue row — a plain requestType+id pair collides across types
  *  (e.g. a LEAVE id and an EXPENSE id can be numerically equal), so every place that needs to
@@ -322,7 +338,7 @@ function HelpContentReviewSection({ item, token }: { item: ApprovalItem; token: 
 
 function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
   item: ApprovalItem;
-  mode: ReviewMode;
+  mode: ReviewModalMode;
   onClose: () => void;
   onApproved: () => void;
   onRejected: () => void;
@@ -332,6 +348,24 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
   const [rejectReason, setRejectReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [viewingReceipt, setViewingReceipt] = useState(false);
+  // Only a row click ('review') can step into the reject reason from inside the modal; the
+  // row's own Approve/Reject icons still open straight into their single decision as before.
+  const [activeMode, setActiveMode] = useState<ReviewModalMode>(mode);
+
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Escape closes only when nothing is stacked on top — the receipt / attachment / changes
+  // viewers render as nested fixed overlays inside this one and have no Escape handling of
+  // their own, so without this check Escape there would close the whole review.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape' || submitting) return;
+      if (overlayRef.current?.querySelector('div[style*="position: fixed"]')) return;
+      onClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose, submitting]);
 
   async function handleApprove() {
     setSubmitting(true);
@@ -360,45 +394,54 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
     }
   }
 
+  const approveButton = (
+    <button className="apv-btn" onClick={handleApprove} disabled={submitting} style={{ background: submitting ? 'var(--raised2)' : 'rgba(47,182,124,.15)', border: '1px solid rgba(47,182,124,.3)', color: '#2FB67C' }}>
+      <Check size={14} /> {submitting ? 'Approving…' : 'Approve'}
+    </button>
+  );
+
   return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <TypeBadge type={item.requestType} />
-            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
+    <div ref={overlayRef} className="apv-overlay" role="dialog" aria-modal="true" aria-label={`${TYPE_LABELS[item.requestType]} request from ${item.employeeName}`}>
+      <div className="apv-modal">
+        <div className="apv-modal-head">
+          <EmployeeAvatar userId={item.employeeUserId} name={item.employeeName} size={38} fontSize={13} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {item.employeeName}
-            </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+              <TypeBadge type={item.requestType} />
+              <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Submitted {fmtDate(item.createdAt)}</span>
+            </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignSelf: 'flex-start' }}><X size={16} /></button>
         </div>
 
-        <div style={{ padding: 20 }}>
+        <div className="apv-modal-body">
           {item.requestType === 'LEAVE' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+            <div className="apv-detail-grid">
               <Row label="Type" value={item.leaveTypeName} />
-              <Row label="Dates" value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} />
               <Row label="Days" value={String(item.leaveTotalDays)} />
-              <Row label="Reason" value={item.leaveReason} />
+              <Row label="Dates" value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} span />
+              <Row label="Reason" value={item.leaveReason} span />
             </div>
           )}
 
           {item.requestType === 'REGULARIZATION' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              <Row label="Attendance Date" value={item.attendanceDate} />
+            <div className="apv-detail-grid">
+              <Row label="Attendance Date" value={item.attendanceDate} span />
               <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
               <Row label="Requested Check-out" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
-              <Row label="Reason" value={item.regularizationReason} />
+              <Row label="Reason" value={item.regularizationReason} span />
             </div>
           )}
 
           {item.requestType === 'EXPENSE' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              <Row label="Stage" value={item.approvalStage === 'FINAL' ? 'Pending Final Approval (HR/Admin)' : 'Pending Manager Review'} />
+            <div className="apv-detail-grid">
+              <Row label="Stage" value={item.approvalStage === 'FINAL' ? 'Pending Final Approval (HR/Admin)' : 'Pending Manager Review'} span />
               <Row label="Category" value={item.expenseCategoryName} />
               <Row label="Amount" value={fmtCurrency(item.expenseAmount ?? 0)} />
               <Row label="Expense Date" value={fmtDate(item.expenseDate)} />
-              <Row label="Business Purpose" value={item.businessPurpose} />
               <div>
                 <div style={labelStyle}>Receipt</div>
                 <button
@@ -408,59 +451,71 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
                   View Receipt
                 </button>
               </div>
+              <Row label="Business Purpose" value={item.businessPurpose} span />
             </div>
           )}
 
           {item.requestType === 'ASSET_REQUEST' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-              <Row label="Category Requested" value={item.requestedCategoryName} />
-              <Row label="Reason" value={item.assetRequestReason} />
+            <div className="apv-detail-grid">
+              <Row label="Category Requested" value={item.requestedCategoryName} span />
+              <Row label="Reason" value={item.assetRequestReason} span />
             </div>
           )}
 
           {(item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+            <div className="apv-detail-grid">
               <Row label="Date" value={item.attendanceDate} />
               {/* partialDayHours is stored as a decimal (e.g. 3.33 for 3h 20m) — round-trip
                   through minutes so the modal shows a precise "3h 20m" instead of that raw
                   fraction, matching the duration format used everywhere else in the app. */}
               {item.requestType === 'PARTIAL_DAY' && <Row label="Duration" value={item.partialDayHours != null ? (formatDurationMinutes(Math.round(item.partialDayHours * 60)) ?? undefined) : undefined} />}
-              <Row label="Reason" value={item.regularizationReason} />
+              <Row label="Reason" value={item.regularizationReason} span />
             </div>
           )}
 
           {item.requestType === 'OVERTIME' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+            <div className="apv-detail-grid">
               <Row label="Date" value={item.attendanceDate} />
               <Row label="Overtime Hours" value={fmtOvertimeHours(item.requestedCheckIn, item.requestedCheckOut)} />
-              <Row label="Reason" value={item.regularizationReason} />
+              <Row label="Reason" value={item.regularizationReason} span />
             </div>
           )}
 
           {item.requestType === 'HELP_CONTENT' && <HelpContentReviewSection item={item} token={token} />}
 
-          {mode === 'reject' ? (
-            <>
+          {activeMode === 'reject' && (
+            <div style={{ marginTop: 18 }}>
               <label style={labelStyle}>Rejection Reason *</label>
               <textarea
-                style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit', marginBottom: 12 }}
+                style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }}
                 value={rejectReason}
                 onChange={e => setRejectReason(e.target.value)}
                 placeholder="Why is this request being rejected?"
                 autoFocus
               />
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={handleReject} disabled={!rejectReason.trim() || submitting} style={{ background: rejectReason.trim() ? '#C0392B' : 'var(--raised2)', color: rejectReason.trim() ? '#fff' : 'var(--txt-dim)', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: !rejectReason.trim() || submitting ? 'not-allowed' : 'pointer' }}>
-                  {submitting ? 'Rejecting…' : 'Confirm Reject'}
-                </button>
-              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="apv-modal-foot">
+          {activeMode === 'reject' ? (
+            <>
+              {mode === 'review' && (
+                <button className="apv-btn apv-btn-ghost" onClick={() => setActiveMode('review')} disabled={submitting}>Back</button>
+              )}
+              <button className="apv-btn" onClick={handleReject} disabled={!rejectReason.trim() || submitting} style={{ background: rejectReason.trim() ? '#C0392B' : 'var(--raised2)', color: rejectReason.trim() ? '#fff' : 'var(--txt-dim)', border: 'none' }}>
+                {submitting ? 'Rejecting…' : 'Confirm Reject'}
+              </button>
+            </>
+          ) : activeMode === 'review' ? (
+            <>
+              <button className="apv-btn" onClick={() => setActiveMode('reject')} disabled={submitting} style={{ background: 'rgba(228,55,61,.12)', border: '1px solid rgba(228,55,61,.28)', color: '#E4373D' }}>
+                <X size={14} /> Reject
+              </button>
+              {approveButton}
             </>
           ) : (
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={handleApprove} disabled={submitting} style={{ display: 'flex', alignItems: 'center', gap: 5, background: submitting ? 'var(--raised2)' : 'rgba(47,182,124,.15)', border: '1px solid rgba(47,182,124,.3)', borderRadius: 7, padding: '9px 18px', fontSize: 13, color: '#2FB67C', cursor: submitting ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
-                <Check size={13} /> {submitting ? 'Approving…' : 'Approve'}
-              </button>
-            </div>
+            approveButton
           )}
         </div>
       </div>
@@ -575,9 +630,9 @@ function BulkActionModal({ items, mode, onClose, onDone, token }: {
   );
 }
 
-function Row({ label, value }: { label: string; value?: string | null }) {
+function Row({ label, value, span }: { label: string; value?: string | null; span?: boolean }) {
   return (
-    <div>
+    <div className={span ? 'apv-span' : undefined}>
       <div style={labelStyle}>{label}</div>
       <div style={{ fontSize: 13, color: 'var(--txt)' }}>{value ?? EMPTY_VALUE}</div>
     </div>
@@ -596,7 +651,7 @@ export default function ApprovalsPage() {
     return (ALL_TYPES as string[]).includes(t ?? '') ? (t as RequestType) : 'ALL';
   });
   const [employeeSearch, setEmployeeSearch] = useState('');
-  const [reviewing, setReviewing] = useState<{ item: ApprovalItem; mode: ReviewMode } | null>(null);
+  const [reviewing, setReviewing] = useState<{ item: ApprovalItem; mode: ReviewModalMode } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<ReviewMode | null>(null);
 
@@ -679,60 +734,56 @@ export default function ApprovalsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 18 }}>
-        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Approval Center</h1>
-        {/* Subheading stays left, search pushed to the far right of the same row via
-           space-between — search wraps below the subheading onto its own full-width line on
-           narrow/mobile viewports instead of being squeezed into the corner. */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginTop: 6 }}>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0 }}>All pending requests requiring your decision.</p>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6, flex: '0 1 min(240px, 100%)',
-            background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px',
-          }}>
-            <Search size={13} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} aria-hidden="true" />
+      <div className="apv-header">
+        <div className="apv-header-icon" aria-hidden="true"><ClipboardCheck size={22} /></div>
+        <div>
+          <h1 className="apv-title">Approval Center</h1>
+          <p className="apv-subtitle">All pending requests requiring your decision.</p>
+        </div>
+      </div>
+
+      {/* Search + request-type tabs in one card. Tabs scroll horizontally on narrow viewports
+         rather than wrapping into a tall block, so the table stays close to the filters. */}
+      <div className="apv-toolbar">
+        <div className="apv-toolbar-top">
+          <div className="apv-search">
+            <Search size={14} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} aria-hidden="true" />
             <input
               type="text"
               value={employeeSearch}
               onChange={e => setEmployeeSearch(e.target.value)}
               placeholder="Search employee…"
               aria-label="Search by employee name"
-              style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5, fontFamily: 'inherit' }}
             />
           </div>
+          {!loading && (
+            <span className="apv-result-count" aria-live="polite">
+              {filtered.length === items.length
+                ? `${items.length} pending request${items.length === 1 ? '' : 's'}`
+                : `Showing ${filtered.length} of ${items.length} pending`}
+            </span>
+          )}
         </div>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {(['ALL', ...ALL_TYPES] as const).map(t => (
-          <button
-            key={t}
-            onClick={() => setTypeFilter(t)}
-            style={{
-              padding: '6px 14px',
-              borderRadius: 20,
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: 'pointer',
-              border: 'none',
-              background: typeFilter === t ? 'var(--brand)' : 'var(--raised)',
-              color: typeFilter === t ? '#fff' : 'var(--txt-mut)',
-            }}
-          >
-            {t === 'ALL' ? 'All' : TYPE_LABELS[t]} {counts[t] > 0 && <span style={{ marginLeft: 4, background: 'rgba(255,255,255,.2)', borderRadius: 10, padding: '0 5px' }}>{counts[t]}</span>}
-          </button>
-        ))}
+        <div className="apv-tabs" role="group" aria-label="Filter by request type">
+          {(['ALL', ...ALL_TYPES] as const).map(t => (
+            <button
+              key={t}
+              type="button"
+              className="apv-tab"
+              aria-pressed={typeFilter === t}
+              onClick={() => setTypeFilter(t)}
+            >
+              {t === 'ALL' ? 'All' : TYPE_LABELS[t]} {counts[t] > 0 && <span className="apv-tab-count">{counts[t]}</span>}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Bulk action bar — appears only once at least one row is selected, right above the
          table it acts on. Wraps to two lines (count above, buttons below) on narrow viewports
          instead of overflowing. */}
       {selectedItems.length > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
-          marginBottom: 12, padding: '10px 14px',
-          background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8,
-        }}>
+        <div className="apv-bulk">
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>
             {selectedItems.length} selected
           </span>
@@ -759,12 +810,13 @@ export default function ApprovalsPage() {
         </div>
       )}
 
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+      <div className="apv-card">
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: 48, textAlign: 'center' }}>
-            <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>Nothing pending</div>
+          <div className="apv-empty">
+            <div className="apv-empty-icon" aria-hidden="true"><CheckCircle2 size={24} /></div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--txt)', marginBottom: 6 }}>Nothing pending</div>
             <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
               {/* TYPE_LABELS stays abbreviated ("Attendance Reg.") for the tab pills/badges, where
                   space is tight — this empty-state message has room to spell it out in full. */}
@@ -776,20 +828,19 @@ export default function ApprovalsPage() {
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="apv-table">
               <thead>
                 <tr>
-                  <th style={{ ...thStyle, width: 34 }}>
+                  <th className="apv-check">
                     <input
                       type="checkbox"
                       checked={allVisibleSelected}
                       ref={el => { if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected; }}
                       onChange={toggleSelectAllVisible}
                       aria-label={allVisibleSelected ? 'Deselect all requests' : 'Select all requests'}
-                      style={{ cursor: 'pointer', accentColor: 'var(--brand)' }}
                     />
                   </th>
-                  {['Type', 'Employee', 'Requested Dates', 'Reason', 'Submitted', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {['Type', 'Employee', 'Requested Dates', 'Reason', 'Submitted', 'Status', 'Actions'].map(h => <th key={h}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -797,41 +848,61 @@ export default function ApprovalsPage() {
                   const requestedDates = getRequestedDates(item);
                   const reason = getReason(item);
                   const key = rowKey(item);
+                  const TypeIcon = TYPE_ICONS[item.requestType];
+                  const openReview = () => setReviewing({ item, mode: 'review' });
 
                   return (
-                    <tr key={key}>
-                      <td style={{ ...tdStyle, padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
+                    // The whole row opens the request's details with Approve/Reject in one place —
+                    // no separate "View" step. Checkbox and action cells stop propagation so they
+                    // keep their own behaviour.
+                    <tr
+                      key={key}
+                      className={`apv-row${selected.has(key) ? ' is-selected' : ''}`}
+                      tabIndex={0}
+                      aria-label={`Review ${item.employeeName}'s ${TYPE_LABELS[item.requestType]} request`}
+                      onClick={openReview}
+                      onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openReview(); } }}
+                    >
+                      <td className="apv-check" onClick={e => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selected.has(key)}
                           onChange={() => toggleSelected(key)}
                           aria-label={`Select ${item.employeeName}'s ${TYPE_LABELS[item.requestType]} request`}
-                          style={{ cursor: 'pointer', accentColor: 'var(--brand)' }}
                         />
                       </td>
-                      <td style={tdStyle}>
-                        <TypeBadge type={item.requestType} />
+                      <td className="apv-cell-type">
+                        <div className="apv-type">
+                          <span className="apv-type-icon" style={{ background: TYPE_COLORS[item.requestType], color: TYPE_TEXT[item.requestType] }} aria-hidden="true">
+                            <TypeIcon size={16} />
+                          </span>
+                          <span className="apv-type-label">{TYPE_LABELS[item.requestType]}</span>
+                        </div>
+                      </td>
+                      <td className="apv-cell-emp" data-label="Employee">
+                        <div className="apv-emp">
+                          <EmployeeAvatar userId={item.employeeUserId} name={item.employeeName} size={32} fontSize={11.5} />
+                          <span className="apv-emp-name">{item.employeeName}</span>
+                        </div>
+                      </td>
+                      <td className="apv-cell-dates apv-dates" data-label="Requested Dates">{requestedDates}</td>
+                      <td className="apv-cell-reason" data-label="Reason">
+                        <div className="apv-reason" title={reason}>{reason}</div>
+                      </td>
+                      <td className="apv-cell-submitted apv-submitted" data-label="Submitted">{fmtDate(item.createdAt)}</td>
+                      <td className="apv-cell-status">
+                        <span className="apv-status"><Clock size={11} aria-hidden="true" /> Pending</span>
                         {/* Expense claims now surface to HR/SA before Manager approval too (see
                             ApprovalCenterController's expense branch) — this makes that stage
                             visible at a glance in the queue itself, not just inside the detail
                             modal's "Stage" row, so admins can tell a not-yet-manager-approved
                             claim apart from one that's actually ready for their own final call. */}
                         {item.requestType === 'EXPENSE' && item.approvalStage === 'MANAGER' && (
-                          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--txt-dim)', marginTop: 4, whiteSpace: 'nowrap' }}>
-                            Pending Manager Review
-                          </div>
+                          <div className="apv-status-sub">Pending Manager Review</div>
                         )}
                       </td>
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{item.employeeName}</td>
-                      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{requestedDates}</td>
-                      <td style={tdStyle}>
-                        <div style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={reason}>
-                          {reason}
-                        </div>
-                      </td>
-                      <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDate(item.createdAt)}</td>
-                      <td style={{ ...tdStyle, padding: '8px 12px' }} onClick={e => e.stopPropagation()}>
-                        <div style={{ display: 'flex', gap: 6 }}>
+                      <td className="apv-cell-actions" onClick={e => e.stopPropagation()}>
+                        <div className="apv-actions">
                           <ActionIconButton
                             label={`Approve ${item.employeeName}'s ${TYPE_LABELS[item.requestType]} request`}
                             title="Approve request"

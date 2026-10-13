@@ -1,4 +1,6 @@
-import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useAuthStore } from '../store/authStore';
+import { userScopedKey } from './userScopedStorageKey';
 
 // All four preferences here are wired up for real and apply app-wide — unlike most of
 // UserPreferencesPage's other fields, which are persisted placeholders only (see that file's
@@ -27,7 +29,7 @@ const DEFAULTS: A11yState = {
 
 function readStored(): A11yState {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(userScopedKey(STORAGE_KEY));
     if (!raw) return DEFAULTS;
     const parsed = JSON.parse(raw);
     return {
@@ -74,13 +76,25 @@ const AccessibilityContext = createContext<AccessibilityContextValue>({
 
 export function AccessibilityProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<A11yState>(_state);
+  const email = useAuthStore(s => s.user?.email);
 
   function persist(next: A11yState) {
     _state = next;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch { /* best effort */ }
+    try { window.localStorage.setItem(userScopedKey(STORAGE_KEY), JSON.stringify(next)); } catch { /* best effort */ }
     applyToDom(next);
     setState(next);
   }
+
+  // Re-reads and re-applies whenever the signed-in user changes — otherwise whichever account's
+  // settings were applied at module-load time would keep showing for the next person who signs
+  // in without a full page reload.
+  useEffect(() => {
+    const next = readStored();
+    _state = next;
+    applyToDom(next);
+    setState(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
 
   return (
     <AccessibilityContext.Provider
