@@ -31,12 +31,12 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/audit-logs")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
 public class AuditLogController {
 
     private final AuditQueryService auditQueryService;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('audit:VIEW:OWN')")
     public Page<AuditLogEntryDto> list(
             @RequestParam(required = false) String targetSearch,
             @RequestParam(required = false) String action,
@@ -51,6 +51,7 @@ public class AuditLogController {
     }
 
     @GetMapping("/stats")
+    @PreAuthorize("hasAuthority('audit:VIEW:OWN')")
     public AuditLogStatsDto stats(
             @RequestParam(required = false) String targetSearch,
             @RequestParam(required = false) String action,
@@ -63,6 +64,7 @@ public class AuditLogController {
 
     /** Unpaginated — backs the frontend's "export matches current filters exactly" requirement. */
     @GetMapping("/export")
+    @PreAuthorize("hasAuthority('audit:EXPORT:OWN')")
     public List<AuditLogEntryDto> exportAll(
             @RequestParam(required = false) String targetSearch,
             @RequestParam(required = false) String action,

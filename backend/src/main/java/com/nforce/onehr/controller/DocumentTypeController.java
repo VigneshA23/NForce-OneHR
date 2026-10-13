@@ -23,33 +23,33 @@ public class DocumentTypeController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:CONFIGURE:ALL')")
     public List<DocumentTypeResponse> listAll() {
         return service.listAll();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:CONFIGURE:ALL')")
     public DocumentTypeResponse create(@Valid @RequestBody CreateDocumentTypeRequest req) {
         return service.create(req);
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:CONFIGURE:ALL')")
     public DocumentTypeResponse update(@PathVariable Integer id, @Valid @RequestBody UpdateDocumentTypeRequest req) {
         return service.update(id, req);
     }
 
     @PostMapping("/{id}/toggle-active")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:CONFIGURE:ALL')")
     public void toggleActive(@PathVariable Integer id) {
         service.toggleActive(id);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('documents:CONFIGURE:ALL')")
     public void delete(@PathVariable Integer id) {
         service.delete(id);
     }

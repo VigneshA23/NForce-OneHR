@@ -27,32 +27,32 @@ public class CertificateCategoryController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('talent_skills:CONFIGURE:ALL')")
     public List<CertificateCategoryResponse> listAll() {
         return service.listAll();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('talent_skills:CONFIGURE:ALL')")
     public CertificateCategoryResponse create(@Valid @RequestBody UpsertCertificateCategoryRequest req, Authentication auth) {
         return service.create(req, auth.getName());
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('talent_skills:CONFIGURE:ALL')")
     public CertificateCategoryResponse update(@PathVariable UUID id, @Valid @RequestBody UpsertCertificateCategoryRequest req, Authentication auth) {
         return service.update(id, req, auth.getName());
     }
 
     @PostMapping("/{id}/deactivate")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('talent_skills:CONFIGURE:ALL')")
     public void deactivate(@PathVariable UUID id, Authentication auth) {
         service.setActive(id, false, auth.getName());
     }
 
     @PostMapping("/{id}/reactivate")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('talent_skills:CONFIGURE:ALL')")
     public void reactivate(@PathVariable UUID id, Authentication auth) {
         service.setActive(id, true, auth.getName());
     }

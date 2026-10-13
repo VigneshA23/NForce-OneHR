@@ -155,11 +155,10 @@ public class AiAssistantController {
      *
      * <p>Super Admin only, and the tightest guard in this controller: it is the one operation that
      * writes, it costs real embedding calls, and a full rebuild briefly leaves the index
-     * inconsistent. {@code hasRole('SUPER_ADMIN')} matches how {@code UserManagementController}
-     * guards the other genuinely administrative surface.
+     * inconsistent.
      */
     @PostMapping("/admin/reindex")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:CONFIGURE:ALL')")
     public KnowledgeIndexingService.IndexingReport reindex(Principal principal) {
         log.info("Knowledge re-index requested by {}", principal.getName());
         return indexingService.reindex();
@@ -171,13 +170,13 @@ public class AiAssistantController {
      * rate-limiting brief's AC7 is explicit that this configuration is Super-Admin-only end to end.
      */
     @GetMapping("/admin/rate-limit-settings")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:VIEW:ALL')")
     public AiRateLimitSettingsResponse rateLimitSettings() {
         return rateLimitSettingsService.getForAdmin();
     }
 
     @PutMapping("/admin/rate-limit-settings")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:CONFIGURE:ALL')")
     public AiRateLimitSettingsResponse updateRateLimitSettings(
             @Valid @RequestBody UpdateAiRateLimitSettingsRequest request, Principal principal) {
         return rateLimitSettingsService.update(request, currentUserId(principal));
@@ -190,7 +189,7 @@ public class AiAssistantController {
      * is otherwise never exposed at all.
      */
     @GetMapping("/admin/usage-stats")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:VIEW:ALL')")
     public AiUsageStatsResponse usageStats(@RequestParam(required = false) Integer days) {
         return usageStatsService.stats(days);
     }
@@ -201,19 +200,19 @@ public class AiAssistantController {
      * from OneHR's own token logs, not real Mistral billing.
      */
     @GetMapping("/admin/billing")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:VIEW:ALL')")
     public AiBillingResponse billing() {
         return billingSettingsService.currentMonthBilling();
     }
 
     @GetMapping("/admin/billing-settings")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:VIEW:ALL')")
     public AiBillingSettingsResponse billingSettings() {
         return billingSettingsService.getForAdmin();
     }
 
     @PutMapping("/admin/billing-settings")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:CONFIGURE:ALL')")
     public AiBillingSettingsResponse updateBillingSettings(
             @Valid @RequestBody UpdateAiBillingSettingsRequest request, Principal principal) {
         return billingSettingsService.update(request, currentUserId(principal));

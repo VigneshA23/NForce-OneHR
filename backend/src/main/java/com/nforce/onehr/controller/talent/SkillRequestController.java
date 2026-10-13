@@ -33,25 +33,25 @@ public class SkillRequestController {
     }
 
     @GetMapping("/pending")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('talent_skills:APPROVE:ALL')")
     public List<SkillRequestResponse> listPending() {
         return service.listPending();
     }
 
     @PostMapping("/{id}/approve")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('talent_skills:APPROVE:ALL')")
     public SkillRequestResponse approve(@PathVariable UUID id, Authentication auth) {
         return service.approve(id, auth.getName());
     }
 
     @PostMapping("/{id}/map")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('talent_skills:APPROVE:ALL')")
     public SkillRequestResponse mapToExisting(@PathVariable UUID id, @Valid @RequestBody MapSkillRequestRequest req, Authentication auth) {
         return service.mapToExisting(id, req.getExistingSkillId(), auth.getName());
     }
 
     @PostMapping("/{id}/reject")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('talent_skills:APPROVE:ALL')")
     public SkillRequestResponse reject(@PathVariable UUID id, Authentication auth) {
         return service.reject(id, auth.getName());
     }

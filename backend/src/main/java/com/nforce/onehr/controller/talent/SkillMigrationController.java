@@ -13,31 +13,35 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.UUID;
 
-/** Settings > Migration Review (org.talent.configure). */
+/** Settings > Migration Review (org.talent.configure) — dead from the UI (the tab was removed),
+ *  backend left intact. */
 @RestController
 @RequestMapping("/api/org/talent/migration")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
 public class SkillMigrationController {
 
     private final SkillMigrationService service;
 
     @PostMapping("/scan")
+    @PreAuthorize("hasAuthority('talent_skills:CREATE:ALL')")
     public MigrationScanSummary scan() {
         return service.scan();
     }
 
     @GetMapping("/candidates/pending")
+    @PreAuthorize("hasAuthority('talent_skills:VIEW:ALL')")
     public List<SkillMigrationCandidateResponse> listPending() {
         return service.listPending();
     }
 
     @GetMapping("/candidates")
+    @PreAuthorize("hasAuthority('talent_skills:VIEW:ALL')")
     public List<SkillMigrationCandidateResponse> listAll() {
         return service.listAll();
     }
 
     @PostMapping("/candidates/{id}/resolve")
+    @PreAuthorize("hasAuthority('talent_skills:APPROVE:ALL')")
     public SkillMigrationCandidateResponse resolve(@PathVariable UUID id,
                                                     @Valid @RequestBody ResolveMigrationCandidateRequest req,
                                                     Authentication auth) {
@@ -45,6 +49,7 @@ public class SkillMigrationController {
     }
 
     @PostMapping("/candidates/{id}/reopen")
+    @PreAuthorize("hasAuthority('talent_skills:APPROVE:ALL')")
     public SkillMigrationCandidateResponse reopen(@PathVariable UUID id, Authentication auth) {
         return service.reopen(id, auth.getName());
     }
