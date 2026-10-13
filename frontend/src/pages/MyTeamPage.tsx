@@ -536,6 +536,9 @@ function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React
         'aria-label': `${label} — click to view employees`,
       } : {})}
       style={{
+        // height: 100% keeps every card the height of its grid row — clickable cards are wrapped
+        // in Tooltip's <span>, so without it they'd shrink to their content instead of stretching.
+        height: '100%', boxSizing: 'border-box',
         background: 'var(--panel)', borderRadius: 10, padding: '16px 18px',
         border: `1px solid ${onClick && hover ? 'var(--brand-bright)' : 'var(--line)'}`,
         cursor: onClick ? 'pointer' : 'default', transition: 'border-color .15s ease',
@@ -3346,7 +3349,7 @@ export default function MyTeamPage() {
               />
             )}
           >
-            <MemberGrid empty={loading ? 'Loading…' : filteredRoster.length === 0 ? 'No one matches this filter.' : undefined}>
+            <MemberGrid scroll empty={loading ? 'Loading…' : filteredRoster.length === 0 ? 'No one matches this filter.' : undefined}>
               {filteredRoster.map(row => {
                 const employment = prettyEmploymentType(directoryByEmployee.get(row.dr.userId)?.employmentType);
                 return (
@@ -3445,7 +3448,7 @@ export default function MyTeamPage() {
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '…' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
         <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '…' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
         <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '…' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
-        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '…' : attentionItems.length} note="pending leave, regularization, asset & expense requests" onClick={attentionItems.length > 0 ? () => setKpiModal('attention') : undefined} />
+        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '…' : attentionItems.length} note="pending requests" onClick={attentionItems.length > 0 ? () => setKpiModal('attention') : undefined} />
       </div>
       {kpiModal && (
         <KpiEmployeesModal
