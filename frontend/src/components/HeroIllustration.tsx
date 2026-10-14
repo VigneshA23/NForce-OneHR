@@ -156,8 +156,8 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
   return (
     <svg viewBox="0 0 320 180" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false" style={{ display: 'block' }}>
       <defs>
-        <linearGradient id="nfHeroBg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" style={{ stopColor: 'color-mix(in srgb, var(--brand-deep) 45%, #000)' }} />
+        <linearGradient id="nfHeroBg" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" style={{ stopColor: 'color-mix(in srgb, var(--brand-deep) 55%, #000)' }} />
           <stop offset="55%" style={{ stopColor: 'var(--brand-deep)' }} />
           <stop offset="100%" style={{ stopColor: 'color-mix(in srgb, var(--brand) 85%, var(--brand-bright))' }} />
         </linearGradient>
@@ -165,37 +165,25 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
           <stop offset="0%" style={{ stopColor: 'color-mix(in srgb, var(--brand-bright) 55%, #fff)' }} stopOpacity={0.42} />
           <stop offset="100%" style={{ stopColor: 'color-mix(in srgb, var(--brand-bright) 55%, #fff)' }} stopOpacity={0} />
         </radialGradient>
+        {/* Desk is a translucent shade over the backdrop (not an opaque dark band), so the theme
+            tint stays continuous from the top of the banner to the floor. */}
         <linearGradient id="nfHeroDesk" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" style={{ stopColor: 'color-mix(in srgb, var(--brand-deep) 60%, #000)' }} />
-          <stop offset="100%" style={{ stopColor: 'color-mix(in srgb, var(--brand-deep) 25%, #000)' }} />
+          <stop offset="0%" stopColor="#000" stopOpacity={0.18} />
+          <stop offset="100%" stopColor="#000" stopOpacity={0.42} />
         </linearGradient>
         <linearGradient id="nfHeroScreen" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#FFFFFF" />
           <stop offset="100%" stopColor="#F1F2F5" />
         </linearGradient>
-        {/* Backdrop-only horizontal fade: the left of the scene dissolves into the banner behind it
-            (smooth ramp, no hard edge); the cards, laptop and plant are drawn outside this mask. */}
-        <linearGradient id="nfHeroFadeX" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#000" />
-          <stop offset="0.12" stopColor="#222" />
-          <stop offset="0.26" stopColor="#6a6a6a" />
-          <stop offset="0.4" stopColor="#c4c4c4" />
-          <stop offset="0.52" stopColor="#fff" />
-        </linearGradient>
-        <mask id="nfHeroBgMask" maskUnits="userSpaceOnUse" x="0" y="0" width="320" height="180">
-          <rect width={320} height={180} fill="url(#nfHeroFadeX)" />
-        </mask>
         <clipPath id="nfHeroScreenLogoClip"><circle cx={174} cy={113} r={8} /></clipPath>
         <clipPath id="nfHeroMugLogoClip"><circle cx={114} cy={143.5} r={6.2} /></clipPath>
       </defs>
 
       {/* Backdrop */}
-      <g mask="url(#nfHeroBgMask)">
-        <rect width={320} height={180} fill="url(#nfHeroBg)" />
-        <circle cx={200} cy={78} r={96} fill="url(#nfHeroGlow)" />
-        <rect x={0} y={154} width={320} height={26} fill="url(#nfHeroDesk)" />
-        <rect x={0} y={154} width={320} height={1} fill="#FFFFFF" fillOpacity={0.1} />
-      </g>
+      <rect width={320} height={180} fill="url(#nfHeroBg)" />
+      <circle cx={200} cy={78} r={96} fill="url(#nfHeroGlow)" />
+      <rect x={0} y={154} width={320} height={26} fill="url(#nfHeroDesk)" />
+      <rect x={0} y={154} width={320} height={1} fill="#FFFFFF" fillOpacity={0.1} />
       <circle cx={196} cy={66} r={58} fill="none" stroke="#FFFFFF" strokeOpacity={0.09} />
       <circle cx={196} cy={66} r={76} fill="none" stroke="#FFFFFF" strokeOpacity={0.05} />
       <circle cx={132} cy={24} r={1.4} fill="#FFFFFF" opacity={0.55} />

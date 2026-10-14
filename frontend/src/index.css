@@ -1390,9 +1390,6 @@ input[type="date"] {
   border-radius: 0;
   box-shadow: none;
 }
-/* The neutral scene's own mask handles the blend; the extra wash (::before above) ended in a hard
-   vertical edge that read as a half-drawn panel, so it's off for this variant. */
-.nf-hero-illus[data-variant="neutral"]::before { display: none; }
 @keyframes nf-hero-illus-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .nf-hero-illus-fig { animation: nf-hero-illus-in 260ms cubic-bezier(.22,.61,.36,1) both; }
 @media (max-width: 767px) {
