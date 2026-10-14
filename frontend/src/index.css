@@ -1389,8 +1389,6 @@ input[type="date"] {
   border: none;
   border-radius: 0;
   box-shadow: none;
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 9%);
-  mask-image: linear-gradient(to right, transparent 0%, #000 9%);
 }
 /* The neutral scene's own mask handles the blend; the extra wash (::before above) ended in a hard
    vertical edge that read as a half-drawn panel, so it's off for this variant. */

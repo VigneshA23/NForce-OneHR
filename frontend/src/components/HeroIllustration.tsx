@@ -173,14 +173,29 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
           <stop offset="0%" stopColor="#FFFFFF" />
           <stop offset="100%" stopColor="#F1F2F5" />
         </linearGradient>
+        {/* Backdrop-only horizontal fade: the left of the scene dissolves into the banner behind it
+            (smooth ramp, no hard edge); the cards, laptop and plant are drawn outside this mask. */}
+        <linearGradient id="nfHeroFadeX" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#000" />
+          <stop offset="0.12" stopColor="#222" />
+          <stop offset="0.26" stopColor="#6a6a6a" />
+          <stop offset="0.4" stopColor="#c4c4c4" />
+          <stop offset="0.52" stopColor="#fff" />
+        </linearGradient>
+        <mask id="nfHeroBgMask" maskUnits="userSpaceOnUse" x="0" y="0" width="320" height="180">
+          <rect width={320} height={180} fill="url(#nfHeroFadeX)" />
+        </mask>
         <clipPath id="nfHeroScreenLogoClip"><circle cx={174} cy={113} r={8} /></clipPath>
         <clipPath id="nfHeroMugLogoClip"><circle cx={114} cy={143.5} r={6.2} /></clipPath>
       </defs>
 
       {/* Backdrop */}
-      <rect width={320} height={180} fill="url(#nfHeroBg)" />
-      <path d="M-20 180 L120 -10 L190 -10 L50 180 Z" fill="#FFFFFF" opacity={0.04} />
-      <circle cx={200} cy={78} r={96} fill="url(#nfHeroGlow)" />
+      <g mask="url(#nfHeroBgMask)">
+        <rect width={320} height={180} fill="url(#nfHeroBg)" />
+        <circle cx={200} cy={78} r={96} fill="url(#nfHeroGlow)" />
+        <rect x={0} y={154} width={320} height={26} fill="url(#nfHeroDesk)" />
+        <rect x={0} y={154} width={320} height={1} fill="#FFFFFF" fillOpacity={0.1} />
+      </g>
       <circle cx={196} cy={66} r={58} fill="none" stroke="#FFFFFF" strokeOpacity={0.09} />
       <circle cx={196} cy={66} r={76} fill="none" stroke="#FFFFFF" strokeOpacity={0.05} />
       <circle cx={132} cy={24} r={1.4} fill="#FFFFFF" opacity={0.55} />
@@ -225,10 +240,6 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
         <rect x={274} y={128} width={24} height={26} rx={4} style={{ fill: 'color-mix(in srgb, var(--brand-deep) 30%, #000)' }} />
         <rect x={274} y={128} width={24} height={4} rx={2} fill="#FFFFFF" fillOpacity={0.08} />
       </g>
-
-      {/* Desk */}
-      <rect x={0} y={154} width={320} height={26} fill="url(#nfHeroDesk)" />
-      <rect x={0} y={154} width={320} height={1} fill="#FFFFFF" fillOpacity={0.1} />
 
       {/* Mug — NF1 logo printed on the body, in place of a flat brand stripe */}
       <g>
