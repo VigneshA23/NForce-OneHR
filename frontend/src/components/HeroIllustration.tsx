@@ -190,7 +190,7 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
       {/* Calendar / shift-timing card — reflects the employee's own assigned shift
           (AttendanceConfig.shiftStart/shiftEnd, the same source the banner's own
           "Shift starts at…" line uses), never a hardcoded time. */}
-      <g>
+      <g transform="translate(26 0)">
         <rect x={16} y={24} width={96} height={38} rx={8} fill="#FFFFFF" fillOpacity={0.1} stroke="#FFFFFF" strokeOpacity={0.18} />
         <rect x={27} y={34} width={16} height={15} rx={2.5} fill="none" stroke="#FFFFFF" strokeOpacity={0.85} strokeWidth={1.4} />
         <rect x={27} y={34} width={16} height={4} rx={2} style={{ fill: 'color-mix(in srgb, var(--brand-bright) 60%, #fff)' }} />
@@ -206,7 +206,7 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
           {shiftLabel ?? '–'}
         </text>
       </g>
-      <g>
+      <g transform="translate(26 0)">
         <rect x={28} y={74} width={88} height={54} rx={8} fill="#FFFFFF" fillOpacity={0.08} stroke="#FFFFFF" strokeOpacity={0.15} />
         <rect x={40} y={84} width={36} height={4} rx={2} fill="#FFFFFF" fillOpacity={0.55} />
         <rect x={40} y={106} width={8} height={12} rx={2} fill="#FFFFFF" fillOpacity={0.3} />
