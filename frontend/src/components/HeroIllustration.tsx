@@ -156,11 +156,6 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
   return (
     <svg viewBox="0 0 320 180" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false" style={{ display: 'block' }}>
       <defs>
-        <linearGradient id="nfHeroBg" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" style={{ stopColor: 'color-mix(in srgb, var(--brand-deep) 55%, #000)' }} />
-          <stop offset="55%" style={{ stopColor: 'var(--brand-deep)' }} />
-          <stop offset="100%" style={{ stopColor: 'color-mix(in srgb, var(--brand) 85%, var(--brand-bright))' }} />
-        </linearGradient>
         <radialGradient id="nfHeroGlow" cx="0.5" cy="0.5" r="0.5">
           <stop offset="0%" style={{ stopColor: 'color-mix(in srgb, var(--brand-bright) 55%, #fff)' }} stopOpacity={0.42} />
           <stop offset="100%" style={{ stopColor: 'color-mix(in srgb, var(--brand-bright) 55%, #fff)' }} stopOpacity={0} />
@@ -175,15 +170,28 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
           <stop offset="0%" stopColor="#FFFFFF" />
           <stop offset="100%" stopColor="#F1F2F5" />
         </linearGradient>
+        <linearGradient id="nfHeroFadeX" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#000" />
+          <stop offset="0.12" stopColor="#0f0f0f" />
+          <stop offset="0.26" stopColor="#4d4d4d" />
+          <stop offset="0.4" stopColor="#adadad" />
+          <stop offset="0.55" stopColor="#fff" />
+        </linearGradient>
+        <mask id="nfHeroDeskMask" maskUnits="userSpaceOnUse" x="0" y="0" width="320" height="180">
+          <rect width={320} height={180} fill="url(#nfHeroFadeX)" />
+        </mask>
         <clipPath id="nfHeroScreenLogoClip"><circle cx={174} cy={113} r={8} /></clipPath>
         <clipPath id="nfHeroMugLogoClip"><circle cx={114} cy={143.5} r={6.2} /></clipPath>
       </defs>
 
       {/* Backdrop */}
-      <rect width={320} height={180} fill="url(#nfHeroBg)" />
+      {/* No opaque backdrop here: the banner-wide theme gradient lives in CSS (.nf-hero-illus::before) so
+          there is a single continuous ramp across the whole banner and no seam where the scene begins. */}
       <circle cx={200} cy={78} r={96} fill="url(#nfHeroGlow)" />
-      <rect x={0} y={154} width={320} height={26} fill="url(#nfHeroDesk)" />
-      <rect x={0} y={154} width={320} height={1} fill="#FFFFFF" fillOpacity={0.1} />
+      <g mask="url(#nfHeroDeskMask)">
+        <rect x={0} y={154} width={320} height={26} fill="url(#nfHeroDesk)" />
+        <rect x={0} y={154} width={320} height={1} fill="#FFFFFF" fillOpacity={0.1} />
+      </g>
       <circle cx={196} cy={66} r={58} fill="none" stroke="#FFFFFF" strokeOpacity={0.09} />
       <circle cx={196} cy={66} r={76} fill="none" stroke="#FFFFFF" strokeOpacity={0.05} />
       <circle cx={132} cy={24} r={1.4} fill="#FFFFFF" opacity={0.55} />

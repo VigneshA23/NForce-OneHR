@@ -1374,6 +1374,15 @@ input[type="date"] {
   width: calc(260px + 20%);
   background: linear-gradient(to right, transparent 0%, color-mix(in srgb, var(--brand-deep) 0.9%, transparent) 12.5%, color-mix(in srgb, var(--brand-deep) 5.7%, transparent) 25%, color-mix(in srgb, var(--brand-deep) 15.1%, transparent) 37.5%, color-mix(in srgb, var(--brand-deep) 27.5%, transparent) 50%, color-mix(in srgb, var(--brand-deep) 39.9%, transparent) 62.5%, color-mix(in srgb, var(--brand-deep) 49.3%, transparent) 75%, color-mix(in srgb, var(--brand-deep) 54.1%, transparent) 87.5%, color-mix(in srgb, var(--brand-deep) 55%, transparent) 100%);
 }
+/* Neutral scene: ONE continuous theme gradient behind the whole right side of the banner (dark text
+   area -> accent), drawn here instead of inside the SVG, so there is no seam where the scene starts
+   and no left/right colour step. Same look as the photo variants' accent wash. */
+.nf-hero-illus[data-variant="neutral"]::before {
+  left: -420px;
+  width: calc(420px + 100%);
+  z-index: -1; /* positioned pseudo would otherwise paint over the (static) SVG and blur it */
+  background: linear-gradient(to right, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 0%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 3%, transparent) 14%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 12%, transparent) 28%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 30%, transparent) 42%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 58%, transparent) 56%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 82%, transparent) 70%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 96%, transparent) 84%, color-mix(in srgb, var(--brand) 85%, var(--brand-bright)) 100%);
+}
 /* Same row height as before the image went absolute (its aspect used to size the row). */
 .nf-hero-illus[data-variant="female"] { aspect-ratio: 935 / 308; }
 .nf-hero-illus[data-variant="male"] { aspect-ratio: 874 / 277; }
