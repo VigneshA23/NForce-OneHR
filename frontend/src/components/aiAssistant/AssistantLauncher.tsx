@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageCircleQuestion } from 'lucide-react';
+import { NoraAvatar } from './NoraAvatar';
 import { fetchHealth } from '../../api/aiAssistant';
 import { useAuthStore } from '../../store/authStore';
 import { AssistantPanel } from './AssistantPanel';
@@ -188,7 +188,7 @@ export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentP
           className="nf-assistant-launcher"
           style={{ ...style, touchAction: 'none' }}
         >
-          <MessageCircleQuestion size={21} />
+          <NoraAvatar style={{ pointerEvents: 'none' }} />
         </button>
       )}
     </>

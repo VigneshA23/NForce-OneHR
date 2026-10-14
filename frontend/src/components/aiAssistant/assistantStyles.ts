@@ -26,14 +26,16 @@ export const launcherStyle: React.CSSProperties = {
   width: 50,
   height: 50,
   borderRadius: '50%',
-  border: '1px solid color-mix(in srgb, var(--brand-bright) 40%, transparent)',
-  background: 'var(--brand)',
+  // The NORA robot avatar is the button face — transparent PNG, so no brand fill or border behind it.
+  border: 'none',
+  padding: 0,
+  background: 'transparent',
   color: '#fff',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   cursor: 'pointer',
-  boxShadow: '0 10px 28px rgba(0,0,0,.45)',
+  filter: 'drop-shadow(0 8px 14px rgba(0,0,0,.4))',
   transition: 'transform 150ms ease',
 };
 
@@ -149,8 +151,8 @@ export const headerBadgeStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  background: 'color-mix(in srgb, var(--brand) 16%, var(--panel))',
-  color: 'var(--brand-bright)',
+  background: 'transparent',
+  overflow: 'hidden',
 };
 
 /** A faint, non-interactive accent texture behind the transcript — built from `color-mix(var(
