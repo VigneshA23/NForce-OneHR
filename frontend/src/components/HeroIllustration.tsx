@@ -136,7 +136,7 @@ function Workspace() {
       <rect x={151} y={83} width={94} height={60} rx={2} fill="url(#nfHeroScreen)" />
       <circle cx={174} cy={113} r={12} fill="none" stroke="#E5E7EB" strokeWidth={5} />
       <circle
-        cx={174} cy={113} r={12} fill="none" stroke="#B11116" strokeWidth={5}
+        cx={174} cy={113} r={12} fill="none" style={{ stroke: 'var(--brand)' }} strokeWidth={5}
         strokeDasharray="52 75.4" transform="rotate(-90 174 113)" strokeLinecap="round"
       />
       <image href={nf1Logo} xlinkHref={nf1Logo} x={166} y={105} width={16} height={16} clipPath="url(#nfHeroScreenLogoClip)" preserveAspectRatio="xMidYMid slice" />
@@ -144,7 +144,7 @@ function Workspace() {
       <rect x={196} y={124 - 10} width={6} height={10} rx={1.5} fill="#D6D9E0" />
       <rect x={205} y={124 - 18} width={6} height={18} rx={1.5} fill="#D6D9E0" />
       <rect x={214} y={124 - 13} width={6} height={13} rx={1.5} fill="#D6D9E0" />
-      <rect x={223} y={124 - 24} width={6} height={24} rx={1.5} fill="#B11116" />
+      <rect x={223} y={124 - 24} width={6} height={24} rx={1.5} style={{ fill: 'var(--brand)' }} />
       <rect x={196} y={130} width={30} height={3} rx={1.5} fill="#E1E4EA" />
       <path d="M136 148 L260 148 L268 155 L128 155 Z" fill="#B7BBC6" />
       <rect x={186} y={148} width={24} height={2.5} rx={1.2} fill="#9CA1AD" />
@@ -157,17 +157,17 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
     <svg viewBox="0 0 320 180" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false" style={{ display: 'block' }}>
       <defs>
         <linearGradient id="nfHeroBg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#2A080A" />
-          <stop offset="55%" stopColor="#7E1015" />
-          <stop offset="100%" stopColor="#C0252A" />
+          <stop offset="0%" style={{ stopColor: 'color-mix(in srgb, var(--brand-deep) 45%, #000)' }} />
+          <stop offset="55%" style={{ stopColor: 'var(--brand-deep)' }} />
+          <stop offset="100%" style={{ stopColor: 'color-mix(in srgb, var(--brand) 85%, var(--brand-bright))' }} />
         </linearGradient>
         <radialGradient id="nfHeroGlow" cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0%" stopColor="#FF9A88" stopOpacity={0.42} />
-          <stop offset="100%" stopColor="#FF9A88" stopOpacity={0} />
+          <stop offset="0%" style={{ stopColor: 'color-mix(in srgb, var(--brand-bright) 55%, #fff)' }} stopOpacity={0.42} />
+          <stop offset="100%" style={{ stopColor: 'color-mix(in srgb, var(--brand-bright) 55%, #fff)' }} stopOpacity={0} />
         </radialGradient>
         <linearGradient id="nfHeroDesk" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3A0C0F" />
-          <stop offset="100%" stopColor="#1A0506" />
+          <stop offset="0%" style={{ stopColor: 'color-mix(in srgb, var(--brand-deep) 60%, #000)' }} />
+          <stop offset="100%" style={{ stopColor: 'color-mix(in srgb, var(--brand-deep) 25%, #000)' }} />
         </linearGradient>
         <linearGradient id="nfHeroScreen" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#FFFFFF" />
@@ -193,7 +193,7 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
       <g>
         <rect x={16} y={24} width={96} height={38} rx={8} fill="#FFFFFF" fillOpacity={0.1} stroke="#FFFFFF" strokeOpacity={0.18} />
         <rect x={27} y={34} width={16} height={15} rx={2.5} fill="none" stroke="#FFFFFF" strokeOpacity={0.85} strokeWidth={1.4} />
-        <rect x={27} y={34} width={16} height={4} rx={2} fill="#FF8A80" />
+        <rect x={27} y={34} width={16} height={4} rx={2} style={{ fill: 'color-mix(in srgb, var(--brand-bright) 60%, #fff)' }} />
         <line x1={31} y1={32} x2={31} y2={36} stroke="#FFFFFF" strokeOpacity={0.85} strokeWidth={1.2} strokeLinecap="round" />
         <line x1={39} y1={32} x2={39} y2={36} stroke="#FFFFFF" strokeOpacity={0.85} strokeWidth={1.2} strokeLinecap="round" />
         <circle cx={31.5} cy={42} r={1.1} fill="#FFFFFF" fillOpacity={0.6} />
@@ -213,16 +213,16 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
         <rect x={54} y={100} width={8} height={18} rx={2} fill="#FFFFFF" fillOpacity={0.3} />
         <rect x={68} y={103} width={8} height={15} rx={2} fill="#FFFFFF" fillOpacity={0.3} />
         <rect x={82} y={96} width={8} height={22} rx={2} fill="#FFFFFF" fillOpacity={0.3} />
-        <rect x={96} y={90} width={8} height={28} rx={2} fill="#FF8A80" />
+        <rect x={96} y={90} width={8} height={28} rx={2} style={{ fill: 'color-mix(in srgb, var(--brand-bright) 60%, #fff)' }} />
       </g>
 
       {/* Plant */}
       <g>
-        <path d="M284 128 C270 112 266 96 272 84 C282 96 286 112 284 128 Z" fill="#5C0F13" />
-        <path d="M286 128 C284 108 290 90 302 82 C306 100 298 118 286 128 Z" fill="#8A161B" />
-        <path d="M284 130 C276 120 262 116 252 120 C260 130 274 134 284 130 Z" fill="#6E1216" />
-        <path d="M288 130 C296 118 308 114 316 116 C312 128 300 134 288 130 Z" fill="#A51C21" />
-        <rect x={274} y={128} width={24} height={26} rx={4} fill="#2A0709" />
+        <path d="M284 128 C270 112 266 96 272 84 C282 96 286 112 284 128 Z" style={{ fill: 'color-mix(in srgb, var(--brand-deep) 75%, #000)' }} />
+        <path d="M286 128 C284 108 290 90 302 82 C306 100 298 118 286 128 Z" style={{ fill: 'color-mix(in srgb, var(--brand) 70%, var(--brand-deep))' }} />
+        <path d="M284 130 C276 120 262 116 252 120 C260 130 274 134 284 130 Z" style={{ fill: 'color-mix(in srgb, var(--brand-deep) 90%, #000)' }} />
+        <path d="M288 130 C296 118 308 114 316 116 C312 128 300 134 288 130 Z" style={{ fill: 'color-mix(in srgb, var(--brand) 80%, var(--brand-bright))' }} />
+        <rect x={274} y={128} width={24} height={26} rx={4} style={{ fill: 'color-mix(in srgb, var(--brand-deep) 30%, #000)' }} />
         <rect x={274} y={128} width={24} height={4} rx={2} fill="#FFFFFF" fillOpacity={0.08} />
       </g>
 
