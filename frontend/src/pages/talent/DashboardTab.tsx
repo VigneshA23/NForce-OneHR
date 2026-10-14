@@ -151,7 +151,7 @@ export function DashboardTab() {
                 <Pie data={data.proficiencyDistribution} cx="50%" cy="50%" innerRadius="50%" outerRadius="85%" dataKey="count" nameKey="name" strokeWidth={0}
                   cursor="pointer"
                   onClick={(entry: { name?: string }) => entry.name && openDrill(
-                    `Employees — ${entry.name} proficiency`, rows.filter(r => r.skills.some(s => s.proficiencyLevel === entry.name)))}>
+                    `Employees - ${entry.name} proficiency`, rows.filter(r => r.skills.some(s => s.proficiencyLevel === entry.name)))}>
                   {data.proficiencyDistribution.map((_, i) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
                 </Pie>
                 <Legend verticalAlign="bottom" height={28} formatter={(value) => <span style={{ color: 'var(--txt-mut)', fontSize: 12 }}>{value}</span>} />
@@ -182,7 +182,7 @@ export function DashboardTab() {
                 <Tooltip {...tooltipStyle} cursor={{ fill: 'rgba(177,17,22,.08)' }} />
                 <Bar dataKey="count" name="Employees" fill="#4C8DD6" radius={[4, 4, 0, 0]} cursor="pointer"
                   onClick={(entry: { name?: string }) => entry.name && openDrill(
-                    department ? `${department} — "${entry.name}"` : `Employees with "${entry.name}"`,
+                    department ? `${department} - "${entry.name}"` : `Employees with "${entry.name}"`,
                     rows.filter(r => (!department || r.departmentName === department) && r.skills.some(s => s.skillName === entry.name)))} />
               </BarChart>
             </ResponsiveContainer>
@@ -198,7 +198,7 @@ export function DashboardTab() {
                 <Pie data={data.certificatesByCategory} cx="50%" cy="50%" innerRadius="50%" outerRadius="85%" dataKey="count" nameKey="name" strokeWidth={0}
                   cursor="pointer"
                   onClick={(entry: { name?: string }) => entry.name && openDrill(
-                    `Certificates — ${entry.name}`, rows.filter(r => r.certificates.some(c => (c.categoryName ?? 'Uncategorized') === entry.name)))}>
+                    `Certificates - ${entry.name}`, rows.filter(r => r.certificates.some(c => (c.categoryName ?? 'Uncategorized') === entry.name)))}>
                   {data.certificatesByCategory.map((_, i) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
                 </Pie>
                 <Legend verticalAlign="bottom" height={28} formatter={(value) => <span style={{ color: 'var(--txt-mut)', fontSize: 12 }}>{value}</span>} />
@@ -228,7 +228,7 @@ export function DashboardTab() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {data.learningStatusCounts.map(s => (
               <button key={s.name} onClick={() => openDrill(
-                `Learning — ${s.name}`, rows.filter(r => r.learningEntries.some(l => learningStatusLabel(l.status) === s.name)))}
+                `Learning - ${s.name}`, rows.filter(r => r.learningEntries.some(l => learningStatusLabel(l.status) === s.name)))}
                 style={{
                   flex: '1 1 140px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '10px 14px',
                   textAlign: 'left', cursor: 'pointer', font: 'inherit',
@@ -262,7 +262,7 @@ export function DashboardTab() {
                 }}>
                   <div style={{ flex: '0 0 180px', minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.employeeName}</div>
-                    <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeCode} · {r.departmentName ?? '—'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeCode} · {r.departmentName ?? '–'}</div>
                   </div>
                   <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 5, minWidth: 0 }}>
                     {r.skills.slice(0, 3).map(s => (

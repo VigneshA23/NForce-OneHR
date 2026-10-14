@@ -195,8 +195,8 @@ body {
   to   { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .nf-modal-overlay-in { animation: nf-modal-overlay-in 180ms ease both; }
-  .nf-modal-panel-in { animation: nf-modal-panel-in 280ms cubic-bezier(.22,.61,.36,1) both; }
+  .nf-modal-overlay-in { animation: nf-modal-overlay-in 100ms ease both; }
+  .nf-modal-panel-in { animation: nf-modal-panel-in 160ms cubic-bezier(.22,.61,.36,1) both; }
 }
 
 /* Accessibility: "Keyboard navigation" (User Preferences → Accessibility) — a stronger,
@@ -1075,8 +1075,8 @@ input[type="date"] {
 @keyframes nf-ring-in { from { stroke-dashoffset: var(--nf-ring-circumference, 251); } to { stroke-dashoffset: var(--nf-ring-offset, 0); } }
 
 @media (prefers-reduced-motion: no-preference) {
-  .nf-section-enter { animation: nf-fade-up 360ms cubic-bezier(.22,.61,.36,1) both; }
-  .nf-ring-progress { animation: nf-ring-in 700ms cubic-bezier(.22,.61,.36,1) both; }
+  .nf-section-enter { animation: nf-fade-up 220ms cubic-bezier(.22,.61,.36,1) both; }
+  .nf-ring-progress { animation: nf-ring-in 450ms cubic-bezier(.22,.61,.36,1) both; }
 }
 
 /* Radial progress ring — draws an SVG circle via stroke-dasharray/offset set inline;
@@ -1201,44 +1201,104 @@ input[type="date"] {
    (see reqTableStyle in AttendancePage.tsx). Narrower: each row restacks into a card whose
    cells are labelled from their data-label, so every column and action stays visible without
    any sideways scrolling or mid-word breaking. */
-.nf-req-wrap { container-type: inline-size; }
-/* Table mode: outer columns get the same 12px inset as the Attendance Log's cells (thStyle/
-   tdStyle), so every Logs & Requests tab shares one left/right content edge. */
-@container (min-width: 780px) {
-  .nf-req-table th:first-child, .nf-req-table td:first-child { padding-left: 12px !important; }
-  .nf-req-table th:last-child, .nf-req-table td:last-child { padding-right: 12px !important; }
+.nf-req-wrap { container-type: inline-size; padding: 2px 10px 10px; }
+/* Every record is its own raised "tile": a thick bar on the left in the status colour, a soft colour fade, a
+   lift + glow on hover and a staggered fade-in. Status colour (--rc) comes from the row's own status pill
+   (data-status), defaulting to the accent colour (--brand), so it follows the red/purple/pink/blue/green theme. */
+.nf-req-table tbody tr {
+  --rc: var(--brand);
+  transition: transform .18s ease, filter .18s ease;
 }
+.nf-req-table tbody tr:has([data-status="PENDING"]) { --rc: var(--warn); }
+.nf-req-table tbody tr:has([data-status="PARTIALLY_APPROVED"]) { --rc: var(--info); }
+.nf-req-table tbody tr:has([data-status="APPROVED"]) { --rc: var(--ok); }
+.nf-req-table tbody tr:has([data-status="REJECTED"]) { --rc: var(--risk); }
+@keyframes nf-req-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  .nf-req-table tbody tr { animation: nf-req-in .22s cubic-bezier(.22,.61,.36,1) both; }
+  .nf-req-table tbody tr:nth-child(2) { animation-delay: .03s; }
+  .nf-req-table tbody tr:nth-child(3) { animation-delay: .06s; }
+  .nf-req-table tbody tr:nth-child(4) { animation-delay: .09s; }
+  .nf-req-table tbody tr:nth-child(n+5) { animation-delay: .12s; }
+}
+/* Table mode: outer columns get the same inset as the Attendance Log's cells (thStyle/tdStyle). */
+@container (min-width: 780px) {
+  .nf-req-table { border-collapse: separate !important; border-spacing: 0 10px; }
+  .nf-req-table th:first-child, .nf-req-table td:first-child { padding-left: 18px !important; }
+  .nf-req-table th:last-child, .nf-req-table td:last-child { padding-right: 14px !important; }
+  .nf-req-table thead th { border-bottom: none !important; padding-top: 4px !important; padding-bottom: 0 !important; }
+  .nf-req-table tbody td {
+    background: color-mix(in srgb, var(--rc) 4%, var(--raised));
+    border-top: 1px solid color-mix(in srgb, var(--rc) 16%, var(--line2));
+    border-bottom: 1px solid color-mix(in srgb, var(--rc) 16%, var(--line2)) !important;
+    padding-top: 13px !important; padding-bottom: 13px !important;
+    transition: background .18s, border-color .18s, box-shadow .18s;
+  }
+  .nf-req-table tbody td:first-child {
+    border-left: 4px solid var(--rc); border-radius: 12px 0 0 12px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--rc) 15%, var(--raised)), color-mix(in srgb, var(--rc) 4%, var(--raised)) 85%);
+  }
+  .nf-req-table tbody td:last-child { border-right: 1px solid color-mix(in srgb, var(--rc) 16%, var(--line2)); border-radius: 0 12px 12px 0; }
+  .nf-req-table tbody tr:hover { transform: translateY(-2px); }
+  .nf-req-table tbody tr:hover td {
+    border-color: color-mix(in srgb, var(--rc) 50%, var(--line2));
+    background: color-mix(in srgb, var(--rc) 9%, var(--raised));
+    box-shadow: 0 10px 18px -12px color-mix(in srgb, var(--rc) 70%, transparent);
+  }
+  .nf-req-table tbody tr:hover td:first-child {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--rc) 24%, var(--raised)), color-mix(in srgb, var(--rc) 9%, var(--raised)) 85%);
+  }
+}
+/* Card mode (container too narrow for the columns): each row restacks into a card of label / value lines —
+   label in a fixed left column, value beside it — so every card lines up the same way whatever the
+   content or width. The actions sit on their own line at the foot of the card. */
 @container (max-width: 779px) {
   .nf-req-table, .nf-req-table tbody, .nf-req-table thead, .nf-req-table thead tr { display: block; }
   .nf-req-table colgroup, .nf-req-table thead th { display: none; }
   /* ...except Pending Approvals' select-all checkbox, kept reachable as its own row. */
   .nf-req-table thead th.nf-req-select:not(:empty) {
-    display: flex; align-items: center; gap: 8px; padding: 10px 16px !important;
+    display: flex; align-items: center; gap: 8px; padding: 6px 4px 10px !important;
   }
   .nf-req-table thead th.nf-req-select:not(:empty)::after { content: 'Select all on this page'; }
-  .nf-req-table tr {
-    position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    grid-auto-flow: row dense; gap: 12px 16px; padding: 14px 16px; border-bottom: 1px solid var(--line);
+  .nf-req-table tbody tr {
+    position: relative; display: flex; flex-direction: column; gap: 9px; padding: 16px 16px 14px 18px; margin-bottom: 12px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--rc) 11%, var(--raised)) 0%, color-mix(in srgb, var(--rc) 3%, var(--raised)) 70%);
+    border: 1px solid color-mix(in srgb, var(--rc) 20%, var(--line2)); border-left: 4px solid var(--rc); border-radius: 14px;
+    box-shadow: 0 8px 18px -14px color-mix(in srgb, var(--rc) 60%, transparent);
   }
-  .nf-req-table tr:last-child { border-bottom: none; }
-  .nf-req-table td { display: block; min-width: 0; padding: 0 !important; border: none !important; }
+  .nf-req-table tbody tr:last-child { margin-bottom: 0; }
+  .nf-req-table tbody tr:hover { transform: translateY(-2px); box-shadow: 0 14px 24px -14px color-mix(in srgb, var(--rc) 75%, transparent); }
+  .nf-req-table td {
+    display: block; position: relative; padding: 0 0 0 134px !important; min-height: 15px;
+    min-width: 0; border: none !important; background: none; overflow-wrap: anywhere;
+  }
   /* e.g. the Action cell of a non-pending request — no label for nothing. */
   .nf-req-table td:empty { display: none; }
   .nf-req-table td::before {
-    content: attr(data-label); display: block; margin-bottom: 3px;
+    content: attr(data-label); position: absolute; left: 0; top: 2px; width: 120px;
     font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-dim);
   }
-  .nf-req-table td[data-label="Reason"], .nf-req-table td[data-label="Comments"] { grid-column: span 2; }
-  /* Bulk-select checkbox: pinned to the card's top-right corner rather than taking a grid cell. */
-  .nf-req-table td.nf-req-select { position: absolute; top: 12px; right: 14px; }
+  /* Employee leads the card as its title. */
+  .nf-req-table td[data-label="Employee"] { font-size: 13px; }
+  .nf-req-table td[data-label="Actions"], .nf-req-table td[data-label="Action"] {
+    margin-top: 3px; padding: 12px 0 0 0 !important; border-top: 1px solid var(--line) !important;
+  }
+  .nf-req-table td[data-label="Actions"]::before, .nf-req-table td[data-label="Action"]::before { content: none; }
+  /* Bulk-select checkbox: pinned to the card's top-right corner rather than taking a line. */
+  .nf-req-table td.nf-req-select { position: absolute; top: 12px; right: 14px; padding: 0 !important; }
   .nf-req-table td.nf-req-select::before { content: none; }
+}
+/* Very narrow: label stacks above its value instead of beside it. */
+@container (max-width: 340px) {
+  .nf-req-table td { padding-left: 0 !important; }
+  .nf-req-table td::before { position: static; display: block; width: auto; margin-bottom: 2px; }
 }
 
 /* DetailDrawer — subtle slide-in from the right, the one consistent detail-view shell used
    across Today, Attendance Health, the KPI tiles, and the Attendance Log. */
 @keyframes nf-drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @media (prefers-reduced-motion: no-preference) {
-  .nf-drawer-panel { animation: nf-drawer-in 220ms cubic-bezier(.22,.61,.36,1) both; }
+  .nf-drawer-panel { animation: nf-drawer-in 160ms cubic-bezier(.22,.61,.36,1) both; }
 }
 
 /* Generic "this reveals more detail on click" affordance — used on Today's sub-rows,
@@ -1317,7 +1377,7 @@ input[type="date"] {
 .nf-hero-illus[data-variant="male"] { aspect-ratio: 874 / 277; }
 .nf-hero-illus[data-variant="non-binary"] { aspect-ratio: 2000 / 668; }
 @keyframes nf-hero-illus-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.nf-hero-illus-fig { animation: nf-hero-illus-in 420ms cubic-bezier(.22,.61,.36,1) both; }
+.nf-hero-illus-fig { animation: nf-hero-illus-in 260ms cubic-bezier(.22,.61,.36,1) both; }
 @media (max-width: 767px) {
   .nf-hero-illus { display: none !important; }
 }
@@ -1499,3 +1559,11 @@ input[type="date"] {
 .nf-row-icon--approve:hover { background: color-mix(in srgb, var(--ok) 14%, var(--raised)); border-color: var(--ok); }
 .nf-row-icon--reject { color: var(--risk); }
 .nf-row-icon--reject:hover { background: color-mix(in srgb, var(--risk) 14%, var(--raised)); border-color: var(--risk); }
+
+/* Snappy form controls: dropdowns (select), inputs, text areas, checkboxes and buttons react almost instantly
+   (hover / focus / press feedback), and a click never waits on a slow fade. Display only. */
+select, input, textarea, button, [role="button"], [role="option"], [role="menuitem"], [role="tab"], label {
+  transition-duration: 80ms !important;
+  transition-delay: 0s !important;
+}
+select, input, textarea, button { touch-action: manipulation; }

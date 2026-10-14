@@ -11,12 +11,12 @@ export const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, 
 export const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
 
 export function fmtCurrency(n?: number | null) {
-  if (n == null) return '—';
+  if (n == null) return '–';
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n);
 }
 
 export function fmtDate(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 

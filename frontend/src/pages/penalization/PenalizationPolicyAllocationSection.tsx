@@ -41,7 +41,7 @@ const inputStyle: React.CSSProperties = {
 const labelText: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
 
 function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
+  if (!iso) return '–';
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
 }
@@ -201,7 +201,7 @@ function AllocateModal({ title, token, employeeUserIds, employees, policies, ini
             <span style={labelText}>Choose Penalization Policy {!removeMode && '*'}</span>
             <select style={{ ...inputStyle, width: '100%' }} value={policyId} disabled={removeMode}
               onChange={e => setPolicyId(e.target.value)}>
-              <option value="">— Select Penalization Policy —</option>
+              <option value="">– Select Penalization Policy –</option>
               {activePolicies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
@@ -211,7 +211,7 @@ function AllocateModal({ title, token, employeeUserIds, employees, policies, ini
               <input type="date" style={{ ...inputStyle, width: '100%' }} value={effectiveFrom} disabled={removeMode}
                 onChange={e => setEffectiveFrom(e.target.value)} />
               <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
-                When this employee's assignment to the selected policy starts — separate from the policy's own effective date on the Penalization Policy screen.
+                When this employee's assignment to the selected policy starts - separate from the policy's own effective date on the Penalization Policy screen.
               </div>
             </div>
             <div>
@@ -308,11 +308,11 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8, fontSize: 12, color: 'var(--txt-mut)' }}>
                 <div><span style={{ color: 'var(--txt-dim)' }}>Employee Number:</span> {detail.employeeCode}</div>
                 <div><span style={{ color: 'var(--txt-dim)' }}>Email:</span> {detail.email}</div>
-                <div><span style={{ color: 'var(--txt-dim)' }}>Designation:</span> {detail.designationTitle ?? '—'}</div>
-                <div><span style={{ color: 'var(--txt-dim)' }}>Department:</span> {detail.departmentName ?? '—'}</div>
-                <div><span style={{ color: 'var(--txt-dim)' }}>Business Unit:</span> {detail.businessUnitName ?? '—'}</div>
-                <div><span style={{ color: 'var(--txt-dim)' }}>Location:</span> {detail.locationName ?? '—'}</div>
-                <div><span style={{ color: 'var(--txt-dim)' }}>Reporting Manager:</span> {detail.reportingManagerName ?? '—'}</div>
+                <div><span style={{ color: 'var(--txt-dim)' }}>Designation:</span> {detail.designationTitle ?? '–'}</div>
+                <div><span style={{ color: 'var(--txt-dim)' }}>Department:</span> {detail.departmentName ?? '–'}</div>
+                <div><span style={{ color: 'var(--txt-dim)' }}>Business Unit:</span> {detail.businessUnitName ?? '–'}</div>
+                <div><span style={{ color: 'var(--txt-dim)' }}>Location:</span> {detail.locationName ?? '–'}</div>
+                <div><span style={{ color: 'var(--txt-dim)' }}>Reporting Manager:</span> {detail.reportingManagerName ?? '–'}</div>
               </div>
             </div>
 
@@ -362,7 +362,7 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
             </div>
             {detail.history.length === 0 ? (
               <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--txt-mut)', fontSize: 13 }}>
-                No allocation history — this employee follows the legacy/default assignment only.
+                No allocation history - this employee follows the legacy/default assignment only.
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
@@ -379,7 +379,7 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
                     <tr key={a.id} style={{ borderBottom: '1px solid var(--line)' }}>
                       <td style={{ padding: '8px 10px', color: 'var(--txt)' }}>{a.penalisationPolicyName}</td>
                       <td style={{ padding: '8px 10px', color: 'var(--txt-mut)' }}>{fmtDate(a.effectiveFrom)}</td>
-                      <td style={{ padding: '8px 10px', color: 'var(--txt-mut)' }}>{a.effectiveTo ? fmtDate(a.effectiveTo) : '—'}</td>
+                      <td style={{ padding: '8px 10px', color: 'var(--txt-mut)' }}>{a.effectiveTo ? fmtDate(a.effectiveTo) : '–'}</td>
                       <td style={{ padding: '8px 10px' }}><StatusPill status={a.status} /></td>
                     </tr>
                   ))}
@@ -467,7 +467,7 @@ function AddEmployeesModal({ token, policies, businessUnits, departments, locati
   if (step === 'assign') {
     return (
       <AllocateModal
-        title={`Assign Policy — ${selected.size} employee${selected.size === 1 ? '' : 's'}`}
+        title={`Assign Policy - ${selected.size} employee${selected.size === 1 ? '' : 's'}`}
         token={token}
         employeeUserIds={Array.from(selected)}
         employees={result?.content}
@@ -530,7 +530,7 @@ function AddEmployeesModal({ token, policies, businessUnits, departments, locati
                       <div style={{ color: 'var(--txt)', fontWeight: 500 }}>{row.fullName}</div>
                       <div style={{ color: 'var(--txt-mut)', fontSize: 11 }}>{row.employeeCode} · {row.email}</div>
                     </td>
-                    <td style={{ padding: '8px 10px', color: 'var(--txt-mut)' }}>{row.departmentName ?? '—'}</td>
+                    <td style={{ padding: '8px 10px', color: 'var(--txt-mut)' }}>{row.departmentName ?? '–'}</td>
                     <td style={{ padding: '8px 10px', color: 'var(--txt-mut)' }}>{row.resolvedPolicyName ?? 'No Penalization Policy'}</td>
                   </tr>
                 ))}
@@ -721,16 +721,16 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
   }
 
   function openAssign(emp: AllocatableEmployee) {
-    setAllocateTarget({ employeeIds: [emp.employeeUserId], title: `Assign Policy — ${emp.fullName}` });
+    setAllocateTarget({ employeeIds: [emp.employeeUserId], title: `Assign Policy - ${emp.fullName}` });
   }
 
   function openEdit(emp: AllocatableEmployee) {
     if (!emp.currentAllocation) return;
-    setAllocateTarget({ employeeIds: [emp.employeeUserId], title: `Edit Allocation — ${emp.fullName}`, initial: emp.currentAllocation });
+    setAllocateTarget({ employeeIds: [emp.employeeUserId], title: `Edit Allocation - ${emp.fullName}`, initial: emp.currentAllocation });
   }
 
   function openBulkAssign() {
-    setAllocateTarget({ employeeIds: Array.from(selected), title: `Update Penalization Policy — ${selected.size} employees`, allowRemove: true });
+    setAllocateTarget({ employeeIds: Array.from(selected), title: `Update Penalization Policy - ${selected.size} employees`, allowRemove: true });
   }
 
   function triggerRemove(emp: AllocatableEmployee) {
@@ -840,7 +840,7 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
 
       {Object.keys(lookupErrors).length > 0 && (
         <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 8, padding: '10px 14px', color: 'var(--risk)', fontSize: 13 }}>
-          <span>Some filter options failed to load — the affected dropdown(s) are marked above.</span>
+          <span>Some filter options failed to load - the affected dropdown(s) are marked above.</span>
           <button onClick={() => fetchLookups()} style={{ marginLeft: 'auto', padding: '5px 12px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12, fontWeight: 600, color: 'var(--txt)', cursor: 'pointer' }}>Retry</button>
         </div>
       )}
@@ -873,7 +873,7 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
       {lastResult && (
         <div style={{ padding: '10px 18px', border: '1px solid var(--line)', borderRadius: 8, background: lastResult.failures.length ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: lastResult.failures.length ? 6 : 0 }}>
-            Bulk update — {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
+            Bulk update - {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
           </div>
           {lastResult.failures.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -921,13 +921,13 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
                     </td>
                     <td style={{ padding: '10px 14px' }}>
                       <div style={{ color: 'var(--txt)', fontWeight: 500 }}>{row.fullName}</div>
-                      <div style={{ color: 'var(--txt-mut)', fontSize: 11 }}>{row.designationTitle ?? '—'}</div>
+                      <div style={{ color: 'var(--txt-mut)', fontSize: 11 }}>{row.designationTitle ?? '–'}</div>
                     </td>
                     <td style={{ padding: '10px 14px', color: 'var(--txt-mut)', fontFamily: 'Inter, sans-serif', fontSize: 11.5 }}>{row.employeeCode}</td>
-                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.departmentName ?? '—'}</td>
-                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.locationName ?? '—'}</td>
-                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.businessUnitName ?? '—'}</td>
-                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.reportingManagerName ?? '—'}</td>
+                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.departmentName ?? '–'}</td>
+                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.locationName ?? '–'}</td>
+                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.businessUnitName ?? '–'}</td>
+                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.reportingManagerName ?? '–'}</td>
                     <td style={{ padding: '10px 14px' }}>
                       {row.resolvedPolicyName ? (
                         <div style={{ color: 'var(--txt)' }}>{row.resolvedPolicyName} <SourceBadge source={row.resolvedPolicySource} /></div>
@@ -946,9 +946,9 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
                         </div>
                       )}
                     </td>
-                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.currentAllocation ? fmtDate(row.currentAllocation.effectiveFrom) : '—'}</td>
-                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.currentAllocation?.effectiveTo ? fmtDate(row.currentAllocation.effectiveTo) : row.currentAllocation ? 'No End Date' : '—'}</td>
-                    <td style={{ padding: '10px 14px' }}>{row.currentAllocation ? <StatusPill status={row.currentAllocation.status} /> : '—'}</td>
+                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.currentAllocation ? fmtDate(row.currentAllocation.effectiveFrom) : '–'}</td>
+                    <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{row.currentAllocation?.effectiveTo ? fmtDate(row.currentAllocation.effectiveTo) : row.currentAllocation ? 'No End Date' : '–'}</td>
+                    <td style={{ padding: '10px 14px' }}>{row.currentAllocation ? <StatusPill status={row.currentAllocation.status} /> : '–'}</td>
                     <td style={{ padding: '10px 14px', textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                       <KebabMenu items={kebabItems(row)} />
                     </td>

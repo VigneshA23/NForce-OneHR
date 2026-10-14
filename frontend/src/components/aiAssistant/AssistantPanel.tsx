@@ -378,7 +378,7 @@ export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: Assi
 
       {tooLong && (
         <div style={{ ...errorBannerStyle, borderTop: 'none' }}>
-          {draft.trim().length} of {MAX_MESSAGE_CHARS} characters — shorten your question.
+          {draft.trim().length} of {MAX_MESSAGE_CHARS} characters - shorten your question.
         </div>
       )}
     </div>

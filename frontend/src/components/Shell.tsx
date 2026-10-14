@@ -55,7 +55,7 @@ function ComingInPhase({ label, phase }: { label: string; phase: number }) {
         {label}
       </div>
       <div style={{ fontSize: 13 }}>
-        Ships in Phase {phase}, per the roadmap — this is a placeholder, not a broken link.
+        Ships in Phase {phase}, per the roadmap - this is a placeholder, not a broken link.
       </div>
     </div>
   );

@@ -158,7 +158,7 @@ export function WithdrawButton({ doc, onWithdrawn }: {
     try {
       await withdrawDocument(token, doc.id);
       onWithdrawn(doc.documentTypeId);
-      showToast('success', 'Document withdrawn — you can now upload a new version');
+      showToast('success', 'Document withdrawn - you can now upload a new version');
       setConfirming(false);
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Withdraw failed');

@@ -58,7 +58,7 @@ function parseLocalDate(d: string): Date {
 }
 
 function formatDate(d: string | null): string {
-  if (!d) return '—';
+  if (!d) return '–';
   return parseLocalDate(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 

@@ -225,8 +225,8 @@ export default function ProfilePage() {
 
   const subMetaItems: { icon: typeof Mail; label: string; value: string }[] = [
     { icon: Mail,      label: 'Work Email',    value: profile.email },
-    { icon: PhoneIcon, label: 'Mobile Number', value: profile.phone || '—' },
-    { icon: MapPin,    label: 'Location',      value: profile.locationName || '—' },
+    { icon: PhoneIcon, label: 'Mobile Number', value: profile.phone || '–' },
+    { icon: MapPin,    label: 'Location',      value: profile.locationName || '–' },
     { icon: Hash,      label: 'Employee Code', value: profile.employeeCode },
   ];
 

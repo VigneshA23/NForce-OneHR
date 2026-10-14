@@ -275,8 +275,7 @@ function CreatableLocationSelect({ locations, value, onChange, disabled }: { loc
           ))}
           <div onMouseDown={() => { onChange(undefined); setQuery(''); setOpen(false); }}
             style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', cursor: 'pointer' }}>
-            — Clear —
-          </div>
+            – Clear - </div>
         </div>
       )}
     </div>
@@ -297,7 +296,7 @@ function ShiftSelect({ shifts, value, onChange, onCreated, token, disabled }: {
     document.addEventListener('mousedown', out);
     return () => document.removeEventListener('mousedown', out);
   }, []);
-  const label = (s: ShiftRow) => `${s.name} — ${fmtShiftTime(s.startTime)}–${fmtShiftTime(s.endTime)}`;
+  const label = (s: ShiftRow) => `${s.name} - ${fmtShiftTime(s.startTime)}–${fmtShiftTime(s.endTime)}`;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <div style={{ position: 'relative' }} onClick={() => !disabled && setOpen(o => !o)}>
@@ -309,8 +308,7 @@ function ShiftSelect({ shifts, value, onChange, onCreated, token, disabled }: {
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, boxShadow: '0 8px 24px rgba(0,0,0,.3)', zIndex: 100, maxHeight: 220, overflowY: 'auto' }}>
           <div onMouseDown={() => { onChange(undefined); setOpen(false); }}
             style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', cursor: 'pointer' }}>
-            — None —
-          </div>
+            – None - </div>
           {shifts.map(s => (
             <div key={s.id} onMouseDown={() => { onChange(s.id); setOpen(false); }}
               style={{ padding: '9px 14px', fontSize: 13, color: value === s.id ? 'var(--brand-bright)' : 'var(--txt)', background: value === s.id ? 'rgba(176,17,22,.12)' : 'transparent', cursor: 'pointer' }}
@@ -497,13 +495,13 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
     const trimmedName = form.fullName.trim();
     const rawEmail = form.email;
     if (!trimmedName || !rawEmail) { setError('Name and email required.'); return; }
-    if (!NAME_PATTERN.test(trimmedName)) { setError("Full name can only contain letters, spaces, hyphens, and apostrophes — no emojis or symbols."); return; }
+    if (!NAME_PATTERN.test(trimmedName)) { setError("Full name can only contain letters, spaces, hyphens, and apostrophes - no emojis or symbols."); return; }
     // Deliberately checked against the raw value, not a trimmed one — a leading/trailing
     // space is rejected outright rather than silently stripped before validating.
     if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
     if (!form.role) { setError('Role is required.'); return; }
-    if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
+    if (!form.locationId) { setError('Location is required - Leave & Holidays depends on it.'); return; }
     if (!form.departmentId) { setError('Department is required.'); return; }
     if (!form.designationId) { setError('Designation is required.'); return; }
     if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
@@ -571,7 +569,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             )}
             {onboardingOutcome === 'started' && (
               <div style={{ background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: '#4C8DD6' }}>
-                Onboarding checklist started — find it under Onboarding → Onboarding Started.
+                Onboarding checklist started - find it under Onboarding → Onboarding Started.
               </div>
             )}
             {onboardingOutcome === 'failed' && (
@@ -589,7 +587,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             )}
             {created.tempPassword && (
               <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Temp password — share once, store nowhere</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Temp password - share once, store nowhere</div>
                 <code style={{ fontSize: 14, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', userSelect: 'all' }}>{created.tempPassword}</code>
               </div>
             )}
@@ -699,20 +697,20 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} value={form.managerId ?? ''} disabled={noRoleYet} onChange={e => set('managerId', e.target.value)}>
                     <option value="">
-                      {noRoleYet ? '— Select a Role first —' : isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}
+                      {noRoleYet ? '– Select a Role first –' : isSA ? '– None (optional) –' : '– Select a Reporting Manager –'}
                     </option>
                     {/* Deactivated managers stay in the list (see getManagersForRole) but as a
                         disabled option, so they can't be picked for a new assignment — they're
                         only shown to explain an EXISTING selection that already points at one. */}
                     {mgrList.map((m: any) => (
                       <option key={m.userId} value={m.userId} disabled={m.active === false}>
-                        {m.fullName} ({m.email}){m.active === false ? ' — Inactive' : ''}
+                        {m.fullName} ({m.email}){m.active === false ? ' - Inactive' : ''}
                       </option>
                     ))}
                   </select>
                   {!noRoleYet && !isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                      No {mgrRoleLabel} users found — add one first.
+                      No {mgrRoleLabel} users found - add one first.
                     </div>
                   )}
                 </Field>
@@ -851,7 +849,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
   return (
     <div style={overlayStyle}>
       <div style={{ ...modalStyle, maxWidth: 580 }}>
-        <ModalHeader title={`Edit — ${user.fullName}`} onClose={onClose} />
+        <ModalHeader title={`Edit - ${user.fullName}`} onClose={onClose} />
         <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           {isInactive && <InactiveEditBanner />}
@@ -890,17 +888,17 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           </Field>
           <Field label="Business Unit">
             <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
-              <option value="">— None —</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              <option value="">– None –</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
           <Field label="Department">
             <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined, designationId: undefined }))}>
-              <option value="">— None —</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">– None –</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} disabled={gatedFieldsLocked || !form.departmentId} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">{form.departmentId ? '— None —' : 'Select a Department first'}</option>
+              <option value="">{form.departmentId ? '– None –' : 'Select a Department first'}</option>
               {getDesignationOptions(opts.designations, form.designationId, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
@@ -937,19 +935,19 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                    <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
+                    <option value="">{isSA ? '– None (optional) –' : '– Select a Reporting Manager –'}</option>
                     {/* Deactivated managers stay in the list (see getManagersForRole) but as a
                         disabled option, so they can't be picked for a new assignment — they're
                         only shown to explain an EXISTING selection that already points at one. */}
                     {mgrList.map((m: any) => (
                       <option key={m.userId} value={m.userId} disabled={m.active === false}>
-                        {m.fullName} ({m.email}){m.active === false ? ' — Inactive' : ''}
+                        {m.fullName} ({m.email}){m.active === false ? ' - Inactive' : ''}
                       </option>
                     ))}
                   </select>
                   {!isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                      No {mgrRoleLabel} users found — add one first.
+                      No {mgrRoleLabel} users found - add one first.
                     </div>
                   )}
                 </Field>
@@ -1036,7 +1034,7 @@ function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; on
           {state === 'done' && result && (
             <>
               <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>New temp password — share once, store nowhere</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>New temp password - share once, store nowhere</div>
                 <code style={{ fontSize: 15, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', userSelect: 'all' }}>{result.tempPassword}</code>
               </div>
               <button onClick={onClose} style={{ width: '100%', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Done</button>
@@ -1090,7 +1088,7 @@ function StatusModal({ user, isSelf, isLastActiveSuperAdmin, onClose, onUpdated,
             </div>
           ) : isLastActiveSuperAdmin && user.active ? (
             <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
-              <b style={{ color: 'var(--txt)' }}>{user.fullName}</b> is the last active Super Admin. Deactivating this account would leave nobody able to manage users — assign Super Admin to another account first.
+              <b style={{ color: 'var(--txt)' }}>{user.fullName}</b> is the last active Super Admin. Deactivating this account would leave nobody able to manage users - assign Super Admin to another account first.
             </div>
           ) : user.active ? (
             <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
@@ -1392,8 +1390,8 @@ export default function UserManagementPage() {
                       </td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{u.email}</td>
                       <td style={tdStyle}><RoleBadge role={u.role} /></td>
-                      <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                      <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                      <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
                       <td style={tdStyle}><StatusBadge active={u.active} /></td>
                       <td style={{ ...tdStyle, padding: '8px 12px', width: 44 }}>
                         <RowActionsMenu

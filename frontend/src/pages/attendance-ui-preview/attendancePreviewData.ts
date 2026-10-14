@@ -46,7 +46,7 @@ export function previewRegularizations(): { mine: RegularizationRecord[]; forApp
   ];
   const forApprover = [
     make(3, PEOPLE[0], 2, 'PENDING', 'Missed the evening check-out, left at 6 PM'),
-    make(4, PEOPLE[1], 3, 'PENDING', 'Network outage — could not punch in'),
+    make(4, PEOPLE[1], 3, 'PENDING', 'Network outage - could not punch in'),
     make(5, PEOPLE[2], 5, 'APPROVED', 'Client site visit, no access to the portal', approvedExtra),
     make(6, PEOPLE[3], 6, 'REJECTED', 'Forgot to punch', { reviewedByName: APPROVER.name, reviewedAt: `${isoAgo(5)}T10:00:00+05:30`, reviewComment: 'Please attach proof' }),
   ];

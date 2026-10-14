@@ -372,7 +372,7 @@ export default function ReportsPage() {
               )}
             </ChartCard>
 
-            <ChartCard title={`Attendance breakdown — ${attendanceDate}`}>
+            <ChartCard title={`Attendance breakdown - ${attendanceDate}`}>
               {attendanceRecords.length === 0 && attendanceSummary.notCheckedIn === 0 ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No attendance data for this date.</div>
               ) : (
@@ -400,8 +400,8 @@ export default function ReportsPage() {
                   <tr key={r.userId}>
                     <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
                     <td style={{ ...tdS, fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</td>
-                    <td style={tdS}>{r.departmentName ?? '—'}</td>
-                    <td style={tdS}>{r.designationName ?? '—'}</td>
+                    <td style={tdS}>{r.departmentName ?? '–'}</td>
+                    <td style={tdS}>{r.designationName ?? '–'}</td>
                     <td style={tdS}>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, color: r.active ? '#2FB67C' : 'var(--txt-dim)', background: r.active ? 'rgba(47,182,124,.15)' : 'var(--raised2)' }}>
                         {r.active ? 'Active' : 'Inactive'}

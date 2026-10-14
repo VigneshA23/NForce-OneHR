@@ -263,7 +263,7 @@ export default function DocumentsPage() {
                     Published {new Date(p.publishedAt).toLocaleDateString()} · Audience: {p.audience}
                     {p.acknowledgedAt && <span style={{ marginLeft: 12, color: '#22c55e' }}>✓ Acknowledged current version {new Date(p.acknowledgedAt).toLocaleDateString()}</span>}
                     {!p.acknowledgedAt && p.previousVersionId != null && (
-                      <span style={{ marginLeft: 12, color: '#eab308' }}>Updated since your last acknowledgment — please review v{p.version} again</span>
+                      <span style={{ marginLeft: 12, color: '#eab308' }}>Updated since your last acknowledgment - please review v{p.version} again</span>
                     )}
                   </div>
                 </div>

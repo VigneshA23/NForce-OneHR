@@ -59,7 +59,7 @@ function Person({ name, fallback, large }: { name?: string | null; fallback?: st
       <span className={`nf-rq-avatar${large ? ' nf-rq-avatar--lg' : ''}${name ? '' : ' nf-rq-avatar--muted'}`} aria-hidden="true">
         {name ? initials(name) : '–'}
       </span>
-      <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '—'}</span>
+      <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '–'}</span>
     </div>
   );
 }
@@ -79,7 +79,7 @@ function PageHeader({ subtitle }: { subtitle?: string }) {
 }
 
 function fmtDateTime(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -415,7 +415,7 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
           </div>
           <div className="nf-rq-panel-body">
             <div className="nf-rq-hint" style={{ marginBottom: 16 }}>
-              <Info size={14} /> Just viewing — nothing changes until you choose an action below.
+              <Info size={14} /> Just viewing - nothing changes until you choose an action below.
             </div>
 
             {showAssignPanel ? (
@@ -583,7 +583,7 @@ export default function HelpDeskAdminPage() {
         <Kpi icon={<Lock size={20} />} tone="tone-mute" label="Closed" value={dashboard.closedCount} />
       </div>
       <p className="nf-rq-note">
-        Totals across all tickets — the search and assignee filters below narrow the list only.
+        Totals across all tickets - the search and assignee filters below narrow the list only.
       </p>
 
       <div className="nf-rq-card">
@@ -618,7 +618,7 @@ export default function HelpDeskAdminPage() {
         </div>
         {hasActiveNarrowing && (
           <div className="nf-rq-narrowing">
-            Showing {totalElements} ticket{totalElements === 1 ? '' : 's'} matching your search/assignee filter — the cards above still reflect all tickets.
+            Showing {totalElements} ticket{totalElements === 1 ? '' : 's'} matching your search/assignee filter - the cards above still reflect all tickets.
           </div>
         )}
 
@@ -661,7 +661,7 @@ export default function HelpDeskAdminPage() {
                     <td data-label="Employee"><Person name={t.employeeName} /></td>
                     <td data-label="Topic">{t.categoryName}</td>
                     <td data-label="Status"><StatusBadge status={t.status} /></td>
-                    <td data-label="Assigned To">{t.assignedToName ? <Person name={t.assignedToName} /> : <span className="nf-rq-dim">—</span>}</td>
+                    <td data-label="Assigned To">{t.assignedToName ? <Person name={t.assignedToName} /> : <span className="nf-rq-dim">–</span>}</td>
                     <td data-label="Last Update" className="nf-rq-nowrap">{fmtDateTime(t.updatedAt)}</td>
                     <td className="nf-rq-td-actions">
                       {/* Same action as clicking the row — opens the read-only preview. */}

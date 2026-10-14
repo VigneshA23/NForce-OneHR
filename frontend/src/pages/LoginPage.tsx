@@ -113,7 +113,7 @@ export default function LoginPage() {
             ))}
           </div>
           <p className="text-xs" style={{ color: '#3a3a3a', fontFamily: 'Inter, sans-serif' }}>
-            Confidential — internal use only
+            Confidential - internal use only
           </p>
         </div>
       </div>

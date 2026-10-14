@@ -30,7 +30,7 @@ export default function TalentPerformancePage() {
       <div>
         <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Performance</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '4px 0 0' }}>
-          Org-wide skills, certificates, and learning — dashboard, search, and directory.
+          Org-wide skills, certificates, and learning - dashboard, search, and directory.
         </p>
       </div>
 

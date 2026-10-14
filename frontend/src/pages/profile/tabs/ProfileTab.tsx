@@ -73,7 +73,7 @@ function EducationCard({ token }: { token: string }) {
                 <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{e.degree}{e.fieldOfStudy ? ` · ${e.fieldOfStudy}` : ''}</div>
                 <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>{e.institutionName}</div>
                 <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>
-                  {e.startDate ?? '—'} – {e.endDate ?? 'Present'}
+                  {e.startDate ?? '–'} – {e.endDate ?? 'Present'}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>

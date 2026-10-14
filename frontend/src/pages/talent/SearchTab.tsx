@@ -142,7 +142,7 @@ export function SearchTab() {
           </div>
           {hasUnresolvedSkillText && (
             <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 5 }}>
-              No matching skill found. Skills are managed in Settings — clear this to search, or pick from an existing skill.
+              No matching skill found. Skills are managed in Settings - clear this to search, or pick from an existing skill.
             </div>
           )}
           {selectedSkillIds.length > 1 && (
@@ -221,7 +221,7 @@ export function SearchTab() {
               <div key={r.employeeUserId} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', borderTop: i === 0 ? 'none' : '1px solid var(--line)' }}>
                 <div style={{ flex: '0 0 200px', minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.employeeName}</div>
-                  <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeCode} · {r.departmentName ?? '—'}{r.managerName ? ` · reports to ${r.managerName}` : ''}</div>
+                  <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeCode} · {r.departmentName ?? '–'}{r.managerName ? ` · reports to ${r.managerName}` : ''}</div>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                   {r.matchingSkills.map((s, j) => (

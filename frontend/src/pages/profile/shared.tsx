@@ -225,7 +225,7 @@ export function ProfileCompletionCard({ detail, onJumpTo }: { detail: ProfileCom
           }} />
         </div>
         <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 7, textAlign: 'left' }}>
-          {hasMissing ? `${detail.missing.length} item${detail.missing.length === 1 ? '' : 's'} left — click to see` : "You're all set!"}
+          {hasMissing ? `${detail.missing.length} item${detail.missing.length === 1 ? '' : 's'} left - click to see` : "You're all set!"}
         </div>
       </button>
       {open && hasMissing && anchorRect && (

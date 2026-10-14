@@ -220,7 +220,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
             {selectedBalance && (
               <div style={{ fontSize: 11.5, color: exceedsBalance ? 'var(--risk)' : 'var(--txt-dim)', marginTop: 5 }}>
                 Available: {selectedBalance.remainingDays} day{selectedBalance.remainingDays === 1 ? '' : 's'}
-                {exceedsBalance && ' — this request exceeds your available balance'}
+                {exceedsBalance && ' - this request exceeds your available balance'}
               </div>
             )}
             {blockedUnpaidWithPaidBalance && (
@@ -416,7 +416,7 @@ export default function LeavePage() {
           <KpiTile icon={Hourglass} label="Pending Requests" value={String(myPendingCount)} sub={myPendingCount === 0 ? 'All caught up' : 'Awaiting a decision'} accent="var(--warn)" />
           <KpiTile
             icon={CalendarClock} label="Upcoming Leave"
-            value={upcoming ? new Date(upcoming.startDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}
+            value={upcoming ? new Date(upcoming.startDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '–'}
             sub={upcoming ? upcoming.leaveTypeName : 'Nothing scheduled'} accent="var(--brand)"
           />
         </div>

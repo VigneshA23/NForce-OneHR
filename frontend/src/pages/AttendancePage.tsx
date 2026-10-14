@@ -525,7 +525,7 @@ function LateBadge({ minutes, checkInAt, shiftStartAt, graceMinutes, workedMinut
 function RegularizationStatusPill({ status }: { status: string }) {
   const color = REGULARIZATION_STATUS_COLOR[status] ?? 'var(--txt-mut)';
   return (
-    <span style={{
+    <span data-status={status} style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
       fontSize: 10.5, fontWeight: 700, color,
       background: `color-mix(in srgb, ${color} 14%, var(--raised))`, border: `1px solid color-mix(in srgb, ${color} 30%, var(--line))`,
@@ -6218,8 +6218,8 @@ function AttendanceRequestsSection({ token, canApprove, isPreview = false }: { t
           <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
             <table className="nf-req-table" style={reqTableStyle}>
               <ReqColGroup widths={showActions
-                ? ['12.5%', '10%', '8.5%', '10.5%', '9.5%', '11.5%', '11%', '11%', '15.5%']
-                : ['17%', '11%', '13%', '14%', '13%', '12%', '11.5%', '8.5%']} />
+                ? ['11.5%', '9%', '8%', '10%', '9%', '10.5%', '10.5%', '10.5%', '21%']
+                : ['16%', '11%', '12%', '13%', '12%', '11%', '11%', '14%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showActions) — see renderPartialDayTable. */}
                 <tr>{[...(showActions ? ['Employee'] : []), 'Date', 'Request Type', 'Requested On', 'Reason', 'Status', 'Last Action By', 'Next Approver', 'Actions'].map((h) => <th key={h} style={reqThStyle}>{h}</th>)}</tr>
@@ -6289,8 +6289,8 @@ function AttendanceRequestsSection({ token, canApprove, isPreview = false }: { t
           <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
             <table className="nf-req-table" style={reqTableStyle}>
               <ReqColGroup widths={showActions
-                ? ['13%', '13.5%', '11%', '9%', '12%', '12%', '13%', '16.5%']
-                : ['18%', '14%', '10%', '19%', '15%', '14%', '10%']} />
+                ? ['13%', '13%', '10.5%', '8.5%', '11%', '11%', '12%', '21%']
+                : ['17%', '13%', '9%', '18%', '14%', '13%', '16%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showActions) — in "My Requests"
                     every row is the viewer's own, so the name would be redundant. Mirrors
@@ -6915,8 +6915,8 @@ function OvertimeRequestsSection({ token, canApprove, isPreview = false }: { tok
           <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
             <table className="nf-req-table" style={reqTableStyle}>
               <ReqColGroup widths={showApprovalActions
-                ? ['13%', '13%', '11%', '11%', '12%', '12%', '11.5%', '16.5%']
-                : ['17%', '12%', '19%', '14%', '14%', '14%', '10%']} />
+                ? ['13%', '12.5%', '10.5%', '10%', '11.5%', '11.5%', '10.5%', '20.5%']
+                : ['16%', '11%', '18%', '13%', '13%', '13%', '16%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showApprovalActions) — see the same
                     reasoning in AttendanceRequestsSection.renderTable. The "..." Actions column is

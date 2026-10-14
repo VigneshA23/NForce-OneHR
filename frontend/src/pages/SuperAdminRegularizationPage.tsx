@@ -30,12 +30,12 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function fmtDateTime(dt: string | null) {
-  if (!dt) return '—';
+  if (!dt) return '–';
   return dt.replace('T', ' ').slice(0, 16);
 }
 
 function formatDuration(minutes: number | null): string {
-  if (minutes == null) return '—';
+  if (minutes == null) return '–';
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -48,7 +48,7 @@ function AuditDetailModal({ request, onClose }: { request: RegularizationRecord;
       <div style={modalStyle}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
-            {request.employeeName} — {request.attendanceDate}
+            {request.employeeName} – {request.attendanceDate}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
         </div>
@@ -57,8 +57,8 @@ function AuditDetailModal({ request, onClose }: { request: RegularizationRecord;
             <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Requested Check-In</div>{fmtDateTime(request.requestedCheckIn)}</div>
             <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Requested Check-Out</div>{fmtDateTime(request.requestedCheckOut)}</div>
             <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Total Hours</div>{formatDuration(request.totalMinutes)}</div>
-            <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Department</div>{request.departmentName ?? '—'}</div>
-            <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Assigned Approver</div>{request.assignedApproverName ?? '—'}</div>
+            <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Department</div>{request.departmentName ?? '–'}</div>
+            <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Assigned Approver</div>{request.assignedApproverName ?? '–'}</div>
             <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase' }}>Status</div><StatusPill status={request.status} /></div>
           </div>
           <div>
@@ -89,7 +89,7 @@ function AuditDetailModal({ request, onClose }: { request: RegularizationRecord;
               Approval / Rejection History
             </div>
             {request.approvalHistory.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No decisions recorded yet — still pending.</div>
+              <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No decisions recorded yet - still pending.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {request.approvalHistory.map((h, i) => (
@@ -164,7 +164,7 @@ export default function SuperAdminRegularizationPage() {
           <ArrowLeft size={13} /> Back to Attendance
         </Link>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
-          Attendance Regularization — All Requests
+          Attendance Regularization - All Requests
         </h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
           Org-wide history across every employee, manager, and status, with full approval/rejection audit trail.
@@ -211,12 +211,12 @@ export default function SuperAdminRegularizationPage() {
                       {r.employeeName}
                       <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
                     </td>
-                    <td style={tdStyle}>{r.departmentName ?? '—'}</td>
+                    <td style={tdStyle}>{r.departmentName ?? '–'}</td>
                     <td style={tdStyle}>{r.attendanceDate}</td>
                     <td style={tdStyle}>{formatDuration(r.totalMinutes)}</td>
                     <td style={tdStyle}><StatusPill status={r.status} /></td>
-                    <td style={tdStyle}>{r.assignedApproverName ?? '—'}</td>
-                    <td style={tdStyle}>{r.reviewedByName ?? '—'}</td>
+                    <td style={tdStyle}>{r.assignedApproverName ?? '–'}</td>
+                    <td style={tdStyle}>{r.reviewedByName ?? '–'}</td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDateTime(r.createdAt)}</td>
                   </tr>
                 ))}

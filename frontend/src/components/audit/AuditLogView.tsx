@@ -194,7 +194,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
         ) : loadError ? (
           <div role="alert" style={{ margin: 16, background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 8, padding: '12px 16px', color: 'var(--risk)', fontSize: 13 }}>
-            {loadError} — check that the backend is running.
+            {loadError} – check that the backend is running.
           </div>
         ) : rows.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center' }}>

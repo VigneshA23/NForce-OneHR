@@ -310,7 +310,7 @@ export function ContentFormModal({ editing, initialType, token, onClose, onSaved
               {totalAttachmentCount < MAX_ATTACHMENTS_PER_CONTENT && (
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>
                   <Paperclip size={13} />
-                  Add attachment(s) — select multiple at once
+                  Add attachment(s) - select multiple at once
                   <input
                     type="file"
                     multiple

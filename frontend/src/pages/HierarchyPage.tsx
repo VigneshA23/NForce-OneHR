@@ -178,7 +178,7 @@ function DetailDrawer({ card, onClose }: { card: PersonCard; onClose: () => void
             <Avatar card={card} size={52} isFocus={card.isFocus} />
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 3 }}>{card.name}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{card.designation ?? '—'}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{card.designation ?? '–'}</div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -194,7 +194,7 @@ function DetailDrawer({ card, onClose }: { card: PersonCard; onClose: () => void
             ].map(([label, value], i) => (
               <div key={label as string} style={{ padding: '11px 14px', borderTop: i ? '1px solid var(--line)' : 'none' }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 3 }}>{label}</div>
-                <div style={{ fontSize: 13, color: value && value !== 'None' && value !== 'Inactive' ? 'var(--txt)' : 'var(--txt-dim)' }}>{value || '—'}</div>
+                <div style={{ fontSize: 13, color: value && value !== 'None' && value !== 'Inactive' ? 'var(--txt)' : 'var(--txt-dim)' }}>{value || '–'}</div>
               </div>
             ))}
           </div>
@@ -714,7 +714,7 @@ export default function HierarchyPage() {
     const titleX = logoImg.naturalWidth > 0
       ? 24 + (HEADER * 0.55 * logoImg.naturalWidth / logoImg.naturalHeight) + 20
       : 24;
-    gfx.fillText('NForce OneHR — Organization Hierarchy', titleX, HEADER / 2 - 4);
+    gfx.fillText('NForce OneHR - Organization Hierarchy', titleX, HEADER / 2 - 4);
 
     const crumbText = ctx?.breadcrumb.map(b => b.name).join(' › ') ?? '';
     if (crumbText) {
@@ -798,7 +798,7 @@ export default function HierarchyPage() {
         <div>
           <h1 className="nf-hier-title">Organization Hierarchy</h1>
           <p className="nf-hier-subtitle">
-            Click any card to re-center the view. Read-only — manage reporting lines in User Management.
+            Click any card to re-center the view. Read-only - manage reporting lines in User Management.
           </p>
         </div>
 
@@ -1112,7 +1112,7 @@ export default function HierarchyPage() {
                   <Avatar card={focusCard} size={46} isFocus />
                   <div style={{ minWidth: 0 }}>
                     <div className="nf-hier-card-name" style={{ fontSize: 14 }}>{focusCard.name}</div>
-                    <div className="nf-hier-card-desig" style={{ fontSize: 12 }}>{focusCard.designation ?? '—'}</div>
+                    <div className="nf-hier-card-desig" style={{ fontSize: 12 }}>{focusCard.designation ?? '–'}</div>
                   </div>
                 </div>
                 {(focusCard.primaryRole || focusCard.department) && (

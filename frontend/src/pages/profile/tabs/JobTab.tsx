@@ -84,7 +84,7 @@ export function JobTab({ profile, token }: { profile: ProfileData; token: string
                 {directReports.map(r => (
                   <div key={r.userId} style={{ fontSize: 13, color: 'var(--txt)' }}>
                     {r.fullName}
-                    {r.designationName && <span style={{ color: 'var(--txt-mut)' }}> — {r.designationName}</span>}
+                    {r.designationName && <span style={{ color: 'var(--txt-mut)' }}> – {r.designationName}</span>}
                   </div>
                 ))}
               </div>

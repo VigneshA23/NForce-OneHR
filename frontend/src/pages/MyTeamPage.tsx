@@ -78,9 +78,9 @@ function toISO(d: Date): string {
 // this appended '+05:30' (assumed IST) and let toLocaleTimeString re-project into the viewer's
 // local zone, mislabeling and re-shifting any non-IST employee's recorded time.
 function fmtTime(iso?: string | null) {
-  if (!iso) return '—';
+  if (!iso) return '–';
   const d = new Date(iso + 'Z');
-  if (isNaN(d.getTime())) return '—';
+  if (isNaN(d.getTime())) return '–';
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
 }
 // Shift start/end are plain LocalTime strings (e.g. "20:30:00") with no date/zone component at
@@ -97,7 +97,7 @@ function fmtShiftRange(start: string, end: string): string {
   return `${fmt(start)} – ${fmt(end)}`;
 }
 function fmtDateShort(iso?: string | null) {
-  if (!iso) return '—';
+  if (!iso) return '–';
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 /** "Sep 16, 2026" — full date incl. year, for Effective From displays (a scheduled date can be far enough out that the bare day/month above would be ambiguous). */
@@ -193,7 +193,7 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
     setBusy(true);
     try {
       await approveCall();
-      showToast('success', `Approved — ${item.employeeName}`);
+      showToast('success', `Approved - ${item.employeeName}`);
       onDone(item.id);
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Approve failed');
@@ -206,7 +206,7 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
     setBusy(true);
     try {
       await rejectCall(reason.trim());
-      showToast('success', `Rejected — ${item.employeeName}`);
+      showToast('success', `Rejected - ${item.employeeName}`);
       onDone(item.id);
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Reject failed');
@@ -275,7 +275,7 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
           <Avatar userId={dr.userId} name={dr.fullName} size={40} />
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{dr.fullName}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{dr.designationName ?? '—'}</div>
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{dr.designationName ?? '–'}</div>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{dr.employeeCode}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
@@ -350,21 +350,21 @@ function EmployeeDetailsModal({ entry, onClose }: { entry: DirectoryEntry; onClo
           <Avatar userId={entry.userId} name={entry.fullName} size={40} />
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{entry.fullName}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{entry.designationName ?? '—'}</div>
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{entry.designationName ?? '–'}</div>
             <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{entry.employeeCode}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
         </div>
         <div style={{ padding: 18 }}>
           <div style={labelStyle}>Employment details</div>
-          <Row label="Employee code" value={entry.employeeCode || '—'} />
-          <Row label="Work email" value={entry.email || '—'} />
-          <Row label="Department" value={entry.departmentName || '—'} />
-          <Row label="Designation" value={entry.designationName || '—'} />
-          <Row label="Location" value={entry.locationName || '—'} />
-          <Row label="Work mode" value={entry.workMode ? entry.workMode.replace('_', ' ') : '—'} />
-          <Row label="Employment type" value={entry.employmentType ? entry.employmentType.replace('_', ' ') : '—'} />
-          <Row label="Manager" value={entry.managerName || '—'} />
+          <Row label="Employee code" value={entry.employeeCode || '–'} />
+          <Row label="Work email" value={entry.email || '–'} />
+          <Row label="Department" value={entry.departmentName || '–'} />
+          <Row label="Designation" value={entry.designationName || '–'} />
+          <Row label="Location" value={entry.locationName || '–'} />
+          <Row label="Work mode" value={entry.workMode ? entry.workMode.replace('_', ' ') : '–'} />
+          <Row label="Employment type" value={entry.employmentType ? entry.employmentType.replace('_', ' ') : '–'} />
+          <Row label="Manager" value={entry.managerName || '–'} />
         </div>
       </div>
     </div>
@@ -545,7 +545,7 @@ function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React
         onMouseLeave: () => setHover(false),
         onFocus: () => setHover(true),
         onBlur: () => setHover(false),
-        'aria-label': `${label} — click to view employees`,
+        'aria-label': `${label} - click to view employees`,
       } : {})}
       style={{
         background: 'var(--panel)', borderRadius: 10, padding: '16px 18px',
@@ -663,7 +663,7 @@ function EffortRow({ entry }: { entry: TeamEffortEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '–'}</div>
       </div>
       <div style={{ flex: 1, minWidth: 100 }}>
         <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
@@ -685,7 +685,7 @@ function PunctualityRow({ entry }: { entry: PunctualityLeaderboardEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '–'}</div>
       </div>
       <div style={{ flex: 1, minWidth: 100 }}>
         <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
@@ -801,7 +801,7 @@ function LateArrivalRow({ entry }: { entry: TeamLateArrivalEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '–'}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{entry.lateDays} / {entry.activeDays} Late Arrivals</div>
@@ -835,7 +835,7 @@ function LeastHoursRow({ entry }: { entry: TeamLeastHoursEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '–'}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>Avg. {entry.avgHoursPerDay.toFixed(1)} hrs/day</div>
@@ -876,7 +876,7 @@ function FrequentBreaksRow({ entry }: { entry: TeamFrequentBreaksEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '–'}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{entry.totalBreakHours.toFixed(1)} hrs in {entry.totalBreakCount} breaks</div>
@@ -907,7 +907,7 @@ function BreaksTrend({ data }: { data: { date: string; avgBreaks: number }[] }) 
         })}
       </svg>
       <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 6 }}>
-        Avg. breaks/day across flagged employees — {trendingUp ? 'trending up' : 'trending down'} this range
+        Avg. breaks/day across flagged employees - {trendingUp ? 'trending up' : 'trending down'} this range
       </div>
     </div>
   );
@@ -1103,7 +1103,7 @@ function AssignmentsTab({ token }: { token: string }) {
         kind: 'import',
         succeeded: result.succeeded,
         failures: result.results.filter(r => !r.success)
-          .map(r => ({ label: `Row ${r.row} (${r.employeeCode || '—'})`, reason: r.error ?? 'Unknown error' })),
+          .map(r => ({ label: `Row ${r.row} (${r.employeeCode || '–'})`, reason: r.error ?? 'Unknown error' })),
       });
       setImportOpen(false);
       setImportFile(null);
@@ -1184,7 +1184,7 @@ function AssignmentsTab({ token }: { token: string }) {
       {lastResult && (
         <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', background: lastResult.failures.length ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: lastResult.failures.length ? 6 : 0 }}>
-            {lastResult.kind === 'import' ? 'Import' : 'Bulk update'} — {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
+            {lastResult.kind === 'import' ? 'Import' : 'Bulk update'} – {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
           </div>
           {lastResult.failures.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -1225,10 +1225,10 @@ function AssignmentsTab({ token }: { token: string }) {
                   </div>
                 </td>
                 <td style={assignmentCellStyle}>{r.employeeCode}</td>
-                <td style={assignmentCellStyle}>{r.departmentName ?? '—'}</td>
-                <td style={assignmentCellStyle}>{r.locationName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.departmentName ?? '–'}</td>
+                <td style={assignmentCellStyle}>{r.locationName ?? '–'}</td>
                 <td style={assignmentCellStyle}>
-                  {r.shiftName ?? '—'}
+                  {r.shiftName ?? '–'}
                   {r.shiftName && r.shiftStartTime && r.shiftEndTime && (
                     <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 2 }}>
                       {fmtShiftRange(r.shiftStartTime, r.shiftEndTime)}
@@ -1250,8 +1250,8 @@ function AssignmentsTab({ token }: { token: string }) {
                     </div>
                   )}
                 </td>
-                <td style={assignmentCellStyle}>{r.weeklyOffPolicyName ?? '—'}</td>
-                <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.weeklyOffPolicyName ?? '–'}</td>
+                <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '–'}</td>
               </tr>
             ))}
           </tbody>
@@ -1312,7 +1312,7 @@ function AssignmentsTab({ token }: { token: string }) {
             <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>Import Shifts &amp; Weekly Offs</div>
             <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-                CSV with columns <code>employee_code,shift_name,shift_effective_from,weekly_off_policy_name</code>. Leave a cell blank to leave that field untouched. <code>shift_effective_from</code> (YYYY-MM-DD) is required whenever <code>shift_name</code> is set — today or any future date, never a past one.
+                CSV with columns <code>employee_code,shift_name,shift_effective_from,weekly_off_policy_name</code>. Leave a cell blank to leave that field untouched. <code>shift_effective_from</code> (YYYY-MM-DD) is required whenever <code>shift_name</code> is set - today or any future date, never a past one.
               </div>
               <input type="file" accept=".csv,text/csv" onChange={e => setImportFile(e.target.files?.[0] ?? null)} style={{ fontSize: 12.5, color: 'var(--txt)' }} />
             </div>
@@ -1343,19 +1343,19 @@ interface ReportCardDef {
 
 const REPORT_CARDS: ReportCardDef[] = [
   { key: 'reg-summary', title: 'Attendance Regularizations Summary', description: 'Summary of attendance adjustment and regularization requests made by employees.', reportType: 'REGULARIZATION' },
-  { key: 'mobile-location', title: 'Mobile Location Punches', description: "Details of employees' location punches along with coordinates.", blockedReason: 'Requires GPS/coordinate punch tracking — not yet built.' },
+  { key: 'mobile-location', title: 'Mobile Location Punches', description: "Details of employees' location punches along with coordinates.", blockedReason: 'Requires GPS/coordinate punch tracking - not yet built.' },
   { key: 'overtime', title: 'Overtime Requests', description: 'Summary of overtime requests made by employees.', reportType: 'OVERTIME' },
   { key: 'partial-day', title: 'Partial Day Requests', description: 'Summary of partial day requests made by employees.', reportType: 'PARTIAL_DAY' },
   { key: 'remote-summary', title: 'Remote Clock-in Requests Summary', description: 'Summary of remote clock-ins and outs requests made by employees.', reportType: 'WEB_CLOCK_IN' },
   // Reuses Web Clock-In data (there is no separate remote/GPS punch entity), but its promised
   // lat/long coordinates don't exist anywhere in the backend — Coming Soon rather than
   // misrepresenting Web Clock-In rows as location punches.
-  { key: 'remote-clockins', title: 'Remote Clock-ins', description: "Details of employees' remote punch (In/Out) along with coordinates.", blockedReason: 'Requires GPS/coordinate tracking on remote punches — not yet built.' },
-  { key: 'shift-weeklyoff', title: 'Shift & Weekly Off Requests', description: 'Summary of shift/weekly off requests made by employees.', blockedReason: 'Requires Shift & Weekly Off as a request workflow — not yet built (see the Employee Assignments tab for static assignments).' },
+  { key: 'remote-clockins', title: 'Remote Clock-ins', description: "Details of employees' remote punch (In/Out) along with coordinates.", blockedReason: 'Requires GPS/coordinate tracking on remote punches - not yet built.' },
+  { key: 'shift-weeklyoff', title: 'Shift & Weekly Off Requests', description: 'Summary of shift/weekly off requests made by employees.', blockedReason: 'Requires Shift & Weekly Off as a request workflow - not yet built (see the Employee Assignments tab for static assignments).' },
   // No IP address is ever captured for a web clock-in (see WebClockInRequest) — description kept
   // to only what the report actually contains.
   { key: 'web-clockins', title: 'Web Clock-ins', description: "Details of employees' web clock-ins.", reportType: 'WEB_CLOCK_IN' },
-  { key: 'web-clockins-forgot', title: 'Web Clock-ins (includes Forgot ID requests)', description: 'Summary of web clock-ins done by employees.', blockedReason: 'Requires a Forgot ID flag on web clock-ins — not yet built.' },
+  { key: 'web-clockins-forgot', title: 'Web Clock-ins (includes Forgot ID requests)', description: 'Summary of web clock-ins done by employees.', blockedReason: 'Requires a Forgot ID flag on web clock-ins - not yet built.' },
   // There is no "OD" (on-duty) request type anywhere in the schema — only WFH is backed by real
   // data, distinguished per row by its Full Day / First Half / Second Half mode.
   { key: 'wfh-od', title: 'Working Remotely (WFH/OD) Requests', description: 'Summary of WFH requests made by employees (no separate OD workflow exists today).', reportType: 'WFH_OD' },
@@ -1366,7 +1366,7 @@ const ATTENDANCE_REPORT_CARDS: ReportCardDef[] = [
 ];
 
 const PUNCTUALITY_REPORT_CARDS: ReportCardDef[] = [
-  { key: 'punctuality-summary', title: 'Team Punctuality Report', description: 'On-time leaderboard for your direct reports — on-time days vs. expected working days.', kind: 'punctuality' },
+  { key: 'punctuality-summary', title: 'Team Punctuality Report', description: 'On-time leaderboard for your direct reports - on-time days vs. expected working days.', kind: 'punctuality' },
 ];
 
 const NEGLIGENCE_REPORT_CARDS: ReportCardDef[] = [
@@ -1432,7 +1432,7 @@ const REQUEST_MODE_LABELS: Record<string, string> = {
   SECOND_HALF: 'Second Half',
 };
 function modeLabel(mode: string | null): string {
-  if (!mode) return '—';
+  if (!mode) return '–';
   return REQUEST_MODE_LABELS[mode] ?? mode;
 }
 
@@ -1448,36 +1448,36 @@ export const REPORT_COLUMN_SETS: Record<string, ReportColumn[]> = {
   // span sized to that duration (see AttendancePage.tsx OvertimeRequestModal.handleSubmit), not
   // real clock times. Showing them here previously surfaced fake "12:00 AM"/"2:00 AM" columns.
   OVERTIME: [
-    { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+    { header: 'Employee', cell: r => r.fullName ?? '–', exportValue: r => r.fullName ?? '' },
     { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
-    { header: 'Overtime Hours', cell: r => r.hours ?? '—', exportValue: r => r.hours ?? '' },
-    { header: 'Reason', cell: r => r.reason ?? '—', exportValue: r => r.reason ?? '' },
-    { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+    { header: 'Overtime Hours', cell: r => r.hours ?? '–', exportValue: r => r.hours ?? '' },
+    { header: 'Reason', cell: r => r.reason ?? '–', exportValue: r => r.reason ?? '' },
+    { header: 'Status', cell: r => r.status ?? '–', exportValue: r => r.status ?? '' },
   ],
   PARTIAL_DAY: [
-    { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+    { header: 'Employee', cell: r => r.fullName ?? '–', exportValue: r => r.fullName ?? '' },
     { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
     { header: 'Mode', cell: r => modeLabel(r.requestMode), exportValue: r => modeLabel(r.requestMode) },
-    { header: 'Hours', cell: r => r.hours ?? '—', exportValue: r => r.hours ?? '' },
-    { header: 'Reason', cell: r => r.reason ?? '—', exportValue: r => r.reason ?? '' },
-    { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+    { header: 'Hours', cell: r => r.hours ?? '–', exportValue: r => r.hours ?? '' },
+    { header: 'Reason', cell: r => r.reason ?? '–', exportValue: r => r.reason ?? '' },
+    { header: 'Status', cell: r => r.status ?? '–', exportValue: r => r.status ?? '' },
   ],
   WFH_OD: [
-    { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+    { header: 'Employee', cell: r => r.fullName ?? '–', exportValue: r => r.fullName ?? '' },
     { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
     { header: 'Mode', cell: r => modeLabel(r.requestMode), exportValue: r => modeLabel(r.requestMode) },
-    { header: 'Day Fraction', cell: r => r.hours ?? '—', exportValue: r => r.hours ?? '' },
-    { header: 'Reason', cell: r => r.reason ?? '—', exportValue: r => r.reason ?? '' },
-    { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+    { header: 'Day Fraction', cell: r => r.hours ?? '–', exportValue: r => r.hours ?? '' },
+    { header: 'Reason', cell: r => r.reason ?? '–', exportValue: r => r.reason ?? '' },
+    { header: 'Status', cell: r => r.status ?? '–', exportValue: r => r.status ?? '' },
   ],
 };
 
 const DEFAULT_REPORT_COLUMNS: ReportColumn[] = [
-  { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+  { header: 'Employee', cell: r => r.fullName ?? '–', exportValue: r => r.fullName ?? '' },
   { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
   { header: 'Check In', cell: r => fmtTime(r.checkIn), exportValue: r => fmtTime(r.checkIn) },
   { header: 'Check Out', cell: r => fmtTime(r.checkOut), exportValue: r => fmtTime(r.checkOut) },
-  { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+  { header: 'Status', cell: r => r.status ?? '–', exportValue: r => r.status ?? '' },
 ];
 
 function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: string; onClose: () => void }) {
@@ -1650,12 +1650,12 @@ function AttendanceReportModal({ card, token, onClose }: { card: ReportCardDef; 
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
+                    <td style={assignmentCellStyle}>{r.fullName ?? '–'}</td>
                     <td style={assignmentCellStyle}>{fmtDateShort(r.workDate)}</td>
                     <td style={assignmentCellStyle}>{fmtTime(r.checkInAt)}</td>
                     <td style={assignmentCellStyle}>{fmtTime(r.checkOutAt)}</td>
-                    <td style={assignmentCellStyle}>{r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(1) : '—'}</td>
-                    <td style={assignmentCellStyle}>{r.status ?? '—'}</td>
+                    <td style={assignmentCellStyle}>{r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(1) : '–'}</td>
+                    <td style={assignmentCellStyle}>{r.status ?? '–'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1742,8 +1742,8 @@ function PunctualityReportModal({ card, token, onClose }: { card: ReportCardDef;
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
+                    <td style={assignmentCellStyle}>{r.fullName ?? '–'}</td>
+                    <td style={assignmentCellStyle}>{r.designationName ?? '–'}</td>
                     <td style={assignmentCellStyle}>{r.onTimeDays}</td>
                     <td style={assignmentCellStyle}>{r.expectedWorkingDays}</td>
                     <td style={assignmentCellStyle}>{r.percentage.toFixed(1)}%</td>
@@ -1844,8 +1844,8 @@ function NegligenceReportModal({ card, token, onClose }: { card: ReportCardDef; 
               {lateArrivals.length > 0 && miniTable('Late Arrivals', ['Employee', 'Designation', 'Late Days', 'Active Days', 'Late %'],
                 lateArrivals.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
+                    <td style={assignmentCellStyle}>{r.fullName ?? '–'}</td>
+                    <td style={assignmentCellStyle}>{r.designationName ?? '–'}</td>
                     <td style={assignmentCellStyle}>{r.lateDays}</td>
                     <td style={assignmentCellStyle}>{r.activeDays}</td>
                     <td style={assignmentCellStyle}>{r.latePct.toFixed(1)}%</td>
@@ -1854,8 +1854,8 @@ function NegligenceReportModal({ card, token, onClose }: { card: ReportCardDef; 
               {leastHoursWorked.length > 0 && miniTable('Least Hours Worked', ['Employee', 'Designation', 'Avg Hours/Day', 'Hours Worked'],
                 leastHoursWorked.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
+                    <td style={assignmentCellStyle}>{r.fullName ?? '–'}</td>
+                    <td style={assignmentCellStyle}>{r.designationName ?? '–'}</td>
                     <td style={assignmentCellStyle}>{r.avgHoursPerDay.toFixed(1)}</td>
                     <td style={assignmentCellStyle}>{r.hoursWorked.toFixed(1)}</td>
                   </tr>
@@ -1863,8 +1863,8 @@ function NegligenceReportModal({ card, token, onClose }: { card: ReportCardDef; 
               {frequentBreaks.length > 0 && miniTable('Frequent Breaks', ['Employee', 'Designation', 'Total Breaks', 'Total Break Hours', 'Avg Breaks/Day'],
                 frequentBreaks.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
+                    <td style={assignmentCellStyle}>{r.fullName ?? '–'}</td>
+                    <td style={assignmentCellStyle}>{r.designationName ?? '–'}</td>
                     <td style={assignmentCellStyle}>{r.totalBreakCount}</td>
                     <td style={assignmentCellStyle}>{r.totalBreakHours.toFixed(1)}</td>
                     <td style={assignmentCellStyle}>{r.avgBreaksPerDay.toFixed(1)}</td>
@@ -2036,7 +2036,7 @@ export function KudosModal({ target, token, onClose }: { target: KudosTarget | n
             <textarea
               value={note}
               onChange={e => setNote(e.target.value)}
-              placeholder="e.g. Thanks for jumping on the prod issue last night — huge help!"
+              placeholder="e.g. Thanks for jumping on the prod issue last night - huge help!"
               style={{ ...inputStyle, minHeight: 72, resize: 'vertical', fontFamily: 'inherit' }}
             />
           </div>
@@ -2283,10 +2283,10 @@ function PeersView({ token }: { token: string }) {
        * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
        * row of fixed-width cards instead of squeezing all 4 into the narrow viewport. */}
       <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
-        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
-        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
-        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
+        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '–' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
+        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '–' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
+        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '–' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
+        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '–' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
       </div>
       {kpiModal && (
         <KpiEmployeesModal
@@ -2393,7 +2393,7 @@ function PeersView({ token }: { token: string }) {
         <div style={panelHeadStyle}>
           <div>
             <span style={panelTitleStyle}>Project Team ({filteredPeers.length})</span>
-            <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 3 }}>Avatar, designation, live status, location, department and email — find and reach a teammate without leaving this page.</div>
+            <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 3 }}>Avatar, designation, live status, location, department and email - find and reach a teammate without leaving this page.</div>
           </div>
         </div>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -2407,7 +2407,7 @@ function PeersView({ token }: { token: string }) {
             <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>Loading…</div>
           ) : peers.length === 0 ? (
             <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>
-              No project team members found — you don't currently share a manager with anyone else in the system.
+              No project team members found - you don't currently share a manager with anyone else in the system.
             </div>
           ) : filteredPeers.length === 0 ? (
             <div style={{ padding: '20px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>No one matches this filter.</div>
@@ -2417,7 +2417,7 @@ function PeersView({ token }: { token: string }) {
                 <Avatar userId={row.peer.userId} name={row.peer.fullName} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>{row.peer.fullName}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.peer.designationName ?? '—'}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.peer.designationName ?? '–'}</div>
                 </div>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
@@ -2483,7 +2483,7 @@ const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
 };
 
 function fmtDateTimeShort(iso?: string | null) {
-  if (!iso) return '—';
+  if (!iso) return '–';
   return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -2673,7 +2673,7 @@ function PenaltiesTab({ token }: { token: string }) {
       {lastResult && (
         <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', background: lastResult.failures.length ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: lastResult.failures.length ? 6 : 0 }}>
-            Cancellation — {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
+            Cancellation - {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
           </div>
           {lastResult.failures.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -2719,8 +2719,8 @@ function PenaltiesTab({ token }: { token: string }) {
                 <td style={assignmentCellStyle}>{fmtDateShort(r.incidentDate)}</td>
                 <td style={assignmentCellStyle}>{fmtDateTimeShort(r.penalizedOn)}</td>
                 <td style={assignmentCellStyle}><PenaltyStatusBadge status={r.status} /></td>
-                <td style={assignmentCellStyle}>{r.locationName ?? '—'}</td>
-                <td style={assignmentCellStyle}>{r.departmentName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.locationName ?? '–'}</td>
+                <td style={assignmentCellStyle}>{r.departmentName ?? '–'}</td>
                 <td style={assignmentCellStyle}>{DISCREPANCY_TYPE_LABEL[r.discrepancyType] ?? r.discrepancyType}</td>
                 <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>
                   <KebabMenu items={[{ label: 'View Regularization History', onClick: () => setHistoryFor(r) }]} />
@@ -2795,7 +2795,7 @@ function growthLimit<T>(items: T[], expanded: boolean): { visible: T[]; overflow
   return { visible: items.slice(0, GROWTH_PREVIEW_LIMIT), overflow: items.length - GROWTH_PREVIEW_LIMIT };
 }
 function growthFmtDate(d: string | null): string {
-  if (!d) return '—';
+  if (!d) return '–';
   return growthParseLocalDate(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 function growthCertificateStatusLabel(expiry: string | null): { label: string; tone: string } | null {
@@ -2827,8 +2827,8 @@ function CertificateDetailModal({ cert, onClose }: { cert: CertificateEntry; onC
       )}
       onClose={onClose}
     >
-      <GrowthDetailRow label="Issuing Organization">{cert.issuingOrganization ?? '—'}</GrowthDetailRow>
-      <GrowthDetailRow label="Credential ID">{cert.credentialId ?? '—'}</GrowthDetailRow>
+      <GrowthDetailRow label="Issuing Organization">{cert.issuingOrganization ?? '–'}</GrowthDetailRow>
+      <GrowthDetailRow label="Credential ID">{cert.credentialId ?? '–'}</GrowthDetailRow>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <GrowthDetailRow label="Issue Date">{growthFmtDate(cert.issueDate)}</GrowthDetailRow>
         <GrowthDetailRow label="Expiry Date">{growthFmtDate(cert.expiryDate)}</GrowthDetailRow>
@@ -2838,7 +2838,7 @@ function CertificateDetailModal({ cert, onClose }: { cert: CertificateEntry; onC
           <a href={cert.credentialUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--brand-bright)', textDecoration: 'none', fontWeight: 600 }}>
             View credential <ExternalLink size={12} />
           </a>
-        ) : '—'}
+        ) : '–'}
       </GrowthDetailRow>
     </DetailModalShell>
   );
@@ -2857,7 +2857,7 @@ function LearningDetailModal({ entry, onClose }: { entry: LearningEntry; onClose
     >
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <GrowthDetailRow label="Type">{entry.learningType}</GrowthDetailRow>
-        <GrowthDetailRow label="Provider">{entry.provider ?? '—'}</GrowthDetailRow>
+        <GrowthDetailRow label="Provider">{entry.provider ?? '–'}</GrowthDetailRow>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <GrowthDetailRow label="Started On">{growthFmtDate(entry.startDate)}</GrowthDetailRow>
@@ -2936,7 +2936,7 @@ function GrowthColumn({ icon: Icon, label, category, count, empty, children }: {
           <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)' }}>({count})</span>
         )}
       </div>
-      {empty ? <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>—</span> : (
+      {empty ? <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>–</span> : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{children}</div>
       )}
     </div>
@@ -3372,8 +3372,8 @@ export default function MyTeamPage() {
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>
             {viewMode === 'direct'
-              ? "Attendance, leave, and open requests for your direct reports — one place, so you don't have to check four separate pages to know how your team is doing today."
-              : "Who's around today on your project team, plus a quick way to find and reach a teammate — without opening the full company directory."}
+              ? "Attendance, leave, and open requests for your direct reports - one place, so you don't have to check four separate pages to know how your team is doing today."
+              : "Who's around today on your project team, plus a quick way to find and reach a teammate - without opening the full company directory."}
           </p>
         </div>
         {!isEmployee && directReportCount > 0 && (
@@ -3479,12 +3479,12 @@ export default function MyTeamPage() {
        * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
        * row of fixed-width cards instead of squeezing all 6 into the narrow viewport. */}
       <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
-        <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={loading ? '—' : directReports.length} note="direct reports" onClick={directReports.length > 0 ? () => setKpiModal('teamSize') : undefined} />
-        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '—' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
-        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '—' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
-        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '—' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
-        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '—' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
-        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '—' : attentionItems.length} note="pending leave, regularization, asset & expense requests" onClick={attentionItems.length > 0 ? () => setKpiModal('attention') : undefined} />
+        <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={loading ? '–' : directReports.length} note="direct reports" onClick={directReports.length > 0 ? () => setKpiModal('teamSize') : undefined} />
+        <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '–' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
+        <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '–' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
+        <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '–' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
+        <KpiCard icon={<MapPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={loading ? '–' : remoteClockInCount} note="via Web Clock-In today" onClick={remoteClockInCount > 0 ? () => setKpiModal('remote') : undefined} />
+        <KpiCard icon={<AlertTriangle size={14} />} iconColor="var(--brand-bright)" label="Needs your attention" value={loading ? '–' : attentionItems.length} note="pending leave, regularization, asset & expense requests" onClick={attentionItems.length > 0 ? () => setKpiModal('attention') : undefined} />
       </div>
       {kpiModal && (
         <KpiEmployeesModal
@@ -3637,7 +3637,7 @@ export default function MyTeamPage() {
                   <Avatar userId={row.dr.userId} name={row.dr.fullName} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>{row.dr.fullName}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.dr.designationName ?? '—'}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>{row.dr.designationName ?? '–'}</div>
                     <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{row.dr.employeeCode}</div>
                   </div>
                 </div>

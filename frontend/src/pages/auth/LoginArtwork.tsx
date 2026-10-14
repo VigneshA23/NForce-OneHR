@@ -14,7 +14,10 @@
 // Mobile / tablet (<= 1024px): the same artwork and the same DOM text are kept (never hidden).
 // They reflow in a single column above the login card: headline + description, the artwork
 // stage (sphere + five feature nodes with their labels), the footer line, then the copyright.
-import artwork from '../../assets/login-artwork.png';
+// login-artwork-clean.png = login-artwork.png with the NF1 / "Let's Do IT!" / "NForce OneHR" mark that
+// was baked into the middle of the globe painted out; that brand now lives in the top-left corner (below).
+import artwork from '../../assets/login-artwork-clean.png';
+import brandLogo from '../../assets/nforce-logo.png';
 import artworkBg from '../../assets/login-artwork-bg.png';
 
 const CANVAS_W = 1671;
@@ -101,6 +104,31 @@ export function LoginArtwork() {
           ['--nf-art-w' as string]: ART_W_VAR,
         }}
       >
+        {/* Brand lockup — top-left corner of the panel (moved out of the globe). Pinned to the panel,
+            not the scaled artwork frame, so wide windows (where the frame's top is cropped) still show it. */}
+        <div
+          className="nf-la-brand"
+          style={{
+            position: 'absolute', zIndex: 3, left: 'calc(var(--nf-art-w) * 70 / 1671)', top: 'clamp(12px, 2.2vh, 26px)', display: 'flex', alignItems: 'center', gap: 'calc(var(--nf-art-w) * 12 / 1671)',
+            fontFamily: 'Inter, "Segoe UI", sans-serif',
+          }}
+        >
+          <img
+            className="nf-la-brand-logo"
+            src={brandLogo}
+            alt="NForce OneHR"
+            style={{ width: 'calc(var(--nf-art-w) * 38 / 1671)', height: 'calc(var(--nf-art-w) * 38 / 1671)', minWidth: 28, minHeight: 28, borderRadius: '50%', objectFit: 'cover', boxShadow: '0 0 0 1.5px rgba(247,29,42,0.55), 0 6px 18px rgba(247,29,42,0.28)' }}
+          />
+          <div style={{ lineHeight: 1.15 }}>
+            <div className="nf-la-brand-name" style={{ color: '#FFFFFF', fontSize: 'max(14px, calc(var(--nf-art-w) * 19 / 1671))', fontWeight: 700, letterSpacing: '-0.01em' }}>
+              NForce <span style={{ color: '#F71D2A' }}>OneHR</span>
+            </div>
+            <div className="nf-la-brand-tag" style={{ color: '#E2E6EC', fontSize: 'max(9px, calc(var(--nf-art-w) * 9 / 1671))', fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', marginTop: 2 }}>
+              Let&rsquo;s Do <span style={{ color: '#F71D2A' }}>IT!</span>
+            </div>
+          </div>
+        </div>
+
         <div
           className="nf-la-frame"
           style={{
@@ -115,7 +143,7 @@ export function LoginArtwork() {
             className="nf-la-h2"
             style={{
               position: 'absolute', zIndex: 1, left: cx(70), top: cy(161), margin: 0,
-              color: '#FAFAFA', fontSize: fs(40.2), lineHeight: 1.24,
+              color: '#FAFAFA', fontSize: fs(34), lineHeight: 1.24,
               fontWeight: 600, letterSpacing: '-0.01em', whiteSpace: 'nowrap',
             }}
           >
@@ -128,7 +156,7 @@ export function LoginArtwork() {
           <p
             className="nf-la-desc"
             style={{
-              position: 'absolute', zIndex: 1, left: cx(70), top: cy(279), width: cx(365), margin: 0,
+              position: 'absolute', zIndex: 1, left: cx(70), top: cy(256), width: cx(365), margin: 0,
               color: '#C1CAD4', fontSize: fs(15), lineHeight: 1.5, fontWeight: 400,
             }}
           >
@@ -201,6 +229,19 @@ export function LoginArtwork() {
             .nf-la-bgimg { transform: translateY(-52.47%) !important; }
           }
 
+          /* Wide windows (>= 16:9) - the scaled-up artwork crops its top and pulls the headline close to the
+             top edge. The brand lockup becomes a compact line pinned to the corner, and the headline,
+             description and artwork stage all drop by the same amount - so the brand never touches the
+             headline and the text keeps its original spacing from the feature bubbles. */
+          @media (min-aspect-ratio: 16/9) and (min-width: 1025px) {
+            .nf-la-brand { top: 6px !important; gap: 10px !important; }
+            .nf-la-brand-logo { width: 25px !important; height: 25px !important; min-width: 25px !important; min-height: 25px !important; }
+            .nf-la-brand-name { font-size: 14px !important; }
+            .nf-la-brand-tag { display: none !important; }
+            .nf-la-h2, .nf-la-desc { translate: 0 26px; }
+            .nf-la-stage { translate: 0 -16px; }
+          }
+
           /* <= 1024px: keep the same artwork + DOM text, reflow into one column above the card. */
           @media (max-width: 1024px) {
             .nf-la-bg { display: none !important; }
@@ -213,9 +254,15 @@ export function LoginArtwork() {
               padding: 32px 24px 0; box-sizing: border-box;
             }
             .nf-la-frame { display: contents !important; }
+            .nf-la-brand {
+              position: static !important; order: 0; margin: 0 0 20px !important; gap: 12px !important;
+            }
+            .nf-la-brand-logo { width: 38px !important; height: 38px !important; }
+            .nf-la-brand-name { font-size: 18px !important; }
+            .nf-la-brand-tag { font-size: 10px !important; margin-top: 3px !important; }
             .nf-la-h2 {
               position: static !important; order: 1; margin: 0 0 12px !important;
-              font-size: clamp(26px, 7.2vw, 40px) !important; line-height: 1.2 !important;
+              font-size: clamp(23px, 6.2vw, 34px) !important; line-height: 1.2 !important;
               white-space: normal !important;
             }
             .nf-la-desc {

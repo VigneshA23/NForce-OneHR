@@ -386,7 +386,7 @@ export default function HolidaysPage() {
           </div>
           <div style={{ minWidth: 0 }}>
             <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
-              Company Holidays{holidayScopeLabel ? ` — ${holidayScopeLabel}` : ''}
+              Company Holidays{holidayScopeLabel ? ` - ${holidayScopeLabel}` : ''}
             </h1>
             <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 3 }}>
               {isAdmin ? 'Holidays across the company, by location.' : 'Holidays for your work location.'}

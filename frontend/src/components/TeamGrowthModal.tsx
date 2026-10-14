@@ -53,7 +53,7 @@ function parseLocalDate(d: string): Date {
   return new Date(y, m - 1, day);
 }
 function fmtDate(d: string | null): string {
-  if (!d) return '—';
+  if (!d) return '–';
   return parseLocalDate(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -127,7 +127,7 @@ export function TeamGrowthModal({ token, employeeUserId, onClose }: {
   }
 
   return (
-    <DetailModalShell title={`${data.employeeName} — Skills & Growth`} onClose={onClose}>
+    <DetailModalShell title={`${data.employeeName} - Skills & Growth`} onClose={onClose}>
       <SectionTabs
         tab={tab}
         setTab={setTab}

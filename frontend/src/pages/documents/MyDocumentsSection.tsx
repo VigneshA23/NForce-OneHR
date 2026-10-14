@@ -105,12 +105,12 @@ export function MyDocumentsSection({
                           {r.expiringSoon && <AlertTriangle size={12} style={{ marginRight: 4 }} />}
                           {new Date(doc.expiryDate).toLocaleDateString()}
                         </span>
-                      ) : '—'}
+                      ) : '–'}
                     </td>
                     <td style={tdS}>
                       {doc?.rejectionReason
                         ? <span style={{ color: 'var(--risk)', fontSize: 12 }}>{doc.rejectionReason}</span>
-                        : '—'}
+                        : '–'}
                     </td>
                     <td style={tdS}>
                       <div style={{ display: 'flex', gap: 8 }}>

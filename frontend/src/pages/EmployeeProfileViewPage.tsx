@@ -216,7 +216,7 @@ function parseLocalDate(d: string): Date {
   return new Date(y, m - 1, day);
 }
 function fmtDate(d: string | null): string {
-  if (!d) return '—';
+  if (!d) return '–';
   return parseLocalDate(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 function certificateStatus(expiry: string | null): { label: string; tone: string } | null {
@@ -386,8 +386,8 @@ export default function EmployeeProfileViewPage() {
   const isIn = p.attendanceStatus === 'IN';
   const subMetaItems: { icon: LucideIcon; label: string; value: string; copyable?: boolean }[] = [
     { icon: Mail, label: 'Work Email', value: p.email, copyable: true },
-    { icon: PhoneIcon, label: 'Mobile Number', value: p.phone || '—' },
-    { icon: MapPin, label: 'Location', value: p.locationName || '—' },
+    { icon: PhoneIcon, label: 'Mobile Number', value: p.phone || '–' },
+    { icon: MapPin, label: 'Location', value: p.locationName || '–' },
     { icon: Hash, label: 'Employee Code', value: p.employeeCode },
   ];
 

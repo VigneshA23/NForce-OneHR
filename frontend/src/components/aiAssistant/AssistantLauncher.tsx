@@ -186,7 +186,7 @@ export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentP
       {open && <AssistantPanel onClose={() => setOpen(false)} currentPageId={currentPageId} unreadCount={unreadCount} />}
       {showInvite && !open && !position && (
         <div style={inviteBubbleStyle} role="status">
-          New here: ask me anything about OneHR — leave, attendance, expenses, and more.
+          New here: ask me anything about OneHR - leave, attendance, expenses, and more.
         </div>
       )}
       {/* Plain hover/focus label — distinct from the one-time invite bubble above, which only ever
@@ -210,7 +210,7 @@ export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentP
           onMouseLeave={() => setShowTooltip(false)}
           onFocus={() => setShowTooltip(true)}
           onBlur={() => setShowTooltip(false)}
-          aria-label="Open NORA (draggable — press and drag to move it)"
+          aria-label="Open NORA (draggable - press and drag to move it)"
           aria-expanded={false}
           className="nf-assistant-launcher"
           style={{ ...style, touchAction: 'none' }}

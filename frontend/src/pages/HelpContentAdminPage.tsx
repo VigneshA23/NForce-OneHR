@@ -75,7 +75,7 @@ export default function HelpContentAdminPage() {
         const reason = window.prompt('Withdrawal reason:');
         if (!reason) return;
         await hrHelpContentApi.withdraw(item.id, reason, token);
-        showToast('success', 'Withdrawn — back to Draft');
+        showToast('success', 'Withdrawn - back to Draft');
       } else if (item.status === 'APPROVED' || item.status === 'UNPUBLISHED') {
         // This unrouted legacy page has no Review & Publish modal (see HelpDeskPage.tsx for
         // that) — publishes to Employee only as a minimal default so this still compiles/works.
@@ -161,7 +161,7 @@ export default function HelpContentAdminPage() {
                   <tr key={item.id}>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600, maxWidth: 260 }}>{item.title}</td>
                     <td style={tdStyle}>{TYPE_LABEL[item.type]}</td>
-                    <td style={tdStyle}>{item.category ?? '—'}</td>
+                    <td style={tdStyle}>{item.category ?? '–'}</td>
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <StatusChip label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} />

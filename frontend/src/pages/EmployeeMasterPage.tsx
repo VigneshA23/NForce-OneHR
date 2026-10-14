@@ -146,8 +146,7 @@ function CreatableLocationSelect({
             onMouseDown={() => { onChange(undefined); setQuery(''); setOpen(false); }}
             style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', cursor: 'pointer' }}
           >
-            — Clear —
-          </div>
+            – Clear - </div>
         </div>
       )}
     </div>
@@ -192,7 +191,7 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
   return (
     <div style={overlayStyle}>
       <div style={{ ...modalStyle, maxWidth: 540 }}>
-        <ModalHeader title={`Edit — ${emp.fullName}`} onClose={onClose} />
+        <ModalHeader title={`Edit - ${emp.fullName}`} onClose={onClose} />
         <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', fontSize: 13, padding: '10px 14px', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6 }}>{error}</div>}
           {isInactive && <InactiveEditBanner />}
@@ -203,19 +202,19 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
           </div>
           <Field label="Business Unit">
             <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => setForm(f => ({ ...f, businessUnitId: e.target.value || undefined }))}>
-              <option value="">— None —</option>
+              <option value="">– None –</option>
               {opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
           <Field label="Department">
             <select style={inputStyle} disabled={employmentFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
-              <option value="">— None —</option>
+              <option value="">– None –</option>
               {assignableOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} disabled={employmentFieldsLocked} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
-              <option value="">— None —</option>
+              <option value="">– None –</option>
               {assignableOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
@@ -245,7 +244,7 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
           </div>
           <div style={{ gridColumn: '1/-1', fontSize: 11, color: 'var(--txt-dim)' }}>
             Manager &amp; Role are managed by Super Admin only. Attendance timezone is derived
-            automatically from Location — see the Locations tab under Organization Masters.
+            automatically from Location - see the Locations tab under Organization Masters.
           </div>
           {isInactive && (
             <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Department, Designation, or Employment Type" />
@@ -458,10 +457,10 @@ export default function EmployeeMasterPage() {
                         </div>
                       </td>
                       <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{emp.employeeCode}</td>
-                      <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                      <td style={tdStyle}>{emp.designationName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                      <td style={tdStyle}>{emp.currentManager ? emp.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                      <td style={tdStyle}>{emp.locationName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                      <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{emp.designationName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{emp.currentManager ? emp.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{emp.locationName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
                       <td style={tdStyle}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: emp.workMode === 'REMOTE' ? '#4C8DD6' : emp.workMode === 'HYBRID' ? '#E0A93B' : '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 7px' }}>
                           {emp.workMode ?? 'ONSITE'}

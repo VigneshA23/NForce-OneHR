@@ -30,7 +30,7 @@ function daysAgoIso(n: number): string {
 }
 
 function formatMinutesLate(minutes: number | null): string {
-  if (minutes == null) return '—';
+  if (minutes == null) return '–';
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -40,7 +40,7 @@ function formatMinutesLate(minutes: number | null): string {
 // convention as the Attendance page's TimeFormatContext (dropping seconds/fractional
 // precision, which is noise for a late-arrival table read at a glance).
 function formatTimeDisplay(time: string | null): string {
-  if (!time) return '—';
+  if (!time) return '–';
   const [h, m] = time.split(':').map(Number);
   const suffix = h < 12 ? 'AM' : 'PM';
   const hour12 = h % 12 === 0 ? 12 : h % 12;
@@ -158,9 +158,9 @@ export default function ExceptionDashboardPage() {
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{exc.employeeFullName ?? exc.employeeUserId}</td>
                     <td style={tdStyle}><ExceptionTypeBadge type={exc.exceptionType} /></td>
                     <td style={tdStyle}>{exc.exceptionDate}</td>
-                    <td style={timeTdStyle}>{exc.expectedTime ? formatTimeDisplay(exc.expectedTime) : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                    <td style={timeTdStyle}>{exc.actualTime ? formatTimeDisplay(exc.actualTime) : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                    <td style={tdStyle}>{exc.minutesLate == null ? <span style={{ color: 'var(--txt-dim)' }}>—</span> : formatMinutesLate(exc.minutesLate)}</td>
+                    <td style={timeTdStyle}>{exc.expectedTime ? formatTimeDisplay(exc.expectedTime) : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                    <td style={timeTdStyle}>{exc.actualTime ? formatTimeDisplay(exc.actualTime) : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                    <td style={tdStyle}>{exc.minutesLate == null ? <span style={{ color: 'var(--txt-dim)' }}>–</span> : formatMinutesLate(exc.minutesLate)}</td>
                     <td style={tdStyle}>{exc.status}</td>
                   </tr>
                 ))}

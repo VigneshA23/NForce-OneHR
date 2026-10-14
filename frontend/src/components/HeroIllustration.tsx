@@ -86,7 +86,7 @@ const PHOTO = {
 
 function PersonPhoto({ variant, shiftLabel }: { variant: 'male' | 'female' | 'non-binary'; shiftLabel?: string | null }) {
   const p = PHOTO[variant];
-  const label = shiftLabel ?? '—';
+  const label = shiftLabel ?? '–';
   const line = (base: number, extra: React.CSSProperties, scale = 1): React.CSSProperties => ({
     position: 'absolute', left: `${p.x * 100}%`, maxWidth: `${p.w * 100}%`, top: `calc(${base * 100}% - 0.86em)`,
     fontSize: `${p.font * scale}cqh`, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -203,7 +203,7 @@ function FallbackScene({ shiftLabel }: { shiftLabel?: string | null }) {
           TODAY
         </text>
         <text x={49} y={49} fontSize={6.4} fontWeight={700} fill="#FFFFFF" fillOpacity={0.94} style={{ fontFamily: '"Space Grotesk", sans-serif' }}>
-          {shiftLabel ?? '—'}
+          {shiftLabel ?? '–'}
         </text>
       </g>
       <g>

@@ -38,7 +38,7 @@ function ResultsTable({ results, employees }: { results: AllocationResult[]; emp
                   color: r.status === 'SUCCESS' ? 'var(--ok)' : 'var(--risk)',
                 }}>{r.status}</span>
               </td>
-              <td style={{ padding: '7px 8px', fontSize: 12.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)' }}>{r.reason ?? '—'}</td>
+              <td style={{ padding: '7px 8px', fontSize: 12.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)' }}>{r.reason ?? '–'}</td>
             </tr>
           ))}
         </tbody>
@@ -140,7 +140,7 @@ export default function ProjectAllocationsPage() {
       <div style={{ marginBottom: 18 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Project Allocations</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
-          Allocate multiple employees to a project in one go — each is validated independently.
+          Allocate multiple employees to a project in one go - each is validated independently.
         </p>
       </div>
 

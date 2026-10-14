@@ -247,7 +247,7 @@ function BillingCard({ token }: { token: string }) {
           ) : (
             <>
               <p style={{ margin: '0 0 12px', fontSize: 11.5, color: 'var(--txt-dim)', lineHeight: 1.5 }}>
-                Set these to match your actual Mistral plan pricing (check the Admin Console) — OneHR
+                Set these to match your actual Mistral plan pricing (check the Admin Console) - OneHR
                 has no way to read your real prices automatically.
               </p>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
@@ -392,7 +392,7 @@ function KnowledgeBaseCard({ token }: { token: string }) {
           <div>
             <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Sources</div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 3 }}>
-              {health.knowledgeSources.length > 0 ? health.knowledgeSources.join(', ') : '—'}
+              {health.knowledgeSources.length > 0 ? health.knowledgeSources.join(', ') : '–'}
             </div>
           </div>
         </div>
@@ -400,7 +400,7 @@ function KnowledgeBaseCard({ token }: { token: string }) {
 
       {reindexing && (
         <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 12 }}>
-          Rebuilding the index — this page will update automatically when it's done. Answers keep
+          Rebuilding the index - this page will update automatically when it's done. Answers keep
           using the previous index until the rebuild finishes.
         </div>
       )}
@@ -451,7 +451,7 @@ export default function ApiUsagePage() {
   // transport before succeeding is still one successful turn, not two-thirds of one.
   const successRate = stats && stats.totalTurns > 0
     ? `${Math.round((stats.successCount / stats.totalTurns) * 100)}%`
-    : '—';
+    : '–';
 
   return (
     <div>
@@ -460,7 +460,7 @@ export default function ApiUsagePage() {
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>API Usage</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13, maxWidth: '62ch' }}>
             NORA's request volume and token usage, so growing adoption never turns into a budget
-            surprise — and if usage spikes, the error breakdown below traces it to a cause instead
+            surprise - and if usage spikes, the error breakdown below traces it to a cause instead
             of leaving it opaque.
           </p>
         </div>
@@ -589,7 +589,7 @@ export default function ApiUsagePage() {
           <div style={{ ...card, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: 'var(--txt-dim)' }}>
             <Zap size={14} style={{ flexShrink: 0 }} />
             Counts come from OneHR's own request logs (every embedding and completion call a
-            question costs, including retries), not from Mistral's billing — so this figure may
+            question costs, including retries), not from Mistral's billing - so this figure may
             still run a little under Mistral's own count, since rebuilding the knowledge index also
             calls Mistral directly and isn't tied to a question. For the actual dollar cost and
             rate-limit/quota details, use the{' '}

@@ -462,7 +462,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
       // Location names are alphabetic only — letters and spaces (for multi-word names like
       // "Chennai HQ"), no digits, no hyphens, no other special characters.
       if (!/^[A-Za-z]+( [A-Za-z]+)*$/.test(trimmed)) {
-        setError(`${primaryLabel} must contain only letters (spaces allowed between words) — no numbers or special characters`);
+        setError(`${primaryLabel} must contain only letters (spaces allowed between words) - no numbers or special characters`);
         return;
       }
     } else if (!/^(?=.*[A-Za-z])[^0-9]+$/.test(trimmed)) {
@@ -584,7 +584,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
                 </span>
                 <select value={departmentId} onChange={e => setDepartmentId(e.target.value)}
                   style={{ ...inputStyle, appearance: 'none' as const, WebkitAppearance: 'none' as const }}>
-                  <option value="">— Select a department —</option>
+                  <option value="">– Select a department –</option>
                   {departments.filter(d => d.active || d.id === departmentId).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </label>
@@ -597,7 +597,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
                 <span style={labelTextStyle}>Level</span>
                 <select value={level} onChange={e => setLevel(e.target.value)}
                   style={{ ...inputStyle, appearance: 'none' as const, WebkitAppearance: 'none' as const }}>
-                  <option value="">— Not set —</option>
+                  <option value="">– Not set –</option>
                   {LEVEL_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
               </label>
@@ -634,11 +634,11 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
                   value={timezone} onChange={e => setTimezone(e.target.value)}
                   style={{ ...inputStyle, appearance: 'none' as const, WebkitAppearance: 'none' as const }}
                 >
-                  <option value="">— Select a timezone —</option>
+                  <option value="">– Select a timezone –</option>
                   {supportedTimezones.map(tz => <option key={tz} value={tz}>{tz}</option>)}
                 </select>
                 <span style={{ fontSize: 11, color: 'var(--txt-mut)', marginTop: 3 }}>
-                  Limited to this business's supported zones — every employee assigned to this
+                  Limited to this business's supported zones - every employee assigned to this
                   location uses it for check-in/out, lateness, and shift-day calculations, so it
                   can't be entered freely.
                 </span>
@@ -1091,7 +1091,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
         <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Shift' : 'Add Shift'}</h2>
         {isEdit && (
           <p style={{ margin: '0 0 16px', fontSize: 11.5, color: 'var(--txt-mut)' }}>
-            The current timing stays in effect through today exactly as it is — saving schedules a new timing
+            The current timing stays in effect through today exactly as it is - saving schedules a new timing
             to take over from the Effective From date below, it never changes today's timing retroactively.
           </p>
         )}
@@ -1169,7 +1169,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
               })}
             </div>
             <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>
-              At least one day must remain selected{isEdit ? ' — unlike the timing below, this takes effect immediately on save' : ''}
+              At least one day must remain selected{isEdit ? ' - unlike the timing below, this takes effect immediately on save' : ''}
             </span>
           </div>
           {isEdit && (
@@ -1177,7 +1177,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
               <label style={labelS}>Effective From *</label>
               <input type="date" style={{ ...inputS, maxWidth: 200 }} value={effectiveFrom} min={tomorrow}
                 onChange={e => setEffectiveFrom(e.target.value)} required />
-              <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Tomorrow or any later date — never today or the past</span>
+              <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Tomorrow or any later date - never today or the past</span>
             </div>
           )}
           {/* Blocks saving (see submit's own check) — the backend enforces the exact same limit
@@ -1322,8 +1322,8 @@ function ShiftSummaryPanel({ shift }: { shift: ShiftRow }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', fontSize: 13, maxWidth: 480 }}>
         <div style={rowS}><span style={labelS}>Timing</span><span style={valueS}>{fmtShiftTime(shift.startTime)} – {fmtShiftTime(shift.endTime)}</span></div>
-        <div style={rowS}><span style={labelS}>Break Duration</span><span style={valueS}>{shift.breakMinutes != null ? `${shift.breakMinutes} minutes` : '—'}</span></div>
-        <div style={rowS}><span style={labelS}>Grace Period</span><span style={valueS}>{shift.lateGraceMinutes != null ? `${shift.lateGraceMinutes} minutes` : '—'}</span></div>
+        <div style={rowS}><span style={labelS}>Break Duration</span><span style={valueS}>{shift.breakMinutes != null ? `${shift.breakMinutes} minutes` : '–'}</span></div>
+        <div style={rowS}><span style={labelS}>Grace Period</span><span style={valueS}>{shift.lateGraceMinutes != null ? `${shift.lateGraceMinutes} minutes` : '–'}</span></div>
         <div style={rowS}><span style={labelS}>Status</span><span style={valueS}><StatusBadge active={shift.active} /></span></div>
         <div style={rowS}><span style={labelS}>Employees Assigned</span><span style={valueS}><CountBadge count={shift.employeeCount} /></span></div>
         <div style={rowS}><span style={labelS}>Applicable Days</span><span style={valueS}>{formatApplicableDays(shift.workingDays)}</span></div>
@@ -1334,7 +1334,7 @@ function ShiftSummaryPanel({ shift }: { shift: ShiftRow }) {
           borderRadius: 8, padding: '10px 12px', fontSize: 12, color: 'var(--txt)', maxWidth: 480,
         }}>
           A change to {fmtShiftTime(shift.pendingStartTime!)}–{fmtShiftTime(shift.pendingEndTime!)} is scheduled to
-          take effect {shift.pendingEffectiveFrom} — see Track Shift Versions for the full history.
+          take effect {shift.pendingEffectiveFrom} – see Track Shift Versions for the full history.
         </div>
       )}
     </div>
@@ -2107,9 +2107,9 @@ export default function OrgSetupPage() {
                         {d.title}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.departmentName ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.grade ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.departmentName ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.grade ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '–'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={d.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={d.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -2126,10 +2126,10 @@ export default function OrgSetupPage() {
                         {l.name}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.city ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.state ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.country ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{l.timezone ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.city ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.state ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.country ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{l.timezone ?? '–'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={l.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={l.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -2146,8 +2146,8 @@ export default function OrgSetupPage() {
                         {dt.name}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresVerification ? '✓ Yes' : '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresExpiryDate ? '✓ Yes' : '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresVerification ? '✓ Yes' : '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresExpiryDate ? '✓ Yes' : '–'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableEmploymentTypes || 'All'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableLocations || 'All'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={dt.usageCount} /></td>
@@ -2367,7 +2367,7 @@ function WeeklyOffSection({ token }: { token: string }) {
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--line)' }}>
                   <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{p.name}</td>
                   <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>
-                    {p.offDays.map(d => d.slice(0, 3).charAt(0) + d.slice(1, 3).toLowerCase()).join(', ') || '—'}
+                    {p.offDays.map(d => d.slice(0, 3).charAt(0) + d.slice(1, 3).toLowerCase()).join(', ') || '–'}
                   </td>
                   <td style={{ padding: '10px 16px' }}><CountBadge count={p.employeeCount} /></td>
                   <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -2596,7 +2596,7 @@ function AttendanceRulesSection({ token }: { token: string }) {
       <p style={{ margin: '0 0 18px', fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.55 }}>
         Org-wide fallback IANA zone id, used only for an employee who has no Location assigned at
         all. Every employee's attendance timezone otherwise comes entirely from their assigned
-        Location (see the Locations tab) — employees have no timezone setting of their own.
+        Location (see the Locations tab) - employees have no timezone setting of their own.
         Changing this never reinterprets any existing attendance record.
       </p>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
@@ -2746,7 +2746,7 @@ function AiRateLimitSettingsSection({ token }: { token: string }) {
       </div>
       {requests.trim() !== '' && windowMinutes.trim() !== '' && (
         <p style={{ margin: '14px 0 0', fontSize: 11.5, color: 'var(--txt-dim)' }}>
-          Each employee can send up to {requests || '—'} assistant {Number(requests) === 1 ? 'message' : 'messages'} every {windowMinutes || '—'} {Number(windowMinutes) === 1 ? 'minute' : 'minutes'}.
+          Each employee can send up to {requests || '–'} assistant {Number(requests) === 1 ? 'message' : 'messages'} every {windowMinutes || '–'} {Number(windowMinutes) === 1 ? 'minute' : 'minutes'}.
         </p>
       )}
       {error && <div role="alert" style={{ color: 'var(--risk)', fontSize: 12, marginTop: 12 }}>{error}</div>}

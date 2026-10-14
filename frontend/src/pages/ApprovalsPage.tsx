@@ -77,7 +77,7 @@ const TYPE_ICONS: Record<RequestType, LucideIcon> = {
   HELP_CONTENT: FileText,
 };
 
-const EMPTY_VALUE = '—';
+const EMPTY_VALUE = '–';
 
 type ReviewMode = 'approve' | 'reject';
 /** 'review' = opened by clicking the row itself: details first, with both decisions available. */
@@ -557,7 +557,7 @@ function BulkActionModal({ items, mode, onClose, onDone, token }: {
 
     if (succeeded.length > 0) {
       const verbed = mode === 'approve' ? 'Approved' : 'Rejected';
-      showToast('success', `${verbed} ${succeeded.length} request${succeeded.length === 1 ? '' : 's'}${failedCount > 0 ? ` — ${failedCount} failed` : ''}`);
+      showToast('success', `${verbed} ${succeeded.length} request${succeeded.length === 1 ? '' : 's'}${failedCount > 0 ? ` - ${failedCount} failed` : ''}`);
     }
     if (failedCount > 0 && succeeded.length === 0) {
       showToast('error', `Failed to ${verb} the selected requests`);

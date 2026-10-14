@@ -69,7 +69,7 @@ function StatusBadge({ status }: { status: TicketStatus }) {
 }
 
 function fmtDateTime(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -282,7 +282,7 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <CheckCircle2 size={16} style={{ color: 'var(--ok)', flexShrink: 0 }} />
             <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
-              HR marked this resolved. If everything looks good, close it — closed tickets can't be reopened.
+              HR marked this resolved. If everything looks good, close it - closed tickets can't be reopened.
             </span>
           </div>
           <button onClick={handleClose} disabled={closing} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, fontWeight: 600, cursor: closing ? 'not-allowed' : 'pointer', opacity: closing ? 0.7 : 1, whiteSpace: 'nowrap' }}>
@@ -1056,7 +1056,7 @@ export default function HelpDeskPage() {
       const updated = await hrHelpContentApi.withdraw(item.id, reason, token);
       applyContentUpdate(updated);
     });
-    showToast('success', 'Withdrawn — back to Draft');
+    showToast('success', 'Withdrawn - back to Draft');
     setWithdrawing(null);
   }
 
@@ -1089,7 +1089,7 @@ export default function HelpDeskPage() {
   function handleArchive(item: HelpContentSummary) {
     setConfirmAction({
       title: 'Archive',
-      body: `Archive "${item.title}"? It will be hidden from employees and moved to Archived — you can restore it later.`,
+      body: `Archive "${item.title}"? It will be hidden from employees and moved to Archived - you can restore it later.`,
       confirmLabel: 'Archive',
       run: () => runAction(item.id, async () => {
         const updated = await hrHelpContentApi.archive(item.id, token);
@@ -1107,7 +1107,7 @@ export default function HelpDeskPage() {
       run: () => runAction(item.id, async () => {
         const updated = await hrHelpContentApi.restore(item.id, token);
         applyContentUpdate(updated);
-        showToast('success', 'Restored to Draft — submit for approval again when ready');
+        showToast('success', 'Restored to Draft - submit for approval again when ready');
       }),
     });
   }
@@ -1187,7 +1187,7 @@ export default function HelpDeskPage() {
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4, maxWidth: 640 }}>
-          Find an answer yourself, or reach HR directly — all from one place.
+          Find an answer yourself, or reach HR directly - all from one place.
         </p>
       </div>
 

@@ -199,7 +199,7 @@ function MessageBubble({ message, onNavigate, resolveLabel, onAsk, sending }: {
           {message.confidence === 'LOW' && message.responseType !== 'UNKNOWN' && (
             // Surfaced only when it is low. A confidence badge on every answer trains people to
             // ignore it; one that appears rarely is read.
-            <span style={metaTextStyle}>Low confidence — worth checking</span>
+            <span style={metaTextStyle}>Low confidence - worth checking</span>
           )}
         </div>
       )}

@@ -235,7 +235,7 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
         <datalist id="policy-titles-list">
           {[...new Set(policies.map(p => p.title))].map(t => <option key={t} value={t} />)}
         </datalist>
-        {isUpdate && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#eab308' }}>Existing policy — will publish v{version}, supersede current.</p>}
+        {isUpdate && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#eab308' }}>Existing policy - will publish v{version}, supersede current.</p>}
       </FormField>
       <FormField label="Version" hint="(auto-suggested)">
         <input style={inputS} value={version} onChange={e => setVersion(e.target.value)} required />
@@ -244,7 +244,7 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
         <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
       </FormField>
       <AudienceField value={audience} onChange={setAudience} />
-      <AttachmentField file={file} onFileChange={onFileChange} hint="optional — Image, PDF, or Word document" />
+      <AttachmentField file={file} onFileChange={onFileChange} hint="optional - Image, PDF, or Word document" />
       <RequiredAckCheckbox id="req" checked={required} onChange={setRequired} />
     </PolicyFormModal>
   );
@@ -279,7 +279,7 @@ function EditPolicyModal({ policy, onClose, onSaved }: { policy: Policy; onClose
 
   return (
     <PolicyFormModal
-      title={`Edit Policy — v${policy.version}`}
+      title={`Edit Policy - v${policy.version}`}
       submitLabel="Save Changes"
       loadingLabel="Saving…"
       loading={loading}
@@ -321,7 +321,7 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
       const audienceStr = audience.length === 4 ? 'ALL' : audience.join(',');
       const p = await publishPolicyVersion(token, policy.id, { version, description, audience: audienceStr, required }, file);
       onPublished(p);
-      showToast('success', 'New version published — employees must re-acknowledge');
+      showToast('success', 'New version published - employees must re-acknowledge');
       onClose();
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Publish failed');
@@ -332,7 +332,7 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
 
   return (
     <PolicyFormModal
-      title={`Publish New Version — ${policy.title}`}
+      title={`Publish New Version - ${policy.title}`}
       subtitle={`Currently v${policy.version}. Publishing a new version supersedes it and requires every affected employee to re-acknowledge.`}
       submitLabel="Publish New Version"
       loadingLabel="Publishing…"
@@ -347,7 +347,7 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
         <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
       </FormField>
       <AudienceField value={audience} onChange={setAudience} />
-      <AttachmentField file={file} onFileChange={onFileChange} hint="optional — Image, PDF, or Word document; leave blank to keep the current one" />
+      <AttachmentField file={file} onFileChange={onFileChange} hint="optional - Image, PDF, or Word document; leave blank to keep the current one" />
       <RequiredAckCheckbox id="reqv" checked={required} onChange={setRequired} />
     </PolicyFormModal>
   );
@@ -477,7 +477,7 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 600, maxWidth: '94vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} className="nf-modal-panel-in">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{selected.title} — v{selected.version}</h3>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{selected.title} – v{selected.version}</h3>
             {!loading && (
               <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--txt-dim)' }}>
                 {acknowledged}/{total} acknowledged
@@ -531,7 +531,7 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
                         ? <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#eab308', fontSize: 12, fontWeight: 600 }}><Clock size={12} /> Pending</span>
                         : <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#22c55e', fontSize: 12, fontWeight: 600 }}><CheckCircle size={12} /> Acknowledged</span>}
                     </td>
-                    <td style={tdS}>{a.acknowledgedAt ? new Date(a.acknowledgedAt).toLocaleDateString() : '—'}</td>
+                    <td style={tdS}>{a.acknowledgedAt ? new Date(a.acknowledgedAt).toLocaleDateString() : '–'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[
                         ...(!a.pending ? [{ label: 'Reset Acknowledgment', onClick: () => doReset(a.employeeUserId) }] : []),

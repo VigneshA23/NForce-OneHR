@@ -103,7 +103,7 @@ function DetailPanel({ entry, onClose, onAppreciate, onViewProfile }: { entry: D
           <Avatar userId={entry.userId} name={entry.fullName} size={52} />
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 3 }}>{entry.fullName}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{entry.designationName ?? '—'}</div>
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{entry.designationName ?? '–'}</div>
             <StatusChip active={entry.active} />
           </div>
         </div>
@@ -119,7 +119,7 @@ function DetailPanel({ entry, onClose, onAppreciate, onViewProfile }: { entry: D
           {rows.map(([label, value]) => (
             <div key={label}>
               <div className="nf-pd-drawer-label">{label}</div>
-              <div style={{ fontSize: 13, color: value ? 'var(--txt)' : 'var(--txt-dim)' }}>{value || '—'}</div>
+              <div style={{ fontSize: 13, color: value ? 'var(--txt)' : 'var(--txt-dim)' }}>{value || '–'}</div>
             </div>
           ))}
         </div>
@@ -324,7 +324,7 @@ export default function DirectoryPage() {
       {/* Load error */}
       {loadError && (
         <div role="alert" className="nf-pd-error">
-          {loadError} — check that the backend is running.
+          {loadError} – check that the backend is running.
         </div>
       )}
 
@@ -420,13 +420,13 @@ export default function DirectoryPage() {
                             </div>
                           </div>
                         </td>
-                        <td className={e.email ? 'nf-pd-email' : 'nf-pd-dim'}>{e.email ? <EmailText email={e.email} /> : '—'}</td>
-                        <td className={e.departmentName ? undefined : 'nf-pd-dim'}>{e.departmentName ?? '—'}</td>
-                        <td className={e.designationName ? undefined : 'nf-pd-dim'}>{e.designationName ?? '—'}</td>
-                        <td className={e.locationName ? undefined : 'nf-pd-dim'}>{e.locationName ?? '—'}</td>
-                        <td className={e.workMode ? 'nf-pd-mode' : 'nf-pd-dim'}>{e.workMode?.replace('_', ' ') ?? '—'}</td>
+                        <td className={e.email ? 'nf-pd-email' : 'nf-pd-dim'}>{e.email ? <EmailText email={e.email} /> : '–'}</td>
+                        <td className={e.departmentName ? undefined : 'nf-pd-dim'}>{e.departmentName ?? '–'}</td>
+                        <td className={e.designationName ? undefined : 'nf-pd-dim'}>{e.designationName ?? '–'}</td>
+                        <td className={e.locationName ? undefined : 'nf-pd-dim'}>{e.locationName ?? '–'}</td>
+                        <td className={e.workMode ? 'nf-pd-mode' : 'nf-pd-dim'}>{e.workMode?.replace('_', ' ') ?? '–'}</td>
                         <td><StatusChip active={e.active} /></td>
-                        <td className={e.managerName ? undefined : 'nf-pd-dim'}>{e.managerName ?? '—'}</td>
+                        <td className={e.managerName ? undefined : 'nf-pd-dim'}>{e.managerName ?? '–'}</td>
                         <td>
                           {/* Second trigger for the same read-only details drawer the row click opens. */}
                           <button

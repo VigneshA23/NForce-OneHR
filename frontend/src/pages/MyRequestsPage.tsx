@@ -110,7 +110,7 @@ function StatusBadge({ status }: { status: string }) {
 // rolls it back a day. Parsing its Y/M/D into a *local* Date avoids that; a real timestamp already
 // carries its own offset/Z, so it's left to parse normally.
 function fmtDate(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   const d = s.includes('T')
     ? new Date(s)
     : (([y, m, day]) => new Date(y, m - 1, day))(s.split('-').map(Number));
@@ -118,16 +118,16 @@ function fmtDate(s?: string | null) {
 }
 
 function fmtTime(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
 /** Overtime's requested duration ("Overtime Hours") — derived from requestedCheckIn/Out rather
  * than shown as raw clock times, since the employee-facing concept is hours claimed, not when. */
 function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
-  if (!startIso || !endIso) return '—';
+  if (!startIso || !endIso) return '–';
   const minutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
-  if (minutes <= 0) return '—';
+  if (minutes <= 0) return '–';
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -188,7 +188,7 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
       <div className="nf-rq-summary">
         <div className="nf-rq-strong">Overtime</div>
         <SummaryLine>
-          {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '—'}
+          {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '–'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '–'}
         </SummaryLine>
       </div>
     );
@@ -239,7 +239,7 @@ function RequestOverviewCard({ items, statusFilter, onFilter }: {
       <div className="nf-rq-panel-head">
         <div>
           <h3 className="nf-rq-panel-title"><ClipboardList size={16} aria-hidden="true" />Request Overview</h3>
-          <div className="nf-rq-panel-meta">Track your requests at a glance — click a stat to filter</div>
+          <div className="nf-rq-panel-meta">Track your requests at a glance - click a stat to filter</div>
         </div>
       </div>
       <div className="nf-rq-panel-body nf-rq-ring-row">
@@ -452,7 +452,7 @@ function Row({ label, value, wide }: { label: string; value?: string | null; wid
   return (
     <div style={wide ? { gridColumn: '1 / -1' } : undefined}>
       <div className="nf-rq-field-label">{label}</div>
-      <div className="nf-rq-field-value">{value ?? '—'}</div>
+      <div className="nf-rq-field-value">{value ?? '–'}</div>
     </div>
   );
 }
@@ -508,7 +508,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
           </div>
 
           <div className="nf-rq-section-label">Reason</div>
-          <div className="nf-rq-quote">{reason ?? '—'}</div>
+          <div className="nf-rq-quote">{reason ?? '–'}</div>
 
           <div className="nf-rq-decision">
             <div>

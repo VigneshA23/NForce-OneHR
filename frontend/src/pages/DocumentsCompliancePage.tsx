@@ -380,7 +380,7 @@ export default function DocumentsCompliancePage() {
       setPending(p => p.filter(d => d.id !== doc.id));
       setVerified(v => [updated, ...v]);
       setDetailDoc(null);
-      showToast('success', 'Document verified — the employee has been notified');
+      showToast('success', 'Document verified - the employee has been notified');
       getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Verify failed');
@@ -395,7 +395,7 @@ export default function DocumentsCompliancePage() {
       await verifyDocument(token, doc.id, 'REJECT', reason.trim());
       setPending(p => p.filter(d => d.id !== doc.id));
       setDetailDoc(null);
-      showToast('success', 'Document rejected — the employee has been notified');
+      showToast('success', 'Document rejected - the employee has been notified');
       getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Reject failed');
@@ -557,7 +557,7 @@ export default function DocumentsCompliancePage() {
                       </span>
                     </td>
                     <td style={tdS}>{new Date(d.uploadedAt).toLocaleDateString()}</td>
-                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
+                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '–'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[
                         { label: 'Review', onClick: () => setDetailDoc(d) },
@@ -611,8 +611,8 @@ export default function DocumentsCompliancePage() {
                         <Eye size={12} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fileName}</span>
                       </span>
                     </td>
-                    <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '—'}</td>
-                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
+                    <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '–'}</td>
+                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '–'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[{ label: 'View Document', onClick: () => setDetailDoc(d) }]} />
                     </td>
