@@ -1344,7 +1344,8 @@ input[type="date"] {
 :has(> .nf-hero-illus) { isolation: isolate; }
 .nf-hero-illus[data-variant="male"],
 .nf-hero-illus[data-variant="female"],
-.nf-hero-illus[data-variant="non-binary"] {
+.nf-hero-illus[data-variant="non-binary"],
+.nf-hero-illus[data-variant="neutral"] {
   position: relative;
   z-index: -1;
   align-self: stretch;
@@ -1365,7 +1366,8 @@ input[type="date"] {
    is one continuous ramp for every Theme color. Smootherstep stops, no visible start or end. */
 .nf-hero-illus[data-variant="male"]::before,
 .nf-hero-illus[data-variant="female"]::before,
-.nf-hero-illus[data-variant="non-binary"]::before {
+.nf-hero-illus[data-variant="non-binary"]::before,
+.nf-hero-illus[data-variant="neutral"]::before {
   content: '';
   position: absolute;
   top: 0; bottom: 0; left: -260px;
@@ -1376,6 +1378,18 @@ input[type="date"] {
 .nf-hero-illus[data-variant="female"] { aspect-ratio: 935 / 308; }
 .nf-hero-illus[data-variant="male"] { aspect-ratio: 874 / 277; }
 .nf-hero-illus[data-variant="non-binary"] { aspect-ratio: 2000 / 668; }
+/* No gender on the profile -> the workspace scene. It used to stay a small boxed 16:9 card, which
+   left a big empty dark area on the right of the banner. It now bleeds to the card's top/right/
+   bottom edges like the photo variants (same 16:9 ratio, so the SVG is barely cropped) and fades
+   in from the left so there is no hard edge against the dark card. */
+.nf-hero-illus[data-variant="neutral"] {
+  width: clamp(360px, 44%, 580px);
+  aspect-ratio: 16 / 9;
+}
+.nf-hero-illus[data-variant="neutral"] > svg {
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,.28) 8%, rgba(0,0,0,.7) 18%, #000 30%);
+  mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,.28) 8%, rgba(0,0,0,.7) 18%, #000 30%);
+}
 @keyframes nf-hero-illus-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .nf-hero-illus-fig { animation: nf-hero-illus-in 260ms cubic-bezier(.22,.61,.36,1) both; }
 @media (max-width: 767px) {
