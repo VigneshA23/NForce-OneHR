@@ -16,29 +16,32 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/org/talent/search")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
 public class TalentSearchController {
 
     private final TalentSearchService service;
 
     @PostMapping
+    @PreAuthorize("hasAuthority('talent_skills:VIEW:ALL')")
     public TalentSearchPageResponse search(@Valid @RequestBody TalentSearchRequest req) {
         return service.search(req);
     }
 
     @PostMapping("/saved")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('talent_skills:VIEW:ALL')")
     public SavedTalentSearchResponse saveSearch(@Valid @RequestBody CreateSavedTalentSearchRequest req, Authentication auth) {
         return service.saveSearch(req, auth.getName());
     }
 
     @GetMapping("/saved")
+    @PreAuthorize("hasAuthority('talent_skills:VIEW:ALL')")
     public List<SavedTalentSearchResponse> listMySavedSearches(Authentication auth) {
         return service.listMySavedSearches(auth.getName());
     }
 
     @DeleteMapping("/saved/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAuthority('talent_skills:VIEW:ALL')")
     public void deleteSavedSearch(@PathVariable UUID id, Authentication auth) {
         service.deleteSavedSearch(id, auth.getName());
     }

@@ -368,7 +368,7 @@ export default function MyTeamPreviewPage() {
             searchPlaceholder={view === 'direct' ? 'Search by name or employee code…' : 'Search by name, designation, or department…'}
             chips={view === 'direct' ? STATUS_CHIPS.map(c => <FilterChip key={c.key} active={statusFilter === c.key} onClick={() => setStatusFilter(c.key)}>{c.label}</FilterChip>) : undefined}
           >
-            <MemberGrid empty={filtered.length === 0 ? 'No one matches this filter.' : undefined}>
+            <MemberGrid scroll={view === 'direct'} empty={filtered.length === 0 ? 'No one matches this filter.' : undefined}>
               {filtered.map(p => {
                 const m = members.find(x => x.userId === p.userId)!;
                 const emp = prettyEmploymentType(p.employmentType);

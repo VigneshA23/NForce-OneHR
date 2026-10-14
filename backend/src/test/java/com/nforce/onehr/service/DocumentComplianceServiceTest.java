@@ -342,12 +342,20 @@ class DocumentComplianceServiceTest {
 
     @Test
     void controller_adminEndpointsRestrictedToHrAndSuperAdmin() {
-        for (String m : new String[]{"listAll", "listPending", "verify", "kpis", "listMissing", "remindMissingDocument"}) {
+        Map<String, String> expectedAuthorityByMethod = Map.of(
+                "listAll", "hasAuthority('documents:VIEW:ALL')",
+                "listPending", "hasAuthority('documents:VIEW:ALL')",
+                "verify", "hasAuthority('documents:APPROVE:ALL')",
+                "kpis", "hasAuthority('documents:VIEW:ALL')",
+                "listMissing", "hasAuthority('documents:VIEW:ALL')",
+                "remindMissingDocument", "hasAuthority('documents:VIEW:ALL')");
+        for (Map.Entry<String, String> e : expectedAuthorityByMethod.entrySet()) {
+            String m = e.getKey();
             Method method = Arrays.stream(DocumentController.class.getDeclaredMethods())
                     .filter(x -> x.getName().equals(m)).findFirst().orElseThrow();
             PreAuthorize pa = method.getAnnotation(PreAuthorize.class);
             assertNotNull(pa, m + " must be @PreAuthorize-protected");
-            assertEquals("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')", pa.value(), m);
+            assertEquals(e.getValue(), pa.value(), m);
         }
     }
 }

@@ -69,8 +69,8 @@ public final class HelpdeskDataProviders {
 
     /**
      * HR's help-desk queue - the HR Service Requests page's status tiles and its active queue.
-     * Audiences match {@code HrHelpdeskController}'s class-level {@code hasAnyRole('HR_ADMIN','SUPER_ADMIN')},
-     * and both reads re-check that role themselves.
+     * Audiences match {@code HrHelpdeskController}'s {@code hasAuthority('helpdesk:VIEW:ALL')},
+     * and both reads re-check that permission themselves.
      */
     @Component
     @RequiredArgsConstructor

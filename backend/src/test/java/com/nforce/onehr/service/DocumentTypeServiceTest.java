@@ -152,7 +152,7 @@ class DocumentTypeServiceTest {
                     .filter(x -> x.getName().equals(m)).findFirst().orElseThrow();
             PreAuthorize pa = method.getAnnotation(PreAuthorize.class);
             assertNotNull(pa, m + " must be @PreAuthorize-protected");
-            assertEquals("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')", pa.value(), m);
+            assertEquals("hasAuthority('documents:CONFIGURE:ALL')", pa.value(), m);
         }
     }
 }

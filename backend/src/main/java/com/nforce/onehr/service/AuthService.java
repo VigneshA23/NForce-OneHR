@@ -77,7 +77,8 @@ public class AuthService {
         user.setLockedUntil(null);
         userRepository.save(user);
 
-        String token = jwtTokenProvider.generateToken(user.getEmail(), user.isMustChangePassword(), user.getTokenVersion());
+        String token = jwtTokenProvider.generateToken(
+                user.getEmail(), user.isMustChangePassword(), user.getTokenVersion(), request.isRememberMe());
         auditService.log(user.getId(), "LOGIN_SUCCESS", user.getId());
 
         String roleCode = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
@@ -127,9 +128,16 @@ public class AuthService {
         auditService.log(user.getId(), "LOGIN_FAILED", user.getId());
     }
 
+    public ChangePasswordResponse changePassword(ChangePasswordRequest request, String currentUserEmail) {
+        return changePassword(request, currentUserEmail, false);
+    }
+
+    // rememberMe: whether the session making this call is a "remember me" one, so the re-minted
+    // token below keeps that lifetime instead of silently dropping back to the default 8h.
     @Transactional
     public ChangePasswordResponse changePassword(ChangePasswordRequest request,
-                                                  String currentUserEmail) {
+                                                  String currentUserEmail,
+                                                  boolean rememberMe) {
         User user = userRepository.findByEmail(currentUserEmail)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
@@ -187,7 +195,7 @@ public class AuthService {
 
         auditService.log(user.getId(), "PASSWORD_CHANGED", user.getId());
 
-        String newToken = jwtTokenProvider.generateToken(user.getEmail(), false, user.getTokenVersion());
+        String newToken = jwtTokenProvider.generateToken(user.getEmail(), false, user.getTokenVersion(), rememberMe);
 
         return ChangePasswordResponse.builder()
                 .token(newToken)

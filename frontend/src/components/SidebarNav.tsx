@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { buildRoleNav, findActiveAncestors, isNavItemDisabled, navItemDisplayPhase, type ResolvedNavNode, type ResolvedNavGroup, type Role } from '../lib/nav.config';
+import { buildRoleNav, findActiveAncestors, isNavItemDisabled, navItemDisplayPhase, type ResolvedNavNode, type ResolvedNavGroup, type Role, type NavItem } from '../lib/nav.config';
 
 interface SidebarNavProps {
   role: Role;
   currentKey: string;
+  /** Narrows NAV[role] down to what the current user's live permissions actually grant — see
+   *  buildRoleNav's own doc comment. Omitted shows the role's full default set. */
+  isVisible?: (item: NavItem) => boolean;
   /** Called when a real (non-placeholder) module link is clicked — lets the shell close the mobile drawer. */
   onNavigate?: () => void;
 }
@@ -25,8 +28,8 @@ interface SidebarNavProps {
  * artwork just shows through (or gets covered by) whatever's currently in front — no separate
  * "make room for the artwork" logic needed here.
  */
-export function SidebarNav({ role, currentKey, onNavigate }: SidebarNavProps) {
-  const tree = buildRoleNav(role);
+export function SidebarNav({ role, currentKey, isVisible, onNavigate }: SidebarNavProps) {
+  const tree = buildRoleNav(role, isVisible);
   const activeAncestors = findActiveAncestors(tree, currentKey) ?? [];
 
   // Which group keys are currently expanded. Independent per node (not a single-open-branch

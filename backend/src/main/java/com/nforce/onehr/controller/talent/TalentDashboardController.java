@@ -12,12 +12,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/org/talent/dashboard")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
 public class TalentDashboardController {
 
     private final TalentDashboardService service;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('talent_skills:VIEW:ALL')")
     public TalentDashboardSummary summary() {
         return service.summarize();
     }

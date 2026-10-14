@@ -37,14 +37,14 @@ public class LeaveController {
     /** Organization Masters > Leave — create a Leave Type. Super Admin/HR Admin only. */
     @PostMapping("/types")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('leave:CONFIGURE:ALL')")
     public LeaveTypeResponse createType(@Valid @RequestBody CreateLeaveTypeRequest req, Principal principal) {
         return leaveTypeService.create(req, principal.getName());
     }
 
     /** Organization Masters > Leave — edit a Leave Type, including its Paid/Unpaid classification. */
     @PatchMapping("/types/{id}")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('leave:CONFIGURE:ALL')")
     public LeaveTypeResponse updateType(@PathVariable UUID id, @Valid @RequestBody UpdateLeaveTypeRequest req,
                                          Principal principal) {
         return leaveTypeService.update(id, req, principal.getName());
@@ -87,7 +87,7 @@ public class LeaveController {
 
     /** Approved leave org-wide overlapping [from, to] — HR/Super Admin's "On Leave" KPI. */
     @GetMapping("/organization")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('leave:VIEW:ALL')")
     public List<LeaveRequestResponse> organization(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {

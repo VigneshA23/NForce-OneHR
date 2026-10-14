@@ -11,7 +11,7 @@
  * exactly (not-joined → holiday → weekly-off → leave → WFH → record → upcoming/missing); it only
  * adds *display* detail (what the attendance record says) on top of that classification.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Children, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import {
@@ -596,8 +596,41 @@ export function FilterChip({ active, onClick, children }: { active: boolean; onC
   return <button type="button" className="mt-chip" aria-pressed={active} onClick={onClick}>{children}</button>;
 }
 
-export function MemberGrid({ children, empty }: { children: ReactNode; empty?: ReactNode }) {
-  return empty ? <div className="mt-empty">{empty}</div> : <div className="mt-grid">{children}</div>;
+/** `scroll`: 3 columns, vertically scrollable, sized to show exactly two rows — the section's title,
+ *  search and filters live outside this element, so they stay put while the cards scroll. */
+export function MemberGrid({ children, empty, scroll }: { children: ReactNode; empty?: ReactNode; scroll?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [maxHeight, setMaxHeight] = useState<number>();
+  const count = Children.count(children);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!scroll || !el) return;
+    // Rows are equal height (grid-auto-rows: 1fr), so two rows = 2 × the first card's height + gap.
+    const measure = () => {
+      const card = el.firstElementChild as HTMLElement | null;
+      if (!card) return;
+      const cs = getComputedStyle(el);
+      const gap = parseFloat(cs.rowGap) || 0;
+      const pad = cs.boxSizing === 'border-box' ? (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) : 0;
+      setMaxHeight(Math.ceil(card.offsetHeight * 2 + gap + pad));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [scroll, empty, count]);
+
+  if (empty) return <div className="mt-empty">{empty}</div>;
+  return (
+    <div
+      ref={ref}
+      className={scroll ? 'mt-grid mt-grid--scroll' : 'mt-grid'}
+      style={scroll && maxHeight ? { maxHeight } : undefined}
+    >
+      {children}
+    </div>
+  );
 }
 
 export function MemberCard({ avatar, name, designation, active, tags, status, extras, onViewProfile, secondaryAction }: {

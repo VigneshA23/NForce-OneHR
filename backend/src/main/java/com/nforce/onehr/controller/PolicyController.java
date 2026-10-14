@@ -47,21 +47,21 @@ public class PolicyController {
     // ── HR/SA ──────────────────────────────────────────────
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:VIEW:ALL')")
     public List<PolicyResponse> listAll(Principal principal) {
         return service.listAll(principal.getName());
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:CREATE:ALL')")
     public PolicyResponse publish(Principal principal, @Valid @ModelAttribute PublishPolicyRequest req,
                                   @RequestParam(required = false) MultipartFile attachment) throws IOException {
         return service.publish(principal.getName(), req, attachment);
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:EDIT:ALL')")
     public PolicyResponse edit(Principal principal, @PathVariable Long id,
                                @Valid @RequestBody UpdatePolicyRequest req) {
         return service.editPolicy(principal.getName(), id, req);
@@ -71,14 +71,14 @@ public class PolicyController {
     // adding one to a policy that was created without it. Same size/type rule as every other
     // attachment in the app (see AttachmentValidator).
     @PostMapping(value = "/{id}/attachment", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:EDIT:ALL')")
     public PolicyResponse uploadAttachment(Principal principal, @PathVariable Long id,
                                            @RequestParam MultipartFile file) throws IOException {
         return service.uploadAttachment(principal.getName(), id, file);
     }
 
     @PostMapping(value = "/{id}/publish-version", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:EDIT:ALL')")
     public PolicyResponse publishVersion(Principal principal, @PathVariable Long id,
                                          @Valid @ModelAttribute PublishPolicyVersionRequest req,
                                          @RequestParam(required = false) MultipartFile attachment) throws IOException {
@@ -86,52 +86,52 @@ public class PolicyController {
     }
 
     @GetMapping("/{id}/versions")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:VIEW:ALL')")
     public List<PolicyResponse> versionHistory(Principal principal, @PathVariable Long id) {
         return service.getVersionHistory(principal.getName(), id);
     }
 
     @PostMapping("/{id}/deactivate")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:EDIT:ALL')")
     public PolicyResponse deactivate(Principal principal, @PathVariable Long id) {
         return service.deactivatePolicy(principal.getName(), id);
     }
 
     @PostMapping("/{id}/reactivate")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:EDIT:ALL')")
     public PolicyResponse reactivate(Principal principal, @PathVariable Long id) {
         return service.reactivatePolicy(principal.getName(), id);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:DELETE:ALL')")
     public void delete(Principal principal, @PathVariable Long id) {
         service.deletePolicy(principal.getName(), id);
     }
 
     @GetMapping("/{id}/acknowledgments")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:VIEW:ALL')")
     public List<PolicyAcknowledgmentResponse> acknowledgments(Principal principal, @PathVariable Long id) {
         return service.listAcknowledgments(principal.getName(), id);
     }
 
     @DeleteMapping("/{policyId}/acknowledgments/{userId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:EDIT:ALL')")
     public void resetAcknowledgment(Principal principal, @PathVariable Long policyId, @PathVariable UUID userId) {
         service.resetAcknowledgment(principal.getName(), policyId, userId);
     }
 
     @PostMapping("/{policyId}/remind/{userId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:EDIT:ALL')")
     public void remind(Principal principal, @PathVariable Long policyId, @PathVariable UUID userId) {
         service.remindEmployee(principal.getName(), policyId, userId);
     }
 
     @GetMapping("/pending-ack-count")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('policies:VIEW:ALL')")
     public long globalPendingAckCount() {
         return service.countAllPendingRequired();
     }

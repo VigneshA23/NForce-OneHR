@@ -32,12 +32,12 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/org/penalisation-policy-allocations")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
 public class PenalizationPolicyAllocationController {
 
     private final PenalizationPolicyAllocationService service;
 
     @GetMapping("/employees")
+    @PreAuthorize("hasAuthority('penalization:VIEW:ALL')")
     public EmployeeAllocationSearchResponse searchEmployees(
             @RequestParam(required = false) UUID businessUnitId,
             @RequestParam(required = false) UUID departmentId,
@@ -54,6 +54,7 @@ public class PenalizationPolicyAllocationController {
     }
 
     @GetMapping("/employees/{employeeUserId}")
+    @PreAuthorize("hasAuthority('penalization:VIEW:ALL')")
     public EmployeeAllocationDetailResponse getEmployeeDetail(@PathVariable UUID employeeUserId) {
         return service.getEmployeeDetail(employeeUserId);
     }
@@ -64,6 +65,7 @@ public class PenalizationPolicyAllocationController {
      * attendance engine both already use.
      */
     @GetMapping("/employees/{employeeUserId}/resolve")
+    @PreAuthorize("hasAuthority('penalization:VIEW:ALL')")
     public PolicyResolutionDetailResponse resolvePolicyFor(
             @PathVariable UUID employeeUserId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
@@ -72,32 +74,38 @@ public class PenalizationPolicyAllocationController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('penalization:CREATE:ALL')")
     public AllocationDto allocate(@Valid @RequestBody CreateAllocationRequest request, Principal principal) {
         return service.allocate(request, principal.getName());
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('penalization:EDIT:ALL')")
     public AllocationDto update(@PathVariable UUID id, @Valid @RequestBody UpdateAllocationRequest request, Principal principal) {
         return service.update(id, request, principal.getName());
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAuthority('penalization:DELETE:ALL')")
     public void remove(@PathVariable UUID id, Principal principal) {
         service.remove(id, principal.getName());
     }
 
     @PostMapping("/bulk")
+    @PreAuthorize("hasAuthority('penalization:CREATE:ALL')")
     public AssignmentBulkResultResponse bulkAllocate(@Valid @RequestBody BulkAllocationRequest request, Principal principal) {
         return service.bulkAllocate(request, principal.getName());
     }
 
     @PostMapping("/bulk-remove")
+    @PreAuthorize("hasAuthority('penalization:DELETE:ALL')")
     public AssignmentBulkResultResponse bulkRemove(@Valid @RequestBody BulkRemoveAllocationRequest request, Principal principal) {
         return service.bulkRemove(request, principal.getName());
     }
 
     @PostMapping("/check-conflicts")
+    @PreAuthorize("hasAuthority('penalization:VIEW:ALL')")
     public Map<UUID, AllocationDto> checkConflicts(@Valid @RequestBody CheckConflictsRequest request) {
         return service.checkConflicts(request.getEmployeeUserIds(), request.getEffectiveFrom(), request.getEffectiveTo(),
                 request.getExcludeAllocationId());

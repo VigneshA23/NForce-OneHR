@@ -46,7 +46,7 @@ public class AiBillingSettingsService {
         return AiBillingSettingsResponse.from(loadSingleton());
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:CONFIGURE:ALL')")
     @Transactional
     public AiBillingSettingsResponse update(UpdateAiBillingSettingsRequest req, UUID actorId) {
         AiBillingSettings settings = loadSingleton();

@@ -16,23 +16,25 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('SUPER_ADMIN')")
 public class UserManagementController {
 
     private final UserManagementService userManagementService;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('user_management:VIEW:ALL')")
     public List<EmployeeResponse> listUsers() {
         return userManagementService.listUsers();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('user_management:CREATE:ALL')")
     public EmployeeResponse createUser(@Valid @RequestBody CreateUserRequest req, Principal principal) {
         return userManagementService.createUser(req, principal.getName());
     }
 
     @PatchMapping("/{userId}")
+    @PreAuthorize("hasAuthority('user_management:EDIT:ALL')")
     public EmployeeResponse updateUser(@PathVariable UUID userId,
                                        @Valid @RequestBody UpdateUserRequest req,
                                        Principal principal) {
@@ -41,6 +43,7 @@ public class UserManagementController {
 
     /** Joining date is deliberately not part of updateUser — see UserManagementService for why. */
     @PatchMapping("/{userId}/joining-date")
+    @PreAuthorize("hasAuthority('user_management:EDIT:ALL')")
     public EmployeeResponse updateJoiningDate(@PathVariable UUID userId,
                                               @Valid @RequestBody UpdateJoiningDateRequest req,
                                               Principal principal) {
@@ -48,11 +51,13 @@ public class UserManagementController {
     }
 
     @PostMapping("/{userId}/reset-password")
+    @PreAuthorize("hasAuthority('user_management:EDIT:ALL')")
     public ResetPasswordResponse resetPassword(@PathVariable UUID userId, Principal principal) {
         return userManagementService.resetPassword(userId, principal.getName());
     }
 
     @PatchMapping("/{userId}/status")
+    @PreAuthorize("hasAuthority('user_management:EDIT:ALL')")
     public EmployeeResponse setStatus(@PathVariable UUID userId,
                                       @RequestBody Map<String, Boolean> body,
                                       Principal principal) {
@@ -62,6 +67,7 @@ public class UserManagementController {
 
     @DeleteMapping("/{userId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAuthority('user_management:DELETE:ALL')")
     public void softDeleteUser(@PathVariable UUID userId, Principal principal) {
         userManagementService.softDeleteUser(userId, principal.getName());
     }

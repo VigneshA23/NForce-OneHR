@@ -3,8 +3,10 @@ package com.nforce.onehr.service.talent;
 import com.nforce.onehr.dto.talent.SkillRequestResponse;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.dto.talent.CreateSkillRequestRequest;
 import com.nforce.onehr.service.AuditService;
 import com.nforce.onehr.service.AuditSnapshotSerializer;
+import com.nforce.onehr.service.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -14,10 +16,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -31,6 +35,7 @@ class SkillRequestServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
+    @Mock private NotificationService notificationService;
     @InjectMocks private SkillRequestService service;
 
     private static final UUID REQUESTER_ID = UUID.randomUUID();
@@ -45,6 +50,61 @@ class SkillRequestServiceTest {
         when(userRepository.findByEmail("hr@test.com")).thenReturn(Optional.of(User.builder().id(REVIEWER_ID).build()));
         when(employeeRepo.findById(REQUESTER_ID)).thenReturn(Optional.empty());
         when(userRepository.findById(REQUESTER_ID)).thenReturn(Optional.of(User.builder().id(REQUESTER_ID).email("requester@test.com").build()));
+    }
+
+    @Test
+    void submit_notifiesEveryActiveHrAdmin() {
+        UUID hr1 = UUID.randomUUID();
+        UUID hr2 = UUID.randomUUID();
+        when(userRepository.findByEmail("employee@test.com"))
+                .thenReturn(Optional.of(User.builder().id(REQUESTER_ID).email("employee@test.com").build()));
+        when(skillRequestRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(employeeRepo.findById(REQUESTER_ID)).thenReturn(Optional.of(Employee.builder().fullName("Jane Doe").build()));
+        when(userRepository.findActiveHrAdminUserIds()).thenReturn(Set.of(hr1, hr2));
+
+        CreateSkillRequestRequest req = new CreateSkillRequestRequest();
+        req.setName("Playwright");
+
+        service.submit(req, "employee@test.com");
+
+        verify(notificationService).send(eq(hr1), eq("SKILL_REQUEST_SUBMITTED"), eq("New Skill Request"),
+                eq("Jane Doe has requested a new skill: Playwright."), eq("/talent-performance?tab=settings&sub=requests"));
+        verify(notificationService).send(eq(hr2), eq("SKILL_REQUEST_SUBMITTED"), eq("New Skill Request"),
+                eq("Jane Doe has requested a new skill: Playwright."), eq("/talent-performance?tab=settings&sub=requests"));
+    }
+
+    @Test
+    void submit_fallsBackToEmailWhenRequesterHasNoEmployeeRecord() {
+        UUID hr1 = UUID.randomUUID();
+        when(userRepository.findByEmail("employee@test.com"))
+                .thenReturn(Optional.of(User.builder().id(REQUESTER_ID).email("employee@test.com").build()));
+        when(skillRequestRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(employeeRepo.findById(REQUESTER_ID)).thenReturn(Optional.empty());
+        when(userRepository.findActiveHrAdminUserIds()).thenReturn(Set.of(hr1));
+
+        CreateSkillRequestRequest req = new CreateSkillRequestRequest();
+        req.setName("Playwright");
+
+        service.submit(req, "employee@test.com");
+
+        verify(notificationService).send(eq(hr1), eq("SKILL_REQUEST_SUBMITTED"), any(),
+                eq("employee@test.com has requested a new skill: Playwright."), any());
+    }
+
+    @Test
+    void submit_sendsNoNotificationsWhenNoActiveHrAdminExists() {
+        when(userRepository.findByEmail("employee@test.com"))
+                .thenReturn(Optional.of(User.builder().id(REQUESTER_ID).email("employee@test.com").build()));
+        when(skillRequestRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(employeeRepo.findById(REQUESTER_ID)).thenReturn(Optional.of(Employee.builder().fullName("Jane Doe").build()));
+        when(userRepository.findActiveHrAdminUserIds()).thenReturn(Set.of());
+
+        CreateSkillRequestRequest req = new CreateSkillRequestRequest();
+        req.setName("Playwright");
+
+        service.submit(req, "employee@test.com");
+
+        verifyNoInteractions(notificationService);
     }
 
     @Test

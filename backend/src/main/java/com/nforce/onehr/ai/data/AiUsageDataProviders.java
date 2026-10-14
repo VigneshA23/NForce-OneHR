@@ -20,8 +20,8 @@ public final class AiUsageDataProviders {
     private AiUsageDataProviders() {}
 
     /**
-     * Super Admin only, matching the {@code hasRole('SUPER_ADMIN')} on the API Usage endpoints.
-     * Figures use the same US number formatting as that page.
+     * Super Admin only, matching the {@code hasAuthority('ai_assistant:VIEW:ALL')} on the API
+     * Usage endpoints. Figures use the same US number formatting as that page.
      */
     @Component
     @RequiredArgsConstructor

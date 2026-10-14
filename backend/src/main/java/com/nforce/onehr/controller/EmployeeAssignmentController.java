@@ -27,7 +27,7 @@ public class EmployeeAssignmentController {
     private final EmployeeAssignmentService service;
 
     @GetMapping("/team")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employee_assignments:VIEW:TEAM')")
     public List<EmployeeAssignmentRow> team(
             @RequestParam(required = false) UUID shiftId,
             @RequestParam(required = false) UUID weeklyOffPolicyId,
@@ -41,31 +41,31 @@ public class EmployeeAssignmentController {
     }
 
     @GetMapping("/lookups")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employee_assignments:VIEW:TEAM')")
     public AssignmentLookupsResponse lookups(Principal principal) {
         return service.getLookups(principal.getName());
     }
 
     @PostMapping("/bulk-update-shift")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employee_assignments:EDIT:TEAM')")
     public AssignmentBulkResultResponse bulkUpdateShift(@Valid @RequestBody BulkAssignmentRequest req, Principal principal) {
         return service.bulkUpdateShift(principal.getName(), req.getEmployeeUserIds(), req.getPolicyId(), req.getEffectiveFrom());
     }
 
     @PostMapping("/bulk-update-weekly-off")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employee_assignments:EDIT:TEAM')")
     public AssignmentBulkResultResponse bulkUpdateWeeklyOff(@Valid @RequestBody BulkAssignmentRequest req, Principal principal) {
         return service.bulkUpdateWeeklyOff(principal.getName(), req.getEmployeeUserIds(), req.getPolicyId());
     }
 
     @PostMapping("/bulk-update-penalisation-policy")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employee_assignments:EDIT:TEAM')")
     public AssignmentBulkResultResponse bulkUpdatePenalisationPolicy(@Valid @RequestBody BulkAssignmentRequest req, Principal principal) {
         return service.bulkUpdatePenalisationPolicy(principal.getName(), req.getEmployeeUserIds(), req.getPolicyId());
     }
 
     @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employee_assignments:CREATE:TEAM')")
     public ImportResultResponse importAssignments(@RequestParam MultipartFile file, Principal principal) throws IOException {
         return service.importShiftsAndWeeklyOffs(principal.getName(), file);
     }

@@ -118,7 +118,8 @@ class RegularizationServiceTest {
         hrUser = User.builder().id(hrId).email(hrEmail).roles(Set.of(hrRole)).build();
         strangerUser = User.builder().id(strangerId).email(strangerEmail).roles(Set.of(employeeRole)).build();
         // Per this org's setup, Super Admin accounts also hold EMPLOYEE, so they can submit
-        // their own regularization requests (the submit endpoint is gated on hasRole('EMPLOYEE')).
+        // their own regularization requests (the submit endpoint has no @PreAuthorize at all —
+        // self-service, same as every other unconditional-floor endpoint).
         superAdminUser = User.builder().id(superAdminId).email(superAdminEmail)
                 .roles(Set.of(superAdminRole, employeeRole)).build();
 

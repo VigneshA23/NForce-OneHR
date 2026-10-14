@@ -26,7 +26,7 @@ public class HolidayController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('holidays:VIEW:ALL')")
     public List<HolidayResponse> getHolidays(@RequestParam(required = false) UUID locationId) {
         return locationId != null
                 ? holidayService.getHolidaysByLocation(locationId)
@@ -35,20 +35,20 @@ public class HolidayController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('holidays:CREATE:ALL')")
     public HolidayResponse createHoliday(@Valid @RequestBody CreateHolidayRequest req) {
         return holidayService.createHoliday(req);
     }
 
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('holidays:EDIT:ALL')")
     public HolidayResponse updateHoliday(@PathVariable UUID id, @Valid @RequestBody CreateHolidayRequest req) {
         return holidayService.updateHoliday(id, req);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('holidays:DELETE:ALL')")
     public void deleteHoliday(@PathVariable UUID id) {
         holidayService.deleteHoliday(id);
     }

@@ -53,25 +53,7 @@ export const launcherGlowStyle: React.CSSProperties = {
   animation: 'nf-assistant-launcher-breathe 3.4s ease-in-out infinite',
 };
 
-/** The one-time "try me" bubble (AssistantLauncher's first-session invite). */
-export const inviteBubbleStyle: React.CSSProperties = {
-  position: 'fixed',
-  right: 22,
-  bottom: 82,
-  zIndex: Z_LAUNCHER,
-  maxWidth: 208,
-  background: 'var(--panel)',
-  border: '1px solid color-mix(in srgb, var(--brand) 25%, var(--line))',
-  borderRadius: 10,
-  padding: '9px 12px',
-  fontSize: 12,
-  color: 'var(--txt)',
-  boxShadow: '0 10px 30px rgba(0,0,0,.35)',
-  animation: 'nf-assistant-invite-in 260ms ease-out',
-};
-
-/** "Ask NORA" — the small, plain hover/focus label shown beside the launcher, distinct from the
- *  one-time invite bubble above (which only ever appears once per session). */
+/** "Ask NORA" — the small, plain hover/focus label shown beside the launcher. */
 export const launcherTooltipStyle: React.CSSProperties = {
   position: 'fixed',
   right: 78,

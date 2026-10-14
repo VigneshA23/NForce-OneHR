@@ -50,7 +50,7 @@ public class AttendanceRulesService {
         return loadSingleton().getHalfDayMaxHours().doubleValue();
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('organization_shifts:CONFIGURE:ALL')")
     @Transactional
     public AttendanceRulesResponse updateHalfDayMaxHours(UpdateAttendanceRulesRequest req) {
         BigDecimal hours = req.getHalfDayMaxHours();
@@ -68,7 +68,7 @@ public class AttendanceRulesService {
         return ZoneId.of(loadSingleton().getDefaultTimezone());
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('organization_shifts:CONFIGURE:ALL')")
     @Transactional
     public AttendanceRulesResponse updateDefaultTimezone(UpdateDefaultTimezoneRequest req) {
         String zoneId = req.getDefaultTimezone() != null ? req.getDefaultTimezone().trim() : null;

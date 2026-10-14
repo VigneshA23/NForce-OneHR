@@ -127,6 +127,21 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
 };
 
+/**
+ * Every distinct NavItem across all 4 roles, deduped by key (picking whichever role's copy is
+ * encountered first — only `key`/`path` matter for this, and those never differ between roles
+ * for the same key; a label like "Organization Structure" vs "Organization Masters" is cosmetic).
+ *
+ * Exists for one reason: a route-level permission check must not be scoped to NAV[role] for the
+ * CURRENT user's role, or a path that role's own array doesn't even mention (e.g. an Employee
+ * directly visiting /organization, a key that only ever appears in HR Admin's/Super Admin's
+ * arrays) would never be checked at all and the real page would mount unguarded — exactly the
+ * gap a nav-hiding-only defense leaves open. See Shell.tsx's deniedByPermission.
+ */
+export const ALL_NAV_ITEMS: NavItem[] = Array.from(
+  new Map(Object.values(NAV).flat().map((i) => [i.key, i] as const)).values()
+);
+
 // ---------------------------------------------------------------------------
 // Hierarchical grouping — purely a presentation layer on top of NAV above.
 // It never adds/removes access: buildRoleNav() only ever surfaces NavItems
@@ -205,9 +220,16 @@ function resolveEntry(entry: HierarchyEntry, itemsByKey: Map<string, NavItem>): 
  * reusing the role's existing NAV items verbatim (same key/label/icon/phase/
  * path). Branches with no accessible items are omitted; branches reduced to
  * a single item are flattened to that item (see resolveEntry).
+ *
+ * `isVisible`, when given, additionally filters NAV[role] before resolving —
+ * an item failing it is treated exactly like one absent from the role's array
+ * to begin with (same group-collapsing behavior). Omitted entirely by
+ * RoleGuidePage, which deliberately shows a role's full reference nav
+ * regardless of any one user's live, possibly-narrower permissions.
  */
-export function buildRoleNav(role: Role): ResolvedNavNode[] {
-  const itemsByKey = new Map(NAV[role].map((i) => [i.key, i] as const));
+export function buildRoleNav(role: Role, isVisible?: (item: NavItem) => boolean): ResolvedNavNode[] {
+  const candidates = isVisible ? NAV[role].filter(isVisible) : NAV[role];
+  const itemsByKey = new Map(candidates.map((i) => [i.key, i] as const));
   return NAV_HIERARCHY
     .map((entry) => resolveEntry(entry, itemsByKey))
     .filter((n): n is ResolvedNavNode => n !== null);

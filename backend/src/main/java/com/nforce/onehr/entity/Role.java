@@ -31,22 +31,6 @@ public class Role {
     @Column(name = "display_name", nullable = false, length = 50)
     private String displayName;
 
-    @Column(name = "can_manage_employee_records", nullable = false)
-    @Builder.Default
-    private boolean canManageEmployeeRecords = false;
-
-    @Column(name = "can_promote_users", nullable = false)
-    @Builder.Default
-    private boolean canPromoteUsers = false;
-
-    @Column(name = "can_reset_any_password", nullable = false)
-    @Builder.Default
-    private boolean canResetAnyPassword = false;
-
-    @Column(name = "can_deactivate_users", nullable = false)
-    @Builder.Default
-    private boolean canDeactivateUsers = false;
-
     @Column(name = "is_phase1", nullable = false)
     @Builder.Default
     private boolean phase1 = false;

@@ -82,7 +82,7 @@ public class AiRateLimitSettingsService {
         return AiRateLimitSettingsResponse.from(loadSingleton());
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:CONFIGURE:ALL')")
     @Transactional
     public AiRateLimitSettingsResponse update(UpdateAiRateLimitSettingsRequest req, UUID actorId) {
         // Defense-in-depth alongside the request's own bean validation and V192's DB CHECKs — the

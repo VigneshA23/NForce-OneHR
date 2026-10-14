@@ -50,11 +50,11 @@ async function handle<T>(res: Response): Promise<T> {
 }
 
 export const authApi = {
-  login: (email: string, password: string) =>
+  login: (email: string, password: string, rememberMe = false) =>
     fetch(`${BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, rememberMe }),
     }).then(handle<LoginResponse>),
 
   // currentPassword is undefined for the forced (temp-password) flow, where the frontend

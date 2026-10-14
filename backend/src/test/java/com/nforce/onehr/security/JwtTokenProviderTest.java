@@ -21,6 +21,25 @@ class JwtTokenProviderTest {
         provider = new JwtTokenProvider();
         ReflectionTestUtils.setField(provider, "jwtSecret", "test-secret-key-must-be-long-enough-for-hmac-sha-256");
         ReflectionTestUtils.setField(provider, "jwtExpirationHours", 8);
+        ReflectionTestUtils.setField(provider, "rememberMeExpirationDays", 365);
+    }
+
+    @Test
+    void generateToken_rememberMe_usesLongLifetimeAndRoundTripsClaim() {
+        String normal = provider.generateToken("user@test.com", false, 1);
+        String remembered = provider.generateToken("user@test.com", false, 1, true);
+
+        assertFalse(provider.extractRememberMe(normal));
+        assertTrue(provider.extractRememberMe(remembered));
+        long normalMs = io.jsonwebtoken.Jwts.parser()
+                .verifyWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                        "test-secret-key-must-be-long-enough-for-hmac-sha-256".getBytes()))
+                .build().parseSignedClaims(normal).getPayload().getExpiration().getTime();
+        long rememberedMs = io.jsonwebtoken.Jwts.parser()
+                .verifyWith(io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+                        "test-secret-key-must-be-long-enough-for-hmac-sha-256".getBytes()))
+                .build().parseSignedClaims(remembered).getPayload().getExpiration().getTime();
+        assertTrue(rememberedMs - normalMs > 300L * 86_400_000L);
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
 import com.nforce.onehr.service.AuditService;
 import com.nforce.onehr.service.AuditSnapshotSerializer;
+import com.nforce.onehr.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,6 +15,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -37,6 +40,7 @@ public class SkillRequestService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
+    private final NotificationService notificationService;
 
     @Transactional
     public SkillRequestResponse submit(CreateSkillRequestRequest req, String actorEmail) {
@@ -50,6 +54,19 @@ public class SkillRequestService {
         skillRequestRepo.save(request);
         // Self-submitted — intentionally not audit-logged, same convention as
         // LEAVE_REQUEST_SUBMITTED/ASSET_REQUEST_SUBMITTED/EXPENSE_SUBMITTED (see AuditActionCategory).
+
+        // HR has no other way to learn a new request exists short of manually opening the Skill
+        // Requests queue — notify every active HR Admin, same pattern as Regularization's
+        // *_SUBMITTED notify (Super Admin already has blanket queue visibility, so isn't paged too).
+        String requesterName = employeeRepo.findById(actor.getId())
+                .map(Employee::getFullName)
+                .orElse(actor.getEmail());
+        Set<UUID> recipients = userRepository.findActiveHrAdminUserIds();
+        recipients.stream().filter(Objects::nonNull).forEach(id -> notificationService.send(id,
+                "SKILL_REQUEST_SUBMITTED", "New Skill Request",
+                requesterName + " has requested a new skill: " + request.getName() + ".",
+                "/talent-performance?tab=settings&sub=requests"));
+
         return toResponse(request);
     }
 
