@@ -30,7 +30,6 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/org/talent/directory")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
 public class TalentDirectoryController {
 
     private final TalentDirectoryService service;
@@ -38,16 +37,19 @@ public class TalentDirectoryController {
     private final AuditService auditService;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('talent_skills:VIEW:ALL')")
     public List<TalentEmployeeSummary> listAll() {
         return service.listAll();
     }
 
     @GetMapping("/{employeeUserId}")
+    @PreAuthorize("hasAuthority('talent_skills:VIEW:ALL')")
     public TeamGrowthResponse getEmployeeDetail(@PathVariable UUID employeeUserId, Authentication auth) {
         return service.getEmployeeDetail(employeeUserId, auth.getName());
     }
 
     @GetMapping("/export")
+    @PreAuthorize("hasAuthority('talent_skills:EXPORT:ALL')")
     public ResponseEntity<byte[]> export(Authentication auth) {
         List<TalentEmployeeSummary> rows = service.listAll();
         byte[] csv = toCsv(rows).getBytes(StandardCharsets.UTF_8);

@@ -27,4 +27,9 @@ public interface ProjectAllocationRepository extends JpaRepository<ProjectAlloca
 
     /** Batch fetch for the capacity view — one query for every in-scope employee's allocations. */
     List<ProjectAllocation> findByEmployeeUserIdIn(Collection<UUID> employeeUserIds);
+
+    /** US-A02 "last project": the allocation that ended (or ends) latest for each of these employees. */
+    @Query("SELECT a FROM ProjectAllocation a WHERE a.employeeUserId IN :employeeUserIds AND a.endDate = ("
+            + "SELECT MAX(b.endDate) FROM ProjectAllocation b WHERE b.employeeUserId = a.employeeUserId)")
+    List<ProjectAllocation> findLatestEndingForEmployees(@Param("employeeUserIds") Collection<UUID> employeeUserIds);
 }

@@ -42,6 +42,7 @@ class EmployeeServiceUpdateTest {
     @Mock private RoleRepository roleRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private EmployeeManagerHistoryRepository historyRepository;
+    @Mock private ManagerRoleSyncService managerRoleSyncService;
     @Mock private BusinessUnitRepository businessUnitRepository;
     @Mock private DepartmentRepository departmentRepository;
     @Mock private DesignationRepository designationRepository;

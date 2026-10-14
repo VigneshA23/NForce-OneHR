@@ -292,6 +292,34 @@ pages:
         route: /allocations
         description: "Allocate one or more employees to a project at once, with capacity percent and a date range, and see which allocations succeeded or failed."
 
+  - pageId: bench
+    module: allocations
+    variants:
+      - roles: [MANAGER]
+        label: "Team Bench"
+        route: /bench
+        description: "Which of your direct reports are currently on bench: their reason, days on bench and last project."
+      - roles: [HR_ADMIN]
+        label: "Bench Management"
+        route: /bench
+        description: "Bench dashboard with aging buckets, trend and aggregate cost; filter benched employees by aging or skill and export to Excel; mark employees on or off bench; configure aging buckets, skills and compensation bands."
+
+  - pageId: bench-opportunities
+    module: allocations
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "Internal Opportunities"
+        route: /bench-opportunities
+        description: "Short-term internal opportunities shown to employees on bench: HR and managers post them, benched employees express interest, and HR assigns someone, which creates the project allocation and ends their bench status."
+
+  - pageId: my-skills
+    module: allocations
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "My Skills"
+        route: /my-skills
+        description: "Your skills picked from the managed skill list with a 1-5 self-rating; managers can also rate their direct reports' skills."
+
   - pageId: masters
     module: organization
     variants:

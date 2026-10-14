@@ -344,7 +344,7 @@ function SkillRequestsSection({ token }: { token: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type SettingsSubTab = 'skills' | 'levels' | 'categories' | 'requests';
+export type SettingsSubTab = 'skills' | 'levels' | 'categories' | 'requests';
 
 const SUB_TABS: { key: SettingsSubTab; label: string }[] = [
   { key: 'skills', label: 'Skills' },
@@ -353,9 +353,9 @@ const SUB_TABS: { key: SettingsSubTab; label: string }[] = [
   { key: 'requests', label: 'Skill Requests' },
 ];
 
-export function SettingsTab() {
+export function SettingsTab({ initialSub }: { initialSub?: SettingsSubTab } = {}) {
   const token = useAuthStore(s => s.token)!;
-  const [sub, setSub] = useState<SettingsSubTab>('skills');
+  const [sub, setSub] = useState<SettingsSubTab>(initialSub ?? 'skills');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

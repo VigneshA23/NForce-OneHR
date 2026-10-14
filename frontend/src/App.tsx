@@ -38,6 +38,9 @@ import SearchResultsPage from './pages/SearchResultsPage';
 import ReportsPage from './pages/ReportsPage';
 import ApiUsagePage from './pages/ApiUsagePage';
 import ProjectAllocationsPage from './pages/ProjectAllocationsPage';
+import BenchPage from './pages/BenchPage';
+import BenchOpportunitiesPage from './pages/BenchOpportunitiesPage';
+import MySkillsPage from './pages/MySkillsPage';
 // Role-specific mock/visual-preview page only — not part of the real Leave Management module.
 // See the file header in LeavePreviewPage.tsx for details.
 import LeavePreviewPage from './pages/leave-preview/LeavePreviewPage';
@@ -55,7 +58,11 @@ import HeroGenderPreviewPage from './pages/hero-gender-preview/HeroGenderPreview
 import AttendancePreviewShell from './pages/attendance-ui-preview/AttendancePreviewShell';
 // Design-review mock only — Home dashboard tile rows per role. See the route below.
 import DashboardPreviewShell from './pages/dashboard-ui-preview/DashboardPreviewShell';
-import { toShellRole } from './lib/nav.config';
+
+// Role-switchable mock preview of the redesigned My Team page (?role=manager|hr-admin|super-admin|employee).
+// Mock data only — see the file header in my-team/MyTeamPreviewPage.tsx.
+import MyTeamPreviewPage from './pages/my-team/MyTeamPreviewPage';
+import { hasPermission } from './lib/permissions';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
 
@@ -66,9 +73,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function DocumentsRouter() {
-  const user = useAuthStore(s => s.user);
-  const role = toShellRole(user?.role);
-  return role === 'HR Admin' || role === 'Super Admin'
+  const permissions = useAuthStore(s => s.permissions);
+  return hasPermission(permissions, 'documents', 'VIEW', 'ALL')
     ? <DocumentsCompliancePage />
     : <DocumentsPage />;
 }
@@ -76,20 +82,23 @@ function DocumentsRouter() {
 // Manager, HR Admin, and Super Admin share the same /audit path with different components —
 // only these three roles have an 'audit' nav entry at all (see nav.config.ts). Super Admin gets
 // the full Audit & Security view; Manager and HR Admin both get the self-scoped Audit History
-// view (the server, not this ternary, enforces that scoping — see AuditLogController).
+// view (the server, not this ternary, enforces that scoping — see AuditLogController). Gated on
+// user_management:VIEW:ALL (Super-Admin-only, see UserManagementController) rather than audit's
+// own permission, which every one of these three roles equally holds (audit is OWN-scoped for
+// everyone by design — see V225's header) and so can't distinguish Super Admin from the other two.
 function AuditRouter() {
-  const user = useAuthStore(s => s.user);
-  const role = toShellRole(user?.role);
-  return role === 'Super Admin' ? <AuditSecurityPage /> : <AuditHistoryPage />;
+  const permissions = useAuthStore(s => s.permissions);
+  return hasPermission(permissions, 'user_management', 'VIEW', 'ALL')
+    ? <AuditSecurityPage />
+    : <AuditHistoryPage />;
 }
 
 // /requests is "My Requests" (Leave/Regularization/Web Clock-In tracker) for Employee/Manager,
 // but the Help Desk ticket queue for HR Admin/Super Admin — same nav slot the "HR Service
 // Requests" item already reserved (see nav.config.ts). Mirrors DocumentsRouter/AuditRouter.
 function RequestsRouter() {
-  const user = useAuthStore(s => s.user);
-  const role = toShellRole(user?.role);
-  return role === 'HR Admin' || role === 'Super Admin'
+  const permissions = useAuthStore(s => s.permissions);
+  return hasPermission(permissions, 'helpdesk', 'VIEW', 'ALL')
     ? <HelpDeskAdminPage />
     : <MyRequestsPage />;
 }
@@ -154,6 +163,10 @@ export default function App() {
             each role, built from the real components with invented numbers; no auth, no API calls. */}
         <Route path="/dashboard-ui-preview" element={<DashboardPreviewShell />} />
 
+        {/* Design-review mock only — redesigned My Team page, no auth, no network, not linked from
+            the app nav. ?role=manager|hr-admin|super-admin|employee picks the mock dataset only. */}
+        <Route path="/my-team-preview" element={<MyTeamPreviewPage />} />
+
         {/* Auth required, password-change gate */}
         <Route
           path="/change-password"
@@ -188,6 +201,9 @@ export default function App() {
           <Route path="/exceptions"   element={<ExceptionDashboardPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
           <Route path="/allocations"  element={<ProjectAllocationsPage />} />
+          <Route path="/bench"        element={<BenchPage />} />
+          <Route path="/bench-opportunities" element={<BenchOpportunitiesPage />} />
+          <Route path="/my-skills"    element={<MySkillsPage />} />
           <Route path="/talent-performance" element={<TalentPerformancePage />} />
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />

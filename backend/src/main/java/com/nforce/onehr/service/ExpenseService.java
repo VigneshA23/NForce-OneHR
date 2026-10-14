@@ -320,7 +320,7 @@ public class ExpenseService {
         // HR Admin stage of Manager -> HR Admin -> Super Admin isn't asked to approve twice). If a
         // stage held by someone else remains, the claim stays MANAGER_APPROVED and moves on to it.
         String next = nextFinalStage(claim, claim.getPendingFinalStage());
-        while (next != null && hasRole(actor, next)) {
+        while (next != null && actorHasRole(actor, next)) {
             next = nextFinalStage(claim, next);
         }
         if (next != null) {
@@ -465,7 +465,7 @@ public class ExpenseService {
         return actor.getRoles().stream().anyMatch(r -> FINAL_APPROVER_ROLES.contains(r.getCode()));
     }
 
-    private boolean hasRole(User actor, String roleCode) {
+    private boolean actorHasRole(User actor, String roleCode) {
         return actor.getRoles().stream().anyMatch(r -> roleCode.equals(r.getCode()));
     }
 
@@ -473,7 +473,7 @@ public class ExpenseService {
      * Super Admin's usual override (it may act at the HR Admin stage too, never the reverse). */
     private boolean canActAtFinalStage(User actor, String stage) {
         if (stage == null) return isFinalApprover(actor);
-        return hasRole(actor, stage) || hasRole(actor, "SUPER_ADMIN");
+        return actorHasRole(actor, stage) || actorHasRole(actor, "SUPER_ADMIN");
     }
 
     private void requireCanActAtFinalStage(User actor, ExpenseClaim claim) {

@@ -31,7 +31,16 @@ public enum AuditActionCategory {
             // — see below. AuthService's login and password self-service events are intentionally
             // absent — see class Javadoc.
             "USER_CREATED", "PASSWORD_RESET",
-            "USER_ACTIVATED", "USER_DEACTIVATED", "USER_SOFT_DELETED"
+            "USER_ACTIVATED", "USER_DEACTIVATED", "USER_SOFT_DELETED",
+            // UserManagementService's role-change block, split out from the generic USER_UPDATED
+            // it used to fall under (that one stays HR_OPERATIONAL for ordinary field edits) —
+            // who holds admin privileges is access-control-sensitive in a way a routine profile
+            // edit isn't, and deserves its own filterable/queryable action.
+            "ROLE_CHANGED",
+            // ManagerRoleSyncService — MANAGER role auto-granted/revoked as reporting lines
+            // change (not an admin's own action, but still access-control-sensitive; logged
+            // against the actor who triggered the underlying manager-history change).
+            "ROLE_AUTO_GRANTED", "ROLE_AUTO_REVOKED"
     )),
 
     HR_OPERATIONAL(Set.of(
@@ -68,6 +77,8 @@ public enum AuditActionCategory {
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.
             "HELPDESK_TICKET_STATUS_CHANGED", "HELPDESK_TICKET_ASSIGNED",
+            // BenchStatusService — HR Admin marking/ending an employee's bench status
+            "BENCH_STATUS_CHANGE", "INTERNAL_OPPORTUNITY_CLOSED",
             // Talent & Skills (SkillMasterService/ProficiencyLevelService/CertificateCategoryService
             // /SkillRequestService) — Settings configuration changes, same treatment as
             // PenalizationPolicyService/LeaveTypeService above (both HR Admin and Super Admin see

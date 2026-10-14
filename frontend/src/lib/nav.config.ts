@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, Briefcase, TrendingUp,
+  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, Briefcase, TrendingUp, UserX, Sparkles, Handshake,
 } from 'lucide-react';
 
 export type Role = 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
@@ -50,12 +50,15 @@ export const NAV: Record<Role, NavItem[]> = {
     item('requests', 'My Requests', HelpCircle, 1),
     item('assets', 'Assets & Expenses', Package, 1),
     item('performance', 'Performance & Growth', GitBranch, 2),
+    item('my-skills', 'My Skills', Sparkles, 1),
+    item('bench-opportunities', 'Internal Opportunities', Handshake, 1),
     item('my-documents', 'My Documents & Policies', FileText, 1),
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
   Manager: [
     item('dashboard', 'Home', Home, 1),
     item('my-team', 'My Team', Users, 1),
+    item('bench', 'Team Bench', UserX, 1),
     item('directory', 'People Directory', Users, 1),
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
     item('attendance', 'Team Attendance', Clock, 1),
@@ -65,6 +68,8 @@ export const NAV: Record<Role, NavItem[]> = {
     item('exceptions', 'Exception Dashboard', AlertTriangle, 1),
     item('performance', 'Team Performance', GitBranch, 2),
     item('assets', 'Team Assets & Expenses', Package, 1),
+    item('my-skills', 'My Skills', Sparkles, 1),
+    item('bench-opportunities', 'Internal Opportunities', Handshake, 1),
     item('my-documents', 'My Documents & Policies', FileText, 1),
     item('reports', 'Reports & Analytics', FileText, 1),
     item('audit', 'Audit History', Clock, 1),
@@ -83,9 +88,12 @@ export const NAV: Record<Role, NavItem[]> = {
     item('exceptions', 'Exception Dashboard', AlertTriangle, 1),
     item('documents', 'Documents & Compliance', FileText, 1),
     item('policies', 'Policies & Announcements', FileText, 1),
+    item('my-skills', 'My Skills', Sparkles, 1),
+    item('bench-opportunities', 'Internal Opportunities', Handshake, 1),
     item('my-documents', 'My Documents & Policies', FileText, 1),
     item('organization', 'Organization Structure', GitBranch, 1),
     item('allocations', 'Project Allocations', Briefcase, 1),
+    item('bench', 'Bench Management', UserX, 1),
     item('talent-performance', 'Performance', TrendingUp, 1),
     item('assets', 'Assets & Expenses', Package, 1),
     item('requests', 'HR Service Requests', HelpCircle, 1),
@@ -106,6 +114,8 @@ export const NAV: Record<Role, NavItem[]> = {
     item('workflows', 'Workflow Studio', GitBranch, 1),
     item('masters', 'Organization Masters', FileText, 1),
     item('policies', 'Policies & Announcements', FileText, 1),
+    item('my-skills', 'My Skills', Sparkles, 1),
+    item('bench-opportunities', 'Internal Opportunities', Handshake, 1),
     item('my-documents', 'My Documents & Policies', FileText, 1),
     item('requests', 'HR Service Requests', HelpCircle, 1),
     item('integrations', 'Integrations', FileText, 2),
@@ -116,6 +126,21 @@ export const NAV: Record<Role, NavItem[]> = {
     item('help', 'Help & Guidance', HelpCircle, 1),
   ],
 };
+
+/**
+ * Every distinct NavItem across all 4 roles, deduped by key (picking whichever role's copy is
+ * encountered first — only `key`/`path` matter for this, and those never differ between roles
+ * for the same key; a label like "Organization Structure" vs "Organization Masters" is cosmetic).
+ *
+ * Exists for one reason: a route-level permission check must not be scoped to NAV[role] for the
+ * CURRENT user's role, or a path that role's own array doesn't even mention (e.g. an Employee
+ * directly visiting /organization, a key that only ever appears in HR Admin's/Super Admin's
+ * arrays) would never be checked at all and the real page would mount unguarded — exactly the
+ * gap a nav-hiding-only defense leaves open. See Shell.tsx's deniedByPermission.
+ */
+export const ALL_NAV_ITEMS: NavItem[] = Array.from(
+  new Map(Object.values(NAV).flat().map((i) => [i.key, i] as const)).values()
+);
 
 // ---------------------------------------------------------------------------
 // Hierarchical grouping — purely a presentation layer on top of NAV above.
@@ -155,7 +180,7 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
   { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
   { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
   { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports', 'api-usage'] },
-  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'allocations', 'performance', 'documents', 'policies', 'my-documents'] },
+  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'allocations', 'bench', 'bench-opportunities', 'my-skills', 'performance', 'documents', 'policies', 'my-documents'] },
   'help',
 ];
 
@@ -195,9 +220,16 @@ function resolveEntry(entry: HierarchyEntry, itemsByKey: Map<string, NavItem>): 
  * reusing the role's existing NAV items verbatim (same key/label/icon/phase/
  * path). Branches with no accessible items are omitted; branches reduced to
  * a single item are flattened to that item (see resolveEntry).
+ *
+ * `isVisible`, when given, additionally filters NAV[role] before resolving —
+ * an item failing it is treated exactly like one absent from the role's array
+ * to begin with (same group-collapsing behavior). Omitted entirely by
+ * RoleGuidePage, which deliberately shows a role's full reference nav
+ * regardless of any one user's live, possibly-narrower permissions.
  */
-export function buildRoleNav(role: Role): ResolvedNavNode[] {
-  const itemsByKey = new Map(NAV[role].map((i) => [i.key, i] as const));
+export function buildRoleNav(role: Role, isVisible?: (item: NavItem) => boolean): ResolvedNavNode[] {
+  const candidates = isVisible ? NAV[role].filter(isVisible) : NAV[role];
+  const itemsByKey = new Map(candidates.map((i) => [i.key, i] as const));
   return NAV_HIERARCHY
     .map((entry) => resolveEntry(entry, itemsByKey))
     .filter((n): n is ResolvedNavNode => n !== null);

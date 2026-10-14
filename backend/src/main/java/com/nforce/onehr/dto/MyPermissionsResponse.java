@@ -1,0 +1,15 @@
+package com.nforce.onehr.dto;
+
+import lombok.Value;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/** Drives the frontend's nav/route/action-button gating (GET /api/me/permissions). */
+@Value
+public class MyPermissionsResponse {
+    String primaryRole;
+    List<String> roles;
+    Map<String, Map<String, Set<String>>> permissions;
+}

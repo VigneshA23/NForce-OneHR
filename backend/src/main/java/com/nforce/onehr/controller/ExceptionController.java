@@ -19,7 +19,7 @@ public class ExceptionController {
     private final ExceptionService exceptionService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('HR_ADMIN','SUPER_ADMIN','MANAGER')")
+    @PreAuthorize("hasAuthority('exceptions:VIEW:TEAM')")
     public List<ExceptionResponse> listExceptions(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,

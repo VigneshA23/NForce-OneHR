@@ -11,6 +11,7 @@ import {
 import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
 import {
   orgApi, type BusinessUnitRow, type DepartmentRow, type DesignationRow, type LocationRow,
@@ -1466,12 +1467,12 @@ export default function OrgSetupPage() {
   const { showToast } = useToast();
   const copy = PATH_COPY[pathname] ?? PATH_COPY['/organization'];
 
-  const role = useAuthStore(s => s.user?.role);
+  const permissions = useAuthStore(s => s.permissions);
   // Shift master-data create/edit/delete is Super Admin only (backend-enforced via @PreAuthorize
   // in OrgService regardless of this check) -- this only controls whether the UI offers the
   // action at all, matching the "don't just hide the button" requirement by never being the
   // only line of defense.
-  const canManageShifts = role === 'SUPER_ADMIN';
+  const canManageShifts = hasPermission(permissions, 'organization_shifts', 'EDIT', 'ALL');
 
   const [activeTab, setActiveTab] = useState<OrgTab>('departments');
   const [penalizationSubTab, setPenalizationSubTab] = useState<'policy' | 'allocation'>('policy');
@@ -1879,7 +1880,7 @@ export default function OrgSetupPage() {
                 // Hidden entirely for anyone but Super Admin, rather than shown and left to 403 on
                 // load: unlike every other tab here (at least viewable via /organization by HR
                 // Admin), the AI Assistant rate-limit configuration is Super-Admin-only end to end.
-                .filter(key => key !== 'ai-assistant' || role === 'SUPER_ADMIN')
+                .filter(key => key !== 'ai-assistant' || hasPermission(permissions, 'ai_assistant', 'VIEW', 'ALL'))
                 .map(key => {
                   const TabIcon = TABS[key].icon;
                   return { key, label: TABS[key].label, icon: <TabIcon size={14} aria-hidden="true" /> };
@@ -2280,8 +2281,8 @@ function WeeklyOffFormModal({ editRow, token, onClose, onSaved }: WeeklyOffFormM
 
 function WeeklyOffSection({ token }: { token: string }) {
   const { showToast } = useToast();
-  const role = useAuthStore(s => s.user?.role);
-  const canManage = role === 'SUPER_ADMIN';
+  const permissions = useAuthStore(s => s.permissions);
+  const canManage = hasPermission(permissions, 'organization_shifts', 'EDIT', 'ALL');
 
   const [policies, setPolicies] = useState<WeeklyOffPolicyRow[]>([]);
   const [search, setSearch] = useState('');
@@ -2409,8 +2410,8 @@ function WeeklyOffSection({ token }: { token: string }) {
 
 function ShiftWeeklyOffRulesSection({ token }: { token: string }) {
   const { showToast } = useToast();
-  const role = useAuthStore(s => s.user?.role);
-  const canManage = role === 'SUPER_ADMIN';
+  const permissions = useAuthStore(s => s.permissions);
+  const canManage = hasPermission(permissions, 'organization_shifts', 'CONFIGURE', 'ALL');
 
   const [hours, setHours] = useState('');
   const [savedHours, setSavedHours] = useState<number | null>(null);
@@ -2496,8 +2497,8 @@ function ShiftWeeklyOffRulesSection({ token }: { token: string }) {
 
 function AttendanceRulesSection({ token }: { token: string }) {
   const { showToast } = useToast();
-  const role = useAuthStore(s => s.user?.role);
-  const canManage = role === 'SUPER_ADMIN';
+  const permissions = useAuthStore(s => s.permissions);
+  const canManage = hasPermission(permissions, 'organization_shifts', 'CONFIGURE', 'ALL');
 
   const [hours, setHours] = useState('');
   const [savedHours, setSavedHours] = useState<number | null>(null);
@@ -2637,8 +2638,8 @@ function AttendanceRulesSection({ token }: { token: string }) {
 // this page.
 function AiRateLimitSettingsSection({ token }: { token: string }) {
   const { showToast } = useToast();
-  const role = useAuthStore(s => s.user?.role);
-  const canManage = role === 'SUPER_ADMIN';
+  const permissions = useAuthStore(s => s.permissions);
+  const canManage = hasPermission(permissions, 'ai_assistant', 'CONFIGURE', 'ALL');
 
   const [enabled, setEnabled] = useState(true);
   const [requests, setRequests] = useState('');

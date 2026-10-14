@@ -80,7 +80,7 @@ class AuthServiceTest {
         lenient().when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(passwordEncoder.matches(eq(CORRECT_PASSWORD), anyString())).thenReturn(true);
         lenient().when(passwordEncoder.matches(eq(WRONG_PASSWORD), anyString())).thenReturn(false);
-        lenient().when(jwtTokenProvider.generateToken(anyString(), any(Boolean.class), any(Integer.class))).thenReturn("jwt-token");
+        lenient().when(jwtTokenProvider.generateToken(anyString(), any(Boolean.class), any(Integer.class), any(Boolean.class))).thenReturn("jwt-token");
     }
 
     private LoginRequest request(String email, String password) {
@@ -285,8 +285,19 @@ class AuthServiceTest {
         verify(userRepository).save(user);
         // The session performing the change must receive a token minted with the POST-bump
         // version, so it stays valid under the very check that just invalidated every other one.
-        verify(jwtTokenProvider).generateToken(EMAIL, false, 6);
+        verify(jwtTokenProvider).generateToken(EMAIL, false, 6, false);
         verify(auditService).log(user.getId(), "PASSWORD_CHANGED", user.getId());
+    }
+
+    @Test
+    void changePassword_rememberMeSession_remintsLongLivedToken() {
+        user.setTokenVersion(5);
+        when(passwordEncoder.encode(anyString())).thenReturn("new-hash");
+
+        authService.changePassword(
+                changePasswordRequest(CORRECT_PASSWORD, "NewPassword123!", "NewPassword123!"), EMAIL, true);
+
+        verify(jwtTokenProvider).generateToken(EMAIL, false, 6, true);
     }
 
     @Test
@@ -298,7 +309,7 @@ class AuthServiceTest {
 
         assertEquals(5, user.getTokenVersion());
         verify(userRepository, never()).save(any());
-        verify(jwtTokenProvider, never()).generateToken(anyString(), any(Boolean.class), any(Integer.class));
+        verify(jwtTokenProvider, never()).generateToken(anyString(), any(Boolean.class), any(Integer.class), any(Boolean.class));
     }
 
     @Test

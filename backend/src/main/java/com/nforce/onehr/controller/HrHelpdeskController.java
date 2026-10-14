@@ -23,12 +23,12 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/hr/helpdesk")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
 public class HrHelpdeskController {
 
     private final HelpdeskService helpdeskService;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('helpdesk:VIEW:ALL')")
     public Page<TicketSummaryDto> queue(
             // Accepts either a single status (?status=OPEN) or several (?status=OPEN&status=IN_PROGRESS,
             // or a comma-joined ?status=OPEN,IN_PROGRESS) — the "Active Queue" default filter needs
@@ -43,26 +43,31 @@ public class HrHelpdeskController {
     }
 
     @GetMapping("/dashboard")
+    @PreAuthorize("hasAuthority('helpdesk:VIEW:ALL')")
     public HelpdeskDashboardDto dashboard(Principal principal) {
         return helpdeskService.getDashboard(principal.getName());
     }
 
     @GetMapping("/agents")
+    @PreAuthorize("hasAuthority('helpdesk:VIEW:ALL')")
     public List<AssignableAgentDto> agents(Principal principal) {
         return helpdeskService.listAssignableAgents(principal.getName());
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('helpdesk:VIEW:ALL')")
     public TicketDetailDto getOne(@PathVariable UUID id, Principal principal) {
         return helpdeskService.getDetail(id, principal.getName());
     }
 
     @PostMapping("/{id}/start-working")
+    @PreAuthorize("hasAuthority('helpdesk:EDIT:ALL')")
     public TicketDetailDto startWorking(@PathVariable UUID id, Principal principal) {
         return helpdeskService.startWorking(id, principal.getName());
     }
 
     @PutMapping("/{id}/status")
+    @PreAuthorize("hasAuthority('helpdesk:EDIT:ALL')")
     public TicketDetailDto updateStatus(@PathVariable UUID id,
                                          @Valid @RequestBody UpdateTicketStatusRequest req,
                                          Principal principal) {
@@ -70,6 +75,7 @@ public class HrHelpdeskController {
     }
 
     @PutMapping("/{id}/assign")
+    @PreAuthorize("hasAuthority('helpdesk:EDIT:ALL')")
     public TicketDetailDto assign(@PathVariable UUID id,
                                    @Valid @RequestBody AssignTicketRequest req,
                                    Principal principal) {
@@ -77,6 +83,7 @@ public class HrHelpdeskController {
     }
 
     @PostMapping(value = "/{id}/reply", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAuthority('helpdesk:EDIT:ALL')")
     public ReplyDto reply(
             @PathVariable UUID id,
             @RequestParam String message,

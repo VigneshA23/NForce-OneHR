@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Plus, X, ShieldAlert } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
 import { KebabMenu } from '../components/KebabMenu';
+import { AccessDenied } from '../components/AccessDenied';
 import {
   workflowRulesApi, type ApprovalRule, type ApprovalRuleMetadata, type ApprovalRulePreview,
 } from '../api/workflowRules';
@@ -352,19 +354,9 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
   );
 }
 
-function AccessDenied() {
-  return (
-    <div style={{ ...card, padding: 40, textAlign: 'center' }}>
-      <ShieldAlert size={28} style={{ color: 'var(--txt-dim)', marginBottom: 10 }} />
-      <div style={{ fontSize: 15, color: 'var(--txt)', marginBottom: 6 }}>Super Admin access required</div>
-      <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Workflow Studio rules can only be viewed or changed by a Super Admin.</div>
-    </div>
-  );
-}
-
 export default function WorkflowStudioPage() {
   const token = useAuthStore(s => s.token)!;
-  const role = useAuthStore(s => s.user?.role);
+  const permissions = useAuthStore(s => s.permissions);
   const { showToast } = useToast();
   const [rules, setRules] = useState<ApprovalRule[]>([]);
   const [metadata, setMetadata] = useState<ApprovalRuleMetadata | null>(null);
@@ -374,9 +366,10 @@ export default function WorkflowStudioPage() {
   const [confirmTarget, setConfirmTarget] = useState<{ rule: ApprovalRule; action: 'activate' | 'deactivate' | 'delete' } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
-  // Defensive, matching backend enforcement — the nav item is already SUPER_ADMIN-only, but a
-  // direct URL visit by another role must not silently render live rule data.
-  const authorized = role === 'SUPER_ADMIN';
+  // Defensive, matching backend enforcement — Shell's own route-level check (see its
+  // deniedByPermission) already blocks a direct URL visit from reaching this component at all,
+  // but this stays as a second line of defense rather than relying solely on that.
+  const authorized = hasPermission(permissions, 'approval_rules', 'VIEW', 'ALL');
 
   function load() {
     setLoading(true);
