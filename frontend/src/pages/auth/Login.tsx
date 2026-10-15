@@ -174,7 +174,7 @@ export default function Login() {
     <div
       data-theme="dark"
       className="nf-login-root"
-      style={{ position: 'relative', minHeight: '100dvh', background: '#060608', overflow: 'hidden' }}
+      style={{ position: 'relative', minHeight: '100dvh', background: '#141416', overflow: 'hidden' }}
     >
       {/* Deployed OneHR visual (left ~65%): decorative artwork + real DOM text. Only its right
           edge eases into the page background so both areas read as one continuous screen. */}
