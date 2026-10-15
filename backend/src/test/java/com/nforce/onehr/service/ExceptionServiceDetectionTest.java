@@ -741,6 +741,7 @@ class ExceptionServiceDetectionTest {
     // ── Scheduler's date-range math (Section 19/45): never today, correct lookback window ──
     @Test
     void runScheduledPenaltyEvaluation_neverIncludesToday_usesConfiguredLookback() {
+        when(userRepository.findAllNonDeletedUserIds()).thenReturn(Set.of(employeeId));
         when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of());
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(any(), any(), any())).thenReturn(List.of());
 
@@ -759,8 +760,8 @@ class ExceptionServiceDetectionTest {
     }
 
     @Test
-    void runScheduledPenaltyEvaluation_noEmployeeRoleAccounts_isANoOp() {
-        lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of());
+    void runScheduledPenaltyEvaluation_noAccounts_isANoOp() {
+        lenient().when(userRepository.findAllNonDeletedUserIds()).thenReturn(Set.of());
 
         exceptionService.runScheduledPenaltyEvaluation(7);
 

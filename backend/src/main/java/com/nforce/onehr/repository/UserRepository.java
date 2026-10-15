@@ -83,4 +83,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             )
             """)
     Set<UUID> findEmployeeRoleUserIds();
+
+    // Every account regardless of role — the scope of the nightly attendance-exception emails,
+    // which (unlike the Exceptions dashboard and penalties) go to Managers/HR/Super Admins too.
+    @Query("SELECT u.id FROM User u WHERE u.deletedAt IS NULL")
+    Set<UUID> findAllNonDeletedUserIds();
 }
