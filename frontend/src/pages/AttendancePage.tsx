@@ -7414,7 +7414,7 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
             width, wrapping them onto separate lines where they used to sit side by side. Without
             grow, title only ever claims its basis (or less, via shrink, on very narrow screens),
             leaving all spare width for the buttons, matching the original layout's intent. */}
-        <div style={{ flex: '0 1 300px', maxWidth: 560, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <div style={{ flex: '0 1 520px', maxWidth: 640, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
           <div style={{
             width: 38, height: 38, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
             background: 'color-mix(in srgb, var(--brand) 14%, var(--raised))', border: '1px solid color-mix(in srgb, var(--brand) 26%, var(--line))',
