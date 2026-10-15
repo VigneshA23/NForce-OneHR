@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import DashTile from '../../components/DashTile';
 import { Users, Sparkles, Award, BookOpen, AlertTriangle } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -14,22 +15,16 @@ import { useEmployeeDetail } from './useEmployeeDetail';
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
 const PIE_PALETTE = ['#B11116', '#4C8DD6', '#2FB67C', '#E0A93B', '#8B5FBF', 'var(--raised2)'];
 
-function KpiCard({ icon, label, value, note, danger, onClick }: {
-  icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean; onClick?: () => void;
+// Same tile as the Home dashboard (components/DashTile). Clicking still opens the same employee drill-down.
+export function KpiCard({ icon, label, value, note, danger, accent, onClick }: {
+  icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean; accent?: string; onClick?: () => void;
 }) {
-  const Tag = onClick ? 'button' : 'div';
   return (
-    <Tag onClick={onClick} title={onClick ? 'Click to view employees' : undefined} style={{
-      background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px',
-      textAlign: 'left', font: 'inherit', width: '100%', cursor: onClick ? 'pointer' : 'default',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ color: 'var(--brand)' }}>{icon}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
-      </div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: danger ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      {note && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>}
-    </Tag>
+    <DashTile
+      icon={icon} label={label} value={String(value)} sub={note}
+      accent={danger ? 'var(--risk)' : (accent ?? 'var(--brand)')}
+      onClick={onClick} title={onClick ? 'Click to view employees' : undefined}
+    />
   );
 }
 
@@ -113,13 +108,13 @@ export function DashboardTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-        <KpiCard icon={<Users size={14} />} label="Total Employees" value={data.totalEmployees}
+        <KpiCard icon={<Users size={20} />} label="Total Employees" value={data.totalEmployees} accent="var(--info)"
           onClick={() => openDrill('All Employees', rows)} />
-        <KpiCard icon={<Sparkles size={14} />} label="With Skills Logged" value={data.withSkills} note={`of ${data.totalEmployees}`}
+        <KpiCard icon={<Sparkles size={20} />} label="With Skills Logged" value={data.withSkills} accent="var(--ok)" note={`of ${data.totalEmployees}`}
           onClick={() => openDrill('Employees With Skills Logged', rows.filter(r => r.skills.length > 0))} />
-        <KpiCard icon={<Award size={14} />} label="With Certificates" value={data.withCertificates} note={`of ${data.totalEmployees}`}
+        <KpiCard icon={<Award size={20} />} label="With Certificates" value={data.withCertificates} accent="var(--om-purple)" note={`of ${data.totalEmployees}`}
           onClick={() => openDrill('Employees With Certificates', rows.filter(r => r.certificates.length > 0))} />
-        <KpiCard icon={<AlertTriangle size={14} />} label="Certs Expiring (30d)" value={data.certificatesExpiringIn30Days} danger={data.certificatesExpiringIn30Days > 0}
+        <KpiCard icon={<AlertTriangle size={20} />} label="Certs Expiring (30d)" value={data.certificatesExpiringIn30Days} accent="var(--warn)" danger={data.certificatesExpiringIn30Days > 0}
           onClick={() => openDrill('Certificates Expiring in 30 Days', rows.filter(r => r.certificates.some(c => expiresWithin(c.expiryDate, 30))))} />
       </div>
 
@@ -210,11 +205,11 @@ export function DashboardTab() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }} className="nf-kpi-2x2-mobile">
-        <KpiCard icon={<AlertTriangle size={14} />} label="Expiring in 30 days" value={data.certificateExpiryBreakdown.in30Days} danger={data.certificateExpiryBreakdown.in30Days > 0}
+        <KpiCard icon={<AlertTriangle size={20} />} label="Expiring in 30 days" value={data.certificateExpiryBreakdown.in30Days} danger={data.certificateExpiryBreakdown.in30Days > 0}
           onClick={() => openDrill('Certificates Expiring in 30 Days', rows.filter(r => r.certificates.some(c => expiresWithin(c.expiryDate, 30))))} />
-        <KpiCard icon={<AlertTriangle size={14} />} label="Expiring in 60 days" value={data.certificateExpiryBreakdown.in60Days}
+        <KpiCard icon={<AlertTriangle size={20} />} label="Expiring in 60 days" value={data.certificateExpiryBreakdown.in60Days} accent="var(--warn)"
           onClick={() => openDrill('Certificates Expiring in 60 Days', rows.filter(r => r.certificates.some(c => expiresWithin(c.expiryDate, 60))))} />
-        <KpiCard icon={<AlertTriangle size={14} />} label="Expiring in 90 days" value={data.certificateExpiryBreakdown.in90Days}
+        <KpiCard icon={<AlertTriangle size={20} />} label="Expiring in 90 days" value={data.certificateExpiryBreakdown.in90Days} accent="var(--info)"
           onClick={() => openDrill('Certificates Expiring in 90 Days', rows.filter(r => r.certificates.some(c => expiresWithin(c.expiryDate, 90))))} />
       </div>
 

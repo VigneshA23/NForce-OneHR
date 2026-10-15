@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import DashTile from '../components/DashTile';
 import {
   CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Hourglass, Search,
   Sparkles, Wallet, X,
@@ -67,22 +68,12 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function KpiTile({ icon: Icon, label, value, sub, accent }: {
+// Same tile as the Home dashboard (components/DashTile); display only.
+export function KpiTile({ icon: Icon, label, value, sub, accent }: {
   icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
   label: string; value: string; sub?: string; accent: string;
 }) {
-  return (
-    <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
-        <div style={{ width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: `color-mix(in srgb, ${accent} 14%, var(--raised))` }}>
-          <Icon size={13} style={{ color: accent }} />
-        </div>
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{sub}</div>}
-    </div>
-  );
+  return <DashTile className="nf-section-enter" icon={<Icon size={20} />} label={label} value={value} sub={sub} accent={accent} />;
 }
 
 // Radial-progress balance card — draws an SVG circle via stroke-dasharray/offset, reusing the

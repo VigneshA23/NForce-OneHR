@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, AlertTriangle, Search, Eye, Paperclip } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Search, Eye, Paperclip, FileText, ShieldCheck, Hourglass, XCircle, FileX2 } from 'lucide-react';
+import DashTile from '../components/DashTile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { myPolicies, acknowledgePolicy, publishedAnnouncements, fetchPolicyAttachment, type Policy, type Announcement } from '../api/policies';
@@ -146,6 +147,19 @@ function PageSkeleton() {
 
 // ── Main Page ─────────────────────────────────────────────
 
+/** The five summary tiles: same tile as the Home dashboard (components/DashTile). Display only. */
+export function DocumentStatTiles({ required, verified, pending, rejected, missing }: { required: number; verified: number; pending: number; rejected: number; missing: number }) {
+  return (
+    <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px,1fr))', gap: 14, marginBottom: 24 }}>
+      <DashTile icon={<FileText size={20} />} accent="var(--info)" label="Required" value={String(required)} />
+      <DashTile icon={<ShieldCheck size={20} />} accent="var(--ok)" label="Verified" value={String(verified)} />
+      <DashTile icon={<Hourglass size={20} />} accent="var(--warn)" label="Pending Review" value={String(pending)} />
+      <DashTile icon={<XCircle size={20} />} accent="var(--risk)" label="Rejected" value={String(rejected)} />
+      <DashTile icon={<FileX2 size={20} />} accent="var(--om-purple)" label="Not Submitted" value={String(missing)} />
+    </div>
+  );
+}
+
 export default function DocumentsPage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
@@ -201,20 +215,7 @@ export default function DocumentsPage() {
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Manage your required documents and acknowledge company policies.</p>
 
       {/* KPI tiles */}
-      <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: 12, marginBottom: 24 }}>
-        {[
-          { label: 'Required', value: required.length, color: 'var(--txt)' },
-          { label: 'Verified', value: verified.length, color: '#22c55e' },
-          { label: 'Pending Review', value: pending.length, color: '#eab308' },
-          { label: 'Rejected', value: rejected.length, color: '#ef4444' },
-          { label: 'Not Submitted', value: missing.length, color: '#ef4444' },
-        ].map(k => (
-          <div key={k.label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-            <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: 'Inter, sans-serif' }}>{k.value}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
-          </div>
-        ))}
-      </div>
+      <DocumentStatTiles required={required.length} verified={verified.length} pending={pending.length} rejected={rejected.length} missing={missing.length} />
 
       {pendingPolicies.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(234,179,8,.12)', border: '1px solid rgba(234,179,8,.3)', borderRadius: 8, padding: '9px 14px', marginBottom: 18, fontSize: 13 }}>

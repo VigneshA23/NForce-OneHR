@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import DashTile from '../components/DashTile';
 import { useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Clock, Eye, History, Inbox, Info,
@@ -34,16 +35,12 @@ function StatusBadge({ status }: { status: TicketStatus }) {
   );
 }
 
-function Kpi({ icon, label, value, danger, tone }: { icon: React.ReactNode; label: string; value: number; danger?: boolean; tone: string }) {
-  return (
-    <div className="nf-rq-kpi">
-      <div className={`nf-rq-kpi-icon ${tone}`}>{icon}</div>
-      <div style={{ minWidth: 0 }}>
-        <div className="nf-rq-kpi-label">{label}</div>
-        <div className={`nf-rq-kpi-value${danger && value > 0 ? ' nf-rq-kpi-value--danger' : ''}`}>{value}</div>
-      </div>
-    </div>
-  );
+const KPI_ACCENT: Record<string, string> = {
+  'tone-brand': 'var(--brand)', 'tone-warn': 'var(--warn)', 'tone-indigo': 'var(--info)', 'tone-ok': 'var(--ok)', 'tone-mute': 'var(--txt-dim)',
+};
+// Same tile as the Home dashboard (components/DashTile); display only.
+export function Kpi({ icon, label, value, danger, tone }: { icon: React.ReactNode; label: string; value: number; danger?: boolean; tone: string }) {
+  return <DashTile icon={icon} label={label} value={String(value)} accent={danger && value > 0 ? 'var(--risk)' : (KPI_ACCENT[tone] ?? 'var(--brand)')} />;
 }
 
 /** Initials for the avatar chip — derived from the name already on the row, no photo fetch. */

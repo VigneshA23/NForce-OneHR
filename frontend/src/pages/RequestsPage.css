@@ -103,7 +103,7 @@
 /* ── Overview row: Request Overview (rings) + Next Request ── */
 .nf-rq-overview-row { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: stretch; }
 
-.nf-rq-ring-row { display: flex; gap: 28px; flex-wrap: wrap; }
+.nf-rq-ring-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
 .nf-rq-ring-item {
   display: flex;
   align-items: center;

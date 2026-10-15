@@ -10,6 +10,7 @@ import { useAuthStore } from '../store/authStore';
 import logoUrl from '../assets/nforce-logo.png';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar, getInitials, waitForAvatarPhotos } from '../components/EmployeeAvatar';
+import DashTile from '../components/DashTile';
 import './HierarchyPage.css';
 
 const PEER_MAX = 8;
@@ -373,24 +374,44 @@ function MoreButton({ count, onClick }: { count: number; onClick: () => void }) 
   );
 }
 
-/* ── Summary card ─────────────────────────────────────────────────────── */
-function StatCard({ icon, label, value, sub, accent }: {
-  icon: React.ReactNode;
-  label: string;
-  value: number | null;
-  sub: string;
-  accent: string;
-}) {
+/* ── Summary tiles ────────────────────────────────────────────────────── */
+// Same tile as the Home dashboard (components/DashTile): thick accent bar, colour fade, icon box on the
+// right, hover lift. Display only; the figures are passed in unchanged.
+export interface HierarchySummary {
+  total: number; active: number; inactive: number; namedDeptCount: number; unassigned: number; levels: number;
+}
+export function HierarchyStatTiles({ summary, topCount }: { summary: HierarchySummary | null; topCount: number | null }) {
+  const num = (v: number | null | undefined) => (v === null || v === undefined ? '–' : v.toLocaleString());
   return (
-    <div className="nf-hier-stat" style={{ '--stat-accent': accent } as React.CSSProperties}>
-      <div className="nf-hier-stat-icon">{icon}</div>
-      <div style={{ minWidth: 0 }}>
-        <div className="nf-hier-stat-label">{label}</div>
-        <div className="nf-hier-stat-value">
-          {value === null ? <span className="nf-hier-stat-skel" aria-label="Loading" /> : value.toLocaleString()}
-        </div>
-        <div className="nf-hier-stat-sub" title={sub}>{sub}</div>
-      </div>
+    <div className="nf-hier-stats">
+      <DashTile
+        icon={<Users size={20} />}
+        accent="var(--info)"
+        label="Total Employees"
+        value={num(summary?.total)}
+        sub={summary ? `${summary.active.toLocaleString()} active · ${summary.inactive.toLocaleString()} inactive` : 'Loading…'}
+      />
+      <DashTile
+        icon={<Building2 size={20} />}
+        accent="var(--om-purple)"
+        label="Departments"
+        value={num(summary?.namedDeptCount)}
+        sub={summary ? (summary.unassigned > 0 ? `${summary.unassigned} ${summary.unassigned === 1 ? 'person' : 'people'} without a department` : 'Every employee is assigned') : 'Loading…'}
+      />
+      <DashTile
+        icon={<Layers size={20} />}
+        accent="var(--ok)"
+        label="Hierarchy Levels"
+        value={num(summary?.levels)}
+        sub="Reporting levels, top to bottom"
+      />
+      <DashTile
+        icon={<Crown size={20} />}
+        accent="var(--warn)"
+        label="Top of Hierarchy"
+        value={num(topCount)}
+        sub="People with no reporting manager"
+      />
     </div>
   );
 }
@@ -876,37 +897,8 @@ export default function HierarchyPage() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="nf-hier-stats">
-        <StatCard
-          icon={<Users size={20} />}
-          accent="var(--info)"
-          label="Total Employees"
-          value={summary?.total ?? null}
-          sub={summary ? `${summary.active.toLocaleString()} active · ${summary.inactive.toLocaleString()} inactive` : 'Loading…'}
-        />
-        <StatCard
-          icon={<Building2 size={20} />}
-          accent="var(--om-purple)"
-          label="Departments"
-          value={summary?.namedDeptCount ?? null}
-          sub={summary ? (summary.unassigned > 0 ? `${summary.unassigned} ${summary.unassigned === 1 ? 'person' : 'people'} without a department` : 'Every employee is assigned') : 'Loading…'}
-        />
-        <StatCard
-          icon={<Layers size={20} />}
-          accent="var(--ok)"
-          label="Hierarchy Levels"
-          value={summary?.levels ?? null}
-          sub="Reporting levels, top to bottom"
-        />
-        <StatCard
-          icon={<Crown size={20} />}
-          accent="var(--warn)"
-          label="Top of Hierarchy"
-          value={rootsLoaded ? roots.length : null}
-          sub="People with no reporting manager"
-        />
-      </div>
+      {/* Summary tiles */}
+      <HierarchyStatTiles summary={summary} topCount={rootsLoaded ? roots.length : null} />
 
       <div className="nf-hier-body">
 

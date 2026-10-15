@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip } from 'lucide-react';
+import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip, FileCheck2 } from 'lucide-react';
+import DashTile from '../components/DashTile';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -551,6 +552,17 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
 
 // ── Main Page ─────────────────────────────────────────────
 
+/** The three summary tiles: same tile as the Home dashboard (components/DashTile). Display only. */
+export function PolicyStatTiles({ activePolicies, pendingAck, announcements }: { activePolicies: number; pendingAck: number; announcements: number }) {
+  return (
+    <div className="nf-policy-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }}>
+      <DashTile icon={<FileCheck2 size={20} />} accent="var(--ok)" label="Active Policies" value={String(activePolicies)} />
+      <DashTile icon={<Clock size={20} />} accent="var(--warn)" label="Pending Acknowledgments" value={String(pendingAck)} />
+      <DashTile icon={<Megaphone size={20} />} accent="var(--info)" label="Total Announcements" value={String(announcements)} />
+    </div>
+  );
+}
+
 export default function PoliciesPage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
@@ -706,18 +718,7 @@ export default function PoliciesPage() {
       </div>
 
       {/* KPI tiles */}
-      <div className="nf-policy-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
-        {[
-          { label: 'Active Policies', value: activePolicies, color: '#22c55e' },
-          { label: 'Pending Acknowledgments', value: pendingAckTotal, color: '#eab308' },
-          { label: 'Total Announcements', value: announcements.length, color: '#3b82f6' },
-        ].map(k => (
-          <div key={k.label} className="nf-policy-kpi-tile" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-            <div className="nf-policy-kpi-value" style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: 'Inter, sans-serif' }}>{k.value}</div>
-            <div className="nf-policy-kpi-label" style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
-          </div>
-        ))}
-      </div>
+      <PolicyStatTiles activePolicies={activePolicies} pendingAck={pendingAckTotal} announcements={announcements.length} />
 
       <TabBar
         ariaLabel="Policies and announcements"

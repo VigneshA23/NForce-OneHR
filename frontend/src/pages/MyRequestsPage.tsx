@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  CalendarDays, ClipboardList, ClockAlert, Eye, House, Hourglass, Inbox, Layers, Timer, X,
+  AlertCircle, CheckCircle2, CalendarDays, ClipboardList, ClockAlert, Eye, House, Hourglass, Inbox, Layers, Timer, X,
   Plus, ChevronDown, Search, ArrowRight, Send, Smile, type LucideIcon,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -202,25 +203,25 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
 
 export type StatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
-function StatRing({ value, total, pct, label, caption, tone, active, onClick }: {
+const RING_ACCENT: Record<string, string> = {
+  'tone-indigo': 'var(--info)', 'tone-warn': 'var(--warn)', 'tone-ok': 'var(--ok)', 'tone-risk': 'var(--risk)',
+};
+const RING_ICON: Record<string, React.ReactNode> = {
+  'tone-indigo': <ClipboardList size={20} />, 'tone-warn': <Hourglass size={20} />, 'tone-ok': <CheckCircle2 size={20} />, 'tone-risk': <AlertCircle size={20} />,
+};
+
+// Same tile as the Home dashboard (components/DashTile). Still a button: picking one filters the table below.
+export function StatRing({ value, total, pct, label, caption, tone, active, onClick }: {
   value: number; total: number; pct: number; label: string; caption: string; tone: string;
   active: boolean; onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={`nf-rq-ring-item ${tone}${active ? ' nf-rq-ring-item--active' : ''}`}
-      onClick={onClick}
+    <DashTile
+      icon={RING_ICON[tone] ?? <ClipboardList size={20} />} accent={RING_ACCENT[tone] ?? 'var(--brand)'}
+      label={label} value={String(value)} sub={`${caption} · ${pct}%`}
+      active={active} onClick={onClick}
       title={`${label}: ${value} of ${total} request${total !== 1 ? 's' : ''} (${pct}%)`}
-    >
-      <div className={`nf-rq-ring ${tone}`} style={{ '--pct': pct } as React.CSSProperties}>
-        <span className="nf-rq-ring-value">{value}</span>
-      </div>
-      <div>
-        <div className="nf-rq-ring-label">{label}</div>
-        <div className="nf-rq-ring-caption">{caption}</div>
-      </div>
-    </button>
+    />
   );
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
 import { Plus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, MoreVertical } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -57,6 +58,18 @@ function RoleBadge({ role }: { role: string }) {
 
 // Page-local, purely presentational restyle of the Active/Inactive pill (dot + rounded pill) —
 // same `active` input and same Active/Inactive wording as the shared EmployeeStatus.StatusBadge.
+/** The three summary tiles on the Access page: same tile as the Home dashboard (components/DashTile). Display only. */
+export function AccessStatTiles({ total, active, inactive, roleSummary }: { total: number; active: number; inactive: number; roleSummary: string }) {
+  const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+      <DashTile icon={<Users2 size={20} />} accent="var(--info)" label="Total Users" value={String(total)} sub={roleSummary} />
+      <DashTile icon={<ShieldCheck size={20} />} accent="var(--ok)" label="Active" value={String(active)} sub={`${pct(active)}% of total`} />
+      <DashTile icon={<UserX size={20} />} accent="var(--risk)" label="Inactive" value={String(inactive)} sub={`${pct(inactive)}% of total`} />
+    </div>
+  );
+}
+
 function StatusBadge({ active }: { active: boolean }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: active ? '#2FB67C' : '#E4373D', background: active ? 'rgba(47,182,124,.1)' : 'rgba(228,55,61,.1)', borderRadius: 20, padding: '3px 10px', whiteSpace: 'nowrap' }}>
@@ -1253,15 +1266,6 @@ export default function UserManagementPage() {
 
   const ROLE_LABEL: Record<string, string> = { EMPLOYEE: 'Employee', MANAGER: 'Manager', HR_ADMIN: 'HR Admin', SUPER_ADMIN: 'Super Admin' };
 
-  const kpiCardStyle: React.CSSProperties = {
-    background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14,
-    padding: '18px 20px', flex: '1 1 220px', boxShadow: '0 1px 2px rgba(0,0,0,.04)',
-    display: 'flex', flexDirection: 'column', gap: 12,
-  };
-  const kpiIconStyle = (bg: string, fg: string): React.CSSProperties => ({
-    width: 40, height: 40, borderRadius: 11, background: bg, color: fg, display: 'grid', placeItems: 'center', flexShrink: 0,
-  });
-
   return (
     <div>
       {/* Header */}
@@ -1287,33 +1291,8 @@ export default function UserManagementPage() {
 
       {/* Stats tiles */}
       {!loading && (
-        <div style={{ display: 'flex', gap: 14, marginBottom: 20, flexWrap: 'wrap' }}>
-          <div style={kpiCardStyle}>
-            <div style={kpiIconStyle('rgba(155,161,172,.14)', 'var(--txt-mut)')}><Users2 size={18} /></div>
-            <div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{total}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', fontWeight: 600, marginTop: 6 }}>Total Users</div>
-            </div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>
-              {Object.entries(roleCounts).map(([r, c]) => `${c} ${ROLE_LABEL[r] ?? r}`).join(' · ')}
-            </div>
-          </div>
-          <div style={kpiCardStyle}>
-            <div style={kpiIconStyle('rgba(47,182,124,.14)', '#2FB67C')}><ShieldCheck size={18} /></div>
-            <div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: '#2FB67C', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{active}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', fontWeight: 600, marginTop: 6 }}>Active</div>
-            </div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>{total > 0 ? Math.round((active / total) * 100) : 0}% of total</div>
-          </div>
-          <div style={kpiCardStyle}>
-            <div style={kpiIconStyle('rgba(228,55,61,.12)', '#E4373D')}><UserX size={18} /></div>
-            <div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: '#E4373D', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{inactive}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', fontWeight: 600, marginTop: 6 }}>Inactive</div>
-            </div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>{total > 0 ? Math.round((inactive / total) * 100) : 0}% of total</div>
-          </div>
+        <div style={{ marginBottom: 20 }}>
+          <AccessStatTiles total={total} active={active} inactive={inactive} roleSummary={Object.entries(roleCounts).map(([r, c]) => `${c} ${ROLE_LABEL[r] ?? r}`).join(' · ')} />
         </div>
       )}
 
