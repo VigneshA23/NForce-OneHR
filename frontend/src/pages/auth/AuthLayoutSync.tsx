@@ -84,9 +84,7 @@ export function SyncLoginPanel({ children }: SyncLoginPanelProps) {
         style={{
           position: 'relative', zIndex: 1,
           width: '100%', maxWidth: 'calc(420 * var(--u))',
-          // Same near-black as the artwork panel on the left (#02080F–#04090F); the e-mail / password fields keep
-          // their own darker fill + gradient border, which are styled separately below.
-          background: 'linear-gradient(160deg, #04090F 0%, #02070D 100%)',
+          background: 'rgba(255,255,255,0.045)',
           border: '1px solid rgba(232,72,84,0.42)',
           borderRadius: 'calc(20 * var(--u))',
           padding: 'calc(40 * var(--u)) calc(36 * var(--u))',
@@ -172,7 +170,7 @@ export function SyncLoginPanel({ children }: SyncLoginPanelProps) {
           opacity: 0.55;
           cursor: not-allowed;
         }
-        /* Email + password fields stay BLACK in every state - empty, focused, typing, typed, autofilled.
+        /* Email + password fields stay BLACK in every state — empty, focused, typing, typed, autofilled.
            Autofilled fields keep white text on the same black field (never the browser's light autofill colour). */
         .nfs-input-inner:-webkit-autofill,
         .nfs-input-inner:-webkit-autofill:hover,

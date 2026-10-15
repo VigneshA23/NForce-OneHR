@@ -7,6 +7,7 @@ import { useAuthStore } from '../../store/authStore';
 import { consumeSessionMessage } from '../../lib/authFetch';
 import { SyncLoginPanel } from './AuthLayoutSync';
 import { LoginArtwork } from './LoginArtwork';
+import nf1Logo from '../../assets/nforce-logo.png';
 
 // Persists only the lock expiry the server already returned, so a page refresh keeps
 // showing the locked state without sending another login request. Not a client-side
@@ -195,9 +196,14 @@ export default function Login() {
         animate={reduced ? undefined : 'show'}
       >
         {/* Header */}
-        <motion.div variants={reduced ? undefined : itemVariants} style={{ marginTop: u(-12), marginBottom: u(32), position: 'relative' }}>
-          {/* The NF1 logo badge (and the spacer that reserved room for it) was removed; the brand now lives in
-              the top-left of the artwork panel. */}
+        <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: u(32), position: 'relative' }}>
+          {/* NF1 logo (existing nforce-logo.png asset) replaces the old red accent line. It is absolutely
+              positioned, so it takes no space in the card's flow: the 22px spacer below is exactly the old
+              line's height (2px line + 20px gap), which keeps the card height and all spacing unchanged. */}
+          <span role="img" aria-label="NForce One logo" style={logoBadgeStyle}>
+            <img src={nf1Logo} alt="" aria-hidden="true" width={60} height={60} style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
+          </span>
+          <div aria-hidden="true" style={{ height: u(22) }} />
           <h1 style={headingStyle}>Welcome back</h1>
           <p style={{ fontSize: u(13), color: 'rgba(255,255,255,0.42)', lineHeight: 1.58, margin: 0 }}>
             Sign in to manage your workforce
@@ -211,7 +217,7 @@ export default function Login() {
             type="button"
             disabled
             title="Microsoft SSO arrives in a later phase, once Azure AD coordination is ready"
-            aria-label="Microsoft SSO (coming soon)"
+            aria-label="Microsoft SSO — coming soon"
             style={{
               ...ssoButtonStyle,
               opacity: 0.75,
@@ -429,6 +435,22 @@ const containerVariants = {
 const itemVariants = {
   hidden: { opacity: 0, y: 10 },
   show:   { opacity: 1, y: 0, transition: { duration: 0.28, ease: [0.23, 1, 0.32, 1] as const } },
+};
+
+const logoBadgeStyle: React.CSSProperties = {
+  // Absolutely positioned in the header slot (takes no flow space), horizontally centred above the heading.
+  position: 'absolute',
+  top: u(-36),
+  left: '50%',
+  marginLeft: u(-30),
+  display: 'block',
+  width: u(60),
+  height: u(60),
+  borderRadius: '50%',
+  overflow: 'hidden',
+  flexShrink: 0,
+  border: '1px solid rgba(255,255,255,0.16)',
+  boxShadow: '0 0 16px rgba(228,55,61,0.30)',
 };
 
 const headingStyle: React.CSSProperties = {
