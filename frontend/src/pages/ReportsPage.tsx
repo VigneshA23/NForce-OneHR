@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import DashTile from '../components/DashTile';
 import { Users, CalendarCheck, Clock, Download, ShieldAlert } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -169,17 +170,9 @@ function exportDashboardToExcel(opts: {
 
 // ── Small presentational bits ───────────────────────────────
 
-function KpiCard({ icon, label, value, note, danger }: { icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean }) {
-  return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ color: 'var(--brand)' }}>{icon}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
-      </div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: danger ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      {note && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>}
-    </div>
-  );
+// Same tile as the Home dashboard (components/DashTile); display only.
+export function KpiCard({ icon, label, value, note, danger, accent }: { icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean; accent?: string }) {
+  return <DashTile icon={icon} label={label} value={String(value)} sub={note} accent={danger ? 'var(--risk)' : (accent ?? 'var(--brand)')} />;
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -344,10 +337,10 @@ export default function ReportsPage() {
         <>
           {/* KPI cards */}
           <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-            <KpiCard icon={<Users size={14} />} label={isHr ? 'Total Headcount' : 'Direct Reports'} value={headcountSummary.total} note={`${headcountSummary.active} active · ${headcountSummary.inactive} inactive`} />
-            <KpiCard icon={<CalendarCheck size={14} />} label="Present Today" value={attendanceSummary.present} note={`of ${headcountSummary.total} for ${attendanceDate}`} />
-            <KpiCard icon={<Clock size={14} />} label="Late / Absent" value={`${attendanceSummary.late} / ${attendanceSummary.absent}`} note="on the selected date" danger={attendanceSummary.absent > 0} />
-            <KpiCard icon={<CalendarCheck size={14} />} label="Leave (period)" value={leaveSummary.approvedCount} note={`${leaveSummary.totalDaysApproved}d approved · ${leaveSummary.pendingCount} pending`} />
+            <KpiCard icon={<Users size={20} />} label={isHr ? 'Total Headcount' : 'Direct Reports'} value={headcountSummary.total} accent="var(--info)" note={`${headcountSummary.active} active · ${headcountSummary.inactive} inactive`} />
+            <KpiCard icon={<CalendarCheck size={20} />} label="Present Today" value={attendanceSummary.present} accent="var(--ok)" note={`of ${headcountSummary.total} for ${attendanceDate}`} />
+            <KpiCard icon={<Clock size={20} />} label="Late / Absent" value={`${attendanceSummary.late} / ${attendanceSummary.absent}`} accent="var(--warn)" note="on the selected date" danger={attendanceSummary.absent > 0} />
+            <KpiCard icon={<CalendarCheck size={20} />} label="Leave (period)" value={leaveSummary.approvedCount} accent="var(--om-purple)" note={`${leaveSummary.totalDaysApproved}d approved · ${leaveSummary.pendingCount} pending`} />
           </div>
 
           {/* Charts */}

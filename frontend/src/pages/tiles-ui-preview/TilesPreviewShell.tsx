@@ -5,7 +5,7 @@
  *  The summary tiles of each module page, rendered by that page's own tile component (the same ones the
  *  live pages use) with invented numbers; no login, session or API.
  *
- *    /tiles-ui-preview?page=performance|access|leave|requests|my-requests|assets|policies|documents
+ *    /tiles-ui-preview?page=performance|access|leave|requests|my-requests|assets|policies|documents|audit|reports|api-usage
  *  Assets shows the Employee, Manager and HR Admin rows. The "Theme" swatches use the app's real
  *  accent-color setting.
  * ============================================================================
@@ -13,7 +13,7 @@
 import { useSearchParams } from 'react-router-dom';
 import {
   Users, Sparkles, Award, AlertTriangle, Wallet, CheckCircle2, Hourglass, CalendarClock,
-  Inbox, CircleDot, Clock, Lock,
+  Inbox, CircleDot, Clock, Lock, MessageSquareText, Zap, Activity, Gauge, CalendarCheck,
 } from 'lucide-react';
 import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/accentColor';
 import { KpiCard } from '../talent/DashboardTab';
@@ -24,6 +24,9 @@ import { StatRing } from '../MyRequestsPage';
 import { Tile } from '../assets/shared';
 import { PolicyStatTiles } from '../PoliciesPage';
 import { DocumentStatTiles } from '../DocumentsPage';
+import { AuditStatCards } from '../../components/audit/AuditStatCards';
+import { KpiCard as ReportKpi } from '../ReportsPage';
+import { KpiCard as ApiKpi } from '../ApiUsagePage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
   { key: 'performance', label: 'Performance', title: 'Performance', subtitle: 'Org-wide skills, certificates, and learning - dashboard, search, and directory.' },
@@ -33,6 +36,9 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'my-requests', label: 'Requests (Employee)', title: 'My Requests', subtitle: 'Track your requests at a glance - click a stat to filter.' },
   { key: 'assets', label: 'Assets & Expenses', title: 'Assets & Expense Management', subtitle: 'Assigned assets, expense claims and asset requests.' },
   { key: 'policies', label: 'Policies', title: 'Policies & Announcements', subtitle: 'Publish policies and company announcements.' },
+  { key: 'audit', label: 'Audit', title: 'Audit & Security', subtitle: 'Your administrative activity history.' },
+  { key: 'reports', label: 'Reports', title: 'Reports & Analytics', subtitle: 'Headcount, attendance and leave summaries.' },
+  { key: 'api-usage', label: 'API Usage', title: 'API Usage', subtitle: 'Assistant request volume, tokens and latency.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -116,6 +122,45 @@ function Tiles({ page }: { page: string }) {
             <Tile label="Pending Asset Fulfillment" value={5} clickable onClick={noop} />
           </div>
         </>
+      );
+    case 'audit': {
+      const stats = { totalCount: 1284, todayCount: 17, byGroup: { EMPLOYEE: 402, LEAVE: 318, ATTENDANCE: 291, ASSET: 96, EXPENSE: 77, ACCESS: 100 } };
+      return (
+        <>
+          <div style={rowTitle}>HR Admin (6 tiles)</div>
+          <AuditStatCards stats={stats} showAccess={false} />
+          <div style={rowTitle}>Super Admin (7 tiles)</div>
+          <AuditStatCards stats={stats} showAccess />
+        </>
+      );
+    }
+    case 'reports':
+      return (
+        <>
+          <div style={rowTitle}>HR Admin</div>
+          <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+            <ReportKpi icon={<Users size={20} />} label="Total Headcount" value={262} note="249 active · 13 inactive" accent="var(--info)" />
+            <ReportKpi icon={<CalendarCheck size={20} />} label="Present Today" value={203} note="of 262 for 2026-10-16" accent="var(--ok)" />
+            <ReportKpi icon={<Clock size={20} />} label="Late / Absent" value="12 / 5" note="on the selected date" danger accent="var(--warn)" />
+            <ReportKpi icon={<CalendarCheck size={20} />} label="Leave (period)" value={31} note="96d approved · 4 pending" accent="var(--om-purple)" />
+          </div>
+          <div style={rowTitle}>Manager</div>
+          <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+            <ReportKpi icon={<Users size={20} />} label="Direct Reports" value={6} note="6 active · 0 inactive" accent="var(--info)" />
+            <ReportKpi icon={<CalendarCheck size={20} />} label="Present Today" value={5} note="of 6 for 2026-10-16" accent="var(--ok)" />
+            <ReportKpi icon={<Clock size={20} />} label="Late / Absent" value="1 / 0" note="on the selected date" accent="var(--warn)" />
+            <ReportKpi icon={<CalendarCheck size={20} />} label="Leave (period)" value={3} note="7d approved · 1 pending" accent="var(--om-purple)" />
+          </div>
+        </>
+      );
+    case 'api-usage':
+      return (
+        <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+          <ApiKpi icon={<MessageSquareText size={20} />} iconColor="var(--info)" label="Total Requests" value="18,420" note="9,310 questions asked" />
+          <ApiKpi icon={<Zap size={20} />} iconColor="var(--brand-bright)" label="Total Tokens" value="4,118,902" note="3.2M prompt · 0.8M completion · 0.1M embedding" />
+          <ApiKpi icon={<Activity size={20} />} iconColor="var(--ok)" label="Success Rate" value="97.8%" note="204 failed questions" />
+          <ApiKpi icon={<Gauge size={20} />} iconColor="var(--warn)" label="Avg Latency" value="1240ms" note="per completed request" />
+        </div>
       );
     case 'policies':
       return <PolicyStatTiles activePolicies={14} pendingAck={37} announcements={9} />;

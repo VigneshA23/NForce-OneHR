@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import DashTile from '../components/DashTile';
 import {
   Activity, ExternalLink, Gauge, MessageSquareText, RefreshCw, Settings2, ShieldAlert, Zap,
 } from 'lucide-react';
@@ -60,17 +61,9 @@ function formatNumber(n: number): string { return numberFormatter.format(n); }
 /** "1.2M" / "45K", short form for chart axis ticks where full grouped numbers would clip. */
 function formatCompact(n: number): string { return compactNumberFormatter.format(n); }
 
-function KpiCard({ icon, iconColor, label, value, note, danger }: { icon: React.ReactNode; iconColor: string; label: string; value: string | number; note?: string; danger?: boolean }) {
-  return (
-    <div style={{ ...card, padding: '16px 18px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: iconColor }}>
-        {icon}
-        <span style={miniLabel}>{label}</span>
-      </div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: danger ? COLOR_ERROR : 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      {note && <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>}
-    </div>
-  );
+// Same tile as the Home dashboard (components/DashTile); display only.
+export function KpiCard({ icon, iconColor, label, value, note, danger }: { icon: React.ReactNode; iconColor: string; label: string; value: string | number; note?: string; danger?: boolean }) {
+  return <DashTile icon={icon} label={label} value={String(value)} sub={note} accent={danger ? COLOR_ERROR : iconColor} />;
 }
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -500,10 +493,10 @@ export default function ApiUsagePage() {
         <>
           {/* KPI cards */}
           <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-            <KpiCard icon={<MessageSquareText size={14} />} iconColor="var(--info)" label="Total Requests" value={formatNumber(stats.totalRequests)} note={`${formatNumber(stats.totalTurns)} question${stats.totalTurns === 1 ? '' : 's'} asked`} />
-            <KpiCard icon={<Zap size={14} />} iconColor="var(--brand-bright)" label="Total Tokens" value={formatNumber(stats.totalTokens)} note={`${formatCompact(stats.totalPromptTokens)} prompt · ${formatCompact(stats.totalCompletionTokens)} completion · ${formatCompact(stats.totalEmbeddingTokens)} embedding`} />
-            <KpiCard icon={<Activity size={14} />} iconColor="var(--ok)" label="Success Rate" value={successRate} note={`${stats.errorCount} failed question${stats.errorCount === 1 ? '' : 's'}`} danger={stats.totalTurns > 0 && stats.errorCount / stats.totalTurns > 0.1} />
-            <KpiCard icon={<Gauge size={14} />} iconColor="var(--warn)" label="Avg Latency" value={`${Math.round(stats.avgLatencyMs)}ms`} note="per completed request" />
+            <KpiCard icon={<MessageSquareText size={20} />} iconColor="var(--info)" label="Total Requests" value={formatNumber(stats.totalRequests)} note={`${formatNumber(stats.totalTurns)} question${stats.totalTurns === 1 ? '' : 's'} asked`} />
+            <KpiCard icon={<Zap size={20} />} iconColor="var(--brand-bright)" label="Total Tokens" value={formatNumber(stats.totalTokens)} note={`${formatCompact(stats.totalPromptTokens)} prompt · ${formatCompact(stats.totalCompletionTokens)} completion · ${formatCompact(stats.totalEmbeddingTokens)} embedding`} />
+            <KpiCard icon={<Activity size={20} />} iconColor="var(--ok)" label="Success Rate" value={successRate} note={`${stats.errorCount} failed question${stats.errorCount === 1 ? '' : 's'}`} danger={stats.totalTurns > 0 && stats.errorCount / stats.totalTurns > 0.1} />
+            <KpiCard icon={<Gauge size={20} />} iconColor="var(--warn)" label="Avg Latency" value={`${Math.round(stats.avgLatencyMs)}ms`} note="per completed request" />
           </div>
 
           {/* Charts */}
