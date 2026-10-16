@@ -1606,9 +1606,9 @@ select, input, textarea, button { touch-action: manipulation; }
 .nf-breathe-wrap { flex: 1 1 0; min-height: 0; position: relative; container-type: size; }
 .nf-breathe-art {
   position: absolute; inset: 0; overflow: hidden; isolation: isolate;
-  display: grid; place-items: center; --orb: clamp(58px, 38cqh, 112px);
+  display: grid; place-items: center; --orb: clamp(40px, 38cqh, 112px);
 }
-@container (max-height: 110px) { .nf-breathe-art { display: none; } }
+@container (max-height: 80px) { .nf-breathe-art { display: none; } }
 .nf-breathe-glow, .nf-breathe-ring, .nf-breathe-orb { grid-area: 1 / 1; border-radius: 50%; transform-origin: center; }
 .nf-breathe-glow {
   width: calc(var(--orb) * 2.1); height: calc(var(--orb) * 2.1); z-index: -1;

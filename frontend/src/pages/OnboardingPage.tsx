@@ -232,12 +232,14 @@ function EmployeeDocumentsDrawer({ employeeUserId, employeeName, onClose }: { em
               </div>
               <DocStatusBadge status={d.status} />
               <button
+                type="button"
+                className="nf-row-view"
                 onClick={() => open(d.id)}
                 disabled={opening === d.id}
                 title="View"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--info)', display: 'flex', flexShrink: 0, padding: 4 }}
+                style={{ flexShrink: 0, opacity: opening === d.id ? 0.6 : 1 }}
               >
-                <Eye size={15} />
+                <Eye size={13} /> View
               </button>
             </div>
           ))

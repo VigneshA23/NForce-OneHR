@@ -662,12 +662,12 @@ export default function HelpDeskAdminPage() {
                       {/* Same action as clicking the row — opens the read-only preview. */}
                       <button
                         type="button"
-                        className="nf-rq-row-btn"
+                        className="nf-row-view"
                         aria-label={`View ticket ${t.ticketNumber}`}
                         title="View ticket"
                         onClick={e => { e.stopPropagation(); setPreviewId(t.id); }}
                       >
-                        <Eye size={16} />
+                        <Eye size={13} /> View
                       </button>
                     </td>
                   </tr>

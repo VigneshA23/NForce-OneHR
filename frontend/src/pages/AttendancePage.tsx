@@ -5175,7 +5175,13 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
             />
           </div>
 
-          <div ref={dayDetailsRef} style={{ ...panelStyle, scrollMarginTop: 16, padding: '16px 18px', flex: '1 1 240px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <div ref={dayDetailsRef} style={{
+            // One tile for the whole panel: rounded, outlined, with a soft fade into the theme colour (no side bar).
+            background: 'linear-gradient(135deg, var(--panel) 0%, var(--panel) 35%, color-mix(in srgb, var(--brand) 14%, var(--panel)) 100%)',
+            border: '1px solid color-mix(in srgb, var(--brand) 24%, var(--line))', borderRadius: 18,
+            boxShadow: '0 6px 18px -10px color-mix(in srgb, var(--brand) 55%, transparent)',
+            scrollMarginTop: 16, padding: '16px 18px', flex: '1 1 240px', minWidth: 0, display: 'flex', flexDirection: 'column',
+          }}>
             {!selectedInfo ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 8, padding: '20px 0', color: 'var(--txt-dim)' }}>
                 <CalendarDays size={22} />
@@ -5397,12 +5403,13 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                             </>)}
                             <td style={tdStyle}>
                               <button
+                                type="button"
+                                className="nf-row-view"
                                 onClick={() => setViewDetailsIso(info.iso)}
                                 title="View details"
                                 aria-label={`View full attendance details for ${dayLabel}`}
-                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 8px', fontSize: 10.5, color: 'var(--txt)', cursor: 'pointer', fontWeight: 600 }}
                               >
-                                <Eye size={11} />
+                                <Eye size={13} /> View
                               </button>
                             </td>
                           </tr>
@@ -7352,6 +7359,11 @@ function DayRoster({ scope, isPreview = false }: { scope: 'team' | 'all'; isPrev
           ))}
           {(statusCounts.get('NONE') ?? 0) > 0 && <option value="NONE">Not marked ({statusCounts.get('NONE')})</option>}
         </select>
+        {statusFilter !== 'ALL' && (
+          <button type="button" className="nf-row-view" onClick={() => setStatusFilter('ALL')} aria-label="Clear status filter" title="Clear status filter">
+            <X size={13} /> Clear
+          </button>
+        )}
       </div>
       <RosterTable
         rows={visibleRows}
