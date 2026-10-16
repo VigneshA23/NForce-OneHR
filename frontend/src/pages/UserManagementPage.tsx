@@ -1409,6 +1409,10 @@ export default function UserManagementPage() {
         )}
       </div>
 
+      {/* Rendered at the top level of the document (not inside the animated page content): a fixed overlay nested in a
+          transformed ancestor is positioned against that ancestor, not the window, which pushed these dialogs under
+          the sticky top bar. Same approach DetailDrawer uses on the Attendance page. */}
+      {createPortal(<>
       {showAdd && <AddModal token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
       {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => {
         setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
@@ -1432,6 +1436,7 @@ export default function UserManagementPage() {
         setUsers(prev => prev.filter(u => u.userId !== userId));
         setOrgOptions(o => ({ ...o, managers: o.managers.filter(m => m.userId !== userId) }));
       }} />}
+      </>, document.body)}
     </div>
   );
 }
