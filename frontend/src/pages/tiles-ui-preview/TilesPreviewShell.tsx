@@ -5,7 +5,7 @@
  *  The summary tiles of each module page, rendered by that page's own tile component (the same ones the
  *  live pages use) with invented numbers; no login, session or API.
  *
- *    /tiles-ui-preview?page=people (employee name cell) | headers (page title icons) | performance|access|leave|requests|my-requests|assets|policies|documents|audit|reports|api-usage
+ *    /tiles-ui-preview?page=masters (Org Masters header) | people (employee name cell) | headers (page title icons) | performance|access|leave|requests|my-requests|assets|policies|documents|audit|reports|api-usage
  *  Assets shows the Employee, Manager and HR Admin rows. The "Theme" swatches use the app's real
  *  accent-color setting.
  * ============================================================================
@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import PageTitleBlock from '../../components/PageTitleBlock';
 import { PersonCell } from '../../components/PersonCell';
+import { TabBar } from '../../components/TabBar';
+import { useState } from 'react';
 import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/accentColor';
 import { KpiCard } from '../talent/DashboardTab';
 import { KpiTile } from '../LeavePage';
@@ -35,6 +37,7 @@ import { KpiCard as ReportKpi } from '../ReportsPage';
 import { KpiCard as ApiKpi } from '../ApiUsagePage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
+  { key: 'masters', label: 'Org Masters', title: 'Organization Masters header', subtitle: 'The search and Add controls now sit in the page header, above the tabs.' },
   { key: 'people', label: 'People cell', title: 'Employee name cell', subtitle: 'User Management, Employee Master and People Directory now show an employee the same way: photo when they have one, name, then Employee ID.' },
   { key: 'headers', label: 'Page title icons', title: 'Page title icons', subtitle: 'Every module page opens with the same icon box beside its title.' },
   { key: 'performance', label: 'Performance', title: 'Performance', subtitle: 'Org-wide skills, certificates, and learning - dashboard, search, and directory.' },
@@ -98,8 +101,49 @@ const grid = (min: number): React.CSSProperties => ({ display: 'grid', gridTempl
 const rowTitle: React.CSSProperties = { fontSize: 11, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--txt-dim)', margin: '6px 0 -4px' };
 const noop = () => {};
 
+function MastersMock() {
+  const [tab, setTab] = useState('departments');
+  const [q, setQ] = useState('');
+  const TABS = [{ key: 'bu', label: 'Business Units' }, { key: 'departments', label: 'Departments' }, { key: 'designations', label: 'Designations' }, { key: 'locations', label: 'Locations' }];
+  const label = TABS.find((t) => t.key === tab)?.label ?? '';
+  const addLabel = 'Add ' + (label === 'Business Units' ? 'Business Unit' : label.replace(/s$/, ''));
+  const rows = ['Engineering', 'Finance', 'Quality Engineering', 'Sales Operations'].filter((r) => r.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={Building2}>
+          <h1 style={{ margin: 0, marginBottom: 4 }}>Organization Masters</h1>
+          <p style={{ margin: 0 }}>Configure global master data that all modules and roles reference.</p>
+        </PageTitleBlock>
+        <div className="nf-org-toolbar-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${label.toLowerCase()}…`} aria-label={`Search ${label}`}
+            style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 10px', fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196 }} />
+          <button style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            + {addLabel}
+          </button>
+        </div>
+      </div>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ borderBottom: '1px solid var(--line)' }}>
+          <TabBar ariaLabel="Organization sections" style={{ padding: '0 4px', boxShadow: 'none' }} tabs={TABS} active={tab} onChange={setTab} />
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>{['Name', 'Employees', 'Status'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r}><td style={{ ...td, color: 'var(--txt)', fontWeight: 600 }}>{r}</td><td style={td}>{[18, 3, 13, 1][i] ?? 0}</td><td style={td}>Active</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
+    case 'masters':
+      return <MastersMock />;
     case 'people':
       return (
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, overflowX: 'auto' }}>

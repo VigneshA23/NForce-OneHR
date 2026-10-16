@@ -1475,7 +1475,8 @@ export default function OrgSetupPage() {
   // only line of defense.
   const canManageShifts = hasPermission(permissions, 'organization_shifts', 'EDIT', 'ALL');
 
-  const [activeTab, setActiveTab] = useState<OrgTab>('departments');
+  // Opens on the first tab (Business Units), same order as the tab bar.
+  const [activeTab, setActiveTab] = useState<OrgTab>('businessunits');
   const [penalizationSubTab, setPenalizationSubTab] = useState<'policy' | 'allocation'>('policy');
   // Set when the Policy List's employee-count link is clicked — consumed once by
   // PenalizationPolicyAllocationSection to pre-select its Penalization Policy filter, then cleared
@@ -1834,12 +1835,68 @@ export default function OrgSetupPage() {
         />
       )}
 
-      <PageTitleBlock icon={Building2}>
-        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
-          {copy.title}
-        </h1>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
-      </PageTitleBlock>
+      {/* Header: title on the left, the active tab's search + add controls on the right (above the tabs). */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={Building2}>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
+            {copy.title}
+          </h1>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
+        </PageTitleBlock>
+        {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
+          && activeTab !== 'ai-assistant' && (
+          // Right of the page title, above the tabs.
+          <div className="nf-org-toolbar-actions" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+            flexWrap: 'wrap',
+          }}>
+            <div className="nf-org-search-wrap" style={{ position: 'relative' }}>
+              <Search size={12} aria-hidden="true" style={{
+                position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                color: 'var(--txt-dim)', pointerEvents: 'none',
+              }} />
+              <input
+                className="nf-org-search-input"
+                type="search" value={search} onChange={e => setSearch(e.target.value)}
+                placeholder={`Search ${tab.label.toLowerCase()}…`}
+                aria-label={`Search ${tab.label}`}
+                style={{
+                  background: 'var(--raised)', border: '1px solid var(--line2)',
+                  borderRadius: 6, padding: '5px 10px 5px 26px',
+                  fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196,
+                }}
+              />
+            </div>
+            <button onClick={openAdd} aria-label={tab.addLabel} style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+              background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+              <Plus size={13} aria-hidden="true" />
+              {tab.addLabel}
+            </button>
+          </div>
+        )}
+        {/* Add Shift stays the primary top-right action (matching the approved reference), but
+            only while the Shifts sub-tab itself is active — Weekly Offs/Shift and Weekly Off
+            Rules manage their own add actions internally (see their own sections below). No
+            shared search box here: the master-detail layout has its own, in the left panel. */}
+        {activeTab === 'shiftweeklyoff' && shiftWeeklyOffSubTab === 'shifts' && canManageShifts && (
+          <div className="nf-org-toolbar-actions" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+            flexWrap: 'wrap',
+          }}>
+            <button onClick={openAdd} aria-label="Add Shift" style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+              background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+              <Plus size={13} aria-hidden="true" />
+              Add Shift
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Scoped to the tabs that actually consume fetchAll()'s data — Penalization Policy (and
           its Allocation sub-tab) fetch their own Business Unit/Department/Location/Policy
@@ -1891,61 +1948,6 @@ export default function OrgSetupPage() {
             />
             <div aria-hidden="true" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 28, pointerEvents: 'none', background: 'linear-gradient(to right, transparent, var(--panel))' }} />
           </div>
-          {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
-            && activeTab !== 'ai-assistant' && (
-            // Its own row directly under the tabs, right-aligned, with a divider + vertical
-            // breathing room so it reads as a clearly separate toolbar strip rather than
-            // crowding — or at some widths visually overlapping — the section tabs above it.
-            <div className="nf-org-toolbar-actions" style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
-              padding: '10px 12px', borderTop: '1px solid var(--line)',
-            }}>
-              <div className="nf-org-search-wrap" style={{ position: 'relative' }}>
-                <Search size={12} aria-hidden="true" style={{
-                  position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
-                  color: 'var(--txt-dim)', pointerEvents: 'none',
-                }} />
-                <input
-                  className="nf-org-search-input"
-                  type="search" value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder={`Search ${tab.label.toLowerCase()}…`}
-                  aria-label={`Search ${tab.label}`}
-                  style={{
-                    background: 'var(--raised)', border: '1px solid var(--line2)',
-                    borderRadius: 6, padding: '5px 10px 5px 26px',
-                    fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196,
-                  }}
-                />
-              </div>
-              <button onClick={openAdd} aria-label={tab.addLabel} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
-                fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-              }}>
-                <Plus size={13} aria-hidden="true" />
-                {tab.addLabel}
-              </button>
-            </div>
-          )}
-          {/* Add Shift stays the primary top-right action (matching the approved reference), but
-              only while the Shifts sub-tab itself is active — Weekly Offs/Shift and Weekly Off
-              Rules manage their own add actions internally (see their own sections below). No
-              shared search box here: the master-detail layout has its own, in the left panel. */}
-          {activeTab === 'shiftweeklyoff' && shiftWeeklyOffSubTab === 'shifts' && canManageShifts && (
-            <div className="nf-org-toolbar-actions" style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
-              padding: '10px 12px', borderTop: '1px solid var(--line)',
-            }}>
-              <button onClick={openAdd} aria-label="Add Shift" style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
-                fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-              }}>
-                <Plus size={13} aria-hidden="true" />
-                Add Shift
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Penalization Policy is a Policy List (Section 5), not a row-per-item table like the
