@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
+import { PersonCell } from '../components/PersonCell';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, Users, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, XCircle, Mountain, MapPin, PartyPopper, Moon, Plane, TriangleAlert, CircleCheck, BadgeCheck, Hourglass, Target, type LucideIcon } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, XCircle, Mountain, MapPin, PartyPopper, Building2, UsersRound, Search, Moon, Plane, TriangleAlert, CircleCheck, BadgeCheck, Hourglass, Target, type LucideIcon } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
   type AttendanceStatus,
   type TodayAttendance,
   type AttendanceConfig,
-  type AttendanceStats,
   type RegularizationRecord,
   type SubmitRegularizationPayload,
   type RegularizationBalance,
@@ -38,7 +38,7 @@ import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole, type Role } from '../lib/nav.config';
-import { previewRegularizations, previewAttendanceRequests, previewOvertimeRequests, previewRoster } from './attendance-ui-preview/attendancePreviewData';
+import { previewRegularizations, previewAttendanceRequests, previewOvertimeRequests, previewRoster, previewRosterEmails } from './attendance-ui-preview/attendancePreviewData';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
 import { TimeFormatProvider, useTimeFormat, formatLateBySeconds } from '../context/TimeFormatContext';
 import { minutesSinceMidnight, secondsBetween, shiftMarkerPositions, segmentBarPosition, breakMarkerPosition, resolveWorkdayWindow, punchCalendarDateIfDiffers } from '../utils/shiftMarkers';
@@ -709,7 +709,7 @@ function DetailDrawer({ title, onClose, children }: { title: string; onClose: ()
         }}
       >
         <ModalHeader title={title} onClose={onClose} />
-        <div style={{ padding: '6px 22px 24px', flex: 1 }}>{children}</div>
+        <div style={{ padding: '6px 22px 24px', flex: 1, display: 'flex', flexDirection: 'column' }}>{children}</div>
       </div>
     </div>,
     document.body,
@@ -1391,8 +1391,10 @@ function BulkActionModal({ action, ids, token, onClose, onDone }: {
 /** Day roster used by both the Manager and HR views. */
 const ROSTER_PAGE_SIZE = 10;
 
-function RosterTable({ rows, loading, emptyMessage }: {
+function RosterTable({ rows, loading, emptyMessage, emails }: {
   rows: AttendanceRecord[]; loading: boolean; emptyMessage: string;
+  /** E-mail per employee userId (from the People Directory); a missing one just shows a dash. */
+  emails?: Record<string, string>;
 }) {
   const { formatTime, formatDuration } = useTimeFormat();
   const [page, setPage] = useState(0);
@@ -1420,7 +1422,7 @@ function RosterTable({ rows, loading, emptyMessage }: {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Employee ID', 'Name', 'Check In', 'Check Out', 'Timezone', 'Hours', 'Status', 'Source'].map((h) => (
+                  {['Name', 'Email', 'Check In', 'Check Out', 'Timezone', 'Hours', 'Status', 'Source'].map((h) => (
                     <th key={h} style={thStyle}>{h}</th>
                   ))}
                 </tr>
@@ -1428,8 +1430,10 @@ function RosterTable({ rows, loading, emptyMessage }: {
               <tbody>
                 {paged.map((r) => (
                   <tr key={r.employeeUserId}>
-                    <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 11.5 }}>{r.employeeCode}</td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
+                    <td style={tdStyle}>
+                      <PersonCell userId={r.employeeUserId} name={r.fullName} code={r.employeeCode} />
+                    </td>
+                    <td className={emails?.[r.employeeUserId] ? 'nf-email-accent' : undefined} style={tdStyle}>{emails?.[r.employeeUserId] ?? dash}</td>
                     {/* sessionStartedAt is the latest check-in of the day; checkInAt is fixed to
                         the day's first one and never updated on a same-day checkout+checkin
                         resume — see AttendanceService.checkIn. Same fallback as
@@ -1506,35 +1510,11 @@ function monthDeltaPct(current: number, prev: number): number | null {
   return Math.round(((current - prev) / prev) * 100);
 }
 
-/** Tiny bar sparkline — one bar per day already in `monthRecords`, height proportional to that
- * day's value out of the month's max. Purely a compact rendering of real per-day data already
- * fetched for the KPI row's own metric (present/worked-minutes/late-minutes/absent/leave), never
- * a separate call or a fabricated series. */
-function Sparkline({ values, color }: { values: number[]; color: string }) {
-  const max = Math.max(...values, 1);
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 22 }}>
-      {values.map((v, i) => (
-        <div
-          key={i}
-          style={{
-            width: 3, borderRadius: 1, flexShrink: 0,
-            height: `${Math.max(8, (v / max) * 100)}%`,
-            background: v > 0 ? color : 'var(--raised2)',
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function MonthStatTile({ label, value, hint, icon: Icon, accent = 'var(--brand)', onClick, delta, trend }: {
+function MonthStatTile({ label, value, hint, icon: Icon, accent = 'var(--brand)', onClick, delta }: {
   label: string; value: string; hint: string; icon: LucideIcon; accent?: string; onClick?: () => void;
   /** `goodDirection: 'up'` means a higher number is the good outcome (e.g. Days Present) —
    * flips the up/down color so a metric like Late Arrivals still shows red when it rises. */
   delta?: { pct: number; goodDirection: 'up' | 'down' };
-  /** Per-day values for the month (same order as monthRecords), rendered as a tiny sparkline. */
-  trend?: number[];
 }) {
   const Tag = onClick ? 'button' : 'div';
   const deltaUp = delta ? delta.pct >= 0 : false;
@@ -1581,7 +1561,6 @@ function MonthStatTile({ label, value, hint, icon: Icon, accent = 'var(--brand)'
         <span style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{hint}</span>
         {onClick && <ChevronRight size={13} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} />}
       </div>
-      {trend && trend.length > 1 && <Sparkline values={trend} color={accent} />}
     </Tag>
   );
 }
@@ -2623,212 +2602,6 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
   );
 }
 
-// ─── Attendance Stats: Me vs My Team ───────────────────────────────────────────
-type StatsRange = 'WEEK' | 'MONTH';
-
-/** Small inline ring used inside the Attendance Health panel — same draw mechanics as the Today
- * hero's ring (see RING_RADIUS/RING_CIRCUMFERENCE above), just scaled down and single-purpose. */
-function MiniRing({ pct, color, size = 40, stroke = 5 }: { pct: number; color: string; size?: number; stroke?: number }) {
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  const offset = c * (1 - Math.max(0, Math.min(100, pct)) / 100);
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--raised2)" strokeWidth={stroke} />
-      <circle className="nf-ring-progress" cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={offset} />
-    </svg>
-  );
-}
-
-/**
- * "Attendance Health" — same AttendanceStats data/range toggle as before (attendanceApi.stats,
- * WEEK/MONTH), just presented as scannable insight tiles (on-time ring + avg-hours comparison)
- * instead of a plain Me/Team table. No new metrics — everything here already existed in `stats`.
- */
-/** One row of the Attendance Health breakdown list — a colored dot, a label, and a count,
- * mirroring the calendar/log's own status colors (STATUS_COLORS, DAY_TAG_STYLE) so "Present" or
- * "Holiday" here means the same color everywhere else on the page. */
-function HealthBreakdownRow({ color, label, value }: { color: string; label: string; value: number }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'var(--txt-mut)' }}>
-        <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
-        {label}
-      </span>
-      <span style={{ fontWeight: 700, color: 'var(--txt)' }}>{value}</span>
-    </div>
-  );
-}
-
-function AttendanceStatsPanel({
-  token, isPreviewMode = false, presentDaysCount, lateCount, absentCount, weeklyOffCount, holidayCount, consideredDaysCount,
-}: {
-  token: string; isPreviewMode?: boolean;
-  /** Selected-month counts already computed in MyAttendance from monthRecords/getDayInfo — same
-   * numbers the KPI tiles and calendar show, just summarized here as one glanceable breakdown. */
-  presentDaysCount: number; lateCount: number; absentCount: number; weeklyOffCount: number; holidayCount: number;
-  /** Non-future, non-before-joining days elapsed so far this month — the denominator for the
-   * ring's Present %. */
-  consideredDaysCount: number;
-}) {
-  const [range, setRange] = useState<StatsRange>('WEEK');
-  const [stats, setStats] = useState<AttendanceStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [statsDrawer, setStatsDrawer] = useState<'ME' | 'TEAM' | null>(null);
-  const presentPct = consideredDaysCount > 0 ? Math.round((presentDaysCount / consideredDaysCount) * 100) : 0;
-
-  useEffect(() => {
-    // Guards against a slower, earlier request (e.g. a stale MONTH fetch from before the user
-    // switched to WEEK) resolving after a newer one and silently overwriting it with the wrong
-    // range's data — same cancellation pattern used by every other fetch effect on this page.
-    let cancelled = false;
-    setLoading(true);
-    if (isPreviewMode) {
-      setStats(MOCK_STATS);
-      setLoading(false);
-      return () => { cancelled = true; };
-    }
-    const to = todayIsoDate();
-    const from = range === 'WEEK' ? isoDaysAgo(6) : isoDaysAgo(29);
-    attendanceApi.stats(from, to, token)
-      .then((s) => { if (!cancelled) setStats(s); })
-      .catch(() => { if (!cancelled) setStats(null); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [range, token, isPreviewMode]);
-
-  const meOnTime = stats?.me.onTimeArrivalPercent ?? null;
-  const meAvg = stats?.me.avgHoursPerDay ?? null;
-  const teamAvg = stats?.team.avgHoursPerDay ?? null;
-
-  return (
-    <div className="nf-section-enter" style={{ ...panelStyle, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em' }}>
-          <ShieldCheck size={12} style={{ color: 'var(--info)' }} /> Attendance Health
-        </span>
-        <select value={range} onChange={(e) => setRange(e.target.value as StatsRange)} style={{ ...inputStyle, width: 'auto', padding: '3px 7px', fontSize: 11 }}>
-          <option value="WEEK">Last Week</option>
-          <option value="MONTH">Last 30 Days</option>
-        </select>
-      </div>
-      {/* Present-% ring + a Present/Late/Absent/Weekly-Off/Holiday breakdown — the same counts
-          the KPI tiles and calendar already show, just gathered into one glanceable summary,
-          matching the reference's Attendance Health composition. Not its own click target:
-          Present/Late/Absent already open their own detail drawer via the KPI tiles below. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          <MiniRing pct={presentPct} color="var(--ok)" size={76} stroke={8} />
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{presentPct}%</span>
-            <span style={{ fontSize: 9, color: 'var(--txt-dim)', marginTop: 2 }}>Present</span>
-          </div>
-        </div>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0 }}>
-          <HealthBreakdownRow color="var(--ok)" label="Present" value={presentDaysCount} />
-          <HealthBreakdownRow color="var(--warn)" label="Late" value={lateCount} />
-          <HealthBreakdownRow color="var(--risk)" label="Absent" value={absentCount} />
-          <HealthBreakdownRow color="#9BA1AC" label="Weekly Off" value={weeklyOffCount} />
-          <HealthBreakdownRow color="#4C8DD6" label="Holiday" value={holidayCount} />
-        </div>
-      </div>
-
-      {loading ? (
-        <PanelSkeleton rows={1} />
-      ) : !stats ? (
-        <div style={{ color: 'var(--txt-dim)', fontSize: 12, padding: '10px 0' }}>Stats unavailable right now.</div>
-      ) : (
-        <>
-          {/* Me/Team avg-hours + on-time comparison — kept, but as a slim secondary strip
-              (fixed small height) below the main breakdown, not the panel's main focus. */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
-            <button
-              type="button"
-              className="nf-clickable"
-              onClick={() => setStatsDrawer('ME')}
-              aria-label="View my average working-hours and on-time details"
-              style={{ flex: '1 1 130px', display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 8px', background: 'none', border: 'none', font: 'inherit', textAlign: 'left' }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                <User size={10} style={{ color: 'var(--brand)' }} /> Me
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
-                {meAvg != null ? `${meAvg}h` : dash} <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--txt-dim)' }}>· {meOnTime != null ? `${meOnTime}%` : dash} on-time</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              className="nf-clickable"
-              onClick={() => setStatsDrawer('TEAM')}
-              aria-label="View my team's average working-hours and on-time details"
-              style={{ flex: '1 1 130px', display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 8px', background: 'none', border: 'none', borderLeft: '1px solid var(--line)', font: 'inherit', textAlign: 'left' }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 9.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                <Users size={10} style={{ color: 'var(--txt-dim)' }} /> Team
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
-                {teamAvg != null ? `${teamAvg}h` : dash} <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--txt-dim)' }}>· {stats.team.onTimeArrivalPercent != null ? `${stats.team.onTimeArrivalPercent}%` : dash} on-time</span>
-              </span>
-            </button>
-          </div>
-          {stats.teamSize === 0 && (
-            <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>No peers on record under your current manager yet.</div>
-          )}
-        </>
-      )}
-
-      {statsDrawer && stats && (
-        <DetailDrawer title={statsDrawer === 'ME' ? 'My Attendance Summary' : 'Team Attendance Comparison'} onClose={() => setStatsDrawer(null)}>
-          <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 14 }}>
-            {range === 'WEEK' ? 'Last 7 days' : 'Last 30 days'}
-          </div>
-          {statsDrawer === 'ME' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <MiniRing pct={meOnTime ?? 0} color="var(--ok)" size={56} stroke={6} />
-                <div>
-                  <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{meOnTime != null ? `${meOnTime}%` : dash}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 3 }}>On-time arrivals</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>Average hours / day</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{meAvg != null ? `${meAvg}h` : dash}</span>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>Team size</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{stats.teamSize}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>Team on-time arrivals</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{stats.team.onTimeArrivalPercent != null ? `${stats.team.onTimeArrivalPercent}%` : dash}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>Team avg hours / day</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{teamAvg != null ? `${teamAvg}h` : dash}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>My on-time arrivals</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{meOnTime != null ? `${meOnTime}%` : dash}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>My avg hours / day</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{meAvg != null ? `${meAvg}h` : dash}</span>
-              </div>
-              {stats.teamSize === 0 && (
-                <div style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>No peers on record under your current manager yet.</div>
-              )}
-            </div>
-          )}
-        </DetailDrawer>
-      )}
-    </div>
-  );
-}
-
 // ─── Today's Timings ────────────────────────────────────────────────────────────
 // config.shiftStart/shiftEnd are both null for an employee with no effective Shift assignment
 // (ONEHR-355: a valid, permanent state, not an invariant violation) — see this component's own
@@ -3841,21 +3614,25 @@ function punchDateSuffix(iso: string, workDate: string): string {
  * {@link punchDateSuffix}) so a session whose check-in/check-out lands on a different calendar
  * date (a post-midnight continuation of this same logical workday) renders with a date qualifier
  * instead of being indistinguishable from a same-day punch. */
-function PunchSourceGroup({ label, sessions, workDate }: {
+function PunchSourceGroup({ label, sessions, workDate, cards = false }: {
   label: string;
   sessions: { key: string; checkInAt: string; checkOutAt: string | null; note?: string | null }[];
   workDate: string;
+  /** Drawer look: every session is its own outlined row instead of a bare line. */
+  cards?: boolean;
 }) {
   const { formatTime } = useTimeFormat();
   if (sessions.length === 0) return null;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: cards ? 0 : 5 }}>
+      <div style={{ fontSize: cards ? 10.5 : 9.5, paddingBottom: cards ? 4 : 0, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: cards ? '.09em' : '.06em' }}>{label}</div>
       {sessions.map((s, i) => {
         const inTime = formatTime(s.checkInAt);
         const outTime = s.checkOutAt ? formatTime(s.checkOutAt) : null;
         return (
-          <div key={s.key ?? i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11.5 }}>
+          <div key={s.key ?? i} style={cards
+            ? { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 13, padding: '9px 0', borderBottom: '1px solid var(--line)' }
+            : { display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11.5 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--ok)', fontWeight: 600 }}>
               <ArrowDownLeft size={12} /> {inTime ? `${inTime}${punchDateSuffix(s.checkInAt, workDate)}` : dash}
               {s.note && (
@@ -3891,7 +3668,7 @@ function PunchSourceGroup({ label, sessions, workDate }: {
  * Keka reference's separate "Company Name" / "Web Clock In" blocks — rather than one flat list
  * that hides which entries came from where.
  */
-function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] | undefined }) {
+function DayPunchIntervals({ info, punches, cards = false }: { info: DayInfo; punches: Punch[] | undefined; cards?: boolean }) {
   const record = info.record;
   // The authoritative workDate every session's date qualifier is compared against (see
   // PunchSourceGroup/punchDateSuffix) — record.workDate when a record exists (always equal to
@@ -3920,9 +3697,9 @@ function DayPunchIntervals({ info, punches }: { info: DayInfo; punches: Punch[] 
   const webSessions = sessions.filter((s) => s.source === 'WEB_REMOTE');
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 260 }}>
-      <PunchSourceGroup label="Check-In / Check-Out" sessions={officeSessions} workDate={workDate} />
-      <PunchSourceGroup label="Web Check-In / Check-Out" sessions={webSessions} workDate={workDate} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: cards ? 14 : 10, maxWidth: cards ? undefined : 260 }}>
+      <PunchSourceGroup label="Check-In / Check-Out" sessions={officeSessions} workDate={workDate} cards={cards} />
+      <PunchSourceGroup label="Web Check-In / Check-Out" sessions={webSessions} workDate={workDate} cards={cards} />
     </div>
   );
 }
@@ -4047,6 +3824,182 @@ function DayDetailsBody({ info, config, punches, workedMinutesToday, businessTod
   );
 }
 
+/** One block inside the Attendance Details container: a small icon + title row over its content, separated from the
+ * block above by a thin line (no box of its own). */
+function DrawerBlock({ icon: Icon, title, accent = 'var(--brand)', children }: {
+  icon: LucideIcon; title: string; accent?: string; children: React.ReactNode;
+}) {
+  return (
+    <div style={{ padding: '14px 18px', borderTop: '1px solid var(--line)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <Icon size={14} style={{ color: accent }} />
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--txt)' }}>{title}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function DrawerField({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div style={{ gridColumn: wide ? '1 / -1' : undefined }}>
+      <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{children}</div>
+    </div>
+  );
+}
+
+/** One of the three headline figures in the Attendance Details container (icon, label, value), separated from its
+ * neighbours by a thin vertical line. */
+function DrawerStat({ icon: Icon, label, value, accent, first }: { icon: LucideIcon; label: string; value: string; accent: string; first?: boolean }) {
+  return (
+    <div style={{ padding: '14px 12px 14px 14px', borderLeft: first ? 'none' : '1px solid var(--line)', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, color: accent, minWidth: 0 }}>
+        <Icon size={13} style={{ flexShrink: 0 }} />
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--txt-dim)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+      </div>
+      <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 'clamp(16px, 5cqw, 22px)', fontWeight: 800, color: 'var(--txt)', lineHeight: 1.1, whiteSpace: 'nowrap' }}>{value}</div>
+    </div>
+  );
+}
+
+/**
+ * The body of the Attendance Details drawer (opened from the Attendance Log's View button): the same information
+ * and the same actions as DayDetailsBody, all inside ONE container: a date header, the check-in / check-out / worked
+ * figures, then the shift and punch history, separated by thin lines. Presentation only; every figure comes from
+ * the same inputs.
+ */
+function DayDetailsDrawerBody({ info, config, punches, workedMinutesToday, businessTodayIso, webSessions, onRegularize, onApplyPartialDay }: {
+  info: DayInfo; config: AttendanceConfig | null; punches: Punch[] | undefined; workedMinutesToday: number | null;
+  businessTodayIso: string | undefined; webSessions: WebClockInRecord[]; onRegularize: () => void; onApplyPartialDay: () => void;
+}) {
+  const { formatTime, formatDuration } = useTimeFormat();
+  const metrics = info.record ? computeRowMetrics(info, punches, workedMinutesToday, businessTodayIso) : null;
+  const checkOutDisplay = info.record ? latestIso(info.record.checkOutAt, ...webSessions.map((r) => r.checkedOutAt)) : null;
+  const [y, m, d] = info.iso.split('-').map(Number);
+  const dateObj = new Date(y, m - 1, d);
+  const weekday = dateObj.toLocaleDateString(undefined, { weekday: 'long' });
+  const dateLabel = dateObj.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+
+  const accent = info.holidayName && !info.record ? 'var(--info)'
+    : info.leaveTypeName ? 'var(--ok)'
+    : info.record?.status ? (STATUS_COLORS[info.record.status] ?? 'var(--brand)')
+    : info.regularization ? 'var(--warn)'
+    : 'var(--brand)';
+
+  const actionBtn: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, cursor: 'pointer',
+    fontSize: 12, fontWeight: 700, color: 'var(--brand)', background: 'color-mix(in srgb, var(--brand) 8%, var(--panel))',
+    border: '1px solid color-mix(in srgb, var(--brand) 32%, var(--line))',
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: '1 1 auto' }}>
+      <div style={{
+        border: `1px solid color-mix(in srgb, ${accent} 24%, var(--line))`, borderRadius: 18,
+        background: 'var(--panel)', overflow: 'hidden', boxShadow: `0 6px 18px -10px color-mix(in srgb, ${accent} 55%, transparent)`,
+      }}>
+        {/* Date header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '16px 18px',
+          background: `linear-gradient(135deg, var(--panel) 0%, var(--panel) 30%, color-mix(in srgb, ${accent} 14%, var(--panel)) 100%)`,
+        }}>
+          <span style={{ width: 44, height: 44, borderRadius: 13, display: 'grid', placeItems: 'center', flexShrink: 0, color: accent, background: `color-mix(in srgb, ${accent} 14%, var(--panel))`, border: `1px solid color-mix(in srgb, ${accent} 24%, transparent)` }}>
+            <CalendarDays size={21} />
+          </span>
+          <div style={{ flex: '1 1 150px', minWidth: 0 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--txt-dim)' }}>{weekday}</div>
+            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 22, fontWeight: 800, color: 'var(--txt)', lineHeight: 1.15 }}>{dateLabel}</div>
+          </div>
+          {info.record && !info.regularization && !info.leaveTypeName && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <StatusPill status={info.record.status} />
+              <LateBadge minutes={info.record.lateByMinutes} checkInAt={info.record.checkInAt} shiftStartAt={info.record.shiftStartAt} graceMinutes={config?.lateGraceMinutes} workedMinutes={metrics?.effectiveMinutes ?? info.record.workedMinutes} config={config} />
+            </div>
+          )}
+        </div>
+
+        {info.holidayName && !info.record ? (
+          <DrawerBlock icon={PartyPopper} title="Company holiday" accent="var(--info)">
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{info.holidayName}</div>
+          </DrawerBlock>
+        ) : info.leaveTypeName ? (
+          <DrawerBlock icon={Plane} title="On leave" accent="var(--ok)">
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{info.leaveTypeName}</div>
+          </DrawerBlock>
+        ) : info.regularization ? (
+          <DrawerBlock icon={Pencil} title="Regularization request" accent="var(--warn)">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 14 }}>
+              <DrawerField label="Requested In">{formatTime(info.regularization.requestedCheckIn) ?? dash}</DrawerField>
+              <DrawerField label="Requested Out">{formatTime(info.regularization.requestedCheckOut) ?? dash}</DrawerField>
+              <DrawerField label="Total Hours">{formatDuration(info.regularization.totalMinutes) ?? dash}</DrawerField>
+              <DrawerField label="Status"><RegularizationStatusPill status={info.regularization.status} /></DrawerField>
+              <DrawerField label="Approved By">{info.regularization.reviewedByName ?? dash}</DrawerField>
+              <DrawerField label="Comments" wide>{info.regularization.reviewComment ?? dash}</DrawerField>
+            </div>
+          </DrawerBlock>
+        ) : info.record ? (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', borderTop: '1px solid var(--line)', containerType: 'inline-size' }}>
+              <DrawerStat first icon={LogIn} label="Check In" value={formatTime(info.record.checkInAt) ?? 'Missing'} accent="var(--ok)" />
+              <DrawerStat icon={LogOut} label="Check Out" value={formatTime(checkOutDisplay) ?? 'Missing'} accent="var(--info)" />
+              <DrawerStat icon={Clock} label="Worked" value={formatDuration(metrics?.effectiveMinutes ?? null) ?? '–'} accent="var(--brand)" />
+            </div>
+
+            {(info.holidayName || info.isWeekend) && (
+              <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line)' }}>
+                <NonWorkingDayWorkedNote reason={info.holidayName ? 'holiday' : 'weekend'} />
+              </div>
+            )}
+
+            <DrawerBlock icon={Sun} title="Shift" accent="var(--warn)">
+              {config?.shiftName && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{config.shiftName}</div>
+                  {config.shiftStart && config.shiftEnd && (
+                    <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>
+                      {formatTime(`${info.iso}T${config.shiftStart}`)} - {formatTime(`${info.iso}T${config.shiftEnd}`)}
+                    </div>
+                  )}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button onClick={onRegularize} style={actionBtn}><Pencil size={13} /> Regularize</button>
+                <button onClick={onApplyPartialDay} style={actionBtn}><Pencil size={13} /> Apply Partial Day</button>
+              </div>
+            </DrawerBlock>
+
+            <DrawerBlock icon={Clock} title="Punch history" accent="var(--ok)">
+              <DayPunchIntervals info={info} punches={punches} cards />
+            </DrawerBlock>
+          </>
+        ) : (
+          <DrawerBlock icon={CalendarDays} title={info.isWeekend ? 'Weekend' : 'No record'} accent="var(--txt-dim)">
+            <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>
+              {info.isWeekend ? 'Weekend, no attendance expected.' : 'No attendance recorded for this day.'}
+            </div>
+          </DrawerBlock>
+        )}
+      </div>
+
+      {/* Decorative breathing pacer in whatever height is left under the container (hidden by CSS when there is not
+          enough room). Display only. */}
+      <div className="nf-breathe-wrap" aria-hidden="true">
+        <div className="nf-breathe-art">
+          <span className="nf-breathe-glow" />
+          <span className="nf-breathe-ring nf-breathe-ring--1" />
+          <span className="nf-breathe-ring nf-breathe-ring--2" />
+          <span className="nf-breathe-orb">
+            <span className="nf-breathe-label nf-breathe-label--in">Breathe in</span>
+            <span className="nf-breathe-label nf-breathe-label--out">Breathe out</span>
+          </span>
+          <span className="nf-breathe-caption">Take a moment</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Opened directly by the Attendance Log's View button — a self-contained modal (not dependent
  * on the calendar's side panel, which can be scrolled out of view) showing the exact same
@@ -4065,7 +4018,7 @@ function DayDetailsModal({ info, config, punches, workedMinutesToday, businessTo
 }) {
   return (
     <DetailDrawer title="Attendance Details" onClose={onClose}>
-      <DayDetailsBody info={info} config={config} punches={punches} workedMinutesToday={workedMinutesToday} businessTodayIso={businessTodayIso} webSessions={webSessions} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
+      <DayDetailsDrawerBody info={info} config={config} punches={punches} workedMinutesToday={workedMinutesToday} businessTodayIso={businessTodayIso} webSessions={webSessions} onRegularize={onRegularize} onApplyPartialDay={onApplyPartialDay} />
     </DetailDrawer>
   );
 }
@@ -4234,7 +4187,7 @@ function ShiftPolicyPanel({ config, holidays }: { config: AttendanceConfig | nul
   ] : [];
 
   return (
-    <div className="nf-section-enter" style={{ ...panelStyle, padding: 0 }}>
+    <div className="nf-section-enter" data-nf-shift-panel="true" style={{ ...panelStyle, padding: 0 }}>
       <div style={{ padding: '16px 18px 14px', background: 'linear-gradient(135deg, color-mix(in srgb, var(--brand) 11%, var(--panel)), var(--panel) 70%)', borderBottom: '1px solid var(--line)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
@@ -4417,12 +4370,6 @@ const MOCK_CONFIG: AttendanceConfig = {
   lateGraceMinutes: 10,
   halfDayMaxHours: 4,
   weeklyOffDays: ['SATURDAY', 'SUNDAY'],
-};
-
-const MOCK_STATS: AttendanceStats = {
-  me: { presentDays: 18, avgHoursPerDay: 8.2, onTimeArrivalPercent: 82, expectedHoursPerDay: 9 },
-  team: { presentDays: 18, avgHoursPerDay: 7.9, onTimeArrivalPercent: 74, expectedHoursPerDay: 9 },
-  teamSize: 6,
 };
 
 function mockAttendanceRecord(iso: string, overrides: Partial<AttendanceRecord>): AttendanceRecord {
@@ -4821,6 +4768,56 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   // Calendar tab: picking a day also brings its details panel into view (it wraps below the
   // calendar on narrower screens, where the click would otherwise appear to do nothing).
   const dayDetailsRef = useRef<HTMLDivElement>(null);
+  // Calendar tab, wide layout: the day-details panel sits beside the Shift & Rules card (which lives in the
+  // page's right column), so give it that card's height and their top and bottom edges line up. When the layout
+  // wraps (panels no longer side by side) nothing is forced and the panel keeps its natural height.
+  useLayoutEffect(() => {
+    let observed: HTMLElement | null = null;
+    let observedRow: HTMLElement | null = null;
+    let timer = 0;
+    const sync = () => {
+      // Everything is looked up fresh on every pass: the calendar section (and the Shift & Rules card) can be
+      // re-created while data loads, and a reference kept from an earlier render would then point at a detached
+      // element and leave the visible panel unsized.
+      const day = dayDetailsRef.current;
+      const shift = document.querySelector<HTMLElement>('[data-nf-shift-panel]');
+      const row = day?.parentElement ?? null;
+      if (shift !== observed) {
+        if (observed) ro.unobserve(observed);
+        observed = shift;
+        if (shift) ro.observe(shift);
+      }
+      if (row !== observedRow) {
+        if (observedRow) ro.unobserve(observedRow);
+        observedRow = row;
+        if (row) ro.observe(row);
+      }
+      if (!day) return;
+      if (!shift) { day.style.minHeight = ''; return; }
+      // "Side by side" is judged from the layout, not from scroll position (the Shift & Rules card is sticky):
+      // the day panel must sit to the right of the calendar on the same row (not wrapped below it), and the
+      // Shift & Rules card must be in the column to its right.
+      const cal = day.previousElementSibling as HTMLElement | null;
+      const d = day.getBoundingClientRect();
+      const sr = shift.getBoundingClientRect();
+      const besideCalendar = !cal || d.left >= cal.getBoundingClientRect().right - 2;
+      const sideBySide = besideCalendar && d.right <= sr.left + 2;
+      // As tall as the taller of the calendar it sits beside and the Shift & Rules card, so its bottom edge never
+      // stops short of either.
+      const calH = cal ? cal.getBoundingClientRect().height : 0;
+      day.style.minHeight = sideBySide ? `${Math.round(Math.max(sr.height, calH))}px` : '';
+    };
+    const queue = () => { window.clearTimeout(timer); timer = window.setTimeout(sync, 30); };
+    const ro = new ResizeObserver(queue);
+    const mo = new MutationObserver(queue);
+    mo.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('resize', queue);
+    sync();
+    return () => {
+      window.clearTimeout(timer); ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', queue);
+      if (dayDetailsRef.current) dayDetailsRef.current.style.minHeight = '';
+    };
+  }, [logsTab]);
   const selectDayAndReveal = useCallback((iso: string) => {
     setSelectedDate(iso);
     window.setTimeout(() => {
@@ -4887,11 +4884,6 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     }
     return rows.reverse();
   }, [viewYear, viewMonth, getDayInfo]);
-  // Attendance Health's ring denominator/breakdown — same logRows every other section already
-  // derives from, just two more plain counts (weekly-off days, holiday days) for that summary.
-  const consideredDaysCount = logRows.length;
-  const weeklyOffCount = logRows.filter((r) => r.isWeekend).length;
-  const holidayCount = leaveHolidayEntries.filter((e) => e.kind === 'Holiday').length;
 
   // Reset to page 1 whenever the month changes (new row set) — mirrors RosterTable's own
   // page-reset-on-new-rows behavior.
@@ -5167,29 +5159,24 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
             label="Days Present" value={monthLoading ? '–' : String(presentDaysCount)} hint={calendarMonthLabel(viewYear, viewMonth)}
             icon={CheckCircle2} accent="var(--ok)" onClick={() => setKpiModal('PRESENT')}
             delta={!monthLoading ? { pct: monthDeltaPct(presentDaysCount, prevPresentDaysCount) ?? 0, goodDirection: 'up' } : undefined}
-            trend={monthRecords.map((r) => (r.checkInAt ? 1 : 0))}
           />
           <MonthStatTile
             label="Worked Hours" value={monthLoading ? '–' : (formatDuration(workedMinutesTotal) ?? '0m')} hint={calendarMonthLabel(viewYear, viewMonth)}
             icon={Clock} accent="var(--brand)" onClick={() => setKpiModal('WORKED_HOURS')}
             delta={!monthLoading ? { pct: monthDeltaPct(workedMinutesTotal, prevWorkedMinutesTotal) ?? 0, goodDirection: 'up' } : undefined}
-            trend={monthRecords.map((r) => r.workedMinutes ?? 0)}
           />
           <MonthStatTile
             label="Late Arrivals" value={monthLoading ? '–' : String(lateCount)} hint={calendarMonthLabel(viewYear, viewMonth)}
             icon={Turtle} accent="var(--warn)" onClick={() => setKpiModal('LATE')}
             delta={!monthLoading ? { pct: monthDeltaPct(lateCount, prevLateCount) ?? 0, goodDirection: 'down' } : undefined}
-            trend={monthRecords.map((r) => (r.status === 'LATE' ? (r.lateByMinutes ?? 1) : 0))}
           />
           <MonthStatTile
             label="Absent Days" value={monthLoading ? '–' : String(absentCount)} hint={calendarMonthLabel(viewYear, viewMonth)}
             icon={X} accent="var(--risk)" onClick={() => setKpiModal('ABSENT')}
             delta={!monthLoading ? { pct: monthDeltaPct(absentCount, prevAbsentCount) ?? 0, goodDirection: 'down' } : undefined}
-            trend={monthRecords.map((r) => (r.status === 'ABSENT' ? 1 : 0))}
           />
           <MonthStatTile
             label="Leave / Holidays" value={String(leaveHolidayCount)} hint={calendarMonthLabel(viewYear, viewMonth)} icon={CalendarDays} accent="var(--info)" onClick={() => setKpiModal('LEAVE_HOLIDAY')}
-            trend={monthRecords.map((r) => (leaveByDate.has(r.workDate) || holidayByDate.has(r.workDate) ? 1 : 0))}
           />
           </div>
         </div>
@@ -5225,7 +5212,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
             />
           </div>
 
-          <div ref={dayDetailsRef} style={{ ...panelStyle, scrollMarginTop: 16, padding: '16px 18px', flex: '1 1 240px', minWidth: 0 }}>
+          <div ref={dayDetailsRef} style={{ ...panelStyle, scrollMarginTop: 16, padding: '16px 18px', flex: '1 1 240px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
             {!selectedInfo ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 8, padding: '20px 0', color: 'var(--txt-dim)' }}>
                 <CalendarDays size={22} />
@@ -5321,6 +5308,20 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                 onApplyPartialDay={() => setPartialDayDate(selectedInfo.iso)}
               />
             )}
+            {/* Decorative breathing pacer in the spare height when this panel is stretched to line up with the
+                calendar / Shift & Rules card beside it (hidden by CSS when there is not enough room). Display only. */}
+            <div className="nf-breathe-wrap" aria-hidden="true" style={{ marginTop: 12 }}>
+              <div className="nf-breathe-art">
+                <span className="nf-breathe-glow" />
+                <span className="nf-breathe-ring nf-breathe-ring--1" />
+                <span className="nf-breathe-ring nf-breathe-ring--2" />
+                <span className="nf-breathe-orb">
+                  <span className="nf-breathe-label nf-breathe-label--in">Breathe in</span>
+                  <span className="nf-breathe-label nf-breathe-label--out">Breathe out</span>
+                </span>
+                <span className="nf-breathe-caption">Take a moment</span>
+              </div>
+            </div>
           </div>
         </div>
         </div>
@@ -5551,16 +5552,6 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
           leaving a large dead gap once the uncapped Attendance Log makes the left column tall. */}
       <div style={{ minWidth: 0 }}>
       <div style={{ position: 'sticky', top: 16, display: 'flex', flexDirection: 'column', gap: 18 }}>
-        <AttendanceStatsPanel
-          token={token}
-          isPreviewMode={isPreviewMode}
-          presentDaysCount={presentDaysCount}
-          lateCount={lateCount}
-          absentCount={absentCount}
-          weeklyOffCount={weeklyOffCount}
-          holidayCount={holidayCount}
-          consideredDaysCount={consideredDaysCount}
-        />
         <ShiftPolicyPanel config={config} holidays={holidays} />
       </div>
       </div>
@@ -5890,8 +5881,8 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
           {selectedIds.size > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 13px' }}>
               <span style={{ fontSize: 12, color: 'var(--txt-mut)', fontWeight: 600 }}>{selectedIds.size} selected</span>
-              <button onClick={() => setBulkConfirm('APPROVE')} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 11px', fontSize: 11, fontWeight: 600, color: '#2FB67C', cursor: 'pointer' }}>Bulk Approve</button>
-              <button onClick={() => setBulkConfirm('REJECT')} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 11px', fontSize: 11, fontWeight: 600, color: '#E4373D', cursor: 'pointer' }}>Bulk Reject</button>
+              <button onClick={() => setBulkConfirm('APPROVE')} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '5px 0', width: 100, textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#2FB67C', cursor: 'pointer' }}>Bulk Approve</button>
+              <button onClick={() => setBulkConfirm('REJECT')} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '5px 0', width: 100, textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#E4373D', cursor: 'pointer' }}>Bulk Reject</button>
               <button onClick={() => setSelectedIds(new Set())} style={{ background: 'none', border: 'none', color: 'var(--txt-dim)', fontSize: 11, cursor: 'pointer', marginLeft: 'auto' }}>Clear selection</button>
             </div>
           )}
@@ -5968,8 +5959,8 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                         <td data-label="Actions" style={reqTdStyle}>
                           {isActionableRequest(r, isManager) ? (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} onClick={e => e.stopPropagation()}>
-                              <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
-                              <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 9px', fontSize: 10.5, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
+                              <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 0', width: 76, textAlign: 'center', fontSize: 10.5, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
+                              <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 0', width: 76, textAlign: 'center', fontSize: 10.5, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
                             </div>
                           ) : dash}
                         </td>
@@ -7299,6 +7290,37 @@ function DayRoster({ scope, isPreview = false }: { scope: 'team' | 'all'; isPrev
   const [date, setDate] = useState(todayIsoDate());
   const [rows, setRows] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [emails, setEmails] = useState<Record<string, string>>({});
+  // Search + status filter: purely client-side over the rows already loaded for the selected date, so the
+  // same people, scope and numbers are shown, just narrowed. Nothing is requested again when they change.
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'NONE' | AttendanceStatus>('ALL');
+  const statusCounts = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const r of rows) c.set(r.status ?? 'NONE', (c.get(r.status ?? 'NONE') ?? 0) + 1);
+    return c;
+  }, [rows]);
+  const visibleRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (statusFilter !== 'ALL' && (r.status ?? 'NONE') !== statusFilter) return false;
+      if (!q) return true;
+      return r.fullName.toLowerCase().includes(q)
+        || (r.employeeCode ?? '').toLowerCase().includes(q)
+        || (emails[r.employeeUserId] ?? '').toLowerCase().includes(q);
+    });
+  }, [rows, search, statusFilter, emails]);
+
+  // E-mails for the Email column come from the People Directory (visible to every signed-in user); if it can't
+  // be read the column simply shows dashes and nothing else on the roster is affected.
+  useEffect(() => {
+    if (isPreview) { setEmails(previewRosterEmails()); return; }
+    let cancelled = false;
+    directoryApi.list(token)
+      .then((list) => { if (!cancelled) setEmails(Object.fromEntries(list.map((e) => [e.userId, e.email]))); })
+      .catch(() => { /* optional column */ });
+    return () => { cancelled = true; };
+  }, [token, isPreview]);
 
   useEffect(() => {
     if (isPreview) { setRows(previewRoster(scope, date)); setLoading(false); return; }
@@ -7319,23 +7341,50 @@ function DayRoster({ scope, isPreview = false }: { scope: 'team' | 'all'; isPrev
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <SectionHeading
-          title={scope === 'team' ? 'Team attendance' : 'Organization attendance'}
-          hint={scope === 'team'
-            ? 'Your current direct reports for the selected day.'
-            : 'All active employees for the selected day.'}
-        />
+        <PageTitleBlock compact icon={scope === 'team' ? UsersRound : Building2} style={{ marginBottom: 12 }}>
+          <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
+            {scope === 'team' ? 'Team attendance' : 'Organization attendance'}
+          </h2>
+          <p style={{ fontSize: 11.5, color: 'var(--txt-dim)', margin: '2px 0 0' }}>
+            {scope === 'team'
+              ? 'Your current direct reports for the selected day.'
+              : 'All active employees for the selected day.'}
+          </p>
+        </PageTitleBlock>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--txt-dim)', marginBottom: 12 }}>
           Date
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={dateInputStyle} />
         </label>
       </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 200, maxWidth: 420 }}>
+          <Search size={14} aria-hidden="true" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+          <input
+            type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, email or employee ID…" aria-label="Search employees"
+            style={{ width: '100%', boxSizing: 'border-box', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '8px 12px 8px 32px', color: 'var(--txt)', fontSize: 12.5, outline: 'none' }}
+          />
+        </div>
+        <select
+          value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} aria-label="Filter by status"
+          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '8px 12px', color: 'var(--txt)', fontSize: 12.5, cursor: 'pointer', outline: 'none' }}
+        >
+          <option value="ALL">Status</option>
+          {(['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'MISSING_CHECKOUT', 'ON_LEAVE'] as AttendanceStatus[]).map((st) => (
+            <option key={st} value={st}>{STATUS_LABELS[st] ?? st} ({statusCounts.get(st) ?? 0})</option>
+          ))}
+          {(statusCounts.get('NONE') ?? 0) > 0 && <option value="NONE">Not marked ({statusCounts.get('NONE')})</option>}
+        </select>
+      </div>
       <RosterTable
-        rows={rows}
+        rows={visibleRows}
         loading={loading}
-        emptyMessage={scope === 'team'
-          ? 'No direct reports are assigned to you yet.'
-          : 'No employee records for this date.'}
+        emptyMessage={rows.length > 0
+          ? 'No employees match your search or status filter.'
+          : scope === 'team'
+            ? 'No direct reports are assigned to you yet.'
+            : 'No employee records for this date.'}
+        emails={emails}
       />
     </div>
   );

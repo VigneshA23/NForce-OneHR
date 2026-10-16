@@ -1595,3 +1595,51 @@ select, input, textarea, button { touch-action: manipulation; }
    page, so spacing below the title is unchanged. */
 .nf-page-title h1 { font-family: Inter, sans-serif !important; font-size: 20px !important; font-weight: 700 !important; line-height: 1.25 !important; letter-spacing: 0 !important; color: var(--txt) !important; }
 .nf-page-title p { font-size: 13px !important; line-height: 1.45 !important; color: var(--txt-mut) !important; }
+
+/* E-mail text in tables: the theme colour (brighter variant on dark, standard on light), same as People Directory. */
+.nf-email-accent { color: var(--brand-bright) !important; }
+[data-theme="light"] .nf-email-accent { color: var(--brand) !important; }
+
+/* Attendance Details drawer: "Take a moment" breathing pacer in the spare space under the cards (theme colour). The
+   wrapper takes whatever height is left over (zero when the drawer is full) and the art hides itself when that is
+   too small to look right. */
+.nf-breathe-wrap { flex: 1 1 0; min-height: 0; position: relative; container-type: size; }
+.nf-breathe-art {
+  position: absolute; inset: 0; overflow: hidden; isolation: isolate;
+  display: grid; place-items: center; --orb: clamp(58px, 38cqh, 112px);
+}
+@container (max-height: 110px) { .nf-breathe-art { display: none; } }
+.nf-breathe-glow, .nf-breathe-ring, .nf-breathe-orb { grid-area: 1 / 1; border-radius: 50%; transform-origin: center; }
+.nf-breathe-glow {
+  width: calc(var(--orb) * 2.1); height: calc(var(--orb) * 2.1); z-index: -1;
+  background: radial-gradient(circle, color-mix(in srgb, var(--brand) 34%, transparent) 0%, transparent 68%);
+}
+.nf-breathe-ring { width: calc(var(--orb) * 1.45); height: calc(var(--orb) * 1.45); border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent); opacity: .55; }
+.nf-breathe-ring--2 { width: calc(var(--orb) * 1.85); height: calc(var(--orb) * 1.85); opacity: .28; }
+.nf-breathe-orb {
+  position: relative; width: var(--orb); height: var(--orb); display: grid; place-items: center; text-align: center;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--brand-bright, var(--brand)) 85%, #fff 15%) 0%, var(--brand) 60%, var(--brand-deep, var(--brand)) 100%);
+  box-shadow: 0 14px 34px -12px color-mix(in srgb, var(--brand) 80%, transparent), inset 0 2px 6px color-mix(in srgb, #fff 35%, transparent);
+}
+.nf-breathe-label { grid-area: 1 / 1; font-size: clamp(9.5px, 3.2cqh, 12.5px); font-weight: 700; letter-spacing: .02em; color: #fff; padding: 0 6px; line-height: 1.15; }
+.nf-breathe-label--out { opacity: 0; }
+.nf-breathe-caption {
+  position: absolute; left: 0; right: 0; bottom: 12px; text-align: center; font-size: 10.5px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--brand) 70%, var(--txt-dim));
+}
+@keyframes nf-breathe-orb { 0%, 100% { transform: scale(.82); } 50% { transform: scale(1.12); } }
+@keyframes nf-breathe-ring { 0%, 100% { transform: scale(.88); opacity: .25; } 50% { transform: scale(1.12); opacity: .6; } }
+@keyframes nf-breathe-glow { 0%, 100% { transform: scale(.85); opacity: .6; } 50% { transform: scale(1.12); opacity: 1; } }
+@keyframes nf-breathe-in { 0%, 8% { opacity: 0; } 18%, 42% { opacity: 1; } 52%, 100% { opacity: 0; } }
+@keyframes nf-breathe-out { 0%, 54% { opacity: 0; } 64%, 92% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .nf-breathe-orb { animation: nf-breathe-orb 8s ease-in-out infinite; }
+  .nf-breathe-glow { animation: nf-breathe-glow 8s ease-in-out infinite; }
+  .nf-breathe-ring--1 { animation: nf-breathe-ring 8s ease-in-out infinite; }
+  .nf-breathe-ring--2 { animation: nf-breathe-ring 8s ease-in-out infinite .5s; }
+  .nf-breathe-label--in { animation: nf-breathe-in 8s linear infinite; }
+  .nf-breathe-label--out { animation: nf-breathe-out 8s linear infinite; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nf-breathe-label--out { display: none; }
+}

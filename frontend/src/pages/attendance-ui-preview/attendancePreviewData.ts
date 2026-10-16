@@ -124,3 +124,10 @@ export function previewRoster(scope: 'team' | 'all', date: string): AttendanceRe
     } as AttendanceRecord;
   });
 }
+
+/** Sample e-mails for the roster preview (the live page reads them from the People Directory API). */
+export function previewRosterEmails(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of PEOPLE) out[p.id] = `${p.name.toLowerCase().replace(/[^a-z ]/g, '').trim().split(/\s+/).join('.')}@nforceone.com`;
+  return out;
+}
