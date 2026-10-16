@@ -6,45 +6,13 @@ import * as XLSX from 'xlsx';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useAuthStore } from '../store/authStore';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
-import { EmployeeAvatar } from '../components/EmployeeAvatar';
+import { PersonAvatar as Avatar, PersonCell } from '../components/PersonCell';
 import { AppreciateButton, KudosModal, type KudosTarget } from './MyTeamPage';
 import './DirectoryPage.css';
 
 const PAGE_SIZE = 25;
 
 /* ── Helpers ──────────────────────────────────────── */
-// Soft initials-disc tints, picked deterministically per employee so the same person always
-// gets the same color. Translucent backgrounds read correctly on both dark and light themes.
-const AVATAR_TINTS: [string, string][] = [
-  ['rgba(217,72,95,.14)',  '#D9485F'],
-  ['rgba(59,111,216,.14)', '#3B6FD8'],
-  ['rgba(124,92,214,.15)', '#7C5CD6'],
-  ['rgba(31,157,107,.14)', '#1F9D6B'],
-  ['rgba(217,119,43,.15)', '#D9772B'],
-  ['rgba(27,146,166,.14)', '#1B92A6'],
-];
-
-function avatarTint(key: string): [string, string] {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  return AVATAR_TINTS[Math.abs(h) % AVATAR_TINTS.length];
-}
-
-function Avatar({ userId, name, size = 38 }: { userId: string; name: string; size?: number }) {
-  const [background, color] = avatarTint(userId || name);
-  return (
-    <EmployeeAvatar
-      userId={userId}
-      name={name}
-      size={size}
-      fontSize={size * 0.36}
-      background={background}
-      color={color}
-      style={{ fontFamily: 'Inter, sans-serif', letterSpacing: '.02em' }}
-    />
-  );
-}
-
 function StatusChip({ active }: { active: boolean }) {
   return (
     <span className={`nf-pd-status ${active ? 'nf-pd-status--active' : 'nf-pd-status--inactive'}`}>
@@ -408,13 +376,7 @@ export default function DirectoryPage() {
                         style={inactiveDimStyle(e.active)}
                       >
                         <td>
-                          <div className="nf-pd-person">
-                            <Avatar userId={e.userId} name={e.fullName} />
-                            <div>
-                              <div className="nf-pd-name">{e.fullName}</div>
-                              <div className="nf-pd-code">{e.employeeCode}</div>
-                            </div>
-                          </div>
+                          <PersonCell userId={e.userId} name={e.fullName} code={e.employeeCode} />
                         </td>
                         <td className={e.email ? 'nf-pd-email' : 'nf-pd-dim'}>{e.email ? <EmailText email={e.email} /> : '–'}</td>
                         <td className={e.departmentName ? undefined : 'nf-pd-dim'}>{e.departmentName ?? '–'}</td>

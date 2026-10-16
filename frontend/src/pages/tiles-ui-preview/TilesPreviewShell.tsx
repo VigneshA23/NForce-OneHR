@@ -5,7 +5,7 @@
  *  The summary tiles of each module page, rendered by that page's own tile component (the same ones the
  *  live pages use) with invented numbers; no login, session or API.
  *
- *    /tiles-ui-preview?page=headers  (page title icons) | performance|access|leave|requests|my-requests|assets|policies|documents|audit|reports|api-usage
+ *    /tiles-ui-preview?page=people (employee name cell) | headers (page title icons) | performance|access|leave|requests|my-requests|assets|policies|documents|audit|reports|api-usage
  *  Assets shows the Employee, Manager and HR Admin rows. The "Theme" swatches use the app's real
  *  accent-color setting.
  * ============================================================================
@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import PageTitleBlock from '../../components/PageTitleBlock';
+import { PersonCell } from '../../components/PersonCell';
 import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/accentColor';
 import { KpiCard } from '../talent/DashboardTab';
 import { KpiTile } from '../LeavePage';
@@ -34,6 +35,7 @@ import { KpiCard as ReportKpi } from '../ReportsPage';
 import { KpiCard as ApiKpi } from '../ApiUsagePage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
+  { key: 'people', label: 'People cell', title: 'Employee name cell', subtitle: 'User Management, Employee Master and People Directory now show an employee the same way: photo when they have one, name, then Employee ID.' },
   { key: 'headers', label: 'Page title icons', title: 'Page title icons', subtitle: 'Every module page opens with the same icon box beside its title.' },
   { key: 'performance', label: 'Performance', title: 'Performance', subtitle: 'Org-wide skills, certificates, and learning - dashboard, search, and directory.' },
   { key: 'access', label: 'Access', title: 'User Management', subtitle: 'Create and manage user accounts and roles.' },
@@ -81,12 +83,41 @@ const HEADERS: { icon: LucideIcon; title: string; subtitle: string }[] = [
   { icon: BookOpen, title: 'Help & Guidance Content', subtitle: 'Manage the help articles employees see.' },
 ];
 
+const photo = (bg: string, fg: string) => 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${bg}"/><circle cx="32" cy="25" r="12" fill="${fg}"/><path d="M8 64c2-16 14-22 24-22s22 6 24 22z" fill="${fg}"/></svg>`);
+const PEOPLE = [
+  { id: 'u1', name: 'Abuzar Siddiqui', code: 'NF-20261004', email: 'abuzar.siddiqui@nforceone.com', role: 'MANAGER', dept: 'Finance', photo: null as string | null },
+  { id: 'u2', name: 'Aanuj Reddy K', code: 'NF-20261033', email: 'aanuj.kormilla@nforceone.com', role: 'EMPLOYEE', dept: 'Engineering', photo: photo('#dfe3ea', '#6b7280') },
+  { id: 'u3', name: 'Venkat Narsimha Reddy', code: 'NF-20261019', email: 'vyshnavi.guthala+6@nforceone.com', role: 'EMPLOYEE', dept: 'Sales', photo: null },
+  { id: 'u4', name: 'Vandana', code: 'NF-20261096', email: 'vandana.donga@nforceone.com', role: 'EMPLOYEE', dept: 'Engineering', photo: photo('#f3d6dc', '#b4515f') },
+];
+const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+const td: React.CSSProperties = { padding: '10px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+
 const grid = (min: number): React.CSSProperties => ({ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`, gap: 14 });
 const rowTitle: React.CSSProperties = { fontSize: 11, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--txt-dim)', margin: '6px 0 -4px' };
 const noop = () => {};
 
 function Tiles({ page }: { page: string }) {
   switch (page) {
+    case 'people':
+      return (
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>{['Name', 'Email', 'Role', 'Department'].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {PEOPLE.map((p) => (
+                <tr key={p.id}>
+                  <td style={td}><PersonCell userId={p.id} name={p.name} code={p.code} photoDataUrl={p.photo} /></td>
+                  <td style={{ ...td, color: 'var(--txt)' }}>{p.email}</td>
+                  <td style={td}>{p.role}</td>
+                  <td style={td}>{p.dept}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
     case 'headers':
       return (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 14 }}>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { PersonCell } from '../components/PersonCell';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { X, ChevronDown, ChevronUp, Search, Users, AlertCircle, Contact } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
@@ -35,24 +36,6 @@ function StatusBadge({ active }: { active: boolean }) {
     <span style={{ fontSize: 11, fontWeight: 600, color: active ? 'var(--ok)' : 'var(--txt-dim)', background: active ? 'rgba(47,182,124,.15)' : 'rgba(107,114,128,.15)', borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap' }}>
       {active ? 'Active' : 'Inactive'}
     </span>
-  );
-}
-
-function initials(name: string) {
-  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
-}
-
-function Avatar({ name, size = 32 }: { name: string; size?: number }) {
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: 'rgba(177,17,22,.18)', color: 'var(--brand-bright)',
-      display: 'grid', placeItems: 'center',
-      fontSize: size * 0.34, fontWeight: 700, flexShrink: 0,
-      fontFamily: '"Space Grotesk", sans-serif',
-    }}>
-      {initials(name)}
-    </div>
   );
 }
 
@@ -414,7 +397,6 @@ export default function EmployeeMasterPage() {
                     <th style={sortableThStyle} onClick={() => toggleSort('fullName')}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Employee <SortIcon active={sortKey === 'fullName'} dir={sortDir} /></span>
                     </th>
-                    <th style={thStyle}>Employee ID</th>
                     <th style={sortableThStyle} onClick={() => toggleSort('departmentName')}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Dept <SortIcon active={sortKey === 'departmentName'} dir={sortDir} /></span>
                     </th>
@@ -436,7 +418,7 @@ export default function EmployeeMasterPage() {
                   {loading ? (
                     Array.from({ length: 8 }, (_, i) => (
                       <tr key={i}>
-                        {[180, 90, 110, 120, 110, 100, 70, 60, 30].map((w, ci) => (
+                        {[180, 110, 120, 110, 100, 70, 60, 30].map((w, ci) => (
                           <td key={ci} style={{ ...tdStyle, padding: '14px' }}>
                             <div style={{ height: 12, width: w, borderRadius: 4, background: 'var(--raised2)', animation: 'glow-pulse 1.6s ease-in-out infinite' }} />
                           </td>
@@ -449,15 +431,8 @@ export default function EmployeeMasterPage() {
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
                       <td style={tdStyle}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Avatar name={emp.fullName} />
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>{emp.fullName}</div>
-                            <div style={{ color: 'var(--txt-dim)', fontSize: 12, whiteSpace: 'nowrap' }}>{emp.email}</div>
-                          </div>
-                        </div>
+                        <PersonCell userId={emp.userId} name={emp.fullName} code={emp.employeeCode} extra={emp.email} />
                       </td>
-                      <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{emp.employeeCode}</td>
                       <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
                       <td style={tdStyle}>{emp.designationName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
                       <td style={tdStyle}>{emp.currentManager ? emp.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { PersonCell } from '../components/PersonCell';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
@@ -77,24 +78,6 @@ function StatusBadge({ active }: { active: boolean }) {
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: active ? '#2FB67C' : '#E4373D' }} />
       {active ? 'Active' : 'Inactive'}
     </span>
-  );
-}
-
-function initials(name: string) {
-  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
-}
-
-function Avatar({ name, size = 32 }: { name: string; size?: number }) {
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: 'rgba(177,17,22,.14)', color: 'var(--brand-bright)',
-      display: 'grid', placeItems: 'center',
-      fontSize: size * 0.36, fontWeight: 700, flexShrink: 0,
-      fontFamily: '"Space Grotesk", sans-serif',
-    }}>
-      {initials(name)}
-    </div>
   );
 }
 
@@ -1341,7 +1324,7 @@ export default function UserManagementPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Reporting Manager', 'Status', ''].map(h => (
+                    {['Name', 'Email', 'Role', 'Department', 'Reporting Manager', 'Status', ''].map(h => (
                       <th key={h} style={thStyle}>{h}</th>
                     ))}
                   </tr>
@@ -1356,12 +1339,8 @@ export default function UserManagementPage() {
                     <tr key={u.userId} style={{ opacity: u.active ? 1 : 0.6 }}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
-                      <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{u.employeeCode}</td>
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Avatar name={u.fullName} />
-                          {u.fullName}
-                        </div>
+                      <td style={tdStyle}>
+                        <PersonCell userId={u.userId} name={u.fullName} code={u.employeeCode} />
                       </td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{u.email}</td>
                       <td style={tdStyle}><RoleBadge role={u.role} /></td>
