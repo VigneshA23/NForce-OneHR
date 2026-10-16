@@ -5,7 +5,7 @@
  *  The summary tiles of each module page, rendered by that page's own tile component (the same ones the
  *  live pages use) with invented numbers; no login, session or API.
  *
- *    /tiles-ui-preview?page=masters (Org Masters header) | people (employee name cell) | headers (page title icons) | performance|access|leave|requests|my-requests|assets|policies|documents|audit|reports|api-usage
+ *    /tiles-ui-preview?page=menu (left menu by role) | masters (Org Masters header) | people (employee name cell) | headers (page title icons) | performance|access|leave|requests|my-requests|assets|policies|documents|audit|reports|api-usage
  *  Assets shows the Employee, Manager and HR Admin rows. The "Theme" swatches use the app's real
  *  accent-color setting.
  * ============================================================================
@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import PageTitleBlock from '../../components/PageTitleBlock';
 import { PersonCell } from '../../components/PersonCell';
+import { SidebarNav } from '../../components/SidebarNav';
+import type { Role } from '../../lib/nav.config';
 import { TabBar } from '../../components/TabBar';
 import { useState } from 'react';
 import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/accentColor';
@@ -37,6 +39,7 @@ import { KpiCard as ReportKpi } from '../ReportsPage';
 import { KpiCard as ApiKpi } from '../ApiUsagePage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
+  { key: 'menu', label: 'Left menu', title: 'Left menu by role', subtitle: 'The real sidebar for each role, with the disabled "P2" placeholder modules removed.' },
   { key: 'masters', label: 'Org Masters', title: 'Organization Masters header', subtitle: 'The search and Add controls now sit in the page header, above the tabs.' },
   { key: 'people', label: 'People cell', title: 'Employee name cell', subtitle: 'User Management, Employee Master and People Directory now show an employee the same way: photo when they have one, name, then Employee ID.' },
   { key: 'headers', label: 'Page title icons', title: 'Page title icons', subtitle: 'Every module page opens with the same icon box beside its title.' },
@@ -142,6 +145,17 @@ function MastersMock() {
 
 function Tiles({ page }: { page: string }) {
   switch (page) {
+    case 'menu':
+      return (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, alignItems: 'start' }}>
+          {(['Employee', 'Manager', 'HR Admin', 'Super Admin'] as Role[]).map((r) => (
+            <div key={r} style={{ background: '#0B0C0F', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 640 }}>
+              <div style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9aa1ac', borderBottom: '1px solid #1c1f26' }}>{r}</div>
+              <SidebarNav role={r} currentKey="dashboard" onNavigate={() => {}} />
+            </div>
+          ))}
+        </div>
+      );
     case 'masters':
       return <MastersMock />;
     case 'people':
