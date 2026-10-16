@@ -4769,6 +4769,10 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       // stops short of either.
       const calH = cal ? cal.getBoundingClientRect().height : 0;
       day.style.minHeight = sideBySide ? `${Math.round(Math.max(sr.height, calH))}px` : '';
+      // When the panel has wrapped below the calendar at full width (zoomed in / narrow window), it has no spare
+      // height to fill, so it lays out as two columns instead: details on the left, the breathing pacer on the right.
+      if (!besideCalendar && d.width >= 560) day.setAttribute('data-nf-wrapped', d.width >= 640 ? 'wide' : 'true');
+      else day.removeAttribute('data-nf-wrapped');
     };
     const queue = () => { window.clearTimeout(timer); timer = window.setTimeout(sync, 30); };
     const ro = new ResizeObserver(queue);
@@ -4778,7 +4782,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     sync();
     return () => {
       window.clearTimeout(timer); ro.disconnect(); mo.disconnect(); window.removeEventListener('resize', queue);
-      if (dayDetailsRef.current) dayDetailsRef.current.style.minHeight = '';
+      if (dayDetailsRef.current) { dayDetailsRef.current.style.minHeight = ''; dayDetailsRef.current.removeAttribute('data-nf-wrapped'); }
     };
   }, [logsTab]);
   const selectDayAndReveal = useCallback((iso: string) => {
@@ -5180,7 +5184,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
             ) : selectedInfo.isToday ? (
               // Today's workday — merged from the old standalone punch card, now living
               // in the calendar's side panel with the exact same today/punch() state.
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+              <div className="nf-today-details" style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>Today's workday</div>
                 {loading ? (
                   <PanelSkeleton rows={3} />
@@ -5242,6 +5246,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                         </div>
                       )}
                     </div>
+                    {/* Shift + punch list share one wrapper so, in the wide wrapped layout, they can sit together in a
+                        second column (see [data-nf-wrapped="wide"] in index.css). Same gap as before otherwise. */}
+                    <div className="nf-day-col2" style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
                     <DayShiftAndActions
                       info={selectedInfo}
                       config={config}
@@ -5252,6 +5259,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                         with a refreshKey, so today's list updates immediately after a punch instead
                         of showing whatever punchesByDate cached before the punch happened. */}
                     <PunchHistoryList date={selectedInfo.iso} token={token} refreshKey={punchVersion} isPreviewMode={isPreviewMode} />
+                    </div>
                   </>
                 )}
               </div>

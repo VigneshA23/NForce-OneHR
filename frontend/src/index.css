@@ -1643,3 +1643,20 @@ select, input, textarea, button { touch-action: manipulation; }
 @media (prefers-reduced-motion: reduce) {
   .nf-breathe-label--out { display: none; }
 }
+
+/* Calendar tab, panel wrapped below the calendar (e.g. zoomed in): details on the left, the pacer fills the rest of the
+   row (orb centred in that space), so there are no blank side margins. */
+[data-nf-wrapped] { flex-direction: row !important; align-items: stretch; gap: 24px; }
+[data-nf-wrapped] > :first-child { flex: 0 1 auto; min-width: 0; }
+[data-nf-wrapped] > .nf-breathe-wrap { flex: 1 1 0; min-width: 200px; margin-top: 0 !important; }
+[data-nf-wrapped] .nf-breathe-art {
+  --orb: clamp(90px, 50cqh, 150px); grid-template-columns: auto; justify-content: end; padding-right: clamp(12px, 5%, 48px);
+  background: radial-gradient(ellipse at 80% 52%, color-mix(in srgb, var(--brand) 9%, transparent) 0%, transparent 70%);
+}
+/* the caption sits under the orb itself (not centred across the whole area) */
+[data-nf-wrapped] .nf-breathe-caption { position: static; grid-area: 1 / 1; align-self: end; justify-self: center; margin-bottom: 12px; }
+/* Wide: today's details become two columns (check-in / out / worked / button, then the shift + actions), which fills the
+   middle of the row and leaves the pacer at the right, vertically centred. */
+[data-nf-wrapped="wide"] > .nf-today-details { display: grid !important; grid-template-columns: auto auto; column-gap: clamp(24px, 4vw, 56px); justify-content: start; align-content: start; }
+[data-nf-wrapped="wide"] > .nf-today-details > * { grid-column: 1; }
+[data-nf-wrapped="wide"] > .nf-today-details > .nf-day-col2 { grid-column: 2; grid-row: 1 / span 4; align-self: start; }
