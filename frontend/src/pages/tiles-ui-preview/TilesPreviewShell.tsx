@@ -37,6 +37,7 @@ import { DocumentStatTiles } from '../DocumentsPage';
 import { AuditStatCards } from '../../components/audit/AuditStatCards';
 import { KpiCard as ReportKpi } from '../ReportsPage';
 import { KpiCard as ApiKpi } from '../ApiUsagePage';
+import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
   { key: 'menu', label: 'Left menu', title: 'Left menu by role', subtitle: 'The real sidebar for each role, with the disabled "P2" placeholder modules removed.' },
@@ -53,6 +54,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'audit', label: 'Audit', title: 'Audit & Security', subtitle: 'Your administrative activity history.' },
   { key: 'reports', label: 'Reports', title: 'Reports & Analytics', subtitle: 'Headcount, attendance and leave summaries.' },
   { key: 'api-usage', label: 'API Usage', title: 'API Usage', subtitle: 'Assistant request volume, tokens and latency.' },
+  { key: 'holidays', label: 'Holidays calendar', title: 'Holidays', subtitle: 'Month calendar with holidays highlighted, today marked and a legend.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -340,6 +342,13 @@ function Tiles({ page }: { page: string }) {
       );
     case 'policies':
       return <PolicyStatTiles activePolicies={14} pendingAck={37} announcements={9} />;
+    case 'holidays': {
+      const y = new Date().getFullYear();
+      const m = String(new Date().getMonth() + 1).padStart(2, '0');
+      const mk = (id: string, d: string, n: string, loc = 'Hyderabad') => ({ id, holidayName: n, holidayDate: `${y}-${m}-${d}`, locationId: loc, locationName: loc, active: true });
+      const rows = [mk('1', '02', 'Gandhi Jayanti'), mk('2', '12', 'Dussehra'), mk('3', '12', 'Dussehra', 'Bengaluru'), mk('4', '20', 'Diwali Eve'), mk('5', '21', 'Diwali'), mk('6', '22', 'Govardhan Puja')];
+      return <div style={{ maxWidth: 400 }}><HolidayMonthCalendar holidays={rows} /></div>;
+    }
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:
