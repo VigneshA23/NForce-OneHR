@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase, Search, ChevronDown } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -428,17 +428,39 @@ export function SearchableSelectField({ label, value, onChange, options, placeho
   const [query, setQuery] = useState(selected?.label ?? '');
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputWrapRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
 
   useEffect(() => { setQuery(selected?.label ?? ''); }, [selected?.label]);
 
+  // The list is portaled to <body> (see below), so it is no longer a DOM descendant of
+  // containerRef — a click inside it must count as "inside" too, or the mousedown would unmount
+  // the list before the noMatchFooter button's own click could land.
   useEffect(() => {
     function onOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (containerRef.current?.contains(t) || listRef.current?.contains(t)) return;
+      setOpen(false);
     }
     if (open) {
       document.addEventListener('mousedown', onOutside);
       return () => document.removeEventListener('mousedown', onOutside);
     }
+  }, [open]);
+
+  // Anchor the fixed-position list to the input; re-measure on any scroll (capture, so the modal
+  // body's own scroll counts) or resize while open so it never drifts away from the field.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const measure = () => { if (inputWrapRef.current) setAnchorRect(inputWrapRef.current.getBoundingClientRect()); };
+    measure();
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('scroll', measure, true);
+      window.removeEventListener('resize', measure);
+    };
   }, [open]);
 
   const q = query.trim().toLowerCase();
@@ -455,7 +477,7 @@ export function SearchableSelectField({ label, value, onChange, options, placeho
   return (
     <div ref={containerRef} style={{ position: 'relative' }}>
       <FieldLabel>{label}</FieldLabel>
-      <div style={{ position: 'relative' }}>
+      <div ref={inputWrapRef} style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)' }} aria-hidden />
         <input
           value={query}
@@ -467,12 +489,8 @@ export function SearchableSelectField({ label, value, onChange, options, placeho
         />
         <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} aria-hidden />
       </div>
-      {open && (
-        <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, maxHeight: 220, overflowY: 'auto',
-          background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 8, zIndex: 50,
-          boxShadow: '0 8px 24px rgba(0,0,0,.3)',
-        }}>
+      {open && anchorRect && createPortal(
+        <div ref={listRef} style={dropdownPlacement(anchorRect)}>
           {filtered.length === 0 ? (
             <div style={{ padding: '10px 12px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No matches for "{query}"</div>
           ) : (
@@ -491,10 +509,30 @@ export function SearchableSelectField({ label, value, onChange, options, placeho
           {noMatchFooter && (
             <div style={{ borderTop: '1px solid var(--line)' }}>{noMatchFooter(query)}</div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
+}
+
+// Fixed-position placement for SearchableSelectField's list: below the input by default, flipped
+// above it when there's less than a full list's height of room below and more room above, with
+// max-height shrunk to whatever space the chosen side actually has so it never runs off-screen.
+// zIndex sits above EditModal's overlay (600). Only the list scrolls — it lives outside the
+// modal, so the modal body never grows a second scrollbar next to it.
+function dropdownPlacement(anchor: DOMRect): React.CSSProperties {
+  const GAP = 4, MARGIN = 8, FULL_HEIGHT = 220, MIN_HEIGHT = 96;
+  const below = window.innerHeight - anchor.bottom - GAP - MARGIN;
+  const above = anchor.top - GAP - MARGIN;
+  const openUp = below < FULL_HEIGHT && above > below;
+  return {
+    position: 'fixed', left: anchor.left, width: anchor.width, zIndex: 1100,
+    ...(openUp ? { bottom: window.innerHeight - anchor.top + GAP } : { top: anchor.bottom + GAP }),
+    maxHeight: Math.max(MIN_HEIGHT, Math.min(FULL_HEIGHT, openUp ? above : below)), overflowY: 'auto',
+    background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 8,
+    boxShadow: '0 8px 24px rgba(0,0,0,.3)',
+  };
 }
 
 export function TextAreaField({ label, value, onChange, rows = 3, placeholder }: {
