@@ -1502,24 +1502,10 @@ function RosterTable({ rows, loading, emptyMessage, emails }: {
  * caller currently omits onClick, but the prop stays optional so the component isn't forced to
  * always be interactive).
  */
-/** % change vs. the previous calendar month — real data (prevMonthRecords, fetched the same
- * way as the current month's), never a placeholder. Null when there's nothing to compare
- * against (previous month had zero of whatever's being measured). */
-function monthDeltaPct(current: number, prev: number): number | null {
-  if (prev <= 0) return current > 0 ? 100 : null;
-  return Math.round(((current - prev) / prev) * 100);
-}
-
-function MonthStatTile({ label, value, hint, icon: Icon, accent = 'var(--brand)', onClick, delta }: {
+function MonthStatTile({ label, value, hint, icon: Icon, accent = 'var(--brand)', onClick }: {
   label: string; value: string; hint: string; icon: LucideIcon; accent?: string; onClick?: () => void;
-  /** `goodDirection: 'up'` means a higher number is the good outcome (e.g. Days Present) —
-   * flips the up/down color so a metric like Late Arrivals still shows red when it rises. */
-  delta?: { pct: number; goodDirection: 'up' | 'down' };
 }) {
   const Tag = onClick ? 'button' : 'div';
-  const deltaUp = delta ? delta.pct >= 0 : false;
-  const deltaGood = delta ? (delta.goodDirection === 'up' ? deltaUp : !deltaUp) : false;
-  const deltaColor = delta ? (delta.pct === 0 ? 'var(--txt-dim)' : deltaGood ? 'var(--ok)' : 'var(--risk)') : undefined;
   return (
     <Tag
       onClick={onClick}
@@ -1550,12 +1536,6 @@ function MonthStatTile({ label, value, hint, icon: Icon, accent = 'var(--brand)'
         <span className="nf-stat-value" style={{ fontWeight: 800, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1, whiteSpace: 'nowrap' }}>
           {value}
         </span>
-        {delta && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 700, color: deltaColor }}>
-            {delta.pct === 0 ? null : deltaUp ? <ArrowUpRight size={12} /> : <ArrowDownLeft size={12} />}
-            {Math.abs(delta.pct)}%
-          </span>
-        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
         <span style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{hint}</span>
@@ -3460,26 +3440,32 @@ const attendanceVisualPlaceholderStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', height: ATTENDANCE_VISUAL_HEIGHT, width: '100%', fontSize: 12, color: 'var(--txt-dim)',
 };
 
-export function AttendanceTimeline({ info, punches, punchesLoading }: {
+/** Days that show only a one-line note (company holiday, on leave, full-day weekly-off) instead of a punch timeline. */
+export function isLogNoteRow(info: DayInfo): boolean {
+  return !!((info.holidayName && !info.record) || info.leaveTypeName || (info.isWeekend && !info.record && !info.attendanceRequest));
+}
+
+// That one-line note: dark, semi-bold. With `centered` (the wide table) it is placed in the middle of the whole
+// Logs & Requests container, not just its own column: the table wrapper (.nf-log-table-view) is the positioning box.
+const logNoteTextStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt)', whiteSpace: 'nowrap' };
+const logNoteCenteredStyle: React.CSSProperties = {
+  ...logNoteTextStyle, position: 'absolute', left: '50%', transform: 'translateX(-50%)', maxWidth: '60%',
+  overflow: 'hidden', textOverflow: 'ellipsis',
+};
+
+export function AttendanceTimeline({ info, punches, punchesLoading, centered = false }: {
   info: DayInfo; punches: Punch[] | undefined; punchesLoading: boolean;
+  /** Wide-table rows only: centre the one-line note across the whole container (see logNoteCenteredStyle). */
+  centered?: boolean;
 }) {
   const { formatTime } = useTimeFormat();
-  if (info.holidayName && !info.record) {
-    return (
-      <div style={attendanceVisualPlaceholderStyle}>
-        <TruncatedText text={`Company holiday · ${info.holidayName}`} />
-      </div>
-    );
-  }
-  if (info.leaveTypeName) {
-    return (
-      <div style={attendanceVisualPlaceholderStyle}>
-        <TruncatedText text={`On leave · ${info.leaveTypeName}`} />
-      </div>
-    );
-  }
-  if (info.isWeekend && !info.record && !info.attendanceRequest) {
-    return <div style={attendanceVisualPlaceholderStyle}>Full day Weekly-off</div>;
+  if (isLogNoteRow(info)) {
+    const text = info.holidayName && !info.record ? `Company holiday · ${info.holidayName}`
+      : info.leaveTypeName ? `On leave · ${info.leaveTypeName}`
+      : 'Full day Weekly-off';
+    return centered
+      ? <div style={{ height: ATTENDANCE_VISUAL_HEIGHT }}><span title={text} style={logNoteCenteredStyle}>{text}</span></div>
+      : <div style={{ ...attendanceVisualPlaceholderStyle, ...logNoteTextStyle, justifyContent: 'center', textAlign: 'center' }}>{text}</div>;
   }
   const record = info.record;
   if (!record?.checkInAt) {
@@ -4687,25 +4673,6 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     return () => { cancelled = true; };
   }, [viewYear, viewMonth, token, isPreviewMode]);
 
-  // Previous calendar month's records — fetched purely to give the KPI row a real "vs last
-  // month" comparison (same attendanceApi.myHistory call as monthRecords above, just for the
-  // month before). Never shown on its own, never used for anything but that one delta.
-  const [prevMonthRecords, setPrevMonthRecords] = useState<AttendanceRecord[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    const prevMonth = viewMonth === 0 ? 11 : viewMonth - 1;
-    const prevYear = viewMonth === 0 ? viewYear - 1 : viewYear;
-    if (isPreviewMode) {
-      setPrevMonthRecords(buildMockMonthRecords(prevYear, prevMonth));
-      return () => { cancelled = true; };
-    }
-    const from = isoOf(prevYear, prevMonth, 1);
-    const to = isoOf(prevYear, prevMonth, daysInMonth(prevYear, prevMonth));
-    attendanceApi.myHistory(from, to, token)
-      .then((r) => { if (!cancelled) setPrevMonthRecords(r); })
-      .catch(() => { if (!cancelled) setPrevMonthRecords([]); });
-    return () => { cancelled = true; };
-  }, [viewYear, viewMonth, token, isPreviewMode]);
 
   const recordByDate = useMemo(() => {
     const map = new Map<string, AttendanceRecord>();
@@ -4749,10 +4716,6 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   // field (AttendanceRecord.status), not a new metric: every row already renders this status
   // via StatusPill, this just tallies it for the dashboard's KPI row.
   const lateCount = monthRecords.filter((r) => r.status === 'LATE').length;
-  const prevPresentDaysCount = prevMonthRecords.filter((r) => r.checkInAt).length;
-  const prevWorkedMinutesTotal = prevMonthRecords.reduce((sum, r) => sum + (r.workedMinutes ?? 0), 0);
-  const prevLateCount = prevMonthRecords.filter((r) => r.status === 'LATE').length;
-  const prevAbsentCount = prevMonthRecords.filter((r) => r.status === 'ABSENT').length;
   const absentCount = monthRecords.filter((r) => r.status === 'ABSENT').length;
   // Backs both the "Leave / Holidays" KPI tile's count and its detail modal's list — one
   // derivation instead of two, so they can never disagree.
@@ -5158,22 +5121,18 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
           <MonthStatTile
             label="Days Present" value={monthLoading ? '–' : String(presentDaysCount)} hint={calendarMonthLabel(viewYear, viewMonth)}
             icon={CheckCircle2} accent="var(--ok)" onClick={() => setKpiModal('PRESENT')}
-            delta={!monthLoading ? { pct: monthDeltaPct(presentDaysCount, prevPresentDaysCount) ?? 0, goodDirection: 'up' } : undefined}
           />
           <MonthStatTile
             label="Worked Hours" value={monthLoading ? '–' : (formatDuration(workedMinutesTotal) ?? '0m')} hint={calendarMonthLabel(viewYear, viewMonth)}
             icon={Clock} accent="var(--brand)" onClick={() => setKpiModal('WORKED_HOURS')}
-            delta={!monthLoading ? { pct: monthDeltaPct(workedMinutesTotal, prevWorkedMinutesTotal) ?? 0, goodDirection: 'up' } : undefined}
           />
           <MonthStatTile
             label="Late Arrivals" value={monthLoading ? '–' : String(lateCount)} hint={calendarMonthLabel(viewYear, viewMonth)}
             icon={Turtle} accent="var(--warn)" onClick={() => setKpiModal('LATE')}
-            delta={!monthLoading ? { pct: monthDeltaPct(lateCount, prevLateCount) ?? 0, goodDirection: 'down' } : undefined}
           />
           <MonthStatTile
             label="Absent Days" value={monthLoading ? '–' : String(absentCount)} hint={calendarMonthLabel(viewYear, viewMonth)}
             icon={X} accent="var(--risk)" onClick={() => setKpiModal('ABSENT')}
-            delta={!monthLoading ? { pct: monthDeltaPct(absentCount, prevAbsentCount) ?? 0, goodDirection: 'down' } : undefined}
           />
           <MonthStatTile
             label="Leave / Holidays" value={String(leaveHolidayCount)} hint={calendarMonthLabel(viewYear, viewMonth)} icon={CalendarDays} accent="var(--info)" onClick={() => setKpiModal('LEAVE_HOLIDAY')}
@@ -5388,6 +5347,15 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                                 <LogDateCell info={info} />
                               </LogCellButton>
                             </td>
+                            {isLogNoteRow(info) ? (
+                              // A holiday / leave / weekly-off day has no punches, so the four middle columns merge and the
+                              // note sits in the centre of the whole container.
+                              <td colSpan={4} style={{ padding: 0 }}>
+                                <LogCellButton block onClick={() => setViewDetailsIso(info.iso)} ariaLabel={`View attendance details for ${dayLabel}`}>
+                                  <AttendanceTimeline info={info} punches={punches} punchesLoading={punchesLoading} centered />
+                                </LogCellButton>
+                              </td>
+                            ) : (<>
                             <td style={{ padding: 0 }}>
                               <LogCellButton block onClick={() => setViewDetailsIso(info.iso)} ariaLabel={`View punch timeline for ${dayLabel}`}>
                                 <AttendanceTimeline info={info} punches={punches} punchesLoading={punchesLoading} />
@@ -5418,6 +5386,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                                 <ArrivalCell record={info.record} graceMinutes={config?.lateGraceMinutes} config={config} />
                               </LogCellButton>
                             </td>
+                            </>)}
                             <td style={tdStyle}>
                               <button
                                 onClick={() => setViewDetailsIso(info.iso)}

@@ -1127,7 +1127,7 @@ input[type="date"] {
    below 900px a 6-column row can't stay legible even compacted, so it switches to one compact
    card per day instead. Exactly one of the two is ever in the layout (not just hidden), so the
    card list's own rows never affect the table's height or vice versa. */
-.nf-log-table-view { display: block; }
+.nf-log-table-view { display: block; position: relative; }
 .nf-log-card-view { display: none; }
 @media (max-width: 899px) {
   .nf-log-table-view { display: none; }
