@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, CheckCheck, Search, RefreshCw, Inbox, ArrowUpRight, Check,
@@ -484,7 +485,7 @@ export default function NotificationsPage() {
 
       {/* Header */}
       <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div>
+        <PageTitleBlock icon={Bell}>
           <h1 style={{
             fontFamily: 'Inter, sans-serif',
             fontSize: 22, fontWeight: 700, color: 'var(--txt)',
@@ -508,7 +509,7 @@ export default function NotificationsPage() {
           <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', margin: 0 }}>
             {total > 0 ? `${total} total notification${total !== 1 ? 's' : ''}` : 'All caught up'}
           </p>
-        </div>
+        </PageTitleBlock>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <button

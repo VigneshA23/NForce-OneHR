@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import {
   ChevronRight, ChevronLeft, Clock, FileText, Package, RefreshCw, Check,
-  Archive, Calendar, Users, AlertTriangle, ClipboardList, X, Eye, Search,
+  Archive, Calendar, Users, AlertTriangle, ClipboardList, X, Eye, Search, UserPlus
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -649,10 +650,10 @@ export default function OnboardingPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
-        <div>
+        <PageTitleBlock icon={UserPlus}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Onboarding</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>Every great career starts with NForceOne.</p>
-        </div>
+        </PageTitleBlock>
       </div>
 
       <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 12, marginBottom: 20 }}>

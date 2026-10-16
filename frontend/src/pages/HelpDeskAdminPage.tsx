@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -64,13 +65,10 @@ function Person({ name, fallback, large }: { name?: string | null; fallback?: st
 function PageHeader({ subtitle }: { subtitle?: string }) {
   return (
     <div className="nf-rq-header">
-      <div className="nf-rq-header-main">
-        <div className="nf-rq-header-icon"><Ticket size={24} /></div>
-        <div>
+      <PageTitleBlock icon={Ticket} style={{ position: 'relative' }}>
           <h1 className="nf-rq-title">HR Service Requests</h1>
           {subtitle && <p className="nf-rq-subtitle">{subtitle}</p>}
-        </div>
-      </div>
+      </PageTitleBlock>
     </div>
   );
 }

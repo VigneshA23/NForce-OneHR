@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -7414,14 +7415,7 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
             width, wrapping them onto separate lines where they used to sit side by side. Without
             grow, title only ever claims its basis (or less, via shrink, on very narrow screens),
             leaving all spare width for the buttons, matching the original layout's intent. */}
-        <div style={{ flex: '0 1 520px', maxWidth: 640, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          <div style={{
-            width: 38, height: 38, borderRadius: 9, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'color-mix(in srgb, var(--brand) 14%, var(--raised))', border: '1px solid color-mix(in srgb, var(--brand) 26%, var(--line))',
-          }}>
-            <Clock size={18} style={{ color: 'var(--brand)' }} />
-          </div>
-          <div style={{ minWidth: 0 }}>
+        <PageTitleBlock icon={Clock} style={{ flex: '0 1 520px', maxWidth: 640 }}>
             <h1 style={{
               fontFamily: '"Space Grotesk", sans-serif', fontSize: 21, fontWeight: 700,
               color: 'var(--txt)', margin: 0, letterSpacing: '-.01em',
@@ -7437,8 +7431,7 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
                 🔍 UI PREVIEW · Mock Data (Not Real)
               </div>
             )}
-          </div>
-        </div>
+        </PageTitleBlock>
         {/* width is computed explicitly (2x the button clamp formula from index.css, + the 10px
             gap) rather than left as "auto": a flex container's own auto/shrink-to-fit width, when
             its children are flex-grow items, does not reliably compute to those children's full

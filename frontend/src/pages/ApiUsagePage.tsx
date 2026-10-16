@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import {
   Activity, ExternalLink, Gauge, MessageSquareText, RefreshCw, Settings2, ShieldAlert, Zap,
@@ -451,12 +452,12 @@ export default function ApiUsagePage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-        <div>
+        <PageTitleBlock icon={Gauge}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>API Usage</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13, maxWidth: '62ch' }}>
             NORA request volume, token usage and estimated spend.
           </p>
-        </div>
+        </PageTitleBlock>
         <a
           href={MISTRAL_ADMIN_URL}
           target="_blank"

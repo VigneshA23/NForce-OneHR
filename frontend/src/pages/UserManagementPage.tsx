@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
 import { Plus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, MoreVertical } from 'lucide-react';
@@ -1270,15 +1271,10 @@ export default function UserManagementPage() {
     <div>
       {/* Header */}
       <div className="nf-policy-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(177,17,22,.12)', color: 'var(--brand-bright)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-            <UserIcon size={19} />
-          </div>
-          <div>
+        <PageTitleBlock icon={UserIcon}>
             <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 21, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>User Management</h1>
             <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 3 }}>Manage access, roles, and account status for all users.</p>
-          </div>
-        </div>
+        </PageTitleBlock>
         <div className="nf-policy-actions" style={{ display: 'flex' }}>
           {/* Matches the primary "Add/Create" button used across Organization Masters and Workflow
               Studio (var(--brand) fill, '+' glyph) rather than a one-off gradient + custom icon —

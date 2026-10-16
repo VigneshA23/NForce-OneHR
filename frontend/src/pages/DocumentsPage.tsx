@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, AlertTriangle, Search, Eye, Paperclip, FileText, ShieldCheck, Hourglass, XCircle, FileX2 } from 'lucide-react';
 import DashTile from '../components/DashTile';
@@ -211,8 +212,10 @@ export default function DocumentsPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>My Documents & Policies</h1>
+      <PageTitleBlock icon={FileText}>
+<h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>My Documents & Policies</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Manage your required documents and acknowledge company policies.</p>
+</PageTitleBlock>
 
       {/* KPI tiles */}
       <DocumentStatTiles required={required.length} verified={verified.length} pending={pending.length} rejected={rejected.length} missing={missing.length} />

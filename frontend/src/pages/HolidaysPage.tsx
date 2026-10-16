@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { orgApi, type LocationRow } from '../api/org';
@@ -377,22 +378,14 @@ export default function HolidaysPage() {
         backgroundImage: 'linear-gradient(120deg, color-mix(in srgb, var(--brand) 6%, var(--panel)) 0%, var(--panel) 55%)',
         flexWrap: 'wrap',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-          <div style={{
-            width: 42, height: 42, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'linear-gradient(155deg, var(--brand) 0%, var(--brand-deep) 100%)', boxShadow: '0 4px 14px rgba(177,17,22,.28)',
-          }}>
-            <Sparkles size={19} color="#fff" />
-          </div>
-          <div style={{ minWidth: 0 }}>
+        <PageTitleBlock icon={CalendarHeart}>
             <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
               Company Holidays{holidayScopeLabel ? ` - ${holidayScopeLabel}` : ''}
             </h1>
             <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 3 }}>
               {isAdmin ? 'Holidays across the company, by location.' : 'Holidays for your work location.'}
             </p>
-          </div>
-        </div>
+        </PageTitleBlock>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {isAdmin && (
             <select

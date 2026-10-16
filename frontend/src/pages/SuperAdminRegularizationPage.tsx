@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, X } from 'lucide-react';
+import { ArrowLeft, X, ClipboardCheck } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
@@ -163,12 +164,14 @@ export default function SuperAdminRegularizationPage() {
         <Link to="/attendance" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-dim)', textDecoration: 'none', marginBottom: 8 }}>
           <ArrowLeft size={13} /> Back to Attendance
         </Link>
-        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
+        <PageTitleBlock icon={ClipboardCheck}>
+<h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
           Attendance Regularization - All Requests
         </h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
           Org-wide history across every employee, manager, and status, with full approval/rejection audit trail.
         </p>
+</PageTitleBlock>
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>

@@ -1590,3 +1590,8 @@ select, input, textarea, button, [role="button"], [role="option"], [role="menuit
   transition-delay: 0s !important;
 }
 select, input, textarea, button { touch-action: manipulation; }
+
+/* Module page titles (components/PageTitleBlock): one heading + subtitle look everywhere. Margins are left to each
+   page, so spacing below the title is unchanged. */
+.nf-page-title h1 { font-family: Inter, sans-serif !important; font-size: 20px !important; font-weight: 700 !important; line-height: 1.25 !important; letter-spacing: 0 !important; color: var(--txt) !important; }
+.nf-page-title p { font-size: 13px !important; line-height: 1.45 !important; color: var(--txt-mut) !important; }

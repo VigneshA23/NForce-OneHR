@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { ShieldAlert } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { exceptionsApi, type ExceptionRecord } from '../api/exceptions';
@@ -109,10 +111,10 @@ export default function ExceptionDashboardPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 22 }}>
+      <PageTitleBlock icon={ShieldAlert} style={{ marginBottom: 22 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Exception Dashboard</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
-      </div>
+      </PageTitleBlock>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'end', marginBottom: 16 }}>
         <div>

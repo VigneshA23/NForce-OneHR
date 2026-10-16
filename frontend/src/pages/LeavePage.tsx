@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import {
   CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Hourglass, Search,
-  Sparkles, Wallet, X,
+  Wallet, X, CalendarDays
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
@@ -377,18 +378,10 @@ export default function LeavePage() {
         background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '18px 22px',
         backgroundImage: 'linear-gradient(120deg, color-mix(in srgb, var(--brand) 6%, var(--panel)) 0%, var(--panel) 55%)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-          <div style={{
-            width: 42, height: 42, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'linear-gradient(155deg, var(--brand) 0%, var(--brand-deep) 100%)', boxShadow: '0 4px 14px rgba(177,17,22,.28)',
-          }}>
-            <Sparkles size={19} color="#fff" />
-          </div>
-          <div style={{ minWidth: 0 }}>
+        <PageTitleBlock icon={CalendarDays}>
             <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Leave</h1>
             <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 3 }}>View your balance, request leave, and track approvals.</p>
-          </div>
-        </div>
+        </PageTitleBlock>
         <button onClick={() => setShowRequest(true)} disabled={types.length === 0} style={{ ...primaryButtonStyle, padding: '10px 18px', cursor: types.length === 0 ? 'not-allowed' : 'pointer', opacity: types.length === 0 ? 0.6 : 1, boxShadow: types.length === 0 ? 'none' : '0 2px 10px rgba(177,17,22,.25)' }}>
           <CalendarPlus size={14} /> Request Leave
         </button>

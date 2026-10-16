@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { Briefcase } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { opportunitiesApi, type InterestedEmployee, type Opportunity } from '../api/opportunities';
 import { skillsApi, type Skill } from '../api/skills';
@@ -147,12 +149,12 @@ export default function BenchOpportunitiesPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 14 }}>
+      <PageTitleBlock icon={Briefcase} style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Internal Opportunities</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
           Short-term internal roles, shown only to employees currently on bench.
         </p>
-      </div>
+      </PageTitleBlock>
 
       {canPost && <PostForm token={token} skills={skills} onPosted={load} />}
       <ErrorBox message={error} />

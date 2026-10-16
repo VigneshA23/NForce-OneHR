@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip, FileCheck2 } from 'lucide-react';
 import DashTile from '../components/DashTile';
 import { KebabMenu } from '../components/KebabMenu';
@@ -701,10 +702,10 @@ export default function PoliciesPage() {
   return (
     <div>
       <div className="nf-policy-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-        <div>
+        <PageTitleBlock icon={Megaphone}>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Policies & Announcements</h1>
           <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginTop: 4 }}>Publish company policies and broadcast announcements.</p>
-        </div>
+        </PageTitleBlock>
         <div className="nf-policy-actions" style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => setShowAnnounce(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>

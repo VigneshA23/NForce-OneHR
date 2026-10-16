@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useNavigate } from 'react-router-dom';
-import { Check, ExternalLink, Paperclip, Plus } from 'lucide-react';
+import { Check, ExternalLink, Paperclip, Plus, Package } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { TabBar } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
@@ -1195,14 +1196,14 @@ export default function AssetsExpensesPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 22 }}>
+      <PageTitleBlock icon={Package} style={{ marginBottom: 22 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
           {role === 'Manager' ? 'Read-only view of your team\'s assets and expenses. Approval decisions are made in the Approval Center.'
             : role === 'HR Admin' || role === 'Super Admin' ? 'Manage company inventory, expense policies, and payroll-ready claims.'
             : 'Track your assigned assets and submit expense claims.'}
         </p>
-      </div>
+      </PageTitleBlock>
 
       {(role === 'Employee') && <EmployeeView token={token} />}
       {(role === 'Manager') && <ManagerView token={token} />}

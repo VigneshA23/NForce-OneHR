@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import {
   GitBranch, Search, Users, User, ArrowUp, Home, ChevronRight,
   Download, FileText, X, AlertCircle, ChevronDown, Building2, Layers, Crown,
-  ZoomIn, ZoomOut, Maximize2, UserCheck, Briefcase, Hash, Activity,
+  ZoomIn, ZoomOut, Maximize2, UserCheck, Briefcase, Hash, Activity, Network
 } from 'lucide-react';
 import { hierarchyApi, type HierarchyNode, type OrgContext, type PersonCard, type BreadcrumbEntry } from '../api/hierarchy';
 import { profileApi } from '../api/profile';
@@ -816,12 +817,12 @@ export default function HierarchyPage() {
 
       {/* Header — title + department filter + person search */}
       <div className="nf-hier-head">
-        <div>
+        <PageTitleBlock icon={Network}>
           <h1 className="nf-hier-title">Organization Hierarchy</h1>
           <p className="nf-hier-subtitle">
             Click any card to re-center the view. Read-only - manage reporting lines in User Management.
           </p>
-        </div>
+        </PageTitleBlock>
 
         <div className="nf-hier-filters">
           <label className={`nf-hier-select${deptFilter !== ALL_DEPTS ? ' is-active' : ''}`}>

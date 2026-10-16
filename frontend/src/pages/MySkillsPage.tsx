@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { Award } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { skillsApi, type Skill, type SkillRating, type TeamSkillRating } from '../api/skills';
 import { card, CardTitle, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, primaryBtn, td, th } from './bench/ui';
@@ -48,12 +50,12 @@ export default function MySkillsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 14 }}>
+      <PageTitleBlock icon={Award} style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>My Skills</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
           Keep your skills up to date so HR and managers can find you for relevant work.
         </p>
-      </div>
+      </PageTitleBlock>
       <ErrorBox message={error} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '340px minmax(0,1fr)', gap: 16, alignItems: 'start', marginBottom: canEndorse ? 16 : 0 }}>

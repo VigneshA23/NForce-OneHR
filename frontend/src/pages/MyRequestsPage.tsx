@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -618,13 +619,10 @@ export default function MyRequestsPage() {
   return (
     <div className="nf-rq">
       <div className="nf-rq-header">
-        <div className="nf-rq-header-main">
-          <div className="nf-rq-header-icon"><ClipboardList size={24} /></div>
-          <div>
+        <PageTitleBlock icon={ClipboardList} style={{ position: 'relative' }}>
             <h1 className="nf-rq-title">My Requests</h1>
             <p className="nf-rq-subtitle">All your submitted leave and attendance requests in one place.</p>
-          </div>
-        </div>
+        </PageTitleBlock>
         <NewRequestMenu />
       </div>
 

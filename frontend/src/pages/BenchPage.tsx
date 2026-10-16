@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { UsersRound } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { TabBar, type TabDef } from '../components/TabBar';
 import OverviewSection from './bench/OverviewSection';
@@ -30,14 +32,14 @@ export default function BenchPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 14 }}>
+      <PageTitleBlock icon={UsersRound} style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Bench Management</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
           {canManage
             ? 'See who is benched and for how long, find people by skill, and move them back to active work.'
             : 'See which of your direct reports are currently on bench.'}
         </p>
-      </div>
+      </PageTitleBlock>
 
       {canManage ? (
         <>

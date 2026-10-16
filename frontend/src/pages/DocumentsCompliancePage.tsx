@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, XCircle, Eye, Search, Users, History } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Eye, Search, Users, History, ShieldCheck } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { TablePagination, clampPage, paginate } from '../components/TablePagination';
 import { useAuthStore } from '../store/authStore';
@@ -466,8 +467,10 @@ export default function DocumentsCompliancePage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
+      <PageTitleBlock icon={ShieldCheck}>
+<h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Verify employee documents and track compliance.</p>
+</PageTitleBlock>
 
       {/* KPI row */}
       {kpis && (

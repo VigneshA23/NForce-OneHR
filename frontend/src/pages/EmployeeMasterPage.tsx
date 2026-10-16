@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, ChevronDown, ChevronUp, Search, Users, AlertCircle } from 'lucide-react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { X, ChevronDown, ChevronUp, Search, Users, AlertCircle, Contact } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord, type UpdateEmployeePayload } from '../api/employees';
@@ -340,7 +341,7 @@ export default function EmployeeMasterPage() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <div>
+        <PageTitleBlock icon={Contact}>
           <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Employee Master</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
             {loading
@@ -349,7 +350,7 @@ export default function EmployeeMasterPage() {
                 ? "Couldn't load employees"
                 : `${employees.length} employee${employees.length !== 1 ? 's' : ''}`} · New hires, role and access are added from Super Admin → User Management.
           </p>
-        </div>
+        </PageTitleBlock>
       </div>
 
       {/* Search + Filters */}

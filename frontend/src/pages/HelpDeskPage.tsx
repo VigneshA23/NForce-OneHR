@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
   Archive, ArchiveRestore, ArrowUp, BookOpen, CheckCircle2, ChevronDown, Eye, EyeOff, FileText,
-  FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Trash2, Undo2, X,
+  FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Trash2, Undo2, X, LifeBuoy
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -1171,9 +1172,9 @@ export default function HelpDeskPage() {
   if (selectedId) {
     return (
       <div>
-        <div style={{ marginBottom: 18 }}>
+        <PageTitleBlock icon={LifeBuoy} style={{ marginBottom: 18 }}>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
-        </div>
+        </PageTitleBlock>
         <TicketDetailView ticketId={selectedId} token={token} onBack={() => { setSelectedId(null); loadTickets(); }} onChanged={loadTickets} />
       </div>
     );
@@ -1184,12 +1185,12 @@ export default function HelpDeskPage() {
   return (
     <div>
       {/* 1. Header */}
-      <div style={{ marginBottom: 20 }}>
+      <PageTitleBlock icon={LifeBuoy} style={{ marginBottom: 20 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4, maxWidth: 640 }}>
           Find an answer yourself, or reach HR directly - all from one place.
         </p>
-      </div>
+      </PageTitleBlock>
 
       {/* 2. Hero row: search + Contact HR Support — both visible without scrolling */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>

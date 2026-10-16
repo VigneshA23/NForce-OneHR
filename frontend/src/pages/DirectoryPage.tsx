@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, MoreHorizontal } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -297,11 +298,7 @@ export default function DirectoryPage() {
       {/* Header */}
       <div className="nf-pd-header">
         <HeaderArt />
-        <div className="nf-pd-header-main">
-          <div className="nf-pd-header-icon" aria-hidden="true">
-            <Users size={24} strokeWidth={1.8} />
-          </div>
-          <div style={{ minWidth: 0 }}>
+        <PageTitleBlock icon={Users} style={{ position: 'relative' }}>
             <h1 className="nf-pd-title">
               People Directory
             </h1>
@@ -311,8 +308,7 @@ export default function DirectoryPage() {
             <div className="nf-pd-count">
               {loading ? 'Loading…' : loadError ? 'Load failed' : `${filtered.length} of ${all.length} people`}
             </div>
-          </div>
-        </div>
+        </PageTitleBlock>
         {!loading && !loadError && all.length > 0 && (
           <button className="nf-pd-export" onClick={() => exportToExcel(filtered)}>
             <Download size={16} />

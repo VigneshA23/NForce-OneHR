@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import {
@@ -1833,12 +1834,12 @@ export default function OrgSetupPage() {
         />
       )}
 
-      <div>
+      <PageTitleBlock icon={Building2}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
           {copy.title}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
-      </div>
+      </PageTitleBlock>
 
       {/* Scoped to the tabs that actually consume fetchAll()'s data — Penalization Policy (and
           its Allocation sub-tab) fetch their own Business Unit/Department/Location/Policy

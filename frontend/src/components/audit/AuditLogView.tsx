@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import PageTitleBlock from '../PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ScrollText } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { auditApi, type ActionGroup, type AuditLogFilters, type AuditLogStats, type PagedAuditLogs } from '../../api/audit';
@@ -156,12 +157,12 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div>
+      <PageTitleBlock icon={ScrollText}>
         <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {config.title}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{config.subtitle}</p>
-      </div>
+      </PageTitleBlock>
 
       <AuditStatCards stats={stats} showAccess={config.showAccessCategory} />
 

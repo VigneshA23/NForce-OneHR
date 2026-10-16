@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import {
   CalendarClock, CalendarDays, Check, CheckCircle2, ClipboardCheck, Clock, FileText, Hourglass, Home, Package, Search, Wallet, X,
@@ -734,13 +735,10 @@ export default function ApprovalsPage() {
 
   return (
     <div>
-      <div className="apv-header">
-        <div className="apv-header-icon" aria-hidden="true"><ClipboardCheck size={22} /></div>
-        <div>
+      <PageTitleBlock icon={ClipboardCheck} style={{ marginBottom: 18 }}>
           <h1 className="apv-title">Approval Center</h1>
           <p className="apv-subtitle">All pending requests requiring your decision.</p>
-        </div>
-      </div>
+      </PageTitleBlock>
 
       {/* Search + request-type tabs in one card. Tabs scroll horizontally on narrow viewports
          rather than wrapping into a tall block, so the table stays close to the filters. */}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, X, ShieldAlert } from 'lucide-react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { Plus, X, ShieldAlert, Workflow } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
@@ -424,12 +425,12 @@ export default function WorkflowStudioPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
-        <div>
+        <PageTitleBlock icon={Workflow}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Workflow Studio</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
             Configure data-driven approval rules - the Approval Center routes new requests according to whichever rule is active.
           </p>
-        </div>
+        </PageTitleBlock>
         {metadata && (
           <button onClick={() => setFormTarget('new')} style={{ ...btnPrimaryStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Plus size={14} /> Create Rule

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Archive, ArchiveRestore, FilePlus2, Pencil, Plus, Trash2 } from 'lucide-react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { Archive, ArchiveRestore, FilePlus2, Pencil, Plus, Trash2, BookOpen } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
@@ -117,10 +118,10 @@ export default function HelpContentAdminPage() {
   return (
     <div>
       <div style={{ marginBottom: 22, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
-        <div>
+        <PageTitleBlock icon={BookOpen}>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance Content</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage the FAQs, guides, quick help, and documents employees see on the Help & Guidance page.</p>
-        </div>
+        </PageTitleBlock>
         <button onClick={() => { setEditing(null); setFormOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
           <Plus size={14} /> New Content
         </button>

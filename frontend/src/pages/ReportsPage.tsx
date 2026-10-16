@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
-import { Users, CalendarCheck, Clock, Download, ShieldAlert } from 'lucide-react';
+import { Users, CalendarCheck, Clock, Download, ShieldAlert, BarChart3 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -286,12 +287,12 @@ export default function ReportsPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-        <div>
+        <PageTitleBlock icon={BarChart3}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Reports & Analytics</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
             {isHr ? 'Company-wide headcount, attendance and leave.' : 'Your team’s headcount, attendance and leave.'}
           </p>
-        </div>
+        </PageTitleBlock>
         <button
           onClick={handleExport}
           disabled={loading || !!error}

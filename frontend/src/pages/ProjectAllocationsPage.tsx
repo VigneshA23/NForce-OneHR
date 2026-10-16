@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Users } from 'lucide-react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { Search, Users, FolderKanban } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord } from '../api/employees';
 import { projectsApi, projectAllocationsApi, type ProjectRecord, type AllocationResult } from '../api/projectAllocations';
@@ -137,12 +138,12 @@ export default function ProjectAllocationsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 18 }}>
+      <PageTitleBlock icon={FolderKanban} style={{ marginBottom: 18 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Project Allocations</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
           Allocate multiple employees to a project in one go - each is validated independently.
         </p>
-      </div>
+      </PageTitleBlock>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, alignItems: 'start' }}>
         {/* Employee multi-select */}
