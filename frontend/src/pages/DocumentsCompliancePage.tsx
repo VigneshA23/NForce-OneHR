@@ -467,7 +467,7 @@ export default function DocumentsCompliancePage() {
 
   return (
     <div>
-      <PageTitleBlock icon={ShieldCheck}>
+      <PageTitleBlock card icon={ShieldCheck}>
 <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Verify employee documents and track compliance.</p>
 </PageTitleBlock>

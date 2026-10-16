@@ -1253,7 +1253,7 @@ export default function UserManagementPage() {
   return (
     <div>
       {/* Header */}
-      <div className="nf-policy-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 14 }}>
+      <div className="nf-policy-header nf-page-hdr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 14 }}>
         <PageTitleBlock icon={UserIcon}>
             <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 21, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>User Management</h1>
             <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 3 }}>Manage access, roles, and account status for all users.</p>

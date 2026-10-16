@@ -138,7 +138,7 @@ export default function ProjectAllocationsPage() {
 
   return (
     <div>
-      <PageTitleBlock icon={FolderKanban} style={{ marginBottom: 18 }}>
+      <PageTitleBlock card icon={FolderKanban} style={{ marginBottom: 18 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Project Allocations</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
           Allocate multiple employees to a project in one go - each is validated independently.

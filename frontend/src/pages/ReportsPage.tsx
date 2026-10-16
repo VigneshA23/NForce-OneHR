@@ -286,7 +286,7 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
+      <div className="nf-page-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
         <PageTitleBlock icon={BarChart3}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Reports & Analytics</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>

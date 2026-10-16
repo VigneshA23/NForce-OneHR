@@ -735,7 +735,7 @@ export default function ApprovalsPage() {
 
   return (
     <div>
-      <PageTitleBlock icon={ClipboardCheck} style={{ marginBottom: 18 }}>
+      <PageTitleBlock card icon={ClipboardCheck} style={{ marginBottom: 18 }}>
           <h1 className="apv-title">Approval Center</h1>
           <p className="apv-subtitle">All pending requests requiring your decision.</p>
       </PageTitleBlock>

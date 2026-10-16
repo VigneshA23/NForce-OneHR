@@ -32,7 +32,7 @@ export default function BenchPage() {
 
   return (
     <div>
-      <PageTitleBlock icon={UsersRound} style={{ marginBottom: 14 }}>
+      <PageTitleBlock card icon={UsersRound} style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Bench Management</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
           {canManage

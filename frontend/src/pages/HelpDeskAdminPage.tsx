@@ -64,7 +64,7 @@ function Person({ name, fallback, large }: { name?: string | null; fallback?: st
 
 function PageHeader({ subtitle }: { subtitle?: string }) {
   return (
-    <div className="nf-rq-header">
+    <div className="nf-rq-header nf-page-hdr">
       <PageTitleBlock icon={Ticket} style={{ position: 'relative' }}>
           <h1 className="nf-rq-title">HR Service Requests</h1>
           {subtitle && <p className="nf-rq-subtitle">{subtitle}</p>}

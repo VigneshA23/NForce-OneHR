@@ -1172,7 +1172,7 @@ export default function HelpDeskPage() {
   if (selectedId) {
     return (
       <div>
-        <PageTitleBlock icon={LifeBuoy} style={{ marginBottom: 18 }}>
+        <PageTitleBlock card icon={LifeBuoy} style={{ marginBottom: 18 }}>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         </PageTitleBlock>
         <TicketDetailView ticketId={selectedId} token={token} onBack={() => { setSelectedId(null); loadTickets(); }} onChanged={loadTickets} />
@@ -1185,7 +1185,7 @@ export default function HelpDeskPage() {
   return (
     <div>
       {/* 1. Header */}
-      <PageTitleBlock icon={LifeBuoy} style={{ marginBottom: 20 }}>
+      <PageTitleBlock card icon={LifeBuoy} style={{ marginBottom: 20 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4, maxWidth: 640 }}>
           Find an answer yourself, or reach HR directly - all from one place.

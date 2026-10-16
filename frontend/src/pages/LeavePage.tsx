@@ -373,7 +373,7 @@ export default function LeavePage() {
 
   return (
     <div>
-      <div className="nf-section-enter nf-leave-header" style={{
+      <div className="nf-section-enter nf-leave-header nf-page-hdr" style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 22,
         background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '18px 22px',
         backgroundImage: 'linear-gradient(120deg, color-mix(in srgb, var(--brand) 6%, var(--panel)) 0%, var(--panel) 55%)',

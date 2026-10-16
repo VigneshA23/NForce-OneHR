@@ -42,7 +42,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'menu', label: 'Left menu', title: 'Left menu by role', subtitle: 'The real sidebar for each role, with the disabled "P2" placeholder modules removed.' },
   { key: 'masters', label: 'Org Masters', title: 'Organization Masters header', subtitle: 'The search and Add controls now sit in the page header, above the tabs.' },
   { key: 'people', label: 'People cell', title: 'Employee name cell', subtitle: 'User Management, Employee Master and People Directory now show an employee the same way: photo when they have one, name, then Employee ID.' },
-  { key: 'headers', label: 'Page title icons', title: 'Page title icons', subtitle: 'Every module page opens with the same icon box beside its title.' },
+  { key: 'headers', label: 'Page title icons', title: 'Page title icons', subtitle: 'Every module page opens with the same header card: icon, title, subtitle and its buttons, with the theme-colour curves.' },
   { key: 'performance', label: 'Performance', title: 'Performance', subtitle: 'Org-wide skills, certificates, and learning - dashboard, search, and directory.' },
   { key: 'access', label: 'Access', title: 'User Management', subtitle: 'Create and manage user accounts and roles.' },
   { key: 'leave', label: 'Leave', title: 'Leave & Holidays', subtitle: 'Your leave balances and requests.' },
@@ -99,6 +99,24 @@ const PEOPLE = [
 ];
 const th: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const td: React.CSSProperties = { padding: '10px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+
+const HEADER_ACTIONS: Record<string, string[]> = {
+  'Attendance': ['Export selected month', 'Request Regularization'],
+  'People Directory': ['Export to Excel'],
+  'User Management': ['+ Add User'],
+  'Leave': ['Request Leave'],
+  'Company Holidays': ['+ Add Holiday'],
+  'My Requests': ['+ New Request'],
+  'Organization Masters': ['Search departments…', '+ Add Department'],
+  'Workflow Studio': ['+ New Workflow'],
+  'Employee Master': ['+ Add Employee'],
+  'Onboarding': ['+ Start Onboarding'],
+  'Policies & Announcements': ['+ New Policy'],
+  'Reports & Analytics': ['Export'],
+  'Notifications': ['Mark all read'],
+  'Help & Guidance Content': ['+ New Content'],
+  'Organization Hierarchy': ['All Departments', 'Search people…'],
+};
 
 const grid = (min: number): React.CSSProperties => ({ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`, gap: 14 });
 const rowTitle: React.CSSProperties = { fontSize: 11, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--txt-dim)', margin: '6px 0 -4px' };
@@ -178,15 +196,32 @@ function Tiles({ page }: { page: string }) {
       );
     case 'headers':
       return (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 14 }}>
-          {HEADERS.map((h) => (
-            <div key={h.title} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 18px' }}>
-              <PageTitleBlock icon={h.icon}>
-                <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{h.title}</h1>
-                <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '3px 0 0' }}>{h.subtitle}</p>
-              </PageTitleBlock>
-            </div>
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {HEADERS.map((h) => {
+            const actions = HEADER_ACTIONS[h.title] ?? [];
+            return (
+              <div key={h.title} className="nf-page-hdr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                <PageTitleBlock icon={h.icon}>
+                  <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{h.title}</h1>
+                  <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '3px 0 0' }}>{h.subtitle}</p>
+                </PageTitleBlock>
+                {actions.length > 0 && (
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {actions.map((a) => {
+                      const primary = a.startsWith('+') || a === 'Request Regularization' || a === 'Request Leave';
+                      return (
+                        <button key={a} type="button" style={{
+                          padding: '8px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+                          background: primary ? 'var(--brand)' : 'var(--raised)', color: primary ? '#fff' : 'var(--brand)',
+                          border: primary ? 'none' : '1px solid color-mix(in srgb, var(--brand) 40%, var(--line))',
+                        }}>{a}</button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       );
     case 'performance':

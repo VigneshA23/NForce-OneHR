@@ -484,7 +484,7 @@ export default function NotificationsPage() {
     <div style={{ display: 'flex', flexDirection: 'column' }} className="nf-notif-page">
 
       {/* Header */}
-      <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div className="nf-page-hdr" style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <PageTitleBlock icon={Bell}>
           <h1 style={{
             fontFamily: 'Inter, sans-serif',

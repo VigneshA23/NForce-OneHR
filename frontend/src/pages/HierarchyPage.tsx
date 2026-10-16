@@ -816,7 +816,7 @@ export default function HierarchyPage() {
     <div className="nf-hier">
 
       {/* Header — title + department filter + person search */}
-      <div className="nf-hier-head">
+      <div className="nf-hier-head nf-page-hdr">
         <PageTitleBlock icon={Network}>
           <h1 className="nf-hier-title">Organization Hierarchy</h1>
           <p className="nf-hier-subtitle">

@@ -7425,7 +7425,7 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
 
   return (
     <div>
-      <div className="nf-attendance-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', paddingBottom: 20, marginBottom: 22, borderBottom: '1px solid var(--line)' }}>
+      <div className="nf-attendance-header nf-page-hdr" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', paddingBottom: 20, marginBottom: 22, borderBottom: '1px solid var(--line)' }}>
         {/* flex-basis is an explicit 300px, not left as content-driven "auto": the subtitle text
             length differs by role (Employee's is one short sentence, Manager/HR Admin/Super
             Admin's are longer), and an auto-width flex item claims only as much row space as its

@@ -157,7 +157,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <PageTitleBlock icon={ScrollText}>
+      <PageTitleBlock card style={{ marginBottom: 0 }} icon={ScrollText}>
         <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {config.title}
         </h1>

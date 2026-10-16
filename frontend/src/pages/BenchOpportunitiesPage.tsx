@@ -149,7 +149,7 @@ export default function BenchOpportunitiesPage() {
 
   return (
     <div>
-      <PageTitleBlock icon={Briefcase} style={{ marginBottom: 14 }}>
+      <PageTitleBlock card icon={Briefcase} style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Internal Opportunities</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
           Short-term internal roles, shown only to employees currently on bench.

@@ -117,7 +117,7 @@ export default function HelpContentAdminPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 22, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
+      <div className="nf-page-hdr" style={{ marginBottom: 22, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
         <PageTitleBlock icon={BookOpen}>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance Content</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage the FAQs, guides, quick help, and documents employees see on the Help & Guidance page.</p>

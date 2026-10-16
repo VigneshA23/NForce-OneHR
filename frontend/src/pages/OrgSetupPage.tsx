@@ -1836,7 +1836,7 @@ export default function OrgSetupPage() {
       )}
 
       {/* Header: title on the left, the active tab's search + add controls on the right (above the tabs). */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+      <div className="nf-page-hdr" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
         <PageTitleBlock icon={Building2}>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
             {copy.title}

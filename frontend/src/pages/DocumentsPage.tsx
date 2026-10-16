@@ -212,7 +212,7 @@ export default function DocumentsPage() {
 
   return (
     <div>
-      <PageTitleBlock icon={FileText}>
+      <PageTitleBlock card icon={FileText}>
 <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>My Documents & Policies</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Manage your required documents and acknowledge company policies.</p>
 </PageTitleBlock>

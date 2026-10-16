@@ -164,7 +164,7 @@ export default function SuperAdminRegularizationPage() {
         <Link to="/attendance" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-dim)', textDecoration: 'none', marginBottom: 8 }}>
           <ArrowLeft size={13} /> Back to Attendance
         </Link>
-        <PageTitleBlock icon={ClipboardCheck}>
+        <PageTitleBlock card icon={ClipboardCheck}>
 <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
           Attendance Regularization - All Requests
         </h1>

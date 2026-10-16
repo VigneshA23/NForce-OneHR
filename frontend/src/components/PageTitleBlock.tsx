@@ -7,16 +7,19 @@ import type { LucideIcon } from 'lucide-react';
  * The icon is top-aligned with the heading (not centred on the heading + subtitle). Display only; wrap a page's existing <h1> / <p> in it and pass the icon that fits the module.
  * `style` is applied to the outer row, so a page's existing margin/flex sizing on its old title wrapper carries over.
  */
-export default function PageTitleBlock({ icon: Icon, children, style, className, compact }: {
+export default function PageTitleBlock({ icon: Icon, children, style, className, compact, card }: {
   icon: LucideIcon;
   children: ReactNode;
   style?: CSSProperties;
   className?: string;
   /** Smaller icon box for a section heading inside a page (instead of the page title itself). */
   compact?: boolean;
+  /** Wrap this title in the themed header card (same look as the People Directory header). Use it when the title sits
+   * directly in the page body; when a page has a header row with buttons, put `nf-page-hdr` on that row instead. */
+  card?: boolean;
 }) {
   return (
-    <div className={className ? `nf-page-title ${className}` : 'nf-page-title'} style={{ display: 'flex', alignItems: 'flex-start', gap: compact ? 10 : 12, minWidth: 0, ...style }}>
+    <div className={['nf-page-title', card ? 'nf-page-hdr nf-page-hdr--solo' : '', className ?? ''].filter(Boolean).join(' ')} style={{ display: 'flex', alignItems: 'flex-start', gap: compact ? 10 : 12, minWidth: 0, ...(card ? { marginBottom: 18 } : {}), ...style }}>
       <div
         aria-hidden="true"
         style={{

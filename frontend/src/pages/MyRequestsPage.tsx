@@ -618,7 +618,7 @@ export default function MyRequestsPage() {
 
   return (
     <div className="nf-rq">
-      <div className="nf-rq-header">
+      <div className="nf-rq-header nf-page-hdr">
         <PageTitleBlock icon={ClipboardList} style={{ position: 'relative' }}>
             <h1 className="nf-rq-title">My Requests</h1>
             <p className="nf-rq-subtitle">All your submitted leave and attendance requests in one place.</p>

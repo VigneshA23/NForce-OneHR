@@ -50,7 +50,7 @@ export default function MySkillsPage() {
 
   return (
     <div>
-      <PageTitleBlock icon={Award} style={{ marginBottom: 14 }}>
+      <PageTitleBlock card icon={Award} style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>My Skills</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
           Keep your skills up to date so HR and managers can find you for relevant work.

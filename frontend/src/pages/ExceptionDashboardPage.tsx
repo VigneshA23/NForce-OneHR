@@ -111,7 +111,7 @@ export default function ExceptionDashboardPage() {
 
   return (
     <div>
-      <PageTitleBlock icon={ShieldAlert} style={{ marginBottom: 22 }}>
+      <PageTitleBlock card icon={ShieldAlert} style={{ marginBottom: 22 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Exception Dashboard</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
       </PageTitleBlock>

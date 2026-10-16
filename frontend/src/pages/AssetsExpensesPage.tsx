@@ -1196,7 +1196,7 @@ export default function AssetsExpensesPage() {
 
   return (
     <div>
-      <PageTitleBlock icon={Package} style={{ marginBottom: 22 }}>
+      <PageTitleBlock card icon={Package} style={{ marginBottom: 22 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
           {role === 'Manager' ? 'Read-only view of your team\'s assets and expenses. Approval decisions are made in the Approval Center.'

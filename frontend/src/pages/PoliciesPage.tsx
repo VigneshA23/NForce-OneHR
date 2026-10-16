@@ -701,7 +701,7 @@ export default function PoliciesPage() {
 
   return (
     <div>
-      <div className="nf-policy-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
+      <div className="nf-policy-header nf-page-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
         <PageTitleBlock icon={Megaphone}>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Policies & Announcements</h1>
           <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginTop: 4 }}>Publish company policies and broadcast announcements.</p>
