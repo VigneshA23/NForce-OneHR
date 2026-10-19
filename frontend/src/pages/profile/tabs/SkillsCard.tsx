@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Sparkles, Search, Handshake, Info } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
@@ -35,12 +35,26 @@ function daysSince(iso: string): number {
   return (Date.now() - new Date(iso).getTime()) / 86_400_000;
 }
 
-function StatTile({ label, value, tone }: { label: string; value: number; tone?: string }) {
+// Clickable — each tile drives a filter on the lists below (which skill/request view it narrows
+// to is the caller's concern; this is just the toggleable tile itself). `active` gets a brand
+// border/tint so it's clear which filter (if any) is currently applied, and clicking an already-
+// active tile clears it (handled by the caller's toggle logic, not here).
+function StatTile({ label, value, tone, active, onClick }: { label: string; value: number; tone?: string; active?: boolean; onClick: () => void }) {
   return (
-    <div style={{ flex: '1 1 120px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '10px 14px' }}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        flex: '1 1 120px', textAlign: 'left', cursor: 'pointer', font: 'inherit',
+        background: active ? 'color-mix(in srgb, var(--brand) 12%, var(--raised))' : 'var(--raised)',
+        border: active ? '1px solid var(--brand)' : '1px solid var(--line2)',
+        borderRadius: 8, padding: '10px 14px', transition: 'background .12s, border-color .12s',
+      }}
+    >
       <div style={{ fontSize: 18, fontWeight: 800, color: tone ?? 'var(--txt)', fontVariantNumeric: 'tabular-nums' }}>{value}</div>
       <div style={{ fontSize: 11, color: 'var(--txt-mut)', marginTop: 2 }}>{label}</div>
-    </div>
+    </button>
   );
 }
 
@@ -57,6 +71,10 @@ export function SkillsCard({ token }: { token: string }) {
   const [modalTarget, setModalTarget] = useState<SkillEntry | 'new' | null>(null);
   const [requests, setRequests] = useState<SkillRequestEntry[]>([]);
   const [search, setSearch] = useState('');
+  // Which stat tile (if any) is "on" — drives what the skill/request lists below are narrowed to.
+  // Clicking the active tile again clears it (see toggleFilter), same as any other filter chip.
+  const [activeFilter, setActiveFilter] = useState<'skills' | 'pending' | 'approved' | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   // How many currently-open Internal Opportunities ask for a skill this employee already has
   // (matched by name — Opportunities are posted against a separate org-wide skill taxonomy, not
   // this profile skill list, so this is a best-effort name match rather than a shared ID).
@@ -104,6 +122,37 @@ export function SkillsCard({ token }: { token: string }) {
     }).length;
   }, [requests]);
 
+  function toggleFilter(filter: 'skills' | 'pending' | 'approved') {
+    setActiveFilter(prev => {
+      const next = prev === filter ? null : filter;
+      // Leaving the "Skills listed" tile with nothing typed — drop the now-pointless empty
+      // search box rather than leaving it dangling open with no query in it.
+      if (next !== 'skills' && prev === 'skills' && !search.trim()) setSearch('');
+      return next;
+    });
+  }
+
+  // Focuses the search box the moment "Skills listed" is clicked — including when that click is
+  // what makes the box exist at all (skills.length <= 4 otherwise hides it), so it has to wait a
+  // tick for the input to actually mount before it can be focused.
+  useEffect(() => {
+    if (activeFilter === 'skills') requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [activeFilter]);
+
+  const visibleRequests = useMemo(() => {
+    if (activeFilter === 'pending') return requests.filter(r => r.status === 'Pending');
+    if (activeFilter === 'approved') {
+      const now = new Date();
+      return requests.filter(r => {
+        if (r.status !== 'Approved' && r.status !== 'Mapped') return false;
+        if (!r.reviewedAt) return false;
+        const reviewed = new Date(r.reviewedAt);
+        return reviewed.getFullYear() === now.getFullYear() && reviewed.getMonth() === now.getMonth();
+      });
+    }
+    return requests;
+  }, [requests, activeFilter]);
+
   const staleReminder = useMemo(() => {
     if (loading) return null;
     if (skills.length === 0) return "You haven't added any skills yet — add one so HR and managers can find you for relevant work.";
@@ -128,9 +177,12 @@ export function SkillsCard({ token }: { token: string }) {
 
       {!loading && (skills.length > 0 || requests.length > 0) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-          <StatTile label="Skills listed" value={skills.length} />
-          <StatTile label="Requests pending" value={pendingCount} tone={pendingCount > 0 ? 'var(--warn)' : undefined} />
-          <StatTile label="Approved this month" value={approvedThisMonth} tone={approvedThisMonth > 0 ? 'var(--ok)' : undefined} />
+          <StatTile label="Skills listed" value={skills.length}
+            active={activeFilter === 'skills'} onClick={() => toggleFilter('skills')} />
+          <StatTile label="Requests pending" value={pendingCount} tone={pendingCount > 0 ? 'var(--warn)' : undefined}
+            active={activeFilter === 'pending'} onClick={() => toggleFilter('pending')} />
+          <StatTile label="Approved this month" value={approvedThisMonth} tone={approvedThisMonth > 0 ? 'var(--ok)' : undefined}
+            active={activeFilter === 'approved'} onClick={() => toggleFilter('approved')} />
         </div>
       )}
 
@@ -163,10 +215,11 @@ export function SkillsCard({ token }: { token: string }) {
         </button>
       )}
 
-      {skills.length > 4 && (
+      {(skills.length > 4 || activeFilter === 'skills') && (
         <div style={{ position: 'relative', marginBottom: 12 }}>
           <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)' }} aria-hidden />
           <input
+            ref={searchInputRef}
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search your skills…"
@@ -211,11 +264,24 @@ export function SkillsCard({ token }: { token: string }) {
       )}
       {requests.length > 0 && (
         <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
-            My Skill Requests
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+              My Skill Requests
+            </div>
+            {(activeFilter === 'pending' || activeFilter === 'approved') && (
+              <button type="button" onClick={() => setActiveFilter(null)}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: 'var(--brand-bright)' }}>
+                Clear filter
+              </button>
+            )}
           </div>
+          {visibleRequests.length === 0 ? (
+            <div style={{ color: 'var(--txt-dim)', fontSize: 12.5 }}>
+              {activeFilter === 'pending' ? 'No pending requests.' : 'Nothing approved this month.'}
+            </div>
+          ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {requests.map(r => (
+            {visibleRequests.map(r => (
               <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
                 <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{r.name}</span>
                 <span style={{
@@ -231,6 +297,7 @@ export function SkillsCard({ token }: { token: string }) {
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
       {modalTarget && (
