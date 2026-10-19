@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { Award } from 'lucide-react';
+import { Award, Star } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { skillsApi, type Skill, type SkillRating, type TeamSkillRating } from '../api/skills';
 import { card, CardTitle, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, primaryBtn, td, th } from './bench/ui';
+import { SkillsCard } from './profile/tabs/SkillsCard';
+import { SectionHeader } from './profile/shared';
 
 function Stars({ value, onPick, disabled }: { value: number | null; onPick?: (n: number) => void; disabled?: boolean }) {
   return (
@@ -57,6 +59,26 @@ export default function MySkillsPage() {
         </p>
       </PageTitleBlock>
       <ErrorBox message={error} />
+
+      {/* Skills & Expertise — the same card used on My Profile → Skills (profile/tabs/SkillsCard),
+          now also reachable from here: pick an existing skill or request a brand-new one (HR
+          reviews it under Talent & Performance → Settings → Skill Requests), with admin-configured
+          proficiency levels and per-request status. Kept on My Profile too — this is the same
+          component/data either place, not a copy, so nothing can drift between the two. */}
+      <div style={{ marginBottom: 20 }}>
+        <SkillsCard token={token} />
+      </div>
+
+      {/* The org-wide taxonomy + 1-5 self-rating below is a separate system from the card above —
+          it specifically feeds Bench Management's skill search and Internal Opportunities'
+          required-skill matching, so it stays as its own section rather than being folded into
+          Skills & Expertise above. */}
+      <div style={{ marginBottom: 14 }}>
+        <SectionHeader title="Organization Skill Ratings" icon={Star} />
+        <p style={{ margin: '-10px 0 0', color: 'var(--txt-mut)', fontSize: 12.5 }}>
+          Self-rate yourself on skills HR tracks org-wide — used to match you to bench opportunities and skill searches.
+        </p>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '340px minmax(0,1fr)', gap: 16, alignItems: 'start', marginBottom: canEndorse ? 16 : 0 }}>
         <div style={card}>
