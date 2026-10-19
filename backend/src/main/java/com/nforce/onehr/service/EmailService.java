@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 @Slf4j
@@ -90,42 +91,42 @@ public class EmailService {
     }
 
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file. */
-    public void sendLateArrivalEmail(String toEmail, String ccEmail, String fullName, LocalDate date,
+    public CompletableFuture<Boolean> sendLateArrivalEmail(String toEmail, String ccEmail, String fullName, LocalDate date,
                                       LocalTime expectedTime, LocalTime actualTime, Integer minutesLate) {
         String subject = "Late arrival recorded — " + DATE_FMT.format(date);
         String html = buildLateArrivalHtml(fullName, date, expectedTime, actualTime, minutesLate);
-        sendAsync(toEmail, ccEmail, subject, html);
+        return sendAsync(toEmail, ccEmail, subject, html);
     }
 
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file. */
-    public void sendMissingPunchEmail(String toEmail, String ccEmail, String fullName, LocalDate date, LocalTime checkInTime) {
+    public CompletableFuture<Boolean> sendMissingPunchEmail(String toEmail, String ccEmail, String fullName, LocalDate date, LocalTime checkInTime) {
         String subject = "Missing check-out — " + DATE_FMT.format(date);
         String html = buildMissingPunchHtml(fullName, date, checkInTime);
-        sendAsync(toEmail, ccEmail, subject, html);
+        return sendAsync(toEmail, ccEmail, subject, html);
     }
 
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file. */
-    public void sendLeaveAttendanceConflictEmail(String toEmail, String ccEmail, String fullName, LocalDate date, LocalTime checkInTime) {
+    public CompletableFuture<Boolean> sendLeaveAttendanceConflictEmail(String toEmail, String ccEmail, String fullName, LocalDate date, LocalTime checkInTime) {
         String subject = "Attendance recorded during approved leave — " + DATE_FMT.format(date);
         String html = buildLeaveAttendanceConflictHtml(fullName, date, checkInTime);
-        sendAsync(toEmail, ccEmail, subject, html);
+        return sendAsync(toEmail, ccEmail, subject, html);
     }
 
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file. */
-    public void sendNoAttendanceEmail(String toEmail, String ccEmail, String fullName, LocalDate date) {
+    public CompletableFuture<Boolean> sendNoAttendanceEmail(String toEmail, String ccEmail, String fullName, LocalDate date) {
         String subject = "No attendance recorded — " + DATE_FMT.format(date);
         String html = buildNoAttendanceHtml(fullName, date);
-        sendAsync(toEmail, ccEmail, subject, html);
+        return sendAsync(toEmail, ccEmail, subject, html);
     }
 
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file.
      * expectedTime/actualTime are null for the missing-checkout variant of this shortage (there is
      * no checkout to compare against — see ExceptionService#detectNoAttendanceAndShortage). */
-    public void sendWorkHoursShortageEmail(String toEmail, String ccEmail, String fullName, LocalDate date,
+    public CompletableFuture<Boolean> sendWorkHoursShortageEmail(String toEmail, String ccEmail, String fullName, LocalDate date,
                                             LocalTime expectedTime, LocalTime actualTime) {
         String subject = "Work hours shortage recorded — " + DATE_FMT.format(date);
         String html = buildWorkHoursShortageHtml(fullName, date, expectedTime, actualTime);
-        sendAsync(toEmail, ccEmail, subject, html);
+        return sendAsync(toEmail, ccEmail, subject, html);
     }
 
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file.
@@ -142,7 +143,10 @@ public class EmailService {
         sendAsync(to, null, subject, html);
     }
 
-    private void sendAsync(String to, String cc, String subject, String html) {
+    /** Completes with {@code true} only when Resend accepted the message (2xx); {@code false} on any
+     * refusal, timeout or transport error — never completes exceptionally, so a caller that needs to
+     * know whether to retry (see ExceptionService#notifyUnnotifiedExceptions) can simply join(). */
+    private CompletableFuture<Boolean> sendAsync(String to, String cc, String subject, String html) {
         String ccField = cc == null ? "" : """
                 ,
                   "cc": ["%s"]""".formatted(cc);
@@ -163,17 +167,18 @@ public class EmailService {
                 .timeout(Duration.ofSeconds(10))
                 .build();
 
-        httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenAccept(res -> {
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(res -> {
                     if (res.statusCode() >= 200 && res.statusCode() < 300) {
                         log.info("Email sent to {} cc {} (subject: {})", to, cc, subject);
-                    } else {
-                        log.error("Resend API error: status={} body={}", res.statusCode(), res.body());
+                        return true;
                     }
+                    log.error("Resend API error: status={} body={}", res.statusCode(), res.body());
+                    return false;
                 })
                 .exceptionally(ex -> {
                     log.error("Failed to send email to {} — underlying action was not affected: {}", to, ex.getMessage());
-                    return null;
+                    return false;
                 });
     }
 

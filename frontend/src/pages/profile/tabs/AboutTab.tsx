@@ -3,6 +3,7 @@ import { Calendar, RefreshCw, UserRound, Building2, History } from 'lucide-react
 import { profileApi, type ProfileData, type ProfileTimelineEvent } from '../../../api/profile';
 import { SectionHeader, ReadField, computeDisplayName } from '../shared';
 import { PreferredNameBioModal } from './PreferredNameBioModal';
+import { TabBar } from '../../../components/TabBar';
 
 function SummaryCard({ profile, token, onSaved }: { profile: ProfileData; token: string; onSaved: (p: ProfileData) => void }) {
   const [editing, setEditing] = useState(false);
@@ -113,19 +114,18 @@ export function AboutTab({ profile, token, onSaved }: { profile: ProfileData; to
       .finally(() => setTimelineLoading(false));
   }, [token]);
 
-  const subTabStyle = (t: typeof subTab): React.CSSProperties => ({
-    background: t === subTab ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'var(--raised)',
-    border: `1px solid ${t === subTab ? 'var(--brand)' : 'var(--line2)'}`,
-    color: t === subTab ? 'var(--brand-bright)' : 'var(--txt-mut)',
-    fontSize: 12, fontWeight: 600, padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
-  });
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button style={subTabStyle('summary')} onClick={() => setSubTab('summary')}>Summary</button>
-        <button style={subTabStyle('timeline')} onClick={() => setSubTab('timeline')}>Timeline</button>
-      </div>
+      <TabBar
+        size="sm"
+        ariaLabel="About"
+        active={subTab}
+        onChange={setSubTab}
+        tabs={[
+          { key: 'summary', label: 'Summary' },
+          { key: 'timeline', label: 'Timeline' },
+        ]}
+      />
 
       {subTab === 'summary' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

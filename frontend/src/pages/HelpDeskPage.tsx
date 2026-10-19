@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
   Archive, ArchiveRestore, ArrowUp, BookOpen, CheckCircle2, ChevronDown, Eye, EyeOff, FileText,
-  FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Trash2, Undo2, X,
+  FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Trash2, Undo2, X, LifeBuoy
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -27,6 +28,7 @@ import {
 import { ContentFormModal, StatusChip, ConfirmModal } from '../components/helpContent/ContentFormModal';
 import { ReviewPublishModal } from '../components/helpContent/ReviewPublishModal';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
+import { ChipGroup } from '../components/TabBar';
 
 // Same overlay/modal/input/label/table constants used across LeavePage, MyRequestsPage,
 // EmployeeMasterPage etc. — this codebase has no shared component library, every page
@@ -68,7 +70,7 @@ function StatusBadge({ status }: { status: TicketStatus }) {
 }
 
 function fmtDateTime(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -281,7 +283,7 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <CheckCircle2 size={16} style={{ color: 'var(--ok)', flexShrink: 0 }} />
             <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
-              HR marked this resolved. If everything looks good, close it — closed tickets can't be reopened.
+              HR marked this resolved. If everything looks good, close it - closed tickets can't be reopened.
             </span>
           </div>
           <button onClick={handleClose} disabled={closing} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, fontWeight: 600, cursor: closing ? 'not-allowed' : 'pointer', opacity: closing ? 0.7 : 1, whiteSpace: 'nowrap' }}>
@@ -786,17 +788,13 @@ const STATUS_FILTER_OPTIONS: Array<HelpContentStatus | 'ALL'> = ['ALL', 'DRAFT',
  */
 function StatusFilterBar({ value, onChange, counts }: { value: HelpContentStatus | 'ALL'; onChange: (v: HelpContentStatus | 'ALL') => void; counts: Record<string, number> }) {
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-      {STATUS_FILTER_OPTIONS.map(s => (
-        <button key={s} onClick={() => onChange(s)} style={{
-          padding: '5px 12px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', border: 'none',
-          background: value === s ? 'var(--brand)' : 'var(--raised)',
-          color: value === s ? '#fff' : 'var(--txt-mut)',
-        }}>
-          {s === 'ALL' ? 'All' : STATUS_LABEL[s]} {(counts[s] ?? 0) > 0 && <span style={{ marginLeft: 4, opacity: 0.8 }}>{counts[s]}</span>}
-        </button>
-      ))}
-    </div>
+    <ChipGroup
+      ariaLabel="Status filter"
+      style={{ marginBottom: 14 }}
+      value={value}
+      onChange={onChange}
+      options={STATUS_FILTER_OPTIONS.map(s => ({ key: s, label: s === 'ALL' ? 'All' : STATUS_LABEL[s], count: counts[s] }))}
+    />
   );
 }
 
@@ -1059,7 +1057,7 @@ export default function HelpDeskPage() {
       const updated = await hrHelpContentApi.withdraw(item.id, reason, token);
       applyContentUpdate(updated);
     });
-    showToast('success', 'Withdrawn — back to Draft');
+    showToast('success', 'Withdrawn - back to Draft');
     setWithdrawing(null);
   }
 
@@ -1092,7 +1090,7 @@ export default function HelpDeskPage() {
   function handleArchive(item: HelpContentSummary) {
     setConfirmAction({
       title: 'Archive',
-      body: `Archive "${item.title}"? It will be hidden from employees and moved to Archived — you can restore it later.`,
+      body: `Archive "${item.title}"? It will be hidden from employees and moved to Archived - you can restore it later.`,
       confirmLabel: 'Archive',
       run: () => runAction(item.id, async () => {
         const updated = await hrHelpContentApi.archive(item.id, token);
@@ -1110,7 +1108,7 @@ export default function HelpDeskPage() {
       run: () => runAction(item.id, async () => {
         const updated = await hrHelpContentApi.restore(item.id, token);
         applyContentUpdate(updated);
-        showToast('success', 'Restored to Draft — submit for approval again when ready');
+        showToast('success', 'Restored to Draft - submit for approval again when ready');
       }),
     });
   }
@@ -1174,9 +1172,9 @@ export default function HelpDeskPage() {
   if (selectedId) {
     return (
       <div>
-        <div style={{ marginBottom: 18 }}>
+        <PageTitleBlock card icon={LifeBuoy} style={{ marginBottom: 18 }}>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
-        </div>
+        </PageTitleBlock>
         <TicketDetailView ticketId={selectedId} token={token} onBack={() => { setSelectedId(null); loadTickets(); }} onChanged={loadTickets} />
       </div>
     );
@@ -1187,12 +1185,12 @@ export default function HelpDeskPage() {
   return (
     <div>
       {/* 1. Header */}
-      <div style={{ marginBottom: 20 }}>
+      <PageTitleBlock card icon={LifeBuoy} style={{ marginBottom: 20 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4, maxWidth: 640 }}>
-          Find an answer yourself, or reach HR directly — all from one place.
+          Find an answer yourself, or reach HR directly - all from one place.
         </p>
-      </div>
+      </PageTitleBlock>
 
       {/* 2. Hero row: search + Contact HR Support — both visible without scrolling */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>
@@ -1307,17 +1305,13 @@ export default function HelpDeskPage() {
                 style={{ flex: '1 1 240px', minWidth: 200, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 12px', color: 'var(--txt)', fontSize: 13, outline: 'none' }}
               />
             </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-              {STATUS_FILTERS.map(s => (
-                <button key={s} onClick={() => setStatusFilter(s)} style={{
-                  padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
-                  background: statusFilter === s ? 'var(--brand)' : 'var(--raised)',
-                  color: statusFilter === s ? '#fff' : 'var(--txt-mut)',
-                }}>
-                  {s === 'ALL' ? 'All' : s.replace(/_/g, ' ')}
-                </button>
-              ))}
-            </div>
+            <ChipGroup
+              ariaLabel="Status filter"
+              style={{ marginBottom: 16 }}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={STATUS_FILTERS.map(s => ({ key: s, label: s === 'ALL' ? 'All' : s.replace(/_/g, ' ') }))}
+            />
           </>
         )}
 

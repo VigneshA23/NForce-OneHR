@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, AlertTriangle, Search, Eye, Paperclip } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Search, Eye, Paperclip, FileText, ShieldCheck, Hourglass, XCircle, FileX2 } from 'lucide-react';
+import DashTile from '../components/DashTile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { myPolicies, acknowledgePolicy, publishedAnnouncements, fetchPolicyAttachment, type Policy, type Announcement } from '../api/policies';
 import { card, bucketRequiredDocuments } from './documents/shared';
 import { useMyDocumentsData } from './documents/useMyDocumentsData';
 import { MyDocumentsSection } from './documents/MyDocumentsSection';
+import { TabBar } from '../components/TabBar';
 
 // ── Policy Read-First Modal ───────────────────────────────
 
@@ -145,6 +148,19 @@ function PageSkeleton() {
 
 // ── Main Page ─────────────────────────────────────────────
 
+/** The five summary tiles: same tile as the Home dashboard (components/DashTile). Display only. */
+export function DocumentStatTiles({ required, verified, pending, rejected, missing }: { required: number; verified: number; pending: number; rejected: number; missing: number }) {
+  return (
+    <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px,1fr))', gap: 14, marginBottom: 24 }}>
+      <DashTile icon={<FileText size={20} />} accent="var(--info)" label="Required" value={String(required)} />
+      <DashTile icon={<ShieldCheck size={20} />} accent="var(--ok)" label="Verified" value={String(verified)} />
+      <DashTile icon={<Hourglass size={20} />} accent="var(--warn)" label="Pending Review" value={String(pending)} />
+      <DashTile icon={<XCircle size={20} />} accent="var(--risk)" label="Rejected" value={String(rejected)} />
+      <DashTile icon={<FileX2 size={20} />} accent="var(--om-purple)" label="Not Submitted" value={String(missing)} />
+    </div>
+  );
+}
+
 export default function DocumentsPage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
@@ -187,11 +203,6 @@ export default function DocumentsPage() {
   const { verified, pending, rejected, missing } = bucketRequiredDocuments(required);
   const pendingPolicies = policies.filter(p => p.required && p.acknowledged === false);
 
-  const tabStyle = (t: typeof tab): React.CSSProperties => ({
-    padding: '8px 20px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13,
-    background: tab === t ? '#A01418' : 'transparent', color: tab === t ? '#fff' : 'var(--txt-dim)',
-  });
-
   const q = search.trim().toLowerCase();
   const filteredAnnouncements = q
     ? announcements.filter(a => a.title.toLowerCase().includes(q) || a.body.toLowerCase().includes(q))
@@ -201,24 +212,13 @@ export default function DocumentsPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>My Documents & Policies</h1>
+      <PageTitleBlock card icon={FileText}>
+<h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>My Documents & Policies</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Manage your required documents and acknowledge company policies.</p>
+</PageTitleBlock>
 
       {/* KPI tiles */}
-      <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: 12, marginBottom: 24 }}>
-        {[
-          { label: 'Required', value: required.length, color: 'var(--txt)' },
-          { label: 'Verified', value: verified.length, color: '#22c55e' },
-          { label: 'Pending Review', value: pending.length, color: '#eab308' },
-          { label: 'Rejected', value: rejected.length, color: '#ef4444' },
-          { label: 'Not Submitted', value: missing.length, color: '#ef4444' },
-        ].map(k => (
-          <div key={k.label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-            <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: 'Inter, sans-serif' }}>{k.value}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
-          </div>
-        ))}
-      </div>
+      <DocumentStatTiles required={required.length} verified={verified.length} pending={pending.length} rejected={rejected.length} missing={missing.length} />
 
       {pendingPolicies.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(234,179,8,.12)', border: '1px solid rgba(234,179,8,.3)', borderRadius: 8, padding: '9px 14px', marginBottom: 18, fontSize: 13 }}>
@@ -227,17 +227,18 @@ export default function DocumentsPage() {
         </div>
       )}
 
-      <div className="nf-doc-tabs" style={{ display: 'flex', gap: 6, marginBottom: 20, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
-        <button className="nf-doc-tab-btn" style={tabStyle('docs')} onClick={() => setTab('docs')}>
-          <span className="nf-doc-tab-label">My Documents</span>
-        </button>
-        <button className="nf-doc-tab-btn" style={tabStyle('policies')} onClick={() => setTab('policies')}>
-          <span className="nf-doc-tab-label">Policies</span> {pendingPolicies.length > 0 && <span style={{ background: '#A01418', color: '#fff', borderRadius: '50%', fontSize: 10, fontWeight: 700, padding: '1px 6px', marginLeft: 6 }}>{pendingPolicies.length}</span>}
-        </button>
-        <button className="nf-doc-tab-btn" style={tabStyle('announcements')} onClick={() => setTab('announcements')}>
-          <span className="nf-doc-tab-label">Announcements</span>
-        </button>
-      </div>
+      <TabBar
+        ariaLabel="Documents and policies"
+        style={{ marginBottom: 20 }}
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { key: 'docs', label: 'My Documents' },
+          // Badge = required policies still awaiting this employee's acknowledgment.
+          { key: 'policies', label: 'Policies', count: pendingPolicies.length },
+          { key: 'announcements', label: 'Announcements' },
+        ]}
+      />
 
       {/* ── My Documents Tab ── */}
       {tab === 'docs' && (
@@ -266,7 +267,7 @@ export default function DocumentsPage() {
                     Published {new Date(p.publishedAt).toLocaleDateString()} · Audience: {p.audience}
                     {p.acknowledgedAt && <span style={{ marginLeft: 12, color: '#22c55e' }}>✓ Acknowledged current version {new Date(p.acknowledgedAt).toLocaleDateString()}</span>}
                     {!p.acknowledgedAt && p.previousVersionId != null && (
-                      <span style={{ marginLeft: 12, color: '#eab308' }}>Updated since your last acknowledgment — please review v{p.version} again</span>
+                      <span style={{ marginLeft: 12, color: '#eab308' }}>Updated since your last acknowledgment - please review v{p.version} again</span>
                     )}
                   </div>
                 </div>

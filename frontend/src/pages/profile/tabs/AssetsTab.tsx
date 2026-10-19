@@ -12,6 +12,7 @@ import { useEmployeeAssetsData } from '../../assets/useEmployeeAssetsData';
 import { RequestAssetModal } from '../../assets/RequestAssetModal';
 import { ManagerView, HRView, SubmitExpenseModal } from '../../AssetsExpensesPage';
 import { SectionHeader } from '../shared';
+import { TabBar } from '../../../components/TabBar';
 
 function AssetDetailsModal({ asset, onClose }: { asset: AssetAssignmentResponse; onClose: () => void }) {
   return (
@@ -19,10 +20,10 @@ function AssetDetailsModal({ asset, onClose }: { asset: AssetAssignmentResponse;
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 24, width: 420, maxWidth: '94vw' }}>
         <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>Asset Details</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 20px', marginBottom: 20 }}>
-          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Asset Tag</div><div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{asset.assetTag ?? '—'}</div></div>
-          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Category</div><div style={{ fontSize: 13, color: 'var(--txt)' }}>{asset.categoryName ?? '—'}</div></div>
-          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Make / Model</div><div style={{ fontSize: 13, color: 'var(--txt)' }}>{[asset.brand, asset.model].filter(Boolean).join(' ') || '—'}</div></div>
-          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Condition</div><div>{asset.condition ? <StatusBadge status={asset.condition} /> : '—'}</div></div>
+          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Asset Tag</div><div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{asset.assetTag ?? '–'}</div></div>
+          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Category</div><div style={{ fontSize: 13, color: 'var(--txt)' }}>{asset.categoryName ?? '–'}</div></div>
+          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Make / Model</div><div style={{ fontSize: 13, color: 'var(--txt)' }}>{[asset.brand, asset.model].filter(Boolean).join(' ') || '–'}</div></div>
+          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Condition</div><div>{asset.condition ? <StatusBadge status={asset.condition} /> : '–'}</div></div>
           <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Allocated Date</div><div style={{ fontSize: 13, color: 'var(--txt)' }}>{fmtDate(asset.effectiveFrom)}</div></div>
           <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Acknowledged</div><div style={{ fontSize: 13, color: 'var(--txt)' }}>{asset.acknowledgedAt ? fmtDate(asset.acknowledgedAt) : 'Pending'}</div></div>
         </div>
@@ -47,7 +48,7 @@ function RequestTrackingModal({ request, onClose }: { request: AssetRequestRespo
           {steps.map((s, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 10, height: 10, borderRadius: '50%', background: s.done ? 'var(--ok)' : 'var(--line2)', flexShrink: 0 }} />
-              <div style={{ fontSize: 13, color: s.done ? 'var(--txt)' : 'var(--txt-dim)' }}>{s.label}{s.at ? ` — ${fmtDate(s.at)}` : ''}</div>
+              <div style={{ fontSize: 13, color: s.done ? 'var(--txt)' : 'var(--txt-dim)' }}>{s.label}{s.at ? ` - ${fmtDate(s.at)}` : ''}</div>
             </div>
           ))}
           {request.rejectionReason && (
@@ -122,20 +123,19 @@ function EmployeeAssetsTab({ token }: { token: string }) {
     }
   }
 
-  const subTabStyle = (t: typeof subTab): React.CSSProperties => ({
-    background: t === subTab ? 'color-mix(in srgb, var(--brand) 12%, transparent)' : 'var(--raised)',
-    border: `1px solid ${t === subTab ? 'var(--brand)' : 'var(--line2)'}`,
-    color: t === subTab ? 'var(--brand-bright)' : 'var(--txt-mut)',
-    fontSize: 12, fontWeight: 600, padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
-  });
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button style={subTabStyle('assets')} onClick={() => setSubTab('assets')}>My Assets</button>
-        <button style={subTabStyle('requests')} onClick={() => setSubTab('requests')}>My Asset Requests</button>
-        <button style={subTabStyle('claims')} onClick={() => setSubTab('claims')}>My Expense Claims</button>
-      </div>
+      <TabBar
+        size="sm"
+        ariaLabel="Assets and expenses"
+        active={subTab}
+        onChange={setSubTab}
+        tabs={[
+          { key: 'assets', label: 'My Assets', count: assignments.length },
+          { key: 'requests', label: 'My Asset Requests', count: requests.length },
+          { key: 'claims', label: 'My Expense Claims', count: claims.length },
+        ]}
+      />
 
       {subTab === 'assets' && (
         <div style={panelStyle}>
@@ -148,11 +148,11 @@ function EmployeeAssetsTab({ token }: { token: string }) {
               <tbody>
                 {assignments.length === 0 ? <EmptyRow cols={7} msg="No assets assigned." /> : assignments.map(a => (
                   <tr key={a.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.assetTag ?? '—'}</td>
-                    <td style={tdStyle}>{a.categoryName ?? '—'}</td>
-                    <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '—'}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.assetTag ?? '–'}</td>
+                    <td style={tdStyle}>{a.categoryName ?? '–'}</td>
+                    <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '–'}</td>
                     <td style={tdStyle}>{fmtDate(a.effectiveFrom)}</td>
-                    <td style={tdStyle}>{a.condition ? <StatusBadge status={a.condition} /> : '—'}</td>
+                    <td style={tdStyle}>{a.condition ? <StatusBadge status={a.condition} /> : '–'}</td>
                     <td style={tdStyle}>{a.effectiveTo ? <StatusBadge status="RETIRED" /> : <StatusBadge status="ASSIGNED" />}</td>
                     <td style={{ ...tdStyle, padding: '8px 12px', textAlign: 'right' }}>
                       <KebabMenu items={[
@@ -193,7 +193,7 @@ function EmployeeAssetsTab({ token }: { token: string }) {
                     {/* Approver falls back to the employee's own reporting manager pre-decision —
                         AssetRequestResponse has no distinct "assigned approver" field until a
                         decision is made, only who *did* decide. */}
-                    <td style={tdStyle}>{r.managerDecidedByName ?? '—'}</td>
+                    <td style={tdStyle}>{r.managerDecidedByName ?? '–'}</td>
                     <td style={{ ...tdStyle, padding: '8px 12px', textAlign: 'right' }}>
                       <KebabMenu items={[
                         { label: 'View', onClick: () => setTrackingRequest(r) },
@@ -284,7 +284,7 @@ function EmployeeAssetsTab({ token }: { token: string }) {
           categories={categories}
           token={token}
           onClose={() => setShowRequestModal(false)}
-          onCreated={() => { reload(); showToast('success', 'Asset request submitted — pending manager approval'); }}
+          onCreated={() => { reload(); showToast('success', 'Asset request submitted - pending manager approval'); }}
         />
       )}
       {showExpModal && (

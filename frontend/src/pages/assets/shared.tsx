@@ -1,4 +1,6 @@
 import { X } from 'lucide-react';
+import { AlarmClock, Hourglass, CheckCircle2, Boxes, Receipt, ClipboardList, Package } from 'lucide-react';
+import DashTile from '../../components/DashTile';
 
 // ── Shared styles ─────────────────────────────────────────
 
@@ -11,12 +13,12 @@ export const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, 
 export const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
 
 export function fmtCurrency(n?: number | null) {
-  if (n == null) return '—';
+  if (n == null) return '–';
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n);
 }
 
 export function fmtDate(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -61,25 +63,25 @@ export interface TileProps {
   onClick?: () => void;
   clickHint?: string;
 }
+// Icon + colour for a tile, chosen from its label so every call site stays as it was.
+function tileLook(label: string): { icon: React.ReactNode; accent: string } {
+  const l = label.toLowerCase();
+  if (l.includes('overdue')) return { icon: <AlarmClock size={20} />, accent: 'var(--risk)' };
+  if (l.includes('pending')) return { icon: <Hourglass size={20} />, accent: 'var(--warn)' };
+  if (l.includes('approved')) return { icon: <CheckCircle2 size={20} />, accent: 'var(--ok)' };
+  if (l.includes('available') || l.includes('inventory')) return { icon: <Boxes size={20} />, accent: 'var(--info)' };
+  if (l.includes('expense') || l.includes('claim')) return { icon: <Receipt size={20} />, accent: 'var(--om-purple)' };
+  if (l.includes('request')) return { icon: <ClipboardList size={20} />, accent: 'var(--brand)' };
+  return { icon: <Package size={20} />, accent: 'var(--info)' };
+}
+
+// Same tile as the Home dashboard (components/DashTile). Click behaviour is unchanged: only a tile marked
+// `clickable` with an `onClick` is a button.
 export function Tile({ label, value, sub, clickable, onClick, clickHint }: TileProps) {
-  return (
-    <div
-      onClick={clickable ? onClick : undefined}
-      style={{
-        background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px',
-        cursor: clickable ? 'pointer' : 'default',
-        transition: clickable ? 'border-color .15s' : undefined,
-        minWidth: 0,
-      }}
-      onMouseEnter={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--brand)') : undefined}
-      onMouseLeave={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--line)') : undefined}
-    >
-      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{value}</div>
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3, fontWeight: 600 }}>{label}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>{sub}</div>}
-      {clickable && onClick && clickHint && <div style={{ fontSize: 10, color: 'var(--brand)', marginTop: 6, fontWeight: 600 }}>{clickHint}</div>}
-    </div>
-  );
+  const { icon, accent } = tileLook(label);
+  const isClick = !!(clickable && onClick);
+  const subText = [sub, isClick ? clickHint : undefined].filter(Boolean).join(' · ') || undefined;
+  return <DashTile icon={icon} accent={accent} label={label} value={String(value)} sub={subText} onClick={isClick ? onClick : undefined} />;
 }
 
 export function SectionHead({ title, action }: { title: string; action?: React.ReactNode }) {

@@ -84,7 +84,7 @@ export function SyncLoginPanel({ children }: SyncLoginPanelProps) {
         style={{
           position: 'relative', zIndex: 1,
           width: '100%', maxWidth: 'calc(420 * var(--u))',
-          background: 'rgba(255,255,255,0.045)',
+          background: '#141416',
           border: '1px solid rgba(232,72,84,0.42)',
           borderRadius: 'calc(20 * var(--u))',
           padding: 'calc(40 * var(--u)) calc(36 * var(--u))',

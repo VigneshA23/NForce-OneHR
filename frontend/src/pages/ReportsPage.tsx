@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Users, CalendarCheck, Clock, Download, ShieldAlert } from 'lucide-react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import DashTile from '../components/DashTile';
+import { Users, CalendarCheck, Clock, Download, ShieldAlert, BarChart3 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -169,17 +171,9 @@ function exportDashboardToExcel(opts: {
 
 // ── Small presentational bits ───────────────────────────────
 
-function KpiCard({ icon, label, value, note, danger }: { icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean }) {
-  return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ color: 'var(--brand)' }}>{icon}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
-      </div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: danger ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      {note && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>}
-    </div>
-  );
+// Same tile as the Home dashboard (components/DashTile); display only.
+export function KpiCard({ icon, label, value, note, danger, accent }: { icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean; accent?: string }) {
+  return <DashTile icon={icon} label={label} value={String(value)} sub={note} accent={danger ? 'var(--risk)' : (accent ?? 'var(--brand)')} />;
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -292,13 +286,13 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-        <div>
+      <div className="nf-page-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={BarChart3}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Reports & Analytics</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
             {isHr ? 'Company-wide headcount, attendance and leave.' : 'Your team’s headcount, attendance and leave.'}
           </p>
-        </div>
+        </PageTitleBlock>
         <button
           onClick={handleExport}
           disabled={loading || !!error}
@@ -344,10 +338,10 @@ export default function ReportsPage() {
         <>
           {/* KPI cards */}
           <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-            <KpiCard icon={<Users size={14} />} label={isHr ? 'Total Headcount' : 'Direct Reports'} value={headcountSummary.total} note={`${headcountSummary.active} active · ${headcountSummary.inactive} inactive`} />
-            <KpiCard icon={<CalendarCheck size={14} />} label="Present Today" value={attendanceSummary.present} note={`of ${headcountSummary.total} for ${attendanceDate}`} />
-            <KpiCard icon={<Clock size={14} />} label="Late / Absent" value={`${attendanceSummary.late} / ${attendanceSummary.absent}`} note="on the selected date" danger={attendanceSummary.absent > 0} />
-            <KpiCard icon={<CalendarCheck size={14} />} label="Leave (period)" value={leaveSummary.approvedCount} note={`${leaveSummary.totalDaysApproved}d approved · ${leaveSummary.pendingCount} pending`} />
+            <KpiCard icon={<Users size={20} />} label={isHr ? 'Total Headcount' : 'Direct Reports'} value={headcountSummary.total} accent="var(--info)" note={`${headcountSummary.active} active · ${headcountSummary.inactive} inactive`} />
+            <KpiCard icon={<CalendarCheck size={20} />} label="Present Today" value={attendanceSummary.present} accent="var(--ok)" note={`of ${headcountSummary.total} for ${attendanceDate}`} />
+            <KpiCard icon={<Clock size={20} />} label="Late / Absent" value={`${attendanceSummary.late} / ${attendanceSummary.absent}`} accent="var(--warn)" note="on the selected date" danger={attendanceSummary.absent > 0} />
+            <KpiCard icon={<CalendarCheck size={20} />} label="Leave (period)" value={leaveSummary.approvedCount} accent="var(--om-purple)" note={`${leaveSummary.totalDaysApproved}d approved · ${leaveSummary.pendingCount} pending`} />
           </div>
 
           {/* Charts */}
@@ -372,7 +366,7 @@ export default function ReportsPage() {
               )}
             </ChartCard>
 
-            <ChartCard title={`Attendance breakdown — ${attendanceDate}`}>
+            <ChartCard title={`Attendance breakdown - ${attendanceDate}`}>
               {attendanceRecords.length === 0 && attendanceSummary.notCheckedIn === 0 ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No attendance data for this date.</div>
               ) : (
@@ -400,8 +394,8 @@ export default function ReportsPage() {
                   <tr key={r.userId}>
                     <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
                     <td style={{ ...tdS, fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</td>
-                    <td style={tdS}>{r.departmentName ?? '—'}</td>
-                    <td style={tdS}>{r.designationName ?? '—'}</td>
+                    <td style={tdS}>{r.departmentName ?? '–'}</td>
+                    <td style={tdS}>{r.designationName ?? '–'}</td>
                     <td style={tdS}>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, color: r.active ? '#2FB67C' : 'var(--txt-dim)', background: r.active ? 'rgba(47,182,124,.15)' : 'var(--raised2)' }}>
                         {r.active ? 'Active' : 'Inactive'}

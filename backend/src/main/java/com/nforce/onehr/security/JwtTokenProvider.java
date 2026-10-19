@@ -20,18 +20,33 @@ public class JwtTokenProvider {
     @Value("${app.jwt.expiration-hours:8}")
     private int jwtExpirationHours;
 
+    // "Remember me" sessions: effectively "until the user signs out or is force-logged-out" —
+    // password change / profile change / deactivation still kill them immediately via the "tv"
+    // claim and the per-request isEnabled() check in JwtAuthenticationFilter, so the long expiry
+    // only bounds a session nobody ever invalidates.
+    @Value("${app.jwt.remember-me-expiration-days:365}")
+    private int rememberMeExpirationDays;
+
     private SecretKey signingKey() {
         return Keys.hmacShaKeyFor(jwtSecret.getBytes(StandardCharsets.UTF_8));
     }
 
     public String generateToken(String email, boolean mustChangePassword, int tokenVersion) {
+        return generateToken(email, mustChangePassword, tokenVersion, false);
+    }
+
+    public String generateToken(String email, boolean mustChangePassword, int tokenVersion, boolean rememberMe) {
         long nowMs = System.currentTimeMillis();
-        Date expiry = new Date(nowMs + (long) jwtExpirationHours * 3_600_000);
+        long lifetimeMs = rememberMe
+                ? (long) rememberMeExpirationDays * 86_400_000L
+                : (long) jwtExpirationHours * 3_600_000L;
+        Date expiry = new Date(nowMs + lifetimeMs);
 
         return Jwts.builder()
                 .subject(email)
                 .claim("mcp", mustChangePassword)
                 .claim("tv", tokenVersion)
+                .claim("rm", rememberMe)
                 .issuedAt(new Date(nowMs))
                 .expiration(expiry)
                 .signWith(signingKey())
@@ -45,6 +60,11 @@ public class JwtTokenProvider {
     public boolean extractMustChangePassword(String token) {
         Object mcp = parseClaims(token).get("mcp");
         return Boolean.TRUE.equals(mcp);
+    }
+
+    // Lets a token re-minted mid-session (password change) keep the original session's lifetime.
+    public boolean extractRememberMe(String token) {
+        return Boolean.TRUE.equals(parseClaims(token).get("rm"));
     }
 
     // Absent only for tokens minted before this claim existed — treated as version 0, which

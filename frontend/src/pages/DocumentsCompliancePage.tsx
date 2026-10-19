@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, XCircle, Eye, Search, Users, History } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Eye, Search, Users, History, ShieldCheck } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { TablePagination, clampPage, paginate } from '../components/TablePagination';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { TabBar } from '../components/TabBar';
 import {
   listAllDocuments, listPendingDocuments, verifyDocument, getAdminKpis, fetchDocumentFile, listMissingDocuments, remindMissingDocument,
   documentHistory,
@@ -379,7 +381,7 @@ export default function DocumentsCompliancePage() {
       setPending(p => p.filter(d => d.id !== doc.id));
       setVerified(v => [updated, ...v]);
       setDetailDoc(null);
-      showToast('success', 'Document verified — the employee has been notified');
+      showToast('success', 'Document verified - the employee has been notified');
       getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Verify failed');
@@ -394,7 +396,7 @@ export default function DocumentsCompliancePage() {
       await verifyDocument(token, doc.id, 'REJECT', reason.trim());
       setPending(p => p.filter(d => d.id !== doc.id));
       setDetailDoc(null);
-      showToast('success', 'Document rejected — the employee has been notified');
+      showToast('success', 'Document rejected - the employee has been notified');
       getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Reject failed');
@@ -402,12 +404,6 @@ export default function DocumentsCompliancePage() {
       load(false);
     }
   }
-
-  const tabStyle = (t: typeof tab): React.CSSProperties => ({
-    padding: '8px 18px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13,
-    background: tab === t ? '#A01418' : 'transparent', color: tab === t ? '#fff' : 'var(--txt-dim)',
-    display: 'flex', alignItems: 'center', gap: 6,
-  });
 
   const [docTypeFilter, setDocTypeFilter] = useState('');
 
@@ -471,8 +467,10 @@ export default function DocumentsCompliancePage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
+      <PageTitleBlock card icon={ShieldCheck}>
+<h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Verify employee documents and track compliance.</p>
+</PageTitleBlock>
 
       {/* KPI row */}
       {kpis && (
@@ -492,20 +490,17 @@ export default function DocumentsCompliancePage() {
       )}
 
       {/* Tabs */}
-      <div className="nf-doc-tabs" style={{ display: 'flex', gap: 6, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', marginBottom: 14 }}>
-        <button className="nf-doc-tab-btn" style={tabStyle('pending')} onClick={() => setTab('pending')}>
-          <span className="nf-doc-tab-label">Pending Verification</span>
-          {pending.length > 0 && <span style={{ background: tab === 'pending' ? 'rgba(255,255,255,.25)' : '#eab308', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>{pending.length}</span>}
-        </button>
-        <button className="nf-doc-tab-btn" style={tabStyle('verified')} onClick={() => setTab('verified')}>
-          <span className="nf-doc-tab-label">Verified</span>
-          {verified.length > 0 && <span style={{ background: tab === 'verified' ? 'rgba(255,255,255,.25)' : '#22c55e', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>{verified.length}</span>}
-        </button>
-        <button className="nf-doc-tab-btn" style={tabStyle('missing')} onClick={() => setTab('missing')}>
-          <span className="nf-doc-tab-label">Not Submitted</span>
-          {missing.length > 0 && <span style={{ background: tab === 'missing' ? 'rgba(255,255,255,.25)' : '#ef4444', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>{missing.length}</span>}
-        </button>
-      </div>
+      <TabBar
+        ariaLabel="Document verification status"
+        style={{ marginBottom: 14 }}
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { key: 'pending', label: 'Pending Verification', count: pending.length },
+          { key: 'verified', label: 'Verified', count: verified.length },
+          { key: 'missing', label: 'Not Submitted', count: missing.length },
+        ]}
+      />
 
       {/* Search + Filter */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -565,7 +560,7 @@ export default function DocumentsCompliancePage() {
                       </span>
                     </td>
                     <td style={tdS}>{new Date(d.uploadedAt).toLocaleDateString()}</td>
-                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
+                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '–'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[
                         { label: 'Review', onClick: () => setDetailDoc(d) },
@@ -619,8 +614,8 @@ export default function DocumentsCompliancePage() {
                         <Eye size={12} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fileName}</span>
                       </span>
                     </td>
-                    <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '—'}</td>
-                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
+                    <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '–'}</td>
+                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '–'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[{ label: 'View Document', onClick: () => setDetailDoc(d) }]} />
                     </td>

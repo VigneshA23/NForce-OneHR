@@ -87,11 +87,11 @@ function buildScenario(state: PreviewState): { dayStatus: ProfileDayStatus; dayI
 }
 
 const STATE_DESCRIPTIONS: Record<PreviewState, string> = {
-  working: 'Normal working day — no Profile badge, no Attendance badge, plain PRESENT status.',
-  'weekly-off': 'Weekly-off day, no work done — Profile shows "Weekly Off", Attendance Log shows W-OFF with no working-time metrics.',
-  holiday: 'Holiday, no work done — Profile shows "Holiday", Attendance Log shows HLDY and the holiday name, no working-time metrics.',
-  'worked-weekly-off': 'Weekly-off day, but the employee worked — Profile still shows "Weekly Off" (the day type doesn\'t change), but the Attendance Log shows the real worked duration plus the celebration indicator ("Good working on a weekend").',
-  'worked-holiday': 'Holiday, but the employee worked — Profile still shows "Holiday", Attendance Log shows the real worked duration plus the celebration indicator ("Good working on a holiday").',
+  working: 'Normal working day - no Profile badge, no Attendance badge, plain PRESENT status.',
+  'weekly-off': 'Weekly-off day, no work done - Profile shows "Weekly Off", Attendance Log shows W-OFF with no working-time metrics.',
+  holiday: 'Holiday, no work done - Profile shows "Holiday", Attendance Log shows HLDY and the holiday name, no working-time metrics.',
+  'worked-weekly-off': 'Weekly-off day, but the employee worked - Profile still shows "Weekly Off" (the day type doesn\'t change), but the Attendance Log shows the real worked duration plus the celebration indicator ("Good working on a weekend").',
+  'worked-holiday': 'Holiday, but the employee worked - Profile still shows "Holiday", Attendance Log shows the real worked duration plus the celebration indicator ("Good working on a holiday").',
 };
 
 function NavRow({ icon: Icon, label, active }: { icon: typeof Home; label: string; active?: boolean }) {
@@ -150,9 +150,9 @@ export default function AttendanceStatusPreviewPage() {
 
         <div style={{ padding: 24, maxWidth: 980, width: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ background: '#15171c', border: '1px solid #23262f', borderRadius: 10, padding: '10px 16px', fontSize: 12.5, color: '#9CA3AF' }}>
-            Production components reused unmodified: <code style={{ color: '#E8EAED' }}>pages/profile/shared.tsx</code> (<code style={{ color: '#E8EAED' }}>ProfileDayStatusBadge</code>, <code style={{ color: '#E8EAED' }}>DesignationLine</code>) and <code style={{ color: '#E8EAED' }}>pages/AttendancePage.tsx</code> (<code style={{ color: '#E8EAED' }}>InlineDayBadge</code>, <code style={{ color: '#E8EAED' }}>AttendanceTimeline</code>, <code style={{ color: '#E8EAED' }}>NonWorkingDayWorkedIcon</code>). Everything else (sidebar/topbar/identity row/table chrome) is a static visual replica for layout context only — no network requests, no real data.
+            Production components reused unmodified: <code style={{ color: '#E8EAED' }}>pages/profile/shared.tsx</code> (<code style={{ color: '#E8EAED' }}>ProfileDayStatusBadge</code>, <code style={{ color: '#E8EAED' }}>DesignationLine</code>) and <code style={{ color: '#E8EAED' }}>pages/AttendancePage.tsx</code> (<code style={{ color: '#E8EAED' }}>InlineDayBadge</code>, <code style={{ color: '#E8EAED' }}>AttendanceTimeline</code>, <code style={{ color: '#E8EAED' }}>NonWorkingDayWorkedIcon</code>). Everything else (sidebar/topbar/identity row/table chrome) is a static visual replica for layout context only - no network requests, no real data.
             <div style={{ marginTop: 8, color: '#6EE7B7' }}>
-              state = <code>{state}</code> — {STATE_DESCRIPTIONS[state]}
+              state = <code>{state}</code> – {STATE_DESCRIPTIONS[state]}
             </div>
             <div style={{ marginTop: 6 }}>
               Try: {VALID_STATES.map(s => (
@@ -200,7 +200,7 @@ export default function AttendanceStatusPreviewPage() {
           </div>
 
           {/* ── 2. Attendance Log preview ───────────────────────────────────────────── */}
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 8 }}>Attendance log — today's row</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '.06em', marginTop: 8 }}>Attendance log - today's row</div>
           <div style={{ background: '#15171c', border: '1px solid #23262f', borderRadius: 10, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -223,8 +223,8 @@ export default function AttendanceStatusPreviewPage() {
                     <AttendanceTimeline info={dayInfo} punches={undefined} punchesLoading={false} />
                   </td>
                   <td style={{ padding: '14px', verticalAlign: 'top' }}>
-                    <div style={{ fontSize: 11.5, color: '#E8EAED' }}>{dayInfo.record?.checkInAt ? new Date(dayInfo.record.checkInAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}</div>
-                    <div style={{ fontSize: 11.5, color: '#6B7280', marginTop: 2 }}>{dayInfo.record?.checkOutAt ? new Date(dayInfo.record.checkOutAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'}</div>
+                    <div style={{ fontSize: 11.5, color: '#E8EAED' }}>{dayInfo.record?.checkInAt ? new Date(dayInfo.record.checkInAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '–'}</div>
+                    <div style={{ fontSize: 11.5, color: '#6B7280', marginTop: 2 }}>{dayInfo.record?.checkOutAt ? new Date(dayInfo.record.checkOutAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '–'}</div>
                   </td>
                 </tr>
               </tbody>
@@ -232,7 +232,7 @@ export default function AttendanceStatusPreviewPage() {
           </div>
 
           <div style={{ background: '#15171c', border: '1px solid #23262f', borderRadius: 10, padding: 16, fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }}>
-            On desktop, hover the celebration icon (when shown) for its tooltip. On any device, opening the real day-detail drawer (not reproduced in this lightweight preview) shows the same message as visible text — see <code>NonWorkingDayWorkedNote</code> in the real <code>AttendancePage.tsx</code>.
+            On desktop, hover the celebration icon (when shown) for its tooltip. On any device, opening the real day-detail drawer (not reproduced in this lightweight preview) shows the same message as visible text - see <code>NonWorkingDayWorkedNote</code> in the real <code>AttendancePage.tsx</code>.
           </div>
         </div>
       </div>

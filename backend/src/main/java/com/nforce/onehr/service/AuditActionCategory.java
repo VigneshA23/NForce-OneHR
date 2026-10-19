@@ -77,6 +77,8 @@ public enum AuditActionCategory {
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.
             "HELPDESK_TICKET_STATUS_CHANGED", "HELPDESK_TICKET_ASSIGNED",
+            // BenchStatusService — HR Admin marking/ending an employee's bench status
+            "BENCH_STATUS_CHANGE", "INTERNAL_OPPORTUNITY_CLOSED",
             // Talent & Skills (SkillMasterService/ProficiencyLevelService/CertificateCategoryService
             // /SkillRequestService) — Settings configuration changes, same treatment as
             // PenalizationPolicyService/LeaveTypeService above (both HR Admin and Super Admin see

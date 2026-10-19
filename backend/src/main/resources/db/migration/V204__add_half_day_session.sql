@@ -6,7 +6,7 @@
 -- since-removed migration file with a different version number.
 
 ALTER TABLE leave_requests
-    ADD COLUMN IF NOT EXISTS half_day_session VARCHAR(10);
+    ADD COLUMN IF NOT EXISTS half_day_session VARCHAR(20);
 
 DO $$
 BEGIN

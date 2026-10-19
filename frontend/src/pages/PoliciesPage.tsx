@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip } from 'lucide-react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip, FileCheck2 } from 'lucide-react';
+import DashTile from '../components/DashTile';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { TabBar } from '../components/TabBar';
 import {
   listAllPolicies, publishPolicy, editPolicy, publishPolicyVersion, policyVersionHistory,
   deactivatePolicy, reactivatePolicy, deletePolicy,
@@ -234,7 +237,7 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
         <datalist id="policy-titles-list">
           {[...new Set(policies.map(p => p.title))].map(t => <option key={t} value={t} />)}
         </datalist>
-        {isUpdate && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#eab308' }}>Existing policy — will publish v{version}, supersede current.</p>}
+        {isUpdate && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#eab308' }}>Existing policy - will publish v{version}, supersede current.</p>}
       </FormField>
       <FormField label="Version" hint="(auto-suggested)">
         <input style={inputS} value={version} onChange={e => setVersion(e.target.value)} required />
@@ -243,7 +246,7 @@ function PublishModal({ policies, onClose, onPublished }: { policies: Policy[]; 
         <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
       </FormField>
       <AudienceField value={audience} onChange={setAudience} />
-      <AttachmentField file={file} onFileChange={onFileChange} hint="optional — Image, PDF, or Word document" />
+      <AttachmentField file={file} onFileChange={onFileChange} hint="optional - Image, PDF, or Word document" />
       <RequiredAckCheckbox id="req" checked={required} onChange={setRequired} />
     </PolicyFormModal>
   );
@@ -278,7 +281,7 @@ function EditPolicyModal({ policy, onClose, onSaved }: { policy: Policy; onClose
 
   return (
     <PolicyFormModal
-      title={`Edit Policy — v${policy.version}`}
+      title={`Edit Policy - v${policy.version}`}
       submitLabel="Save Changes"
       loadingLabel="Saving…"
       loading={loading}
@@ -320,7 +323,7 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
       const audienceStr = audience.length === 4 ? 'ALL' : audience.join(',');
       const p = await publishPolicyVersion(token, policy.id, { version, description, audience: audienceStr, required }, file);
       onPublished(p);
-      showToast('success', 'New version published — employees must re-acknowledge');
+      showToast('success', 'New version published - employees must re-acknowledge');
       onClose();
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Publish failed');
@@ -331,7 +334,7 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
 
   return (
     <PolicyFormModal
-      title={`Publish New Version — ${policy.title}`}
+      title={`Publish New Version - ${policy.title}`}
       subtitle={`Currently v${policy.version}. Publishing a new version supersedes it and requires every affected employee to re-acknowledge.`}
       submitLabel="Publish New Version"
       loadingLabel="Publishing…"
@@ -346,7 +349,7 @@ function PublishVersionModal({ policy, onClose, onPublished }: { policy: Policy;
         <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
       </FormField>
       <AudienceField value={audience} onChange={setAudience} />
-      <AttachmentField file={file} onFileChange={onFileChange} hint="optional — Image, PDF, or Word document; leave blank to keep the current one" />
+      <AttachmentField file={file} onFileChange={onFileChange} hint="optional - Image, PDF, or Word document; leave blank to keep the current one" />
       <RequiredAckCheckbox id="reqv" checked={required} onChange={setRequired} />
     </PolicyFormModal>
   );
@@ -476,7 +479,7 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 600, maxWidth: '94vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} className="nf-modal-panel-in">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{selected.title} — v{selected.version}</h3>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{selected.title} – v{selected.version}</h3>
             {!loading && (
               <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--txt-dim)' }}>
                 {acknowledged}/{total} acknowledged
@@ -530,7 +533,7 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
                         ? <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#eab308', fontSize: 12, fontWeight: 600 }}><Clock size={12} /> Pending</span>
                         : <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#22c55e', fontSize: 12, fontWeight: 600 }}><CheckCircle size={12} /> Acknowledged</span>}
                     </td>
-                    <td style={tdS}>{a.acknowledgedAt ? new Date(a.acknowledgedAt).toLocaleDateString() : '—'}</td>
+                    <td style={tdS}>{a.acknowledgedAt ? new Date(a.acknowledgedAt).toLocaleDateString() : '–'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[
                         ...(!a.pending ? [{ label: 'Reset Acknowledgment', onClick: () => doReset(a.employeeUserId) }] : []),
@@ -549,6 +552,17 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
 }
 
 // ── Main Page ─────────────────────────────────────────────
+
+/** The three summary tiles: same tile as the Home dashboard (components/DashTile). Display only. */
+export function PolicyStatTiles({ activePolicies, pendingAck, announcements }: { activePolicies: number; pendingAck: number; announcements: number }) {
+  return (
+    <div className="nf-policy-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }}>
+      <DashTile icon={<FileCheck2 size={20} />} accent="var(--ok)" label="Active Policies" value={String(activePolicies)} />
+      <DashTile icon={<Clock size={20} />} accent="var(--warn)" label="Pending Acknowledgments" value={String(pendingAck)} />
+      <DashTile icon={<Megaphone size={20} />} accent="var(--info)" label="Total Announcements" value={String(announcements)} />
+    </div>
+  );
+}
 
 export default function PoliciesPage() {
   const token = useAuthStore(s => s.token)!;
@@ -659,12 +673,6 @@ export default function PoliciesPage() {
     }
   }
 
-  const tabStyle = (t: typeof tab): React.CSSProperties => ({
-    padding: '8px 18px', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13,
-    background: tab === t ? '#A01418' : 'transparent', color: tab === t ? '#fff' : 'var(--txt-dim)',
-    display: 'flex', alignItems: 'center', gap: 6,
-  });
-
   const activePolicies = policies.filter(p => p.active).length;
   const uniqueAudiences = [...new Set(announcements.map(a => a.audience))];
 
@@ -693,11 +701,11 @@ export default function PoliciesPage() {
 
   return (
     <div>
-      <div className="nf-policy-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-        <div>
+      <div className="nf-policy-header nf-page-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
+        <PageTitleBlock icon={Megaphone}>
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Policies & Announcements</h1>
           <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginTop: 4 }}>Publish company policies and broadcast announcements.</p>
-        </div>
+        </PageTitleBlock>
         <div className="nf-policy-actions" style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => setShowAnnounce(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
@@ -711,38 +719,18 @@ export default function PoliciesPage() {
       </div>
 
       {/* KPI tiles */}
-      <div className="nf-policy-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 24 }}>
-        {[
-          { label: 'Active Policies', value: activePolicies, color: '#22c55e' },
-          { label: 'Pending Acknowledgments', value: pendingAckTotal, color: '#eab308' },
-          { label: 'Total Announcements', value: announcements.length, color: '#3b82f6' },
-        ].map(k => (
-          <div key={k.label} className="nf-policy-kpi-tile" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-            <div className="nf-policy-kpi-value" style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: 'Inter, sans-serif' }}>{k.value}</div>
-            <div className="nf-policy-kpi-label" style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
-          </div>
-        ))}
-      </div>
+      <PolicyStatTiles activePolicies={activePolicies} pendingAck={pendingAckTotal} announcements={announcements.length} />
 
-      {/* Tabs — colored badge style */}
-      <div className="nf-tab-scroll" style={{ display: 'flex', gap: 6, marginBottom: 18, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: 4, width: 'fit-content', maxWidth: '100%' }}>
-        <button style={tabStyle('policies')} onClick={() => setTab('policies')}>
-          Policies
-          {policies.length > 0 && (
-            <span style={{ background: tab === 'policies' ? 'rgba(255,255,255,.25)' : '#22c55e', color: tab === 'policies' ? '#fff' : '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>
-              {policies.length}
-            </span>
-          )}
-        </button>
-        <button style={tabStyle('announcements')} onClick={() => setTab('announcements')}>
-          Announcements
-          {announcements.length > 0 && (
-            <span style={{ background: tab === 'announcements' ? 'rgba(255,255,255,.25)' : '#3b82f6', color: '#fff', borderRadius: 10, fontSize: 10, fontWeight: 700, padding: '1px 7px' }}>
-              {announcements.length}
-            </span>
-          )}
-        </button>
-      </div>
+      <TabBar
+        ariaLabel="Policies and announcements"
+        style={{ marginBottom: 18 }}
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { key: 'policies', label: 'Policies', count: policies.length },
+          { key: 'announcements', label: 'Announcements', count: announcements.length },
+        ]}
+      />
 
       {/* ── Policies ── */}
       {tab === 'policies' && (

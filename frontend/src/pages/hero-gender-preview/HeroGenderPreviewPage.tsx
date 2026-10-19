@@ -122,7 +122,7 @@ export default function HeroGenderPreviewPage() {
 
         <div style={{ padding: 24, maxWidth: 1100, width: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ background: '#15171c', border: '1px solid #23262f', borderRadius: 10, padding: '10px 16px', fontSize: 12.5, color: '#9CA3AF' }}>
-            Production component reused unmodified: <code style={{ color: '#E8EAED' }}>components/HeroIllustration.tsx</code> (<code style={{ color: '#E8EAED' }}>HeroIllustrationArt</code>), <code style={{ color: '#E8EAED' }}>src/index.css</code> (<code style={{ color: '#E8EAED' }}>.nf-hero-illus</code>). Everything above the hero card (sidebar/topbar/greeting) is a static visual replica for layout context only — no network requests, no real profile data.
+            Production component reused unmodified: <code style={{ color: '#E8EAED' }}>components/HeroIllustration.tsx</code> (<code style={{ color: '#E8EAED' }}>HeroIllustrationArt</code>), <code style={{ color: '#E8EAED' }}>src/index.css</code> (<code style={{ color: '#E8EAED' }}>.nf-hero-illus</code>). Everything above the hero card (sidebar/topbar/greeting) is a static visual replica for layout context only - no network requests, no real profile data.
           </div>
 
           <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start', padding: 14, background: '#15171c', border: '1px solid #23262f', borderRadius: 10 }}>
@@ -184,7 +184,7 @@ export default function HeroGenderPreviewPage() {
           </div>
 
           <div style={{ background: '#15171c', border: '1px solid #23262f', borderRadius: 10, padding: 16, fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }}>
-            gender = <code>{gender}</code> → variant = <code>{variant}</code>. Switching Theme Color only changes the background/accent wash — the employee artwork itself never recolors. Switching Mock Assigned Shift only changes the "Today" calendar label inside the hero image — never the surrounding layout.
+            gender = <code>{gender}</code> → variant = <code>{variant}</code>. Switching Theme Color only changes the background/accent wash - the employee artwork itself never recolors. Switching Mock Assigned Shift only changes the "Today" calendar label inside the hero image - never the surrounding layout.
           </div>
         </div>
       </div>

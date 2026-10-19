@@ -9,6 +9,7 @@ import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
 import com.nforce.onehr.util.WorkHoursCalculator;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,10 +26,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ExceptionService {
 
     private static final Set<String> HR_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
@@ -55,6 +58,10 @@ public class ExceptionService {
     // emailed same-day, and once per admin who happened to view the dashboard before the row
     // existed yet, instead of exactly once the following day like every other exception type.
     // Folded in here to get the same once-per-row, notifiedAt-gated guarantee.
+    // How far back notifyUnnotifiedExceptions looks for rows still waiting on an email — i.e. how
+    // long a failed send keeps being retried (once per nightly run) before it's given up on.
+    private static final int NOTIFY_RETRY_WINDOW_DAYS = 7;
+
     private static final Set<String> SCHEDULED_EMAIL_TYPES = Set.of(
             ExceptionType.LATE_ARRIVAL, ExceptionType.MISSING_PUNCH,
             ExceptionType.NO_ATTENDANCE, ExceptionType.WORK_HOURS_SHORTAGE,
@@ -175,8 +182,9 @@ public class ExceptionService {
      * which must comfortably cover the longest configured buffer period + exemption cycle for any
      * policy still evaluating pending occurrences.
      *
-     * <p>Section 8: scope is the same {@link UserRepository#findEmployeeRoleUserIds()} population
-     * {@link #getExceptionsForCaller} uses — deliberately NOT narrowed to {@code User.active},
+     * <p>Scope is every non-deleted account of any role (so Managers/HR/Super Admins are emailed
+     * too), whereas the dashboard and penalties stay EMPLOYEE-only — see {@link #evaluatePolicy}.
+     * Section 8: deliberately NOT narrowed to {@code User.active},
      * which cannot reliably distinguish a genuine termination from any other reason an admin might
      * deactivate someone (see {@link #isPastEmploymentTermination}'s javadoc). "No new penalty
      * after a genuine termination" is enforced precisely, per-date, at {@link #evaluatePolicy}
@@ -192,7 +200,10 @@ public class ExceptionService {
         if (to.isBefore(from)) {
             return;
         }
-        Set<UUID> scopeIds = userRepository.findEmployeeRoleUserIds();
+        // Every role, not just EMPLOYEE-only accounts: this run is what emails the employee (and CCs
+        // their manager) about a missing check-out etc., and Managers/HR/Super Admins punch in too.
+        // Penalties stay EMPLOYEE-only — see evaluatePolicy.
+        Set<UUID> scopeIds = userRepository.findAllNonDeletedUserIds();
         if (scopeIds.isEmpty()) {
             return;
         }
@@ -635,24 +646,30 @@ public class ExceptionService {
         }
     }
 
-    private void notifyEmployee(UUID employeeUserId, String exceptionType, LocalDate exceptionDate,
-                                 LocalTime expectedTime, LocalTime actualTime, Integer minutesLate) {
-        employeeRepository.findById(employeeUserId).ifPresent(employee -> {
-            String email = employee.getUser().getEmail();
-            String name = employee.getFullName();
-            String managerEmail = currentManagerEmail(employeeUserId);
-            if (ExceptionType.LATE_ARRIVAL.equals(exceptionType)) {
-                emailService.sendLateArrivalEmail(email, managerEmail, name, exceptionDate, expectedTime, actualTime, minutesLate);
-            } else if (ExceptionType.MISSING_PUNCH.equals(exceptionType)) {
-                emailService.sendMissingPunchEmail(email, managerEmail, name, exceptionDate, actualTime);
-            } else if (ExceptionType.LEAVE_ATTENDANCE_CONFLICT.equals(exceptionType)) {
-                emailService.sendLeaveAttendanceConflictEmail(email, managerEmail, name, exceptionDate, actualTime);
-            } else if (ExceptionType.NO_ATTENDANCE.equals(exceptionType)) {
-                emailService.sendNoAttendanceEmail(email, managerEmail, name, exceptionDate);
-            } else if (ExceptionType.WORK_HOURS_SHORTAGE.equals(exceptionType)) {
-                emailService.sendWorkHoursShortageEmail(email, managerEmail, name, exceptionDate, expectedTime, actualTime);
-            }
-        });
+    /** Completes {@code true} when the email was accepted by the provider — or when there is nobody to
+     * email at all (retrying that can never succeed) — and {@code false} when the send failed and
+     * should be retried. */
+    private CompletableFuture<Boolean> notifyEmployee(UUID employeeUserId, String exceptionType, LocalDate exceptionDate,
+                                                      LocalTime expectedTime, LocalTime actualTime, Integer minutesLate) {
+        Employee employee = employeeRepository.findById(employeeUserId).orElse(null);
+        if (employee == null || employee.getUser() == null || employee.getUser().getEmail() == null) {
+            return CompletableFuture.completedFuture(true);
+        }
+        String email = employee.getUser().getEmail();
+        String name = employee.getFullName();
+        String managerEmail = currentManagerEmail(employeeUserId);
+        if (ExceptionType.LATE_ARRIVAL.equals(exceptionType)) {
+            return emailService.sendLateArrivalEmail(email, managerEmail, name, exceptionDate, expectedTime, actualTime, minutesLate);
+        } else if (ExceptionType.MISSING_PUNCH.equals(exceptionType)) {
+            return emailService.sendMissingPunchEmail(email, managerEmail, name, exceptionDate, actualTime);
+        } else if (ExceptionType.LEAVE_ATTENDANCE_CONFLICT.equals(exceptionType)) {
+            return emailService.sendLeaveAttendanceConflictEmail(email, managerEmail, name, exceptionDate, actualTime);
+        } else if (ExceptionType.NO_ATTENDANCE.equals(exceptionType)) {
+            return emailService.sendNoAttendanceEmail(email, managerEmail, name, exceptionDate);
+        } else if (ExceptionType.WORK_HOURS_SHORTAGE.equals(exceptionType)) {
+            return emailService.sendWorkHoursShortageEmail(email, managerEmail, name, exceptionDate, expectedTime, actualTime);
+        }
+        return CompletableFuture.completedFuture(true);
     }
 
     /**
@@ -667,14 +684,35 @@ public class ExceptionService {
      */
     @Transactional
     public void notifyUnnotifiedExceptions() {
+        LocalDate notBefore = LocalDate.now(ZoneId.of(attendanceProperties.getZone())).minusDays(NOTIFY_RETRY_WINDOW_DAYS);
         List<AttendanceException> pending = attendanceExceptionRepository
-                .findByExceptionTypeInAndNotifiedAtIsNull(new java.util.ArrayList<>(SCHEDULED_EMAIL_TYPES));
+                .findByExceptionTypeInAndNotifiedAtIsNullAndExceptionDateGreaterThanEqual(
+                        new java.util.ArrayList<>(SCHEDULED_EMAIL_TYPES), notBefore);
         LocalDateTime now = LocalDateTime.now();
+        int failed = 0;
         for (AttendanceException exception : pending) {
-            notifyEmployee(exception.getEmployeeUserId(), exception.getExceptionType(), exception.getExceptionDate(),
-                    exception.getExpectedTime(), exception.getActualTime(), exception.getMinutesLate());
-            exception.setNotifiedAt(now);
-            attendanceExceptionRepository.save(exception);
+            // Stamped only once the provider accepted the send: a failed one stays un-notified and is
+            // retried by the next nightly run, instead of being silently written off. One bad row
+            // never stops the rest of the batch.
+            try {
+                boolean sent = notifyEmployee(exception.getEmployeeUserId(), exception.getExceptionType(),
+                        exception.getExceptionDate(), exception.getExpectedTime(), exception.getActualTime(),
+                        exception.getMinutesLate()).join();
+                if (sent) {
+                    exception.setNotifiedAt(now);
+                    attendanceExceptionRepository.save(exception);
+                } else {
+                    failed++;
+                }
+            } catch (RuntimeException e) {
+                failed++;
+                log.error("Notification for exception {} ({} on {}) failed — will retry on the next run",
+                        exception.getId(), exception.getExceptionType(), exception.getExceptionDate(), e);
+            }
+        }
+        if (failed > 0) {
+            log.warn("{} of {} attendance exception email(s) were not sent — they stay pending and retry on the next nightly run (for {} days)",
+                    failed, pending.size(), NOTIFY_RETRY_WINDOW_DAYS);
         }
     }
 
@@ -688,6 +726,12 @@ public class ExceptionService {
      * not this method, decides which (if any) configured section applies.
      */
     private void evaluatePolicy(Attendance record, String exceptionType) {
+        // The nightly run now detects (and emails) every role, but the Penalization Policy has only
+        // ever applied to EMPLOYEE-only accounts — keep it that way.
+        // ponytail: one findEmployeeRoleUserIds() per newly-detected row; cache per run if a big backlog makes it slow.
+        if (!userRepository.findEmployeeRoleUserIds().contains(record.getEmployeeUserId())) {
+            return;
+        }
         if (isPastEmploymentTermination(record.getEmployeeUserId(), record.getWorkDate())) {
             return;
         }

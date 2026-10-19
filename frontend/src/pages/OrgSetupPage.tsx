@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import {
@@ -26,6 +27,7 @@ import * as aiAssistantApi from '../api/aiAssistant';
 import PolicyListSection from './penalization/PolicyListSection';
 import PenalizationPolicyAllocationSection from './penalization/PenalizationPolicyAllocationSection';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
+import { TabBar } from '../components/TabBar';
 
 // 'shiftweeklyoff' is ONE top-level Organization Masters tab — Shifts/Weekly Offs/Shift and
 // Weekly Off Rules live as nested sub-tabs inside it (see shiftWeeklyOffSubTab below), matching
@@ -462,7 +464,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
       // Location names are alphabetic only — letters and spaces (for multi-word names like
       // "Chennai HQ"), no digits, no hyphens, no other special characters.
       if (!/^[A-Za-z]+( [A-Za-z]+)*$/.test(trimmed)) {
-        setError(`${primaryLabel} must contain only letters (spaces allowed between words) — no numbers or special characters`);
+        setError(`${primaryLabel} must contain only letters (spaces allowed between words) - no numbers or special characters`);
         return;
       }
     } else if (!/^(?=.*[A-Za-z])[^0-9]+$/.test(trimmed)) {
@@ -584,7 +586,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
                 </span>
                 <select value={departmentId} onChange={e => setDepartmentId(e.target.value)}
                   style={{ ...inputStyle, appearance: 'none' as const, WebkitAppearance: 'none' as const }}>
-                  <option value="">— Select a department —</option>
+                  <option value="">– Select a department –</option>
                   {departments.filter(d => d.active || d.id === departmentId).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </label>
@@ -597,7 +599,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
                 <span style={labelTextStyle}>Level</span>
                 <select value={level} onChange={e => setLevel(e.target.value)}
                   style={{ ...inputStyle, appearance: 'none' as const, WebkitAppearance: 'none' as const }}>
-                  <option value="">— Not set —</option>
+                  <option value="">– Not set –</option>
                   {LEVEL_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
               </label>
@@ -634,11 +636,11 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
                   value={timezone} onChange={e => setTimezone(e.target.value)}
                   style={{ ...inputStyle, appearance: 'none' as const, WebkitAppearance: 'none' as const }}
                 >
-                  <option value="">— Select a timezone —</option>
+                  <option value="">– Select a timezone –</option>
                   {supportedTimezones.map(tz => <option key={tz} value={tz}>{tz}</option>)}
                 </select>
                 <span style={{ fontSize: 11, color: 'var(--txt-mut)', marginTop: 3 }}>
-                  Limited to this business's supported zones — every employee assigned to this
+                  Limited to this business's supported zones - every employee assigned to this
                   location uses it for check-in/out, lateness, and shift-day calculations, so it
                   can't be entered freely.
                 </span>
@@ -1091,7 +1093,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
         <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Shift' : 'Add Shift'}</h2>
         {isEdit && (
           <p style={{ margin: '0 0 16px', fontSize: 11.5, color: 'var(--txt-mut)' }}>
-            The current timing stays in effect through today exactly as it is — saving schedules a new timing
+            The current timing stays in effect through today exactly as it is - saving schedules a new timing
             to take over from the Effective From date below, it never changes today's timing retroactively.
           </p>
         )}
@@ -1169,7 +1171,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
               })}
             </div>
             <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>
-              At least one day must remain selected{isEdit ? ' — unlike the timing below, this takes effect immediately on save' : ''}
+              At least one day must remain selected{isEdit ? ' - unlike the timing below, this takes effect immediately on save' : ''}
             </span>
           </div>
           {isEdit && (
@@ -1177,7 +1179,7 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
               <label style={labelS}>Effective From *</label>
               <input type="date" style={{ ...inputS, maxWidth: 200 }} value={effectiveFrom} min={tomorrow}
                 onChange={e => setEffectiveFrom(e.target.value)} required />
-              <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Tomorrow or any later date — never today or the past</span>
+              <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Tomorrow or any later date - never today or the past</span>
             </div>
           )}
           {/* Blocks saving (see submit's own check) — the backend enforces the exact same limit
@@ -1322,8 +1324,8 @@ function ShiftSummaryPanel({ shift }: { shift: ShiftRow }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', fontSize: 13, maxWidth: 480 }}>
         <div style={rowS}><span style={labelS}>Timing</span><span style={valueS}>{fmtShiftTime(shift.startTime)} – {fmtShiftTime(shift.endTime)}</span></div>
-        <div style={rowS}><span style={labelS}>Break Duration</span><span style={valueS}>{shift.breakMinutes != null ? `${shift.breakMinutes} minutes` : '—'}</span></div>
-        <div style={rowS}><span style={labelS}>Grace Period</span><span style={valueS}>{shift.lateGraceMinutes != null ? `${shift.lateGraceMinutes} minutes` : '—'}</span></div>
+        <div style={rowS}><span style={labelS}>Break Duration</span><span style={valueS}>{shift.breakMinutes != null ? `${shift.breakMinutes} minutes` : '–'}</span></div>
+        <div style={rowS}><span style={labelS}>Grace Period</span><span style={valueS}>{shift.lateGraceMinutes != null ? `${shift.lateGraceMinutes} minutes` : '–'}</span></div>
         <div style={rowS}><span style={labelS}>Status</span><span style={valueS}><StatusBadge active={shift.active} /></span></div>
         <div style={rowS}><span style={labelS}>Employees Assigned</span><span style={valueS}><CountBadge count={shift.employeeCount} /></span></div>
         <div style={rowS}><span style={labelS}>Applicable Days</span><span style={valueS}>{formatApplicableDays(shift.workingDays)}</span></div>
@@ -1334,7 +1336,7 @@ function ShiftSummaryPanel({ shift }: { shift: ShiftRow }) {
           borderRadius: 8, padding: '10px 12px', fontSize: 12, color: 'var(--txt)', maxWidth: 480,
         }}>
           A change to {fmtShiftTime(shift.pendingStartTime!)}–{fmtShiftTime(shift.pendingEndTime!)} is scheduled to
-          take effect {shift.pendingEffectiveFrom} — see Track Shift Versions for the full history.
+          take effect {shift.pendingEffectiveFrom} – see Track Shift Versions for the full history.
         </div>
       )}
     </div>
@@ -1432,23 +1434,18 @@ function ShiftsMasterDetail({ shifts, loading, token, canManageShifts, kebabItem
                   Versions, both genuinely Shift-level (not employee-list) contexts. */}
               {canManageShifts && detailTab !== 'employees' && <KebabMenu items={kebabItems(selected)} />}
             </div>
-            <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', margin: '14px 20px 0' }}>
-              {([
+            <TabBar
+              size="sm"
+              ariaLabel="Shift details"
+              style={{ margin: '14px 20px 0' }}
+              tabs={[
                 { key: 'summary', label: 'Summary' },
                 { key: 'employees', label: 'Employees' },
                 { key: 'versions', label: 'Track Shift Versions' },
-              ] as const).map(t => (
-                <button key={t.key} onClick={() => setDetailTab(t.key)} style={{
-                  padding: '9px 14px', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 12.5,
-                  fontWeight: detailTab === t.key ? 600 : 400,
-                  color: detailTab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
-                  borderBottom: detailTab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
-                  marginBottom: -1,
-                }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
+              ]}
+              active={detailTab}
+              onChange={setDetailTab}
+            />
             <div style={{ padding: 20, flex: 1, overflowY: 'auto' }}>
               {detailTab === 'summary' ? (
                 <ShiftSummaryPanel shift={selected} />
@@ -1478,7 +1475,8 @@ export default function OrgSetupPage() {
   // only line of defense.
   const canManageShifts = hasPermission(permissions, 'organization_shifts', 'EDIT', 'ALL');
 
-  const [activeTab, setActiveTab] = useState<OrgTab>('departments');
+  // Opens on the first tab (Business Units), same order as the tab bar.
+  const [activeTab, setActiveTab] = useState<OrgTab>('businessunits');
   const [penalizationSubTab, setPenalizationSubTab] = useState<'policy' | 'allocation'>('policy');
   // Set when the Policy List's employee-count link is clicked — consumed once by
   // PenalizationPolicyAllocationSection to pre-select its Penalization Policy filter, then cleared
@@ -1837,11 +1835,67 @@ export default function OrgSetupPage() {
         />
       )}
 
-      <div>
-        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
-          {copy.title}
-        </h1>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
+      {/* Header: title on the left, the active tab's search + add controls on the right (above the tabs). */}
+      <div className="nf-page-hdr" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={Building2}>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
+            {copy.title}
+          </h1>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
+        </PageTitleBlock>
+        {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
+          && activeTab !== 'ai-assistant' && (
+          // Right of the page title, above the tabs.
+          <div className="nf-org-toolbar-actions" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+            flexWrap: 'wrap',
+          }}>
+            <div className="nf-org-search-wrap" style={{ position: 'relative' }}>
+              <Search size={12} aria-hidden="true" style={{
+                position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                color: 'var(--txt-dim)', pointerEvents: 'none',
+              }} />
+              <input
+                className="nf-org-search-input"
+                type="search" value={search} onChange={e => setSearch(e.target.value)}
+                placeholder={`Search ${tab.label.toLowerCase()}…`}
+                aria-label={`Search ${tab.label}`}
+                style={{
+                  background: 'var(--raised)', border: '1px solid var(--line2)',
+                  borderRadius: 6, padding: '5px 10px 5px 26px',
+                  fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196,
+                }}
+              />
+            </div>
+            <button onClick={openAdd} aria-label={tab.addLabel} style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+              background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+              <Plus size={13} aria-hidden="true" />
+              {tab.addLabel}
+            </button>
+          </div>
+        )}
+        {/* Add Shift stays the primary top-right action (matching the approved reference), but
+            only while the Shifts sub-tab itself is active — Weekly Offs/Shift and Weekly Off
+            Rules manage their own add actions internally (see their own sections below). No
+            shared search box here: the master-detail layout has its own, in the left panel. */}
+        {activeTab === 'shiftweeklyoff' && shiftWeeklyOffSubTab === 'shifts' && canManageShifts && (
+          <div className="nf-org-toolbar-actions" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+            flexWrap: 'wrap',
+          }}>
+            <button onClick={openAdd} aria-label="Add Shift" style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+              background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+              <Plus size={13} aria-hidden="true" />
+              Add Shift
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Scoped to the tabs that actually consume fetchAll()'s data — Penalization Policy (and
@@ -1869,7 +1923,7 @@ export default function OrgSetupPage() {
               width instead of forcing the row wider than the panel — overflowX then scrolls the
               tabs themselves (each flexShrink:0/nowrap so they scroll intact rather than
               squeezing or wrapping) whenever there isn't room for all of them, at any width. */}
-          <div className="nf-org-toolbar-tabs" style={{ display: 'flex', flex: 1, minWidth: 0, overflowX: 'auto', overflowY: 'hidden', padding: '0 4px', position: 'relative' }}>
+          <div className="nf-org-toolbar-tabs" style={{ flex: 1, minWidth: 0, position: 'relative' }}>
             {/* Right-edge fade: this row already scrolls (see the comment above on minWidth:0)
                 once there are more tabs than fit — the previous plain clip with no scrollbar or
                 affordance left the extra tabs undiscoverable (hr-ux-audit finding UI-005). This
@@ -1877,94 +1931,23 @@ export default function OrgSetupPage() {
                 against this same scrolling box, so top/right/bottom:0 stays pinned to its visible
                 edge regardless of scroll position, and it's outside the flex flow so it doesn't
                 consume tab-row space. */}
+            <TabBar
+              ariaLabel="Organization sections"
+              style={{ padding: '0 4px', boxShadow: 'none' }}
+              tabs={(Object.keys(TABS) as OrgTab[])
+                // Hidden entirely for anyone but Super Admin, rather than shown and left to 403 on
+                // load: unlike every other tab here (at least viewable via /organization by HR
+                // Admin), the AI Assistant rate-limit configuration is Super-Admin-only end to end.
+                .filter(key => key !== 'ai-assistant' || hasPermission(permissions, 'ai_assistant', 'VIEW', 'ALL'))
+                .map(key => {
+                  const TabIcon = TABS[key].icon;
+                  return { key, label: TABS[key].label, icon: <TabIcon size={14} aria-hidden="true" /> };
+                })}
+              active={activeTab}
+              onChange={setActiveTab}
+            />
             <div aria-hidden="true" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 28, pointerEvents: 'none', background: 'linear-gradient(to right, transparent, var(--panel))' }} />
-            {(Object.keys(TABS) as OrgTab[])
-              // Hidden entirely for anyone but Super Admin, rather than shown and left to 403 on
-              // load: unlike every other tab here (at least viewable via /organization by HR
-              // Admin), the AI Assistant rate-limit configuration is Super-Admin-only end to end.
-              .filter(key => key !== 'ai-assistant' || hasPermission(permissions, 'ai_assistant', 'VIEW', 'ALL'))
-              .map(key => {
-              const T = TABS[key];
-              const TabIcon = T.icon;
-              const isActive = activeTab === key;
-              const accent = TAB_ACCENT[key];
-              return (
-                <button
-                  key={key} onClick={() => setActiveTab(key)}
-                  className="nf-org-tab" aria-selected={isActive}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0, whiteSpace: 'nowrap',
-                    padding: '7px 14px 7px 7px', background: 'transparent', border: 'none',
-                    cursor: 'pointer', fontSize: 12.5,
-                    fontWeight: isActive ? 600 : 500,
-                    color: isActive ? accent : 'var(--txt-mut)',
-                    borderBottom: isActive ? `2px solid ${accent}` : '2px solid transparent',
-                    marginBottom: -1, transition: 'color 120ms',
-                    ['--tab-accent' as string]: accent,
-                  }}>
-                  <span className="nf-org-tab-icon">
-                    <TabIcon size={14} aria-hidden="true" strokeWidth={2.25} />
-                  </span>
-                  {T.label}
-                </button>
-              );
-            })}
           </div>
-          {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
-            && activeTab !== 'ai-assistant' && (
-            // Its own row directly under the tabs, right-aligned, with a divider + vertical
-            // breathing room so it reads as a clearly separate toolbar strip rather than
-            // crowding — or at some widths visually overlapping — the section tabs above it.
-            <div className="nf-org-toolbar-actions" style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
-              padding: '10px 12px', borderTop: '1px solid var(--line)',
-            }}>
-              <div className="nf-org-search-wrap" style={{ position: 'relative' }}>
-                <Search size={12} aria-hidden="true" style={{
-                  position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
-                  color: 'var(--txt-dim)', pointerEvents: 'none',
-                }} />
-                <input
-                  className="nf-org-search-input"
-                  type="search" value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder={`Search ${tab.label.toLowerCase()}…`}
-                  aria-label={`Search ${tab.label}`}
-                  style={{
-                    background: 'var(--raised)', border: '1px solid var(--line2)',
-                    borderRadius: 6, padding: '5px 10px 5px 26px',
-                    fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196,
-                  }}
-                />
-              </div>
-              <button onClick={openAdd} aria-label={tab.addLabel} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
-                fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-              }}>
-                <Plus size={13} aria-hidden="true" />
-                {tab.addLabel}
-              </button>
-            </div>
-          )}
-          {/* Add Shift stays the primary top-right action (matching the approved reference), but
-              only while the Shifts sub-tab itself is active — Weekly Offs/Shift and Weekly Off
-              Rules manage their own add actions internally (see their own sections below). No
-              shared search box here: the master-detail layout has its own, in the left panel. */}
-          {activeTab === 'shiftweeklyoff' && shiftWeeklyOffSubTab === 'shifts' && canManageShifts && (
-            <div className="nf-org-toolbar-actions" style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
-              padding: '10px 12px', borderTop: '1px solid var(--line)',
-            }}>
-              <button onClick={openAdd} aria-label="Add Shift" style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
-                fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-              }}>
-                <Plus size={13} aria-hidden="true" />
-                Add Shift
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Penalization Policy is a Policy List (Section 5), not a row-per-item table like the
@@ -1975,22 +1958,17 @@ export default function OrgSetupPage() {
             navigation requirement. */}
         {activeTab === 'penalization' ? (
           <div style={{ padding: 18 }}>
-            <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', marginBottom: 16 }}>
-              {([
+            <TabBar
+              size="sm"
+              ariaLabel="Penalization"
+              style={{ marginBottom: 16 }}
+              tabs={[
                 { key: 'policy', label: 'Penalization Policy' },
                 { key: 'allocation', label: 'Penalization Policy Allocation' },
-              ] as const).map(t => (
-                <button key={t.key} onClick={() => setPenalizationSubTab(t.key)} style={{
-                  padding: '9px 14px', background: 'transparent', border: 'none', cursor: 'pointer',
-                  fontSize: 12.5, fontWeight: penalizationSubTab === t.key ? 600 : 400,
-                  color: penalizationSubTab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
-                  borderBottom: penalizationSubTab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
-                  marginBottom: -1,
-                }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
+              ]}
+              active={penalizationSubTab}
+              onChange={setPenalizationSubTab}
+            />
             {penalizationSubTab === 'policy' ? (
               <PolicyListSection token={token} onViewAllocations={policyId => {
                 setAllocationInitialPolicyId(policyId);
@@ -2006,23 +1984,18 @@ export default function OrgSetupPage() {
           </div>
         ) : activeTab === 'shiftweeklyoff' ? (
           <div>
-            <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', padding: '0 18px' }}>
-              {([
+            <TabBar
+              size="sm"
+              ariaLabel="Shifts and weekly offs"
+              style={{ padding: '0 18px' }}
+              tabs={[
                 { key: 'shifts', label: 'Shifts' },
                 { key: 'weeklyoffs', label: 'Weekly Offs' },
                 { key: 'rules', label: 'Shift and Weekly Off Rules' },
-              ] as const).map(t => (
-                <button key={t.key} onClick={() => setShiftWeeklyOffSubTab(t.key)} style={{
-                  padding: '9px 14px', background: 'transparent', border: 'none', cursor: 'pointer',
-                  fontSize: 12.5, fontWeight: shiftWeeklyOffSubTab === t.key ? 600 : 400,
-                  color: shiftWeeklyOffSubTab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
-                  borderBottom: shiftWeeklyOffSubTab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
-                  marginBottom: -1,
-                }}>
-                  {t.label}
-                </button>
-              ))}
-            </div>
+              ]}
+              active={shiftWeeklyOffSubTab}
+              onChange={setShiftWeeklyOffSubTab}
+            />
             {shiftWeeklyOffSubTab === 'shifts' ? (
               <ShiftsMasterDetail
                 shifts={shifts}
@@ -2138,9 +2111,9 @@ export default function OrgSetupPage() {
                         {d.title}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.departmentName ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.grade ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.departmentName ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.grade ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '–'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={d.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={d.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -2157,10 +2130,10 @@ export default function OrgSetupPage() {
                         {l.name}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.city ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.state ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.country ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{l.timezone ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.city ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.state ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.country ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{l.timezone ?? '–'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={l.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={l.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -2177,8 +2150,8 @@ export default function OrgSetupPage() {
                         {dt.name}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresVerification ? '✓ Yes' : '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresExpiryDate ? '✓ Yes' : '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresVerification ? '✓ Yes' : '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresExpiryDate ? '✓ Yes' : '–'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableEmploymentTypes || 'All'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableLocations || 'All'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={dt.usageCount} /></td>
@@ -2398,7 +2371,7 @@ function WeeklyOffSection({ token }: { token: string }) {
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--line)' }}>
                   <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{p.name}</td>
                   <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>
-                    {p.offDays.map(d => d.slice(0, 3).charAt(0) + d.slice(1, 3).toLowerCase()).join(', ') || '—'}
+                    {p.offDays.map(d => d.slice(0, 3).charAt(0) + d.slice(1, 3).toLowerCase()).join(', ') || '–'}
                   </td>
                   <td style={{ padding: '10px 16px' }}><CountBadge count={p.employeeCount} /></td>
                   <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -2627,7 +2600,7 @@ function AttendanceRulesSection({ token }: { token: string }) {
       <p style={{ margin: '0 0 18px', fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.55 }}>
         Org-wide fallback IANA zone id, used only for an employee who has no Location assigned at
         all. Every employee's attendance timezone otherwise comes entirely from their assigned
-        Location (see the Locations tab) — employees have no timezone setting of their own.
+        Location (see the Locations tab) - employees have no timezone setting of their own.
         Changing this never reinterprets any existing attendance record.
       </p>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
@@ -2777,7 +2750,7 @@ function AiRateLimitSettingsSection({ token }: { token: string }) {
       </div>
       {requests.trim() !== '' && windowMinutes.trim() !== '' && (
         <p style={{ margin: '14px 0 0', fontSize: 11.5, color: 'var(--txt-dim)' }}>
-          Each employee can send up to {requests || '—'} assistant {Number(requests) === 1 ? 'message' : 'messages'} every {windowMinutes || '—'} {Number(windowMinutes) === 1 ? 'minute' : 'minutes'}.
+          Each employee can send up to {requests || '–'} assistant {Number(requests) === 1 ? 'message' : 'messages'} every {windowMinutes || '–'} {Number(windowMinutes) === 1 ? 'minute' : 'minutes'}.
         </p>
       )}
       {error && <div role="alert" style={{ color: 'var(--risk)', fontSize: 12, marginTop: 12 }}>{error}</div>}

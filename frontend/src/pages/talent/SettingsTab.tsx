@@ -84,8 +84,8 @@ function SkillsSection({ token }: { token: string }) {
           ) : skills.map(s => (
             <tr key={s.id}>
               <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{s.name}</td>
-              <td style={tdS}>{s.category ?? '—'}</td>
-              <td style={tdS}>{s.aliases.length > 0 ? s.aliases.join(', ') : '—'}</td>
+              <td style={tdS}>{s.category ?? '–'}</td>
+              <td style={tdS}>{s.aliases.length > 0 ? s.aliases.join(', ') : '–'}</td>
               <td style={tdS}>{s.usageCount}</td>
               <td style={tdS}><Pill active={s.active} /></td>
               <td style={{ ...tdS, textAlign: 'right' }}>
@@ -128,7 +128,7 @@ function ProficiencyLevelsSection({ token }: { token: string }) {
     try {
       await (l.active ? proficiencyLevelSettingsApi.deactivate(token, l.id) : proficiencyLevelSettingsApi.reactivate(token, l.id));
       load();
-    } catch (e) { showToast('error', e instanceof Error ? e.message : (l.active ? 'Could not deactivate — it may still be in use' : 'Could not reactivate level')); }
+    } catch (e) { showToast('error', e instanceof Error ? e.message : (l.active ? 'Could not deactivate - it may still be in use' : 'Could not reactivate level')); }
   }
 
   return (
@@ -320,10 +320,10 @@ function SkillRequestsSection({ token }: { token: string }) {
             <tr key={r.id}>
               <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.requesterName}</td>
               <td style={tdS}>{r.name}</td>
-              <td style={tdS}>{[r.category, r.note].filter(Boolean).join(' · ') || '—'}</td>
+              <td style={tdS}>{[r.category, r.note].filter(Boolean).join(' · ') || '–'}</td>
               <td style={tdS}>
                 <select value={mapping[r.id] ?? ''} onChange={e => setMapping(prev => ({ ...prev, [r.id]: e.target.value }))} style={inputStyle}>
-                  <option value="">— choose existing skill —</option>
+                  <option value="">– choose existing skill –</option>
                   {skills.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </td>

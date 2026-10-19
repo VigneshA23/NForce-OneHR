@@ -1,6 +1,7 @@
 import { Calendar, Hash, Users, CalendarCheck, Clock, Package, Shield } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AuditLogStats } from '../../api/audit';
+import DashTile from '../DashTile';
 
 interface CardDef {
   key: string;
@@ -16,6 +17,7 @@ interface Props {
   showAccess: boolean;
 }
 
+// Same tile as the Home dashboard (components/DashTile); display only.
 // This is now a personal activity history (each user sees only their own actions), so the
 // categories summarize meaningful administrative decisions rather than org-wide volume:
 // 6 cards for HR Admin, 7 for Super Admin (the extra "User & Access Management" card covers
@@ -36,19 +38,9 @@ export function AuditStatCards({ stats, showAccess }: Props) {
   ];
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 14 }}>
       {cards.map(c => (
-        <div key={c.key} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-            <c.icon size={13} style={{ color: c.color }} />
-            <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-              {c.label}
-            </span>
-          </div>
-          <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
-            {c.value}
-          </div>
-        </div>
+        <DashTile key={c.key} icon={<c.icon size={20} />} accent={c.color} label={c.label} value={String(c.value)} />
       ))}
     </div>
   );

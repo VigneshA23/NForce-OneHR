@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, X, ShieldAlert } from 'lucide-react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { Plus, X, ShieldAlert, Workflow } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
@@ -205,7 +206,7 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
         showToast('success', 'Rule updated');
       } else {
         await workflowRulesApi.create(payload, token);
-        showToast('success', 'Rule saved as draft — activate it when you\'re ready');
+        showToast('success', 'Rule saved as draft - activate it when you\'re ready');
       }
       onSaved();
       onClose();
@@ -293,7 +294,7 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
               <span style={{
                 fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 20,
                 background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px dashed var(--line2)',
-              }} title="Manager approval always applies — this cannot be turned off">
+              }} title="Manager approval always applies - this cannot be turned off">
                 Manager Approval (always required)
               </span>
               {secondApprovalOptions.map(role => {
@@ -423,13 +424,13 @@ export default function WorkflowStudioPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
-        <div>
+      <div className="nf-page-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
+        <PageTitleBlock icon={Workflow}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Workflow Studio</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
-            Configure data-driven approval rules — the Approval Center routes new requests according to whichever rule is active.
+            Configure data-driven approval rules - the Approval Center routes new requests according to whichever rule is active.
           </p>
-        </div>
+        </PageTitleBlock>
         {metadata && (
           <button onClick={() => setFormTarget('new')} style={{ ...btnPrimaryStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Plus size={14} /> Create Rule
@@ -450,7 +451,7 @@ export default function WorkflowStudioPage() {
           }}>
             <ShieldAlert size={16} style={{ color: 'var(--info)', flexShrink: 0, marginTop: 1 }} />
             <span style={{ fontSize: 12.5, color: 'var(--txt)', lineHeight: 1.5 }}>
-              No active rule for <b>{rt}</b> — new {rt.toLowerCase()} requests default to <b>Manager → HR Admin</b> approval until a rule is activated.
+              No active rule for <b>{rt}</b> – new {rt.toLowerCase()} requests default to <b>Manager → HR Admin</b> approval until a rule is activated.
             </span>
           </div>
         ))}

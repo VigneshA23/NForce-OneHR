@@ -221,6 +221,67 @@ class ExpenseServiceTest {
         assertEquals("CLEARED_FOR_PAYROLL", res.getStatus());
     }
 
+    // ── Manager-stage override recording (HR Admin/Super Admin acting as the Manager) ───────
+
+    @Test
+    void managerApprove_byActualReportingManager_recordsManagerRole() {
+        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
+        stubManagerOf(manager, claim.getEmployeeUserId());
+        when(userRepo.findByEmail("manager@test.com")).thenReturn(Optional.of(manager));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+        when(claimRepo.save(any(ExpenseClaim.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(categoryRepo.findById(1)).thenReturn(Optional.of(category));
+
+        ExpenseClaimResponse res = expenseService.managerApprove(claim.getId(), "manager@test.com");
+
+        assertEquals("MANAGER", res.getManagerApprovedByRole());
+    }
+
+    @Test
+    void managerApprove_byHrAdminOverride_recordsHrAdminRoleNotManager() {
+        User hr = hrAdminUser();
+        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
+        // The employee's actual manager is someone else entirely — HR is acting via the
+        // isFinalApprover override in requireCurrentManagerOf, not as the real manager.
+        stubManagerOf(User.builder().id(UUID.randomUUID()).email("realmanager@test.com").build(), claim.getEmployeeUserId());
+        when(userRepo.findByEmail(hr.getEmail())).thenReturn(Optional.of(hr));
+        when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
+        when(claimRepo.save(any(ExpenseClaim.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(categoryRepo.findById(1)).thenReturn(Optional.of(category));
+
+        ExpenseClaimResponse res = expenseService.managerApprove(claim.getId(), hr.getEmail());
+
+        assertEquals("MANAGER_APPROVED", res.getStatus());
+        assertEquals("HR_ADMIN", res.getManagerApprovedByRole());
+    }
+
+    @Test
+    void finalApprove_bySameHrAdminWhoApprovedManagerStage_isDenied() {
+        User hr = hrAdminUser();
+        ExpenseClaim claim = claimInStatus("MANAGER_APPROVED", true);
+        claim.setManagerDecidedBy(hr.getId());
+        claim.setManagerApprovedByRole("HR_ADMIN");
+        stubFinalStage(hr, claim);
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> expenseService.finalApprove(claim.getId(), hr.getEmail()));
+        assertEquals("MANAGER_APPROVED", claim.getStatus());
+    }
+
+    @Test
+    void finalReject_bySameHrAdminWhoApprovedManagerStage_isDenied() {
+        User hr = hrAdminUser();
+        ExpenseClaim claim = claimInStatus("MANAGER_APPROVED", true);
+        claim.setManagerDecidedBy(hr.getId());
+        claim.setManagerApprovedByRole("HR_ADMIN");
+        stubFinalStage(hr, claim);
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> expenseService.finalReject(claim.getId(), "not sufficiently documented", hr.getEmail()));
+        assertEquals("MANAGER_APPROVED", claim.getStatus());
+    }
+
     // ── View Receipt: backend role-based authorization ─────────
 
     // A minimal, real 1x1 transparent PNG, base64-encoded — exercised end-to-end through
@@ -410,7 +471,7 @@ class ExpenseServiceTest {
     private ExpenseClaimSummary toSummary(ExpenseClaim c) {
         return new ExpenseClaimSummary(c.getId(), c.getEmployeeUserId(), c.getCategoryId(), c.getAmount(),
                 c.getExpenseDate(), c.getBusinessPurpose(), c.getStatus(), c.getManagerDecidedBy(), c.getManagerDecidedAt(),
-                c.getManagerRejectionReason(), c.getFinalDecidedBy(), c.getFinalDecidedAt(), c.getFinalRejectionReason(),
+                c.getManagerRejectionReason(), c.getManagerApprovedByRole(), c.getFinalDecidedBy(), c.getFinalDecidedAt(), c.getFinalRejectionReason(),
                 c.getPaidAt(), c.getCreatedAt(), c.isRequiresSecondApproval(), c.getPendingFinalStage());
     }
 

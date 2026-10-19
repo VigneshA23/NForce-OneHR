@@ -26,14 +26,16 @@ export const launcherStyle: React.CSSProperties = {
   width: 50,
   height: 50,
   borderRadius: '50%',
-  border: '1px solid color-mix(in srgb, var(--brand-bright) 40%, transparent)',
-  background: 'var(--brand)',
+  // The NORA robot avatar is the button face — transparent PNG, so no brand fill or border behind it.
+  border: 'none',
+  padding: 0,
+  background: 'transparent',
   color: '#fff',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   cursor: 'pointer',
-  boxShadow: '0 10px 28px rgba(0,0,0,.45)',
+  filter: 'drop-shadow(0 8px 14px rgba(0,0,0,.4))',
   transition: 'transform 150ms ease',
 };
 
@@ -53,25 +55,7 @@ export const launcherGlowStyle: React.CSSProperties = {
   animation: 'nf-assistant-launcher-breathe 3.4s ease-in-out infinite',
 };
 
-/** The one-time "try me" bubble (AssistantLauncher's first-session invite). */
-export const inviteBubbleStyle: React.CSSProperties = {
-  position: 'fixed',
-  right: 22,
-  bottom: 82,
-  zIndex: Z_LAUNCHER,
-  maxWidth: 208,
-  background: 'var(--panel)',
-  border: '1px solid color-mix(in srgb, var(--brand) 25%, var(--line))',
-  borderRadius: 10,
-  padding: '9px 12px',
-  fontSize: 12,
-  color: 'var(--txt)',
-  boxShadow: '0 10px 30px rgba(0,0,0,.35)',
-  animation: 'nf-assistant-invite-in 260ms ease-out',
-};
-
-/** "Ask NORA" — the small, plain hover/focus label shown beside the launcher, distinct from the
- *  one-time invite bubble above (which only ever appears once per session). */
+/** "Ask NORA" — the small, plain hover/focus label shown beside the launcher. */
 export const launcherTooltipStyle: React.CSSProperties = {
   position: 'fixed',
   right: 78,
@@ -167,8 +151,8 @@ export const headerBadgeStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  background: 'color-mix(in srgb, var(--brand) 16%, var(--panel))',
-  color: 'var(--brand-bright)',
+  background: 'transparent',
+  overflow: 'hidden',
 };
 
 /** A faint, non-interactive accent texture behind the transcript — built from `color-mix(var(

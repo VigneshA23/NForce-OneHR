@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, History, Plus, X } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { leaveApi, type LeaveType } from '../../api/leave';
+import { TabBar } from '../../components/TabBar';
 import {
   getCurrentPolicy, getPolicyVersion, getPolicyVersions, savePolicy,
   type PenalizationPolicy, type PenalizationPolicyRequest, type PenalizationPolicyVersionSummary,
@@ -73,7 +74,7 @@ function SectionStatusBadge({ status }: { status: SectionStatus }) {
 }
 
 function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
+  if (!iso) return '–';
   return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
@@ -115,7 +116,7 @@ function workHoursTierErrors(tiers: WorkHoursTier[], enabled: boolean): string[]
     const n = i + 1;
     if (t.thresholdPercent < 0) errors.push(`Tier ${n}: threshold percent cannot be negative.`);
     if (t.thresholdPercent > 100) errors.push(`Tier ${n}: threshold percent cannot exceed 100%.`);
-    if (seen.has(t.thresholdPercent)) errors.push(`Tier ${n}: threshold ${t.thresholdPercent}% duplicates another tier — thresholds must be distinct.`);
+    if (seen.has(t.thresholdPercent)) errors.push(`Tier ${n}: threshold ${t.thresholdPercent}% duplicates another tier - thresholds must be distinct.`);
     seen.add(t.thresholdPercent);
     if (t.deductionDays < 0) errors.push(`Tier ${n}: deduction cannot be negative.`);
   });
@@ -131,7 +132,7 @@ function lateHoursTierErrors(tiers: LateHoursTier[], enabled: boolean, basis: st
   tiers.forEach((t, i) => {
     const n = i + 1;
     if (t.thresholdHours < 0) errors.push(`Tier ${n}: threshold hours cannot be negative.`);
-    if (seen.has(t.thresholdHours)) errors.push(`Tier ${n}: threshold ${t.thresholdHours}h duplicates another tier — thresholds must be distinct.`);
+    if (seen.has(t.thresholdHours)) errors.push(`Tier ${n}: threshold ${t.thresholdHours}h duplicates another tier - thresholds must be distinct.`);
     seen.add(t.thresholdHours);
     if (t.deductionDays < 0) errors.push(`Tier ${n}: deduction cannot be negative.`);
   });
@@ -184,19 +185,15 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 function ViewModal({ policy, initialSection, onClose }: { policy: PenalizationPolicy; initialSection: SectionKey; onClose: () => void }) {
   const [section, setSection] = useState<SectionKey>(initialSection);
   return (
-    <ModalShell title={`Version ${policy.version} — ${fmtDate(policy.effectiveFrom)}`} onClose={onClose} width={560}>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14, borderBottom: '1px solid var(--line)', paddingBottom: 8, flexWrap: 'wrap' }}>
-        {SECTIONS.map(s => (
-          <button key={s} onClick={() => setSection(s)} style={{
-            padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: section === s ? 600 : 400,
-            background: section === s ? 'var(--raised)' : 'transparent',
-            color: section === s ? 'var(--brand-bright)' : 'var(--txt-mut)',
-            border: '1px solid ' + (section === s ? 'var(--line2)' : 'transparent'), cursor: 'pointer',
-          }}>
-            {SECTION_LABELS[s]}
-          </button>
-        ))}
-      </div>
+    <ModalShell title={`Version ${policy.version} - ${fmtDate(policy.effectiveFrom)}`} onClose={onClose} width={560}>
+      <TabBar
+        size="sm"
+        ariaLabel="Policy sections"
+        style={{ marginBottom: 14 }}
+        active={section}
+        onChange={setSection}
+        tabs={SECTIONS.map(s => ({ key: s, label: SECTION_LABELS[s] }))}
+      />
       {TOGGLEABLE_SECTIONS.includes(section) && (
         <div style={{ marginBottom: 12 }}>
           <EnabledBadge enabled={
@@ -224,7 +221,7 @@ function ViewModal({ policy, initialSection, onClose }: { policy: PenalizationPo
       {section === 'noAttendance' && (
         <>
           <DetailRow label="Deduction" value={policy.noAttendance.deductionDays != null ? `${policy.noAttendance.deductionDays} day(s) per no-attendance day` : 'Not configured'} />
-          <DetailRow label="No-show rule" value={policy.noAttendance.noShowEnabled ? `Below ${policy.noAttendance.noShowThresholdHours ?? '—'} effective hours` : 'Disabled'} />
+          <DetailRow label="No-show rule" value={policy.noAttendance.noShowEnabled ? `Below ${policy.noAttendance.noShowThresholdHours ?? '–'} effective hours` : 'Disabled'} />
           <DetailRow label="Adjoining holiday" value={policy.noAttendance.adjoiningHolidayEnabled
             ? `${policy.noAttendance.adjoiningHolidayCondition ?? 'ANY'} · threshold ${policy.noAttendance.adjoiningHolidayCalendarDayThreshold ?? 1} day(s) · ${policy.noAttendance.adjoiningHolidayIgnoreHalfDayLeave ? 'ignores' : 'counts'} half-day leave`
             : 'Disabled'} />
@@ -288,7 +285,7 @@ function ViewModal({ policy, initialSection, onClose }: { policy: PenalizationPo
           <DetailRow label="Exempt" value={policy.missingLogs.exemptDays != null ? `${policy.missingLogs.exemptDays} day(s) / ${policy.missingLogs.exemptPeriod.toLowerCase()}` : 'Not configured'} />
           <DetailRow label="Deduction mode" value={policy.missingLogs.deductionMode === 'PER_SHIFT' ? 'Per shift of missing logs' : 'Irrespective of missed logs'} />
           <DetailRow label="Deduction" value={policy.missingLogs.deductionDays != null ? `${policy.missingLogs.deductionDays} day(s)${policy.missingLogs.deductionMode === 'PER_SHIFT' ? ` per ${policy.missingLogs.deductionPerShifts ?? 1} shift(s)` : ''}` : 'Not configured'} />
-          <DetailRow label="Ignore rule" value={policy.missingLogs.ignoreRuleEnabled ? `Above ${policy.missingLogs.ignoreRuleThresholdPercent ?? '—'}% effective hours` : 'Disabled'} />
+          <DetailRow label="Ignore rule" value={policy.missingLogs.ignoreRuleEnabled ? `Above ${policy.missingLogs.ignoreRuleThresholdPercent ?? '–'}% effective hours` : 'Disabled'} />
         </>
       )}
     </ModalShell>
@@ -548,7 +545,7 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
       const nextForm = toRequest(saved);
       setSavedSnapshot(nextForm);
       setForm(nextForm);
-      showToast('success', `Saved — version ${saved.version}, effective ${fmtDate(saved.effectiveFrom)}`);
+      showToast('success', `Saved - version ${saved.version}, effective ${fmtDate(saved.effectiveFrom)}`);
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Failed to save policy');
     } finally {
@@ -685,8 +682,8 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
                 <span style={labelText}>Deduction method</span>
                 <select style={inputStyle} value={basicInfo.deductionMethod}
                   onChange={e => patch('basicInfo', { deductionMethod: e.target.value as any })}>
-                  <option value="LOSS_OF_PAY">Loss of Pay — every penalty is Loss of Pay</option>
-                  <option value="PAID_LEAVE">Paid Leave — deduct from configured leave types</option>
+                  <option value="LOSS_OF_PAY">Loss of Pay - every penalty is Loss of Pay</option>
+                  <option value="PAID_LEAVE">Paid Leave - deduct from configured leave types</option>
                 </select>
               </div>
               {basicInfo.deductionMethod === 'PAID_LEAVE' && (
@@ -728,7 +725,7 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
                 If employee is under notice period, consider all penalties as Loss of Pay
               </label>
               <div>
-                <span style={labelText}>Effective date (optional — leave blank for the 1st of next month)</span>
+                <span style={labelText}>Effective date (optional - leave blank for the 1st of next month)</span>
                 <input type="date" min={todayIsoDate()} style={inputStyle}
                   value={basicInfo.requestedEffectiveFrom ?? ''}
                   onChange={e => patch('basicInfo', { requestedEffectiveFrom: e.target.value || null })} />
@@ -894,7 +891,7 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
 
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', marginTop: 4 }}>Total Late Hours in Shift (progressive tiers)</div>
               <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
-                Rule table evaluated against total late hours for the cycle — used directly when basis is Total Hours, and as an additional check alongside Number of Incidents. Deduction amounts do not need to increase with the threshold — each tier's amount is independent.
+                Rule table evaluated against total late hours for the cycle - used directly when basis is Total Hours, and as an additional check alongside Number of Incidents. Deduction amounts do not need to increase with the threshold - each tier's amount is independent.
               </div>
               {la.lateHoursTiers.map((t, i) => (
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end' }}>
@@ -936,7 +933,7 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
               <label style={checkboxRow}>
                 <input type="checkbox" checked={la.penaliseWhenCausedByMissingLogEnabled}
                   onChange={e => patch('lateArrival', { penaliseWhenCausedByMissingLogEnabled: e.target.checked })} />
-                Penalise any late arrival caused by missing logs (off by default — avoids double-penalising)
+                Penalise any late arrival caused by missing logs (off by default - avoids double-penalising)
               </label>
             </>
           )}
@@ -962,8 +959,8 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
               </div>
               <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
                 {whs.deductionPeriod === 'DAY'
-                  ? 'Deduct leave for the shortage on a single day — add as many threshold rules as needed.'
-                  : `Deduct leave for the shortage aggregated over the whole ${whs.deductionPeriod === 'WEEK' ? 'week (Monday-Sunday)' : 'calendar month'} — evaluated once at the end of each cycle, against the same tiers below.`}
+                  ? 'Deduct leave for the shortage on a single day - add as many threshold rules as needed.'
+                  : `Deduct leave for the shortage aggregated over the whole ${whs.deductionPeriod === 'WEEK' ? 'week (Monday-Sunday)' : 'calendar month'} - evaluated once at the end of each cycle, against the same tiers below.`}
               </div>
               {whs.tiers.map((t, i) => (
                 <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end' }}>
@@ -1068,7 +1065,7 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end', marginTop: 8, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
-            {dirty && <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginRight: 'auto' }}>Unsaved changes — Save persists the whole policy document.</span>}
+            {dirty && <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginRight: 'auto' }}>Unsaved changes - Save persists the whole policy document.</span>}
             <button type="button" onClick={handleSave} disabled={saving || !dirty} style={{
               padding: '7px 18px', background: (saving || !dirty) ? 'var(--raised)' : 'var(--brand)', border: 'none', borderRadius: 6,
               fontSize: 12.5, fontWeight: 600, color: (saving || !dirty) ? 'var(--txt-dim)' : '#fff',

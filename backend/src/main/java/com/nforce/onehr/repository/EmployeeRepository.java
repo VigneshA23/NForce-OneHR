@@ -224,4 +224,8 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
                     + "AND e.userId NOT IN (SELECT c.employeeUserId FROM OnboardingChecklist c) "
                     + "AND (LOWER(e.fullName) LIKE :pattern OR LOWER(e.employeeCode) LIKE :pattern)")
     Page<Employee> findEligibleForOnboarding(@Param("pattern") String pattern, Pageable pageable);
+
+    /** US-A03: the Employee-module headcount the bench dashboard reconciles against. */
+    @Query("SELECT COUNT(e) FROM Employee e WHERE e.user.deletedAt IS NULL AND e.user.active = true")
+    long countActiveEmployees();
 }

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { LogIn, LogOut } from 'lucide-react';
 import { HeroIllustration } from './HeroIllustration';
 import { useAuthStore } from '../store/authStore';
+import { usePreviewMode } from '../lib/previewMode';
+import { previewToday, PREVIEW_CONFIG } from '../pages/dashboard-ui-preview/dashboardPreviewData';
 import { useToast } from '../context/ToastContext';
 import { attendanceApi, type TodayAttendance, type AttendanceConfig } from '../api/attendance';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
@@ -26,7 +28,7 @@ function formatClockTime(iso: string | null): string | null {
 }
 
 function formatWorkedMinutes(mins: number | null): string {
-  if (mins == null) return '—';
+  if (mins == null) return '–';
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   if (h === 0) return `${m}m`;
@@ -208,7 +210,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
       {openWeb && (
         <>
           <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
-            Web clocked in since {formatClockTime(openWeb.requestedCheckIn) ?? '—'}
+            Web clocked in since {formatClockTime(openWeb.requestedCheckIn) ?? '–'}
           </span>
           <button
             onClick={handleCheckOut}
@@ -245,6 +247,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
 
 export function AttendanceHeroBanner() {
   const token = useAuthStore(s => s.token) ?? '';
+  const isPreview = usePreviewMode();
   const { showToast } = useToast();
   const navigate = useNavigate();
 
@@ -286,12 +289,18 @@ export function AttendanceHeroBanner() {
   }, [token]);
 
   useEffect(() => {
+    if (isPreview) {
+      // /dashboard-ui-preview only: canned state, no API calls or polling.
+      setToday(previewToday()); setConfig(PREVIEW_CONFIG); setLoading(false);
+      const tickId = setInterval(() => setNow(new Date()), 30000);
+      return () => clearInterval(tickId);
+    }
     refresh().finally(() => setLoading(false));
     attendanceApi.config(token).then(setConfig).catch(() => {});
     const pollId = setInterval(refresh, 60000);
     const tickId = setInterval(() => setNow(new Date()), 30000);
     return () => { clearInterval(pollId); clearInterval(tickId); };
-  }, [refresh, token]);
+  }, [refresh, token, isPreview]);
 
   async function handlePunch(kind: 'in' | 'out') {
     if (punchInFlightRef.current) return;
@@ -509,7 +518,7 @@ export function AttendanceHeroBanner() {
   // ── State 1: Pre-check-in ─────────────────────────────────────────────────────
   const shiftLine = shiftInfo
     ? shiftInfo.diffMin > 0
-      ? `Shift starts at ${shiftInfo.shiftStartLabel} — ${shiftInfo.diffMin < 60 ? `${shiftInfo.diffMin}m from now` : `in ${Math.floor(shiftInfo.diffMin / 60)}h ${shiftInfo.diffMin % 60}m`}.`
+      ? `Shift starts at ${shiftInfo.shiftStartLabel} · ${shiftInfo.diffMin < 60 ? `${shiftInfo.diffMin}m from now` : `in ${Math.floor(shiftInfo.diffMin / 60)}h ${shiftInfo.diffMin % 60}m`}.`
       : shiftInfo.diffMin < 0
         ? `Shift started ${Math.abs(shiftInfo.diffMin) < 60 ? `${Math.abs(shiftInfo.diffMin)}m ago` : `${Math.floor(Math.abs(shiftInfo.diffMin) / 60)}h ${Math.abs(shiftInfo.diffMin) % 60}m ago`}.`
         : 'Your shift starts now.'

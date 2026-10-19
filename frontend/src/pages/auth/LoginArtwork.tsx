@@ -85,7 +85,7 @@ export function LoginArtwork() {
         <div
           style={{
             position: 'absolute', inset: 0,
-            background: 'linear-gradient(90deg, rgba(4,5,10,0) 55%, rgba(4,5,10,0.38) 100%)',
+            background: 'linear-gradient(90deg, rgba(20,20,22,0) 55%, rgba(20,20,22,0.38) 100%)',
           }}
         />
       </div>

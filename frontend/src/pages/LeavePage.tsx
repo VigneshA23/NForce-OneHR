@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import DashTile from '../components/DashTile';
 import {
   CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Hourglass, Search,
-  Sparkles, Wallet, X,
+  Wallet, X, CalendarDays
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
@@ -67,22 +69,12 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function KpiTile({ icon: Icon, label, value, sub, accent }: {
+// Same tile as the Home dashboard (components/DashTile); display only.
+export function KpiTile({ icon: Icon, label, value, sub, accent }: {
   icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
   label: string; value: string; sub?: string; accent: string;
 }) {
-  return (
-    <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
-        <div style={{ width: 26, height: 26, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: `color-mix(in srgb, ${accent} 14%, var(--raised))` }}>
-          <Icon size={13} style={{ color: accent }} />
-        </div>
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{sub}</div>}
-    </div>
-  );
+  return <DashTile className="nf-section-enter" icon={<Icon size={20} />} label={label} value={value} sub={sub} accent={accent} />;
 }
 
 // Radial-progress balance card — draws an SVG circle via stroke-dasharray/offset, reusing the
@@ -220,7 +212,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
             {selectedBalance && (
               <div style={{ fontSize: 11.5, color: exceedsBalance ? 'var(--risk)' : 'var(--txt-dim)', marginTop: 5 }}>
                 Available: {selectedBalance.remainingDays} day{selectedBalance.remainingDays === 1 ? '' : 's'}
-                {exceedsBalance && ' — this request exceeds your available balance'}
+                {exceedsBalance && ' - this request exceeds your available balance'}
               </div>
             )}
             {blockedUnpaidWithPaidBalance && (
@@ -381,23 +373,15 @@ export default function LeavePage() {
 
   return (
     <div>
-      <div className="nf-section-enter nf-leave-header" style={{
+      <div className="nf-section-enter nf-leave-header nf-page-hdr" style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 22,
         background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '18px 22px',
         backgroundImage: 'linear-gradient(120deg, color-mix(in srgb, var(--brand) 6%, var(--panel)) 0%, var(--panel) 55%)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-          <div style={{
-            width: 42, height: 42, borderRadius: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'linear-gradient(155deg, var(--brand) 0%, var(--brand-deep) 100%)', boxShadow: '0 4px 14px rgba(177,17,22,.28)',
-          }}>
-            <Sparkles size={19} color="#fff" />
-          </div>
-          <div style={{ minWidth: 0 }}>
+        <PageTitleBlock icon={CalendarDays}>
             <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Leave</h1>
             <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 3 }}>View your balance, request leave, and track approvals.</p>
-          </div>
-        </div>
+        </PageTitleBlock>
         <button onClick={() => setShowRequest(true)} disabled={types.length === 0} style={{ ...primaryButtonStyle, padding: '10px 18px', cursor: types.length === 0 ? 'not-allowed' : 'pointer', opacity: types.length === 0 ? 0.6 : 1, boxShadow: types.length === 0 ? 'none' : '0 2px 10px rgba(177,17,22,.25)' }}>
           <CalendarPlus size={14} /> Request Leave
         </button>
@@ -416,7 +400,7 @@ export default function LeavePage() {
           <KpiTile icon={Hourglass} label="Pending Requests" value={String(myPendingCount)} sub={myPendingCount === 0 ? 'All caught up' : 'Awaiting a decision'} accent="var(--warn)" />
           <KpiTile
             icon={CalendarClock} label="Upcoming Leave"
-            value={upcoming ? new Date(upcoming.startDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}
+            value={upcoming ? new Date(upcoming.startDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '–'}
             sub={upcoming ? upcoming.leaveTypeName : 'Nothing scheduled'} accent="var(--brand)"
           />
         </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Archive, ArchiveRestore, FilePlus2, Pencil, Plus, Trash2 } from 'lucide-react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { Archive, ArchiveRestore, FilePlus2, Pencil, Plus, Trash2, BookOpen } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
@@ -75,7 +76,7 @@ export default function HelpContentAdminPage() {
         const reason = window.prompt('Withdrawal reason:');
         if (!reason) return;
         await hrHelpContentApi.withdraw(item.id, reason, token);
-        showToast('success', 'Withdrawn — back to Draft');
+        showToast('success', 'Withdrawn - back to Draft');
       } else if (item.status === 'APPROVED' || item.status === 'UNPUBLISHED') {
         // This unrouted legacy page has no Review & Publish modal (see HelpDeskPage.tsx for
         // that) — publishes to Employee only as a minimal default so this still compiles/works.
@@ -116,11 +117,11 @@ export default function HelpContentAdminPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 22, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
-        <div>
+      <div className="nf-page-hdr" style={{ marginBottom: 22, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
+        <PageTitleBlock icon={BookOpen}>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance Content</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage the FAQs, guides, quick help, and documents employees see on the Help & Guidance page.</p>
-        </div>
+        </PageTitleBlock>
         <button onClick={() => { setEditing(null); setFormOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
           <Plus size={14} /> New Content
         </button>
@@ -161,7 +162,7 @@ export default function HelpContentAdminPage() {
                   <tr key={item.id}>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600, maxWidth: 260 }}>{item.title}</td>
                     <td style={tdStyle}>{TYPE_LABEL[item.type]}</td>
-                    <td style={tdStyle}>{item.category ?? '—'}</td>
+                    <td style={tdStyle}>{item.category ?? '–'}</td>
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <StatusChip label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} />

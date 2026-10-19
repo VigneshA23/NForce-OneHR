@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageCircleQuestion } from 'lucide-react';
+import { NoraAvatar } from './NoraAvatar';
 import { fetchHealth } from '../../api/aiAssistant';
 import { useAuthStore } from '../../store/authStore';
 import { AssistantPanel } from './AssistantPanel';
-import { inviteBubbleStyle, launcherGlowStyle, launcherStyle, launcherTooltipStyle } from './assistantStyles';
-
-const INVITE_SEEN_KEY = 'onehr.assistant.inviteSeen';
+import { launcherGlowStyle, launcherStyle, launcherTooltipStyle } from './assistantStyles';
 
 /** Matches launcherStyle's width/height — needed to keep the button on-screen while dragging. */
 const LAUNCHER_SIZE = 50;
 /** A drag has to move at least this far before a pointerup is treated as a drag, not a tap. */
 const DRAG_THRESHOLD_PX = 6;
-const POSITION_STORAGE_KEY = 'onehr-assistant-launcher-position';
+/** Older versions remembered the dropped position here; it is cleared once so nothing stale is left behind. */
+const LEGACY_POSITION_STORAGE_KEY = 'onehr-assistant-launcher-position';
 
 interface Position {
   x: number;
@@ -26,27 +25,6 @@ function clampToViewport(position: Position): Position {
     x: Math.min(Math.max(position.x, margin), maxX),
     y: Math.min(Math.max(position.y, margin), maxY),
   };
-}
-
-/** Per-viewer convenience only — never read back by anything else, so a storage failure is silent. */
-function loadStoredPosition(): Position | null {
-  try {
-    const raw = localStorage.getItem(POSITION_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<Position>;
-    if (typeof parsed.x !== 'number' || typeof parsed.y !== 'number') return null;
-    return clampToViewport(parsed as Position);
-  } catch {
-    return null;
-  }
-}
-
-function storePosition(position: Position) {
-  try {
-    localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(position));
-  } catch {
-    /* per-viewer convenience only */
-  }
 }
 
 /**
@@ -64,22 +42,20 @@ function storePosition(position: Position) {
  * only flips once the pointer has actually travelled `DRAG_THRESHOLD_PX`, so a normal click or a
  * touch's inevitable few pixels of jitter still opens the panel instead of being swallowed. The
  * dropped position is clamped to the viewport (it can never be dragged off-screen, including after
- * a resize/rotation) and remembered per browser via `localStorage` — reload keeps it, another
- * device does not, exactly the "per-viewer convenience" this app already uses `localStorage` for
- * elsewhere (theme preference, recent searches).
+ * a resize/rotation). It is NOT remembered across a reload: the button always starts in its default
+ * bottom corner on a fresh load, and only stays where you dropped it while you use the app.
  *
  * The ambient glow always tracks the button's current position (dragged or not — it is simply the
- * same rect, one layer behind). The one-time invite bubble and the hover tooltip are deliberately
- * NOT position-aware beyond that: they are anchored to the default bottom-right corner and are
- * suppressed once the button has been dragged elsewhere, rather than attempting to chase a
- * relocated button around the screen with hand-tuned offsets.
+ * same rect, one layer behind). The hover tooltip is deliberately NOT position-aware beyond that:
+ * it is anchored to the default bottom-right corner and is suppressed once the button has been
+ * dragged elsewhere, rather than attempting to chase a relocated button around the screen with
+ * hand-tuned offsets.
  */
 export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentPageId?: string; unreadCount?: number }) {
   const token = useAuthStore((s) => s.token);
   const [available, setAvailable] = useState(false);
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<Position | null>(() => loadStoredPosition());
-  const [showInvite, setShowInvite] = useState(false);
+  const [position, setPosition] = useState<Position | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
 
   const draggingRef = useRef(false);
@@ -92,6 +68,10 @@ export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentP
   const latestPositionRef = useRef<Position | null>(position);
 
   useEffect(() => {
+    try { localStorage.removeItem(LEGACY_POSITION_STORAGE_KEY); } catch { /* storage unavailable */ }
+  }, []);
+
+  useEffect(() => {
     if (!token) return;
     let cancelled = false;
     fetchHealth(token)
@@ -99,21 +79,6 @@ export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentP
       .catch(() => { /* stay hidden */ });
     return () => { cancelled = true; };
   }, [token]);
-
-  // Invites the assistant once per browser session (sessionStorage, not localStorage — it's
-  // welcome to nudge again next time someone signs in), and only after a short delay so it never
-  // competes with everything else settling in on page load. Purely a discoverability nudge, so
-  // any storage failure (private window, blocked storage) just means it invites every time
-  // instead of once — never something worth guarding harder than a try/catch.
-  useEffect(() => {
-    if (!available) return;
-    let alreadySeen = false;
-    try { alreadySeen = sessionStorage.getItem(INVITE_SEEN_KEY) === '1'; } catch { /* assume not seen */ }
-    if (alreadySeen) return;
-    const showTimer = setTimeout(() => setShowInvite(true), 1400);
-    const hideTimer = setTimeout(() => setShowInvite(false), 8000);
-    return () => { clearTimeout(showTimer); clearTimeout(hideTimer); };
-  }, [available]);
 
   // A dropped position can end up off-screen after the window resizes or the phone rotates -
   // re-clamp rather than let the button become unreachable.
@@ -154,9 +119,8 @@ export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentP
   function onPointerUp() {
     if (!draggingRef.current) return;
     draggingRef.current = false;
-    if (movedRef.current && latestPositionRef.current) {
-      storePosition(latestPositionRef.current);
-    }
+    // The dropped position is deliberately not saved: it holds while you move around the app, and a refresh or a
+    // fresh visit puts the button back in its default bottom corner.
   }
 
   function onClick() {
@@ -166,8 +130,6 @@ export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentP
       movedRef.current = false;
       return;
     }
-    setShowInvite(false);
-    try { sessionStorage.setItem(INVITE_SEEN_KEY, '1'); } catch { /* best effort */ }
     setShowTooltip(false);
     setOpen((wasOpen) => !wasOpen);
   }
@@ -184,14 +146,7 @@ export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentP
   return (
     <>
       {open && <AssistantPanel onClose={() => setOpen(false)} currentPageId={currentPageId} unreadCount={unreadCount} />}
-      {showInvite && !open && !position && (
-        <div style={inviteBubbleStyle} role="status">
-          New here: ask me anything about OneHR — leave, attendance, expenses, and more.
-        </div>
-      )}
-      {/* Plain hover/focus label — distinct from the one-time invite bubble above, which only ever
-          shows once per session. Suppressed while that invite is up so the two never stack. */}
-      {showTooltip && !open && !position && !showInvite && (
+      {showTooltip && !open && !position && (
         <div style={launcherTooltipStyle} role="tooltip">Ask NORA</div>
       )}
       <div aria-hidden="true" className="nf-ai-launcher-glow" style={glowStyle} />
@@ -215,7 +170,7 @@ export function AssistantLauncher({ currentPageId, unreadCount = 0 }: { currentP
           className="nf-assistant-launcher"
           style={{ ...style, touchAction: 'none' }}
         >
-          <MessageCircleQuestion size={21} />
+          <NoraAvatar style={{ pointerEvents: 'none' }} />
         </button>
       )}
     </>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import {
   CalendarClock, CalendarDays, Check, CheckCircle2, ClipboardCheck, Clock, FileText, Hourglass, Home, Package, Search, Wallet, X,
@@ -77,7 +78,7 @@ const TYPE_ICONS: Record<RequestType, LucideIcon> = {
   HELP_CONTENT: FileText,
 };
 
-const EMPTY_VALUE = '—';
+const EMPTY_VALUE = '–';
 
 type ReviewMode = 'approve' | 'reject';
 /** 'review' = opened by clicking the row itself: details first, with both decisions available. */
@@ -557,7 +558,7 @@ function BulkActionModal({ items, mode, onClose, onDone, token }: {
 
     if (succeeded.length > 0) {
       const verbed = mode === 'approve' ? 'Approved' : 'Rejected';
-      showToast('success', `${verbed} ${succeeded.length} request${succeeded.length === 1 ? '' : 's'}${failedCount > 0 ? ` — ${failedCount} failed` : ''}`);
+      showToast('success', `${verbed} ${succeeded.length} request${succeeded.length === 1 ? '' : 's'}${failedCount > 0 ? ` - ${failedCount} failed` : ''}`);
     }
     if (failedCount > 0 && succeeded.length === 0) {
       showToast('error', `Failed to ${verb} the selected requests`);
@@ -734,13 +735,10 @@ export default function ApprovalsPage() {
 
   return (
     <div>
-      <div className="apv-header">
-        <div className="apv-header-icon" aria-hidden="true"><ClipboardCheck size={22} /></div>
-        <div>
+      <PageTitleBlock card icon={ClipboardCheck} style={{ marginBottom: 18 }}>
           <h1 className="apv-title">Approval Center</h1>
           <p className="apv-subtitle">All pending requests requiring your decision.</p>
-        </div>
-      </div>
+      </PageTitleBlock>
 
       {/* Search + request-type tabs in one card. Tabs scroll horizontally on narrow viewports
          rather than wrapping into a tall block, so the table stays close to the filters. */}

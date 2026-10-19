@@ -28,6 +28,7 @@ public class ExpenseClaimSummary {
     private final UUID managerDecidedBy;
     private final Instant managerDecidedAt;
     private final String managerRejectionReason;
+    private final String managerApprovedByRole;
     private final UUID finalDecidedBy;
     private final Instant finalDecidedAt;
     private final String finalRejectionReason;
@@ -39,6 +40,7 @@ public class ExpenseClaimSummary {
     public ExpenseClaimSummary(UUID id, UUID employeeUserId, Integer categoryId, BigDecimal amount,
                                 LocalDate expenseDate, String businessPurpose, String status,
                                 UUID managerDecidedBy, Instant managerDecidedAt, String managerRejectionReason,
+                                String managerApprovedByRole,
                                 UUID finalDecidedBy, Instant finalDecidedAt, String finalRejectionReason,
                                 Instant paidAt, Instant createdAt, boolean requiresSecondApproval,
                                 String pendingFinalStage) {
@@ -52,6 +54,7 @@ public class ExpenseClaimSummary {
         this.managerDecidedBy = managerDecidedBy;
         this.managerDecidedAt = managerDecidedAt;
         this.managerRejectionReason = managerRejectionReason;
+        this.managerApprovedByRole = managerApprovedByRole;
         this.finalDecidedBy = finalDecidedBy;
         this.finalDecidedAt = finalDecidedAt;
         this.finalRejectionReason = finalRejectionReason;

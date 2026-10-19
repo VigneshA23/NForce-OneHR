@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  CalendarDays, ClipboardList, ClockAlert, Eye, House, Hourglass, Inbox, Layers, Timer, X,
+  AlertCircle, CheckCircle2, CalendarDays, ClipboardList, ClockAlert, Eye, House, Hourglass, Inbox, Layers, Timer, X,
   Plus, ChevronDown, Search, ArrowRight, Send, Smile, type LucideIcon,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { myRequestsApi, type MyRequestItem, type RequestType } from '../api/myRequests';
 import { formatDurationMinutes } from '../context/TimeFormatContext';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
+import { TabBar } from '../components/TabBar';
 import './RequestsPage.css';
 
 // Every notification type the backend emits for a decision on one of this page's request types
@@ -109,7 +112,7 @@ function StatusBadge({ status }: { status: string }) {
 // rolls it back a day. Parsing its Y/M/D into a *local* Date avoids that; a real timestamp already
 // carries its own offset/Z, so it's left to parse normally.
 function fmtDate(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   const d = s.includes('T')
     ? new Date(s)
     : (([y, m, day]) => new Date(y, m - 1, day))(s.split('-').map(Number));
@@ -117,16 +120,16 @@ function fmtDate(s?: string | null) {
 }
 
 function fmtTime(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
 /** Overtime's requested duration ("Overtime Hours") — derived from requestedCheckIn/Out rather
  * than shown as raw clock times, since the employee-facing concept is hours claimed, not when. */
 function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
-  if (!startIso || !endIso) return '—';
+  if (!startIso || !endIso) return '–';
   const minutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
-  if (minutes <= 0) return '—';
+  if (minutes <= 0) return '–';
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -187,7 +190,7 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
       <div className="nf-rq-summary">
         <div className="nf-rq-strong">Overtime</div>
         <SummaryLine>
-          {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '—'}
+          {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '–'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '–'}
         </SummaryLine>
       </div>
     );
@@ -201,25 +204,25 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
 
 export type StatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
-function StatRing({ value, total, pct, label, caption, tone, active, onClick }: {
+const RING_ACCENT: Record<string, string> = {
+  'tone-indigo': 'var(--info)', 'tone-warn': 'var(--warn)', 'tone-ok': 'var(--ok)', 'tone-risk': 'var(--risk)',
+};
+const RING_ICON: Record<string, React.ReactNode> = {
+  'tone-indigo': <ClipboardList size={20} />, 'tone-warn': <Hourglass size={20} />, 'tone-ok': <CheckCircle2 size={20} />, 'tone-risk': <AlertCircle size={20} />,
+};
+
+// Same tile as the Home dashboard (components/DashTile). Still a button: picking one filters the table below.
+export function StatRing({ value, total, pct, label, caption, tone, active, onClick }: {
   value: number; total: number; pct: number; label: string; caption: string; tone: string;
   active: boolean; onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={`nf-rq-ring-item ${tone}${active ? ' nf-rq-ring-item--active' : ''}`}
-      onClick={onClick}
+    <DashTile
+      icon={RING_ICON[tone] ?? <ClipboardList size={20} />} accent={RING_ACCENT[tone] ?? 'var(--brand)'}
+      label={label} value={String(value)} sub={`${caption} · ${pct}%`}
+      active={active} onClick={onClick}
       title={`${label}: ${value} of ${total} request${total !== 1 ? 's' : ''} (${pct}%)`}
-    >
-      <div className={`nf-rq-ring ${tone}`} style={{ '--pct': pct } as React.CSSProperties}>
-        <span className="nf-rq-ring-value">{value}</span>
-      </div>
-      <div>
-        <div className="nf-rq-ring-label">{label}</div>
-        <div className="nf-rq-ring-caption">{caption}</div>
-      </div>
-    </button>
+    />
   );
 }
 
@@ -238,7 +241,7 @@ function RequestOverviewCard({ items, statusFilter, onFilter }: {
       <div className="nf-rq-panel-head">
         <div>
           <h3 className="nf-rq-panel-title"><ClipboardList size={16} aria-hidden="true" />Request Overview</h3>
-          <div className="nf-rq-panel-meta">Track your requests at a glance — click a stat to filter</div>
+          <div className="nf-rq-panel-meta">Track your requests at a glance - click a stat to filter</div>
         </div>
       </div>
       <div className="nf-rq-panel-body nf-rq-ring-row">
@@ -451,7 +454,7 @@ function Row({ label, value, wide }: { label: string; value?: string | null; wid
   return (
     <div style={wide ? { gridColumn: '1 / -1' } : undefined}>
       <div className="nf-rq-field-label">{label}</div>
-      <div className="nf-rq-field-value">{value ?? '—'}</div>
+      <div className="nf-rq-field-value">{value ?? '–'}</div>
     </div>
   );
 }
@@ -507,7 +510,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
           </div>
 
           <div className="nf-rq-section-label">Reason</div>
-          <div className="nf-rq-quote">{reason ?? '—'}</div>
+          <div className="nf-rq-quote">{reason ?? '–'}</div>
 
           <div className="nf-rq-decision">
             <div>
@@ -615,14 +618,11 @@ export default function MyRequestsPage() {
 
   return (
     <div className="nf-rq">
-      <div className="nf-rq-header">
-        <div className="nf-rq-header-main">
-          <div className="nf-rq-header-icon"><ClipboardList size={24} /></div>
-          <div>
+      <div className="nf-rq-header nf-page-hdr">
+        <PageTitleBlock icon={ClipboardList} style={{ position: 'relative' }}>
             <h1 className="nf-rq-title">My Requests</h1>
             <p className="nf-rq-subtitle">All your submitted leave and attendance requests in one place.</p>
-          </div>
-        </div>
+        </PageTitleBlock>
         <NewRequestMenu />
       </div>
 
@@ -634,24 +634,16 @@ export default function MyRequestsPage() {
       <div className="nf-rq-split">
         <div className="nf-rq-card">
           {/* Type filter bar */}
-          <div className="nf-rq-tabs" role="tablist" aria-label="Filter by request type">
-            {(['ALL', ...ALL_TYPES] as const).map(t => {
+          <TabBar
+            ariaLabel="Filter by request type"
+            style={{ padding: '0 14px' }}
+            active={typeFilter}
+            onChange={setTypeFilter}
+            tabs={(['ALL', ...ALL_TYPES] as const).map(t => {
               const Icon = t === 'ALL' ? Layers : TYPE_ICONS[t];
-              const tone = t === 'ALL' ? 'tone-brand' : TYPE_TONES[t];
-              return (
-                <button
-                  key={t}
-                  role="tab"
-                  aria-selected={typeFilter === t}
-                  onClick={() => setTypeFilter(t)}
-                  className={`nf-rq-tab${typeFilter === t ? ' nf-rq-tab--active' : ''}`}
-                >
-                  <span className={`nf-rq-tab-icon ${tone}`}><Icon size={13} /></span>
-                  {t === 'ALL' ? 'All' : TYPE_LABELS[t]} <span className="nf-rq-tab-count">{counts[t]}</span>
-                </button>
-              );
+              return { key: t, label: t === 'ALL' ? 'All' : TYPE_LABELS[t], icon: <Icon size={14} />, count: counts[t] };
             })}
-          </div>
+          />
 
           <div className="nf-rq-filters">
             <div className="nf-rq-search">

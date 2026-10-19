@@ -53,7 +53,7 @@ function parseState(state: string | null): Record<string, unknown> | null {
 }
 
 function fmtValue(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '—';
+  if (v === null || v === undefined || v === '') return '–';
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   return String(v);
 }

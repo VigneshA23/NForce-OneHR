@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import DashTile from '../components/DashTile';
 import { useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Clock, Eye, History, Inbox, Info,
@@ -6,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { TabBar } from '../components/TabBar';
 import {
   helpdeskApi,
   hrHelpdeskApi,
@@ -33,16 +36,12 @@ function StatusBadge({ status }: { status: TicketStatus }) {
   );
 }
 
-function Kpi({ icon, label, value, danger, tone }: { icon: React.ReactNode; label: string; value: number; danger?: boolean; tone: string }) {
-  return (
-    <div className="nf-rq-kpi">
-      <div className={`nf-rq-kpi-icon ${tone}`}>{icon}</div>
-      <div style={{ minWidth: 0 }}>
-        <div className="nf-rq-kpi-label">{label}</div>
-        <div className={`nf-rq-kpi-value${danger && value > 0 ? ' nf-rq-kpi-value--danger' : ''}`}>{value}</div>
-      </div>
-    </div>
-  );
+const KPI_ACCENT: Record<string, string> = {
+  'tone-brand': 'var(--brand)', 'tone-warn': 'var(--warn)', 'tone-indigo': 'var(--info)', 'tone-ok': 'var(--ok)', 'tone-mute': 'var(--txt-dim)',
+};
+// Same tile as the Home dashboard (components/DashTile); display only.
+export function Kpi({ icon, label, value, danger, tone }: { icon: React.ReactNode; label: string; value: number; danger?: boolean; tone: string }) {
+  return <DashTile icon={icon} label={label} value={String(value)} accent={danger && value > 0 ? 'var(--risk)' : (KPI_ACCENT[tone] ?? 'var(--brand)')} />;
 }
 
 /** Initials for the avatar chip — derived from the name already on the row, no photo fetch. */
@@ -58,27 +57,24 @@ function Person({ name, fallback, large }: { name?: string | null; fallback?: st
       <span className={`nf-rq-avatar${large ? ' nf-rq-avatar--lg' : ''}${name ? '' : ' nf-rq-avatar--muted'}`} aria-hidden="true">
         {name ? initials(name) : '–'}
       </span>
-      <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '—'}</span>
+      <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '–'}</span>
     </div>
   );
 }
 
 function PageHeader({ subtitle }: { subtitle?: string }) {
   return (
-    <div className="nf-rq-header">
-      <div className="nf-rq-header-main">
-        <div className="nf-rq-header-icon"><Ticket size={24} /></div>
-        <div>
+    <div className="nf-rq-header nf-page-hdr">
+      <PageTitleBlock icon={Ticket} style={{ position: 'relative' }}>
           <h1 className="nf-rq-title">HR Service Requests</h1>
           {subtitle && <p className="nf-rq-subtitle">{subtitle}</p>}
-        </div>
-      </div>
+      </PageTitleBlock>
     </div>
   );
 }
 
 function fmtDateTime(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -414,7 +410,7 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
           </div>
           <div className="nf-rq-panel-body">
             <div className="nf-rq-hint" style={{ marginBottom: 16 }}>
-              <Info size={14} /> Just viewing — nothing changes until you choose an action below.
+              <Info size={14} /> Just viewing - nothing changes until you choose an action below.
             </div>
 
             {showAssignPanel ? (
@@ -582,23 +578,17 @@ export default function HelpDeskAdminPage() {
         <Kpi icon={<Lock size={20} />} tone="tone-mute" label="Closed" value={dashboard.closedCount} />
       </div>
       <p className="nf-rq-note">
-        Totals across all tickets — the search and assignee filters below narrow the list only.
+        Totals across all tickets - the search and assignee filters below narrow the list only.
       </p>
 
       <div className="nf-rq-card">
-        <div className="nf-rq-tabs" role="tablist" aria-label="Filter by ticket status">
-          {QUEUE_FILTERS.map(f => (
-            <button
-              key={f.key}
-              role="tab"
-              aria-selected={statusFilter === f.key}
-              onClick={() => setStatusFilter(f.key)}
-              className={`nf-rq-tab${statusFilter === f.key ? ' nf-rq-tab--active' : ''}`}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <TabBar
+          ariaLabel="Filter by ticket status"
+          style={{ padding: '0 14px' }}
+          active={statusFilter}
+          onChange={setStatusFilter}
+          tabs={QUEUE_FILTERS}
+        />
 
         <div className="nf-rq-filters">
           <div className="nf-rq-search">
@@ -623,7 +613,7 @@ export default function HelpDeskAdminPage() {
         </div>
         {hasActiveNarrowing && (
           <div className="nf-rq-narrowing">
-            Showing {totalElements} ticket{totalElements === 1 ? '' : 's'} matching your search/assignee filter — the cards above still reflect all tickets.
+            Showing {totalElements} ticket{totalElements === 1 ? '' : 's'} matching your search/assignee filter - the cards above still reflect all tickets.
           </div>
         )}
 
@@ -666,18 +656,18 @@ export default function HelpDeskAdminPage() {
                     <td data-label="Employee"><Person name={t.employeeName} /></td>
                     <td data-label="Topic">{t.categoryName}</td>
                     <td data-label="Status"><StatusBadge status={t.status} /></td>
-                    <td data-label="Assigned To">{t.assignedToName ? <Person name={t.assignedToName} /> : <span className="nf-rq-dim">—</span>}</td>
+                    <td data-label="Assigned To">{t.assignedToName ? <Person name={t.assignedToName} /> : <span className="nf-rq-dim">–</span>}</td>
                     <td data-label="Last Update" className="nf-rq-nowrap">{fmtDateTime(t.updatedAt)}</td>
                     <td className="nf-rq-td-actions">
                       {/* Same action as clicking the row — opens the read-only preview. */}
                       <button
                         type="button"
-                        className="nf-rq-row-btn"
+                        className="nf-row-view"
                         aria-label={`View ticket ${t.ticketNumber}`}
                         title="View ticket"
                         onClick={e => { e.stopPropagation(); setPreviewId(t.id); }}
                       >
-                        <Eye size={16} />
+                        <Eye size={13} /> View
                       </button>
                     </td>
                   </tr>

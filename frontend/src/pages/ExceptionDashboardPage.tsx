@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { ShieldAlert } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { exceptionsApi, type ExceptionRecord } from '../api/exceptions';
@@ -30,7 +32,7 @@ function daysAgoIso(n: number): string {
 }
 
 function formatMinutesLate(minutes: number | null): string {
-  if (minutes == null) return '—';
+  if (minutes == null) return '–';
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -40,7 +42,7 @@ function formatMinutesLate(minutes: number | null): string {
 // convention as the Attendance page's TimeFormatContext (dropping seconds/fractional
 // precision, which is noise for a late-arrival table read at a glance).
 function formatTimeDisplay(time: string | null): string {
-  if (!time) return '—';
+  if (!time) return '–';
   const [h, m] = time.split(':').map(Number);
   const suffix = h < 12 ? 'AM' : 'PM';
   const hour12 = h % 12 === 0 ? 12 : h % 12;
@@ -109,10 +111,10 @@ export default function ExceptionDashboardPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 22 }}>
+      <PageTitleBlock card icon={ShieldAlert} style={{ marginBottom: 22 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Exception Dashboard</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>{subtitle}</p>
-      </div>
+      </PageTitleBlock>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'end', marginBottom: 16 }}>
         <div>
@@ -158,9 +160,9 @@ export default function ExceptionDashboardPage() {
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{exc.employeeFullName ?? exc.employeeUserId}</td>
                     <td style={tdStyle}><ExceptionTypeBadge type={exc.exceptionType} /></td>
                     <td style={tdStyle}>{exc.exceptionDate}</td>
-                    <td style={timeTdStyle}>{exc.expectedTime ? formatTimeDisplay(exc.expectedTime) : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                    <td style={timeTdStyle}>{exc.actualTime ? formatTimeDisplay(exc.actualTime) : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                    <td style={tdStyle}>{exc.minutesLate == null ? <span style={{ color: 'var(--txt-dim)' }}>—</span> : formatMinutesLate(exc.minutesLate)}</td>
+                    <td style={timeTdStyle}>{exc.expectedTime ? formatTimeDisplay(exc.expectedTime) : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                    <td style={timeTdStyle}>{exc.actualTime ? formatTimeDisplay(exc.actualTime) : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                    <td style={tdStyle}>{exc.minutesLate == null ? <span style={{ color: 'var(--txt-dim)' }}>–</span> : formatMinutesLate(exc.minutesLate)}</td>
                     <td style={tdStyle}>{exc.status}</td>
                   </tr>
                 ))}

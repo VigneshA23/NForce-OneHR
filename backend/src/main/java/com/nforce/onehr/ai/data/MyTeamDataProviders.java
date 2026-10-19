@@ -26,6 +26,7 @@ import com.nforce.onehr.service.ReportsService;
 import com.nforce.onehr.service.WorkingDayService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -417,9 +418,10 @@ public final class MyTeamDataProviders {
          * window with its own queries, and a month of a 22-person team took over a minute against
          * the hosted database. Only status, check-in and check-out are needed here; leaving early is
          * read from the EARLY_DEPARTURE exceptions the detector already worked out against each
-         * row's own shift.
+         * row's own shift. Read-only transaction so each report's weekly-off policy can lazy-load.
          */
         @Override
+        @Transactional(readOnly = true)
         public Optional<String> fetch(AssistantRequestContext context, String question) {
             String email = context.getActorEmail();
             LocalDate today = LocalDate.now(attendanceRulesService.getDefaultZoneId());

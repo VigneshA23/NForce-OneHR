@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import PageTitleBlock from '../PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ScrollText } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { auditApi, type ActionGroup, type AuditLogFilters, type AuditLogStats, type PagedAuditLogs } from '../../api/audit';
@@ -156,12 +157,12 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div>
+      <PageTitleBlock card style={{ marginBottom: 0 }} icon={ScrollText}>
         <h1 style={{ margin: 0, marginBottom: 4, fontSize: 20, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           {config.title}
         </h1>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{config.subtitle}</p>
-      </div>
+      </PageTitleBlock>
 
       <AuditStatCards stats={stats} showAccess={config.showAccessCategory} />
 
@@ -194,7 +195,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
         ) : loadError ? (
           <div role="alert" style={{ margin: 16, background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 8, padding: '12px 16px', color: 'var(--risk)', fontSize: 13 }}>
-            {loadError} — check that the backend is running.
+            {loadError} – check that the backend is running.
           </div>
         ) : rows.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center' }}>

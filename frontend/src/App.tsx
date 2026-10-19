@@ -37,6 +37,10 @@ import WorkflowStudioPage from './pages/WorkflowStudioPage';
 import SearchResultsPage from './pages/SearchResultsPage';
 import ReportsPage from './pages/ReportsPage';
 import ApiUsagePage from './pages/ApiUsagePage';
+import ProjectAllocationsPage from './pages/ProjectAllocationsPage';
+import BenchPage from './pages/BenchPage';
+import BenchOpportunitiesPage from './pages/BenchOpportunitiesPage';
+import MySkillsPage from './pages/MySkillsPage';
 // Role-specific mock/visual-preview page only — not part of the real Leave Management module.
 // See the file header in LeavePreviewPage.tsx for details.
 import LeavePreviewPage from './pages/leave-preview/LeavePreviewPage';
@@ -50,6 +54,16 @@ import AttendanceStatusPreviewPage from './pages/attendance-status-preview/Atten
 // Design-review mock only — Dashboard Hero Male/Female/Non-binary/Fallback variants, reusing the
 // real HeroIllustrationArt component. See the file header in HeroGenderPreviewPage.tsx for details.
 import HeroGenderPreviewPage from './pages/hero-gender-preview/HeroGenderPreviewPage';
+// Design-review mock only — the real AttendancePage in forced mock-data mode. See the route below.
+import AttendancePreviewShell from './pages/attendance-ui-preview/AttendancePreviewShell';
+// Design-review mock only — Home dashboard tile rows per role. See the route below.
+import DashboardPreviewShell from './pages/dashboard-ui-preview/DashboardPreviewShell';
+import HierarchyPreviewShell from './pages/hierarchy-ui-preview/HierarchyPreviewShell';
+import TilesPreviewShell from './pages/tiles-ui-preview/TilesPreviewShell';
+
+// Role-switchable mock preview of the redesigned My Team page (?role=manager|hr-admin|super-admin|employee).
+// Mock data only — see the file header in my-team/MyTeamPreviewPage.tsx.
+import MyTeamPreviewPage from './pages/my-team/MyTeamPreviewPage';
 import { hasPermission } from './lib/permissions';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -142,6 +156,23 @@ export default function App() {
             components/HeroIllustration.tsx — see the file's own header for details. */}
         <Route path="/hero-gender-preview" element={<HeroGenderPreviewPage />} />
 
+        {/* Design-review mock only — the REAL AttendancePage rendered with forced mock data (no
+            auth, no API calls), inside a minimal frame instead of the authenticated Shell. Not
+            linked from the app nav. Add ?tab=calendar for the Calendar tab. */}
+        <Route path="/attendance-ui-preview" element={<AttendancePreviewShell />} />
+
+        {/* Design-review mock only — the Home dashboard's tile rows (Quick Actions + stat tiles) for
+            each role, built from the real components with invented numbers; no auth, no API calls. */}
+        <Route path="/dashboard-ui-preview" element={<DashboardPreviewShell />} />
+        {/* Design-review mock only: the Organization Hierarchy summary tiles with invented numbers; no auth, no API calls. */}
+        <Route path="/hierarchy-ui-preview" element={<HierarchyPreviewShell />} />
+        {/* Design-review mock only: summary tiles of the module pages with invented numbers; no auth, no API calls. */}
+        <Route path="/tiles-ui-preview" element={<TilesPreviewShell />} />
+
+        {/* Design-review mock only — redesigned My Team page, no auth, no network, not linked from
+            the app nav. ?role=manager|hr-admin|super-admin|employee picks the mock dataset only. */}
+        <Route path="/my-team-preview" element={<MyTeamPreviewPage />} />
+
         {/* Auth required, password-change gate */}
         <Route
           path="/change-password"
@@ -175,6 +206,10 @@ export default function App() {
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
           <Route path="/exceptions"   element={<ExceptionDashboardPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
+          <Route path="/allocations"  element={<ProjectAllocationsPage />} />
+          <Route path="/bench"        element={<BenchPage />} />
+          <Route path="/bench-opportunities" element={<BenchOpportunitiesPage />} />
+          <Route path="/my-skills"    element={<MySkillsPage />} />
           <Route path="/talent-performance" element={<TalentPerformancePage />} />
           <Route path="/access"         element={<UserManagementPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />

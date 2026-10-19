@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import DashTile from '../components/DashTile';
 import {
-  Activity, Database, ExternalLink, Gauge, MessageSquareText, RefreshCw, Settings2, ShieldAlert, Zap,
+  Activity, ExternalLink, Gauge, MessageSquareText, RefreshCw, Settings2, ShieldAlert, Zap,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -8,29 +10,39 @@ import {
 } from 'recharts';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { ChipGroup } from '../components/TabBar';
 import {
   fetchUsageStats, fetchBilling, fetchBillingSettings, updateBillingSettings,
   fetchHealth, reindexKnowledge,
   type AiUsageStats, type AiBilling, type AiBillingSettings, type AssistantHealth, type KnowledgeIndexingReport,
 } from '../api/aiAssistant';
 
-// ── Shared styles (matches ReportsPage.tsx — plain style objects, no CSS framework) ──
+// Same card/chart conventions as ReportsPage and My Team: theme tokens only, so light/dark and the
+// accent colour setting keep working.
 
-const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
+const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 1px 2px rgba(16, 24, 40, .05)', overflow: 'hidden' };
 
 const MISTRAL_ADMIN_URL = 'https://admin.mistral.ai/';
 
-// Distinct from PIE_COLORS elsewhere in the app (ReportsPage/MyTeamPage) — this page's palette is
-// success/error/token-source based, not attendance-status based, so it earns its own small set
-// rather than importing an unrelated one that happens to share a couple of hex values.
-const COLOR_SUCCESS = '#2FB67C';
-const COLOR_ERROR = '#E4373D';
-const COLOR_PROMPT = '#4C8DD6';
+const COLOR_SUCCESS = 'var(--ok)';
+const COLOR_ERROR = 'var(--risk)';
+const COLOR_WARN = 'var(--warn)';
+const COLOR_PROMPT = 'var(--info)';
 const COLOR_COMPLETION = '#818CF8';
 const RESPONSE_TYPE_COLORS: Record<string, string> = {
-  HOW_TO: '#2FB67C', EXPLANATION: '#4C8DD6', NAVIGATION: '#818CF8',
-  TROUBLESHOOTING: '#E0A93B', PERMISSION: '#B11116', UNKNOWN: 'var(--txt-dim)',
+  HOW_TO: 'var(--ok)', EXPLANATION: 'var(--info)', NAVIGATION: '#818CF8',
+  TROUBLESHOOTING: 'var(--warn)', PERMISSION: 'var(--brand)', UNKNOWN: 'var(--txt-dim)',
 };
+
+// Recharts tooltip, same look as ReportsPage.
+const tooltipStyle: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' };
+const axisTick = { fill: 'var(--txt-dim)', fontSize: 10.5 };
+
+// Shared small-button / label styles for the cards below.
+const ghostBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: 'var(--txt)', cursor: 'pointer' };
+const miniLabel: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' };
+const cardTitle: React.CSSProperties = { fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', margin: 0 };
+const cardSub: React.CSSProperties = { fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 2 };
 
 const PERIOD_OPTIONS = [
   { days: 7, label: '7 days' },
@@ -39,42 +51,34 @@ const PERIOD_OPTIONS = [
 ] as const;
 
 // Explicit 'en-US' everywhere on this page rather than a bare .toLocaleString()/Intl default,
-// which otherwise renders using the browser's OS locale (e.g. en-IN's 1,00,000 lakh grouping) —
-// this page always shows American thousands-grouping regardless of the viewer's system locale.
+// which otherwise renders using the browser's OS locale (e.g. en-IN's 1,00,000 lakh grouping).
+// This page always shows American thousands-grouping regardless of the viewer's system locale.
 const numberFormatter = new Intl.NumberFormat('en-US');
 const compactNumberFormatter = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 const usdFormatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
-/** "1,234,567" — full grouped number, for KPI cards, tooltips, and other exact readouts. */
+/** "1,234,567", full grouped number for KPI cards, tooltips and other exact readouts. */
 function formatNumber(n: number): string { return numberFormatter.format(n); }
-/** "1.2M" / "45K" — short form for chart axis ticks, where full grouped numbers would clip. */
+/** "1.2M" / "45K", short form for chart axis ticks where full grouped numbers would clip. */
 function formatCompact(n: number): string { return compactNumberFormatter.format(n); }
 
-function KpiCard({ icon, label, value, note, danger }: { icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean }) {
-  return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ color: 'var(--brand)' }}>{icon}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
-      </div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: danger ? COLOR_ERROR : 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      {note && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>}
-    </div>
-  );
+// Same tile as the Home dashboard (components/DashTile); display only.
+export function KpiCard({ icon, iconColor, label, value, note, danger }: { icon: React.ReactNode; iconColor: string; label: string; value: string | number; note?: string; danger?: boolean }) {
+  return <DashTile icon={icon} label={label} value={String(value)} sub={note} accent={danger ? COLOR_ERROR : iconColor} />;
 }
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div style={{ ...card, padding: '16px 18px' }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{title}</div>
-      {subtitle && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2, marginBottom: 12 }}>{subtitle}</div>}
-      {!subtitle && <div style={{ marginBottom: 12 }} />}
+      <div style={cardTitle}>{title}</div>
+      {subtitle && <div style={cardSub}>{subtitle}</div>}
+      <div style={{ marginBottom: 14 }} />
       {children}
     </div>
   );
 }
 
-/** "Sep 16" — same short-date convention as the rest of the app's chart axes. */
+/** "Sep 16", same short-date convention as the rest of the app's chart axes. */
 function shortDate(iso: string): string {
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
@@ -94,13 +98,14 @@ function AccessDenied() {
   );
 }
 
-const inputS: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 9px', fontSize: 12.5, color: 'var(--txt)', width: 110, boxSizing: 'border-box' };
+const inputS: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 10px', fontSize: 12.5, color: 'var(--txt)', width: '100%', boxSizing: 'border-box' };
+const fieldLabel: React.CSSProperties = { ...miniLabel, display: 'block', marginBottom: 6 };
 
 /**
- * This calendar month's spend against a Super-Admin-configured budget — an estimate (OneHR's own
- * token counts × a price the admin enters), never real Mistral billing, which OneHR has no API
- * access to. Loads independently of the period selector above/below it: billing is always "this
- * month", regardless of whether the charts are showing the last 7/30/90 days.
+ * This calendar month's spend against a Super Admin configured budget. It is an estimate (OneHR's
+ * own token counts times a price the admin enters), never real Mistral billing, which OneHR has no
+ * API access to. Loads independently of the period selector: billing is always "this month",
+ * whether the charts show the last 7, 30 or 90 days.
  */
 function BillingCard({ token }: { token: string }) {
   const { showToast } = useToast();
@@ -190,21 +195,21 @@ function BillingCard({ token }: { token: string }) {
 
   const pct = billing ? Math.min(100, billing.usedPercent) : 0;
   const overBudget = billing ? billing.usedPercent > 100 : false;
-  const barColor = overBudget ? COLOR_ERROR : (billing?.usedPercent ?? 0) >= 80 ? '#E0A93B' : COLOR_SUCCESS;
+  const barColor = overBudget ? COLOR_ERROR : (billing?.usedPercent ?? 0) >= 80 ? COLOR_WARN : COLOR_SUCCESS;
 
   return (
-    <div style={{ ...card, padding: '16px 18px', marginBottom: 18 }}>
+    <div style={{ ...card, padding: '16px 18px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 4 }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>This month's billing (estimate)</div>
+          <div style={cardTitle}>Monthly billing estimate</div>
           {billing && (
-            <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>
-              {new Date(billing.monthStart + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} · based on OneHR's own token logs, not Mistral's actual invoice
+            <div style={cardSub}>
+              {new Date(billing.monthStart + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} · based on OneHR's own token logs, not Mistral's invoice
             </div>
           )}
         </div>
-        <button onClick={() => (editing ? setEditing(false) : openEditor())} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 10px', fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', cursor: 'pointer', flexShrink: 0 }}>
-          <Settings2 size={12} /> {editing ? 'Close' : 'Configure'}
+        <button onClick={() => (editing ? setEditing(false) : openEditor())} style={ghostBtn}>
+          <Settings2 size={13} /> {editing ? 'Close' : 'Configure'}
         </button>
       </div>
 
@@ -225,7 +230,7 @@ function BillingCard({ token }: { token: string }) {
               of {usdFormatter.format(billing.monthlyBudgetUsd)} budget · {Math.round(billing.usedPercent)}% used
             </span>
           </div>
-          <div style={{ height: 10, borderRadius: 6, background: 'var(--raised2)', overflow: 'hidden' }}>
+          <div style={{ height: 8, borderRadius: 6, background: 'var(--raised2)', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: 6, transition: 'width .3s ease' }} />
           </div>
           {overBudget && (
@@ -233,8 +238,8 @@ function BillingCard({ token }: { token: string }) {
               Over the configured budget for this month.
             </div>
           )}
-          <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 8 }}>
-            {formatNumber(billing.promptTokens)} prompt + {formatNumber(billing.completionTokens)} completion + {formatNumber(billing.embeddingTokens)} embedding tokens so far this month
+          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 8 }}>
+            {formatNumber(billing.promptTokens)} prompt, {formatNumber(billing.completionTokens)} completion and {formatNumber(billing.embeddingTokens)} embedding tokens so far this month
           </div>
         </>
       )}
@@ -246,28 +251,29 @@ function BillingCard({ token }: { token: string }) {
           ) : (
             <>
               <p style={{ margin: '0 0 12px', fontSize: 11.5, color: 'var(--txt-dim)', lineHeight: 1.5 }}>
-                Set these to match your actual Mistral plan pricing (check the Admin Console) — OneHR
-                has no way to read your real prices automatically.
+                Match these to your Mistral plan pricing. You can find it in the Admin Console.
               </p>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
                 <div>
-                  <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 }}>Monthly budget (USD)</label>
+                  <label style={fieldLabel}>Monthly budget (USD)</label>
                   <input type="number" min={0} step="0.01" style={inputS} value={budget} onChange={e => setBudget(e.target.value)} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 }}>Prompt $/1M tokens</label>
+                  <label style={fieldLabel}>Prompt $/1M tokens</label>
                   <input type="number" min={0} step="0.0001" style={inputS} value={promptCost} onChange={e => setPromptCost(e.target.value)} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 }}>Completion $/1M tokens</label>
+                  <label style={fieldLabel}>Completion $/1M tokens</label>
                   <input type="number" min={0} step="0.0001" style={inputS} value={completionCost} onChange={e => setCompletionCost(e.target.value)} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 }}>Embedding $/1M tokens</label>
+                  <label style={fieldLabel}>Embedding $/1M tokens</label>
                   <input type="number" min={0} step="0.0001" style={inputS} value={embeddingCost} onChange={e => setEmbeddingCost(e.target.value)} />
                 </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
                 <button onClick={save} disabled={saving || !dirty} style={{
-                  padding: '8px 16px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+                  padding: '8px 18px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7,
                   fontSize: 12.5, fontWeight: 600, cursor: saving || !dirty ? 'not-allowed' : 'pointer', opacity: saving || !dirty ? 0.6 : 1,
                 }}>
                   {saving ? 'Saving…' : 'Save'}
@@ -282,8 +288,8 @@ function BillingCard({ token }: { token: string }) {
   );
 }
 
-/** "Sep 24, 2026, 6:59 PM" — full timestamp, since an admin deciding whether to re-index needs the
- *  exact moment, not a relative "3 hours ago" that goes stale the instant the page is left open. */
+/** "Sep 24, 2026, 6:59 PM": a full timestamp, since an admin deciding whether to re-index needs the
+ *  exact moment, not a relative "3 hours ago" that goes stale while the page is left open. */
 function formatIndexedAt(iso: string | null): string {
   if (!iso) return 'Never';
   return new Date(iso).toLocaleString('en-US', {
@@ -292,8 +298,8 @@ function formatIndexedAt(iso: string | null): string {
 }
 
 /**
- * The assistant answers only from what was in the index at the last re-index — editing Help
- * Content or a knowledge YAML file has zero effect on live answers until this runs (see
+ * The assistant answers only from what was in the index at the last re-index. Editing Help
+ * Content or a knowledge YAML file has no effect on live answers until this runs (see
  * KnowledgeIndexingService's own Javadoc: no startup/scheduled trigger, by design, since a full
  * rebuild costs real embedding calls and briefly leaves the index inconsistent). This card exists
  * so that "I fixed the knowledge base" and "the assistant now answers correctly" are the same
@@ -329,7 +335,7 @@ function KnowledgeBaseCard({ token }: { token: string }) {
     try {
       const report = await reindexKnowledge(token);
       setLastReport(report);
-      showToast('success', `Re-indexed: ${report.documents} documents → ${report.chunks} chunks`);
+      showToast('success', `Re-indexed ${report.documents} documents into ${report.chunks} chunks`);
       load(); // refresh indexReady/indexedChunks/lastIndexedAt against the new index
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Re-index failed');
@@ -339,28 +345,19 @@ function KnowledgeBaseCard({ token }: { token: string }) {
   }
 
   return (
-    <div style={{ ...card, padding: '16px 18px', marginBottom: 18 }}>
+    <div style={{ ...card, padding: '16px 18px' }}>
       <style>{'@keyframes nf-spin { to { transform: rotate(360deg); } }'}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
-            <Database size={14} style={{ color: 'var(--brand)' }} /> Knowledge base
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>
-            What NORA answers from. A Help Content or knowledge-file change only takes effect here.
-          </div>
+          <div style={cardTitle}>Knowledge base</div>
+          <div style={cardSub}>What NORA answers from. Content changes only apply after a re-index.</div>
         </div>
         <button
           onClick={runReindex}
           disabled={reindexing || loading}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
-            background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 10px',
-            fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)',
-            cursor: (reindexing || loading) ? 'default' : 'pointer', opacity: loading ? 0.6 : 1,
-          }}
+          style={{ ...ghostBtn, cursor: (reindexing || loading) ? 'default' : 'pointer', opacity: loading ? 0.6 : 1 }}
         >
-          <RefreshCw size={12} style={reindexing ? { animation: 'nf-spin 1s linear infinite' } : undefined} />
+          <RefreshCw size={13} style={reindexing ? { animation: 'nf-spin 1s linear infinite' } : undefined} />
           {reindexing ? 'Re-indexing…' : 'Re-index now'}
         </button>
       </div>
@@ -373,25 +370,25 @@ function KnowledgeBaseCard({ token }: { token: string }) {
           <button onClick={load} style={{ color: 'var(--info)', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontSize: 12.5, padding: 0 }}>Retry</button>
         </div>
       ) : health && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 28px', marginTop: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '14px 20px', marginTop: 16 }}>
           <div>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Status</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: health.indexReady ? COLOR_SUCCESS : COLOR_ERROR, marginTop: 3 }}>
+            <div style={miniLabel}>Status</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: health.indexReady ? COLOR_SUCCESS : COLOR_ERROR, marginTop: 4 }}>
               {health.indexReady ? 'Ready' : 'Not ready'}
             </div>
           </div>
           <div>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Indexed chunks</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 3 }}>{formatNumber(health.indexedChunks)}</div>
+            <div style={miniLabel}>Indexed chunks</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 4 }}>{formatNumber(health.indexedChunks)}</div>
           </div>
           <div>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Last indexed</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 3 }}>{formatIndexedAt(health.lastIndexedAt)}</div>
+            <div style={miniLabel}>Last indexed</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 4 }}>{formatIndexedAt(health.lastIndexedAt)}</div>
           </div>
           <div>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Sources</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 3 }}>
-              {health.knowledgeSources.length > 0 ? health.knowledgeSources.join(', ') : '—'}
+            <div style={miniLabel}>Sources</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 4 }}>
+              {health.knowledgeSources.length > 0 ? health.knowledgeSources.join(', ') : 'None'}
             </div>
           </div>
         </div>
@@ -399,13 +396,13 @@ function KnowledgeBaseCard({ token }: { token: string }) {
 
       {reindexing && (
         <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 12 }}>
-          Rebuilding the index — this page will update automatically when it's done. Answers keep
-          using the previous index until the rebuild finishes.
+          Rebuilding the index. This page updates when it's done, and answers keep using the
+          previous index until then.
         </div>
       )}
       {lastReport && !reindexing && (
-        <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 12 }}>
-          Last run: {formatNumber(lastReport.documents)} documents → {formatNumber(lastReport.chunks)} chunks
+        <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 12 }}>
+          Last run: {formatNumber(lastReport.documents)} documents into {formatNumber(lastReport.chunks)} chunks
           ({formatNumber(lastReport.removed)} stale rows replaced).
         </div>
       )}
@@ -445,24 +442,22 @@ export default function ApiUsagePage() {
   }));
   const responseTypeData = (stats?.byResponseType ?? []).map(b => ({ name: humanizeCode(b.key), value: b.count, key: b.key }));
 
-  // Success/error rate is a per-turn concept (did the question get answered), so it's computed
-  // against totalTurns, not totalRequests (real API-call attempts) - a turn retried twice by the
-  // transport before succeeding is still one successful turn, not two-thirds of one.
+  // Success rate is per question (was it answered), so it is computed against totalTurns, not
+  // totalRequests (real API call attempts). A question retried twice by the transport before
+  // succeeding is still one successful question.
   const successRate = stats && stats.totalTurns > 0
     ? `${Math.round((stats.successCount / stats.totalTurns) * 100)}%`
-    : '—';
+    : 'N/A';
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-        <div>
+      <div className="nf-page-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={Gauge}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>API Usage</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13, maxWidth: '62ch' }}>
-            NORA's request volume and token usage, so growing adoption never turns into a budget
-            surprise — and if usage spikes, the error breakdown below traces it to a cause instead
-            of leaving it opaque.
+            NORA request volume, token usage and estimated spend.
           </p>
-        </div>
+        </PageTitleBlock>
         <a
           href={MISTRAL_ADMIN_URL}
           target="_blank"
@@ -473,26 +468,20 @@ export default function ApiUsagePage() {
         </a>
       </div>
 
-      <KnowledgeBaseCard token={token} />
-      <BillingCard token={token} />
+      {/* Billing and knowledge base side by side, like the paired cards on the other admin pages */}
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 12, marginBottom: 18, alignItems: 'start' }}>
+        <BillingCard token={token} />
+        <KnowledgeBaseCard token={token} />
+      </div>
 
       {/* Period selector */}
-      <div style={{ display: 'inline-flex', gap: 4, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 9, padding: 4, marginBottom: 18 }} role="tablist" aria-label="Usage period">
-        {PERIOD_OPTIONS.map(opt => (
-          <button
-            key={opt.days}
-            role="tab"
-            aria-selected={days === opt.days}
-            onClick={() => setDays(opt.days)}
-            style={{
-              fontSize: 12.5, fontWeight: 600, padding: '7px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
-              background: days === opt.days ? 'var(--brand)' : 'transparent', color: days === opt.days ? '#fff' : 'var(--txt-mut)',
-            }}
-          >
-            Last {opt.label}
-          </button>
-        ))}
-      </div>
+      <ChipGroup
+        ariaLabel="Usage period"
+        style={{ marginBottom: 18 }}
+        value={String(days)}
+        onChange={k => setDays(Number(k))}
+        options={PERIOD_OPTIONS.map(opt => ({ key: String(opt.days), label: `Last ${opt.label}` }))}
+      />
 
       {loading ? (
         <div style={{ ...card, padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
@@ -505,43 +494,44 @@ export default function ApiUsagePage() {
         <>
           {/* KPI cards */}
           <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-            <KpiCard icon={<MessageSquareText size={14} />} label="Total Requests" value={formatNumber(stats.totalRequests)} note={`real Mistral calls · ${formatNumber(stats.totalTurns)} question${stats.totalTurns === 1 ? '' : 's'} asked`} />
-            <KpiCard icon={<Zap size={14} />} label="Total Tokens" value={formatNumber(stats.totalTokens)} note={`${formatNumber(stats.totalPromptTokens)} prompt · ${formatNumber(stats.totalCompletionTokens)} completion · ${formatNumber(stats.totalEmbeddingTokens)} embedding`} />
-            <KpiCard icon={<Activity size={14} />} label="Success Rate" value={successRate} note={`${stats.errorCount} failed question${stats.errorCount === 1 ? '' : 's'}`} danger={stats.totalTurns > 0 && stats.errorCount / stats.totalTurns > 0.1} />
-            <KpiCard icon={<Gauge size={14} />} label="Avg Latency" value={`${Math.round(stats.avgLatencyMs)}ms`} note="per completed request" />
+            <KpiCard icon={<MessageSquareText size={20} />} iconColor="var(--info)" label="Total Requests" value={formatNumber(stats.totalRequests)} note={`${formatNumber(stats.totalTurns)} question${stats.totalTurns === 1 ? '' : 's'} asked`} />
+            <KpiCard icon={<Zap size={20} />} iconColor="var(--brand-bright)" label="Total Tokens" value={formatNumber(stats.totalTokens)} note={`${formatCompact(stats.totalPromptTokens)} prompt · ${formatCompact(stats.totalCompletionTokens)} completion · ${formatCompact(stats.totalEmbeddingTokens)} embedding`} />
+            <KpiCard icon={<Activity size={20} />} iconColor="var(--ok)" label="Success Rate" value={successRate} note={`${stats.errorCount} failed question${stats.errorCount === 1 ? '' : 's'}`} danger={stats.totalTurns > 0 && stats.errorCount / stats.totalTurns > 0.1} />
+            <KpiCard icon={<Gauge size={20} />} iconColor="var(--warn)" label="Avg Latency" value={`${Math.round(stats.avgLatencyMs)}ms`} note="per completed request" />
           </div>
 
           {/* Charts */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 12, marginBottom: 12 }} className="nf-grid-side-collapse">
-            <ChartCard title="Request volume" subtitle="Real Mistral API requests per day (embedding + completion calls, including retries)">
+            <ChartCard title="Request volume" subtitle="Mistral API requests per day, including retries">
               {requestsChartData.length === 0 ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No requests in this period.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={requestsChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                  <BarChart data={requestsChartData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={{ stroke: 'var(--line2)' }} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={false} tickLine={false} tickFormatter={formatCompact} width={42} />
-                    <Tooltip contentStyle={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} formatter={(value) => formatNumber(Number(value))} />
-                    <Bar dataKey="Requests" fill={COLOR_SUCCESS} radius={[3, 3, 0, 0]} />
+                    <XAxis dataKey="date" tick={axisTick} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={axisTick} axisLine={false} tickLine={false} tickFormatter={formatCompact} width={42} />
+                    <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(177,17,22,.08)' }} formatter={(value) => formatNumber(Number(value))} />
+                    <Bar dataKey="Requests" fill="var(--brand)" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </ChartCard>
 
-            <ChartCard title="Token usage" subtitle="Prompt, completion, and embedding tokens per day">
+            <ChartCard title="Token usage" subtitle="Prompt, completion and embedding tokens per day">
               {tokensChartData.length === 0 ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No token usage in this period.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={tokensChartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                  <BarChart data={tokensChartData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={{ stroke: 'var(--line2)' }} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10.5, fill: 'var(--txt-dim)' }} axisLine={false} tickLine={false} tickFormatter={formatCompact} width={42} />
-                    <Tooltip contentStyle={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} formatter={(value) => formatNumber(Number(value))} />
+                    <XAxis dataKey="date" tick={axisTick} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={axisTick} axisLine={false} tickLine={false} tickFormatter={formatCompact} width={42} />
+                    <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(177,17,22,.08)' }} formatter={(value) => formatNumber(Number(value))} />
+                    <Legend verticalAlign="bottom" height={28} formatter={(value) => <span style={{ color: 'var(--txt-mut)', fontSize: 12 }}>{value}</span>} />
                     <Bar dataKey="Prompt" stackId="tok" fill={COLOR_PROMPT} radius={[0, 0, 0, 0]} />
                     <Bar dataKey="Completion" stackId="tok" fill={COLOR_COMPLETION} radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="Embedding" stackId="tok" fill={COLOR_SUCCESS} radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="Embedding" stackId="tok" fill={COLOR_SUCCESS} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -555,31 +545,30 @@ export default function ApiUsagePage() {
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
-                    <Pie data={responseTypeData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={80} paddingAngle={2}>
+                    <Pie data={responseTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="55%" outerRadius="85%" strokeWidth={0}>
                       {responseTypeData.map(d => <Cell key={d.key} fill={RESPONSE_TYPE_COLORS[d.key] ?? 'var(--txt-dim)'} />)}
                     </Pie>
-                    <Tooltip contentStyle={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Legend verticalAlign="bottom" height={28} formatter={(value) => <span style={{ color: 'var(--txt-mut)', fontSize: 12 }}>{value}</span>} />
+                    <Tooltip contentStyle={tooltipStyle} />
                   </PieChart>
                 </ResponsiveContainer>
               )}
             </ChartCard>
 
-            {/* AC2: "usage spikes are traceable to a cause rather than opaque" — an error-code
-                breakdown is exactly that trace. Deliberately not a chart when there's nothing to
-                show: an empty bar chart reads as "broken", an explicit all-clear message doesn't. */}
+            {/* Not a chart when there is nothing to show: an empty bar chart reads as broken, an
+                explicit all-clear message does not. */}
             <ChartCard title="Failed requests by cause" subtitle="Where errors are coming from, if any">
               {(stats.byErrorCode.length === 0) ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>
                   No failed requests in this period.
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {stats.byErrorCode.map(b => {
                     const pct = stats.errorCount > 0 ? (b.count / stats.errorCount) * 100 : 0;
                     return (
                       <div key={b.key}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 5 }}>
                           <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{humanizeCode(b.key)}</span>
                           <span style={{ color: 'var(--txt-dim)' }}>{b.count}</span>
                         </div>
@@ -594,14 +583,14 @@ export default function ApiUsagePage() {
             </ChartCard>
           </div>
 
-          <div style={{ ...card, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: 'var(--txt-dim)' }}>
-            <Zap size={14} style={{ flexShrink: 0 }} />
-            Counts come from OneHR's own request logs (every embedding and completion call a
-            question costs, including retries), not from Mistral's billing — so this figure may
-            still run a little under Mistral's own count, since rebuilding the knowledge index also
-            calls Mistral directly and isn't tied to a question. For the actual dollar cost and
-            rate-limit/quota details, use the{' '}
-            <a href={MISTRAL_ADMIN_URL} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--info)' }}>Mistral Admin Console</a>.
+          <div style={{ ...card, padding: '14px 18px', display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12, lineHeight: 1.5, color: 'var(--txt-dim)' }}>
+            <Zap size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>
+              Counts come from OneHR's own request logs, including retries, not from Mistral's billing.
+              They can run slightly under Mistral's own numbers because rebuilding the knowledge index
+              also calls Mistral directly. For actual cost and rate limits, use the{' '}
+              <a href={MISTRAL_ADMIN_URL} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--info)' }}>Mistral Admin Console</a>.
+            </span>
           </div>
         </>
       )}

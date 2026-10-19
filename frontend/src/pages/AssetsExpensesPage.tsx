@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useNavigate } from 'react-router-dom';
-import { Check, ExternalLink, Paperclip, Plus } from 'lucide-react';
+import { Check, ExternalLink, Paperclip, Plus, Package } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
+import { TabBar } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
 import { useToast } from '../context/ToastContext';
@@ -116,25 +118,14 @@ function EmployeeView({ token }: { token: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Tiles */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <Tile label="My Assigned Assets" value={tiles?.assignedCount ?? '—'} sub={tiles?.assignedSubtitle} clickable onClick={() => setActiveTab('assets')} />
-        <Tile label="Open Expense Claims" value={expTiles?.openClaimCount ?? '—'} sub={expTiles?.openClaimCount ? fmtCurrency(expTiles.openClaimAmount) : undefined} clickable onClick={() => setActiveTab('claims')} />
-        <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '—'} clickable onClick={() => setActiveTab('claims')} />
-        <Tile label="My Asset Requests" value={tiles?.openRequestCount ?? '—'} clickable onClick={() => setActiveTab('requests')} />
+        <Tile label="My Assigned Assets" value={tiles?.assignedCount ?? '–'} sub={tiles?.assignedSubtitle} clickable onClick={() => setActiveTab('assets')} />
+        <Tile label="Open Expense Claims" value={expTiles?.openClaimCount ?? '–'} sub={expTiles?.openClaimCount ? fmtCurrency(expTiles.openClaimAmount) : undefined} clickable onClick={() => setActiveTab('claims')} />
+        <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '–'} clickable onClick={() => setActiveTab('claims')} />
+        <Tile label="My Asset Requests" value={tiles?.openRequestCount ?? '–'} clickable onClick={() => setActiveTab('requests')} />
       </div>
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
-        {tabDef.map(t => (
-          <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-            background: 'none', border: 'none', borderBottom: activeTab === t.key ? '2px solid var(--brand)' : '2px solid transparent',
-            padding: '8px 16px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 500,
-            color: activeTab === t.key ? 'var(--brand)' : 'var(--txt-mut)', cursor: 'pointer', marginBottom: -1,
-          }}>
-            {t.label}
-            {t.count > 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, background: activeTab === t.key ? 'var(--brand)' : 'var(--raised)', color: activeTab === t.key ? '#fff' : 'var(--txt-dim)', borderRadius: 10, padding: '1px 6px' }}>{t.count}</span>}
-          </button>
-        ))}
-      </div>
+      <TabBar tabs={tabDef} active={activeTab} onChange={setActiveTab} ariaLabel="My assets and expenses" />
 
       {/* My Assets tab */}
       {activeTab === 'assets' && (
@@ -156,9 +147,9 @@ function EmployeeView({ token }: { token: string }) {
                 <tbody>
                   {filteredAssignments.length === 0 ? <EmptyRow cols={7} msg="No assets assigned." /> : filteredAssignments.map(a => (
                     <tr key={a.id}>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.assetTag ?? '—'}</td>
-                      <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName ?? '—'}</td>
-                      <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '—'}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.assetTag ?? '–'}</td>
+                      <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName ?? '–'}</td>
+                      <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '–'}</td>
                       <td style={tdStyle}>{fmtDate(a.effectiveFrom)}</td>
                       <td style={tdStyle}>
                         {a.condition ? (
@@ -166,7 +157,7 @@ function EmployeeView({ token }: { token: string }) {
                             <StatusBadge status={a.condition} />
                             <div style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>Assessed by HR/Admin</div>
                           </div>
-                        ) : '—'}
+                        ) : '–'}
                       </td>
                       <td style={tdStyle}>{a.acknowledgedAt ? <span style={{ color: '#10B981', fontWeight: 600, fontSize: 12 }}><Check size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />Yes</span> : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Pending</span>}</td>
                       <td style={{ ...tdStyle, padding: '8px 12px' }}>
@@ -219,7 +210,7 @@ function EmployeeView({ token }: { token: string }) {
                       <td style={tdStyle}>
                         {r.fulfilledByName
                           ? <div><div style={{ color: 'var(--txt)', fontSize: 12, fontWeight: 600 }}>{r.fulfilledByName}</div><div style={{ color: 'var(--txt-dim)', fontSize: 10 }}>{fmtDate(r.fulfilledAt)}</div></div>
-                          : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>{r.status === 'APPROVED' ? 'Awaiting HR' : '—'}</span>}
+                          : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>{r.status === 'APPROVED' ? 'Awaiting HR' : '–'}</span>}
                       </td>
                     </tr>
                   ))}
@@ -293,19 +284,19 @@ function EmployeeView({ token }: { token: string }) {
                 <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 20px' }}>
                   <div>
                     <div style={{ ...labelStyle, marginBottom: 2 }}>Asset Tag</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{ackTarget.assetTag ?? '—'}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{ackTarget.assetTag ?? '–'}</div>
                   </div>
                   <div>
                     <div style={{ ...labelStyle, marginBottom: 2 }}>Category</div>
-                    <div style={{ fontSize: 13, color: 'var(--txt)' }}>{ackTarget.categoryName ?? '—'}</div>
+                    <div style={{ fontSize: 13, color: 'var(--txt)' }}>{ackTarget.categoryName ?? '–'}</div>
                   </div>
                   <div>
                     <div style={{ ...labelStyle, marginBottom: 2 }}>Brand / Model</div>
-                    <div style={{ fontSize: 13, color: 'var(--txt)' }}>{[ackTarget.brand, ackTarget.model].filter(Boolean).join(' ') || '—'}</div>
+                    <div style={{ fontSize: 13, color: 'var(--txt)' }}>{[ackTarget.brand, ackTarget.model].filter(Boolean).join(' ') || '–'}</div>
                   </div>
                   <div>
                     <div style={{ ...labelStyle, marginBottom: 2 }}>Condition</div>
-                    <div>{ackTarget.condition ? <StatusBadge status={ackTarget.condition} /> : '—'}</div>
+                    <div>{ackTarget.condition ? <StatusBadge status={ackTarget.condition} /> : '–'}</div>
                     <div style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 3 }}>Assessed by HR/Admin</div>
                   </div>
                   <div style={{ gridColumn: 'span 2' }}>
@@ -331,7 +322,7 @@ function EmployeeView({ token }: { token: string }) {
           categories={categories}
           token={token}
           onClose={() => setShowRequestModal(false)}
-          onCreated={r => { setRequests(prev => [r, ...prev]); reload(); showToast('success', 'Asset request submitted — pending manager approval'); }}
+          onCreated={r => { setRequests(prev => [r, ...prev]); reload(); showToast('success', 'Asset request submitted - pending manager approval'); }}
         />
       )}
       {showExpModal && (
@@ -514,30 +505,20 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
       {/* Tiles */}
       {!hideTiles && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-          <Tile label="Team Assets Assigned" value={tiles?.teamAssignedCount ?? '—'} sub={tiles ? `${tiles.teamMemberCount} team members` : undefined} clickable onClick={() => setActiveTab('assets')} />
-          <Tile label="Pending Expense Claims" value={expTiles?.pendingCount ?? '—'} sub={expTiles?.pendingCount ? fmtCurrency(expTiles.pendingAmount) : undefined} clickable={!!expTiles?.pendingCount} onClick={() => navigate('/approvals?type=EXPENSE')} clickHint="Review in Approval Center →" />
-          <Tile label="Overdue Returns" value={tiles?.overdueReturnCount ?? '—'} clickable onClick={() => setActiveTab('assets')} />
-          <Tile label="Pending Asset Requests" value={tiles?.pendingRequestCount ?? '—'} clickable={!!tiles?.pendingRequestCount} onClick={() => navigate('/approvals?type=ASSET_REQUEST')} clickHint="Review in Approval Center →" />
-          <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '—'} clickable onClick={() => setActiveTab('claims')} />
+          <Tile label="Team Assets Assigned" value={tiles?.teamAssignedCount ?? '–'} sub={tiles ? `${tiles.teamMemberCount} team members` : undefined} clickable onClick={() => setActiveTab('assets')} />
+          <Tile label="Pending Expense Claims" value={expTiles?.pendingCount ?? '–'} sub={expTiles?.pendingCount ? fmtCurrency(expTiles.pendingAmount) : undefined} clickable={!!expTiles?.pendingCount} onClick={() => navigate('/approvals?type=EXPENSE')} clickHint="Review in Approval Center →" />
+          <Tile label="Overdue Returns" value={tiles?.overdueReturnCount ?? '–'} clickable onClick={() => setActiveTab('assets')} />
+          <Tile label="Pending Asset Requests" value={tiles?.pendingRequestCount ?? '–'} clickable={!!tiles?.pendingRequestCount} onClick={() => navigate('/approvals?type=ASSET_REQUEST')} clickHint="Review in Approval Center →" />
+          <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '–'} clickable onClick={() => setActiveTab('claims')} />
         </div>
       )}
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
-        {managerTabs.map(t => (
-          <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-            background: 'none', border: 'none', borderBottom: activeTab === t.key ? '2px solid var(--brand)' : '2px solid transparent',
-            padding: '8px 16px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 500,
-            color: activeTab === t.key ? 'var(--brand)' : 'var(--txt-mut)', cursor: 'pointer', marginBottom: -1,
-          }}>
-            {t.label}
-            {t.count > 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, background: activeTab === t.key ? 'var(--brand)' : 'var(--raised)', color: activeTab === t.key ? '#fff' : 'var(--txt-dim)', borderRadius: 10, padding: '1px 6px' }}>{t.count}</span>}
-          </button>
-        ))}
-        <button onClick={() => navigate('/approvals?type=EXPENSE')} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--brand)', borderRadius: 7, padding: '5px 12px', fontSize: 12, color: 'var(--brand)', cursor: 'pointer', marginBottom: 8 }}>
+      <TabBar tabs={managerTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Team assets and expenses" trailing={
+        <button onClick={() => navigate('/approvals?type=EXPENSE')} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--brand)', borderRadius: 7, padding: '5px 12px', fontSize: 12, color: 'var(--brand)', cursor: 'pointer' }}>
           <ExternalLink size={12} /> Approval Center
         </button>
-      </div>
+      } />
 
       {/* Team Assets tab */}
       {activeTab === 'assets' && (
@@ -559,9 +540,9 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
                 {filteredAssignments.length === 0 ? <EmptyRow cols={6} msg="No team assets found." /> : filteredAssignments.map(a => (
                   <tr key={a.id}>
                     <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.employeeName}</td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{a.assetTag ?? '—'}</td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName ?? '—'}</td>
-                    <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '—'}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{a.assetTag ?? '–'}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName ?? '–'}</td>
+                    <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '–'}</td>
                     <td style={tdStyle}>{fmtDate(a.effectiveFrom)}</td>
                     <td style={tdStyle}>{a.acknowledgedAt ? <span style={{ color: '#10B981', fontWeight: 600, fontSize: 12 }}>Yes</span> : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Pending</span>}</td>
                   </tr>
@@ -614,7 +595,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
                       <td style={tdStyle}>
                         {r.fulfilledByName
                           ? <div><div style={{ color: 'var(--txt)', fontSize: 12, fontWeight: 600 }}>{r.fulfilledByName}</div><div style={{ color: 'var(--txt-dim)', fontSize: 10 }}>{fmtDate(r.fulfilledAt)}</div></div>
-                          : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>{r.status === 'APPROVED' ? 'Awaiting HR' : '—'}</span>}
+                          : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>{r.status === 'APPROVED' ? 'Awaiting HR' : '–'}</span>}
                       </td>
                     </tr>
                   ))}
@@ -746,32 +727,21 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
       {/* Tiles */}
       {!hideTiles && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-          <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => { setInventoryStatusFilter('ASSIGNED'); setActiveTab('inventory'); }} />
-          <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
+          <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '–'} clickable onClick={() => { setInventoryStatusFilter('ASSIGNED'); setActiveTab('inventory'); }} />
+          <Tile label="Available Inventory" value={hrTiles?.available ?? '–'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
           {/* No due-date/expected-return field exists on AssetResponse or in the backend Asset/AssetAssignment
               model — "overdue" here is computed server-side only (assignments to inactive/deleted employees,
               see AssetAssignmentRepository#findOverdueAssignments) and cannot be reproduced as a client-side
               predicate over the inventory list. Navigate to Inventory without applying a fake/misleading
               filter rather than silently showing "assigned" assets under an "overdue" label. */}
-          <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '—'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
-          <Tile label="Pending Expense Clearance" value={hrExpTiles?.pendingClearanceCount ?? '—'} sub={hrExpTiles?.pendingClearanceCount ? fmtCurrency(hrExpTiles.pendingAmount) : undefined} clickable={!!hrExpTiles?.pendingClearanceCount} onClick={() => navigate('/approvals?type=EXPENSE&stage=FINAL')} clickHint="Review in Approval Center →" />
+          <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '–'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
+          <Tile label="Pending Expense Clearance" value={hrExpTiles?.pendingClearanceCount ?? '–'} sub={hrExpTiles?.pendingClearanceCount ? fmtCurrency(hrExpTiles.pendingAmount) : undefined} clickable={!!hrExpTiles?.pendingClearanceCount} onClick={() => navigate('/approvals?type=EXPENSE&stage=FINAL')} clickHint="Review in Approval Center →" />
           <Tile label="Pending Asset Fulfillment" value={assetRequests.filter(r => r.status === 'APPROVED').length} clickable onClick={() => setActiveTab('requests')} />
         </div>
       )}
 
       {/* Tab bar */}
-      <div className="nf-tab-scroll" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
-        {hrTabs.map(t => (
-          <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-            background: 'none', border: 'none', borderBottom: activeTab === t.key ? '2px solid var(--brand)' : '2px solid transparent',
-            padding: '8px 16px', fontSize: 13, fontWeight: activeTab === t.key ? 700 : 500,
-            color: activeTab === t.key ? 'var(--brand)' : 'var(--txt-mut)', cursor: 'pointer', marginBottom: -1,
-          }}>
-            {t.label}
-            {t.count > 0 && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, background: activeTab === t.key ? 'var(--brand)' : 'var(--raised)', color: activeTab === t.key ? '#fff' : 'var(--txt-dim)', borderRadius: 10, padding: '1px 6px' }}>{t.count}</span>}
-          </button>
-        ))}
-      </div>
+      <TabBar tabs={hrTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Asset and expense administration" />
 
       {/* Asset Inventory tab */}
       {activeTab === 'inventory' && (<div>
@@ -805,7 +775,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                   <tr key={a.id}>
                     <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.assetTag}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName}</td>
-                    <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '—'}</td>
+                    <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '–'}</td>
                     <td style={tdStyle}><StatusBadge status={a.status} /></td>
                     <td style={tdStyle}><StatusBadge status={a.condition} /></td>
                     <td style={{ ...tdStyle, color: a.currentCustodianName ? 'var(--txt)' : 'var(--txt-dim)' }}>{a.currentCustodianName ?? 'Unassigned'}</td>
@@ -883,8 +853,8 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                   <tr key={c.id}>
                     <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.name}</td>
                     <td style={tdStyle}>{c.requiresReceiptAbove > 0 ? fmtCurrency(c.requiresReceiptAbove) : 'Not required'}</td>
-                    <td style={tdStyle}>{c.dailyLimit ? fmtCurrency(c.dailyLimit) : '—'}</td>
-                    <td style={tdStyle}>{c.secondApprovalAbove ? fmtCurrency(c.secondApprovalAbove) : '—'}</td>
+                    <td style={tdStyle}>{c.dailyLimit ? fmtCurrency(c.dailyLimit) : '–'}</td>
+                    <td style={tdStyle}>{c.secondApprovalAbove ? fmtCurrency(c.secondApprovalAbove) : '–'}</td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
                       <button onClick={() => setShowCatModal(c)} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: 'var(--txt-dim)', cursor: 'pointer' }}>Edit</button>
                     </td>
@@ -922,7 +892,24 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{c.categoryName}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
                     <td style={tdStyle}>{fmtDate(c.expenseDate)}</td>
-                    <td style={tdStyle}>{c.finalDecidedByName ?? c.managerDecidedByName ?? '—'}</td>
+                    <td style={tdStyle}>
+                      {c.finalDecidedByName ?? (
+                        c.managerDecidedByName
+                          ? <div>
+                              <div>{c.managerDecidedByName}</div>
+                              {/* An HR Admin/Super Admin can approve the Manager stage as an override
+                                  of the real reporting manager (see ExpenseService#requireCurrentManagerOf)
+                                  — flagged here so the claim's history never reads as an ordinary
+                                  manager decision when it wasn't one. */}
+                              {c.managerApprovedByRole && c.managerApprovedByRole !== 'MANAGER' && (
+                                <div style={{ fontSize: 10, color: 'var(--txt-dim)' }}>
+                                  ({c.managerApprovedByRole === 'SUPER_ADMIN' ? 'Super Admin' : 'HR Admin'} on behalf of Manager)
+                                </div>
+                              )}
+                            </div>
+                          : '–'
+                      )}
+                    </td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
                       <button onClick={() => handleMarkPaid(c.id)} style={{ background: 'rgba(47,182,124,.12)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: '#2FB67C', cursor: 'pointer', fontWeight: 600 }}>
                         Mark as Paid
@@ -1054,7 +1041,7 @@ function MarkReturnedModal({ asset, token, onClose, onDone }: { asset: AssetResp
   }
 
   return (
-    <Modal title={`Mark Returned — ${asset.assetTag}`} onClose={onClose}>
+    <Modal title={`Mark Returned - ${asset.assetTag}`} onClose={onClose}>
       <FormRow>
         <label style={labelStyle}>Return Condition</label>
         <select value={returnCondition} onChange={e => setReturnCondition(e.target.value)} style={inputStyle}>
@@ -1091,9 +1078,9 @@ function FulfillRequestModal({ request, token, onClose, onDone }: { request: Ass
   }
 
   return (
-    <Modal title={`Fulfill Request — ${request.employeeName}`} onClose={onClose}>
+    <Modal title={`Fulfill Request - ${request.employeeName}`} onClose={onClose}>
       <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--raised)', borderRadius: 6, fontSize: 13, color: 'var(--txt-mut)' }}>
-        Requested: <strong style={{ color: 'var(--txt)' }}>{request.categoryName}</strong> — "{request.reason}"
+        Requested: <strong style={{ color: 'var(--txt)' }}>{request.categoryName}</strong> – "{request.reason}"
       </div>
       <FormRow>
         <label style={labelStyle}>Select Asset to Assign *</label>
@@ -1102,7 +1089,7 @@ function FulfillRequestModal({ request, token, onClose, onDone }: { request: Ass
         ) : (
           <select value={assetId} onChange={e => setAssetId(e.target.value)} style={inputStyle}>
             <option value="">Select available asset…</option>
-            {availableAssets.map(a => <option key={a.id} value={a.id}>{a.assetTag} — {[a.brand, a.model].filter(Boolean).join(' ') || 'No details'} ({a.condition})</option>)}
+            {availableAssets.map(a => <option key={a.id} value={a.id}>{a.assetTag} – {[a.brand, a.model].filter(Boolean).join(' ') || 'No details'} ({a.condition})</option>)}
           </select>
         )}
       </FormRow>
@@ -1181,7 +1168,7 @@ function ExpenseCategoryModal({ category, token, onClose, onSaved }: { category:
   }
 
   return (
-    <Modal title={category ? `Edit — ${category.name}` : 'Add Expense Category'} onClose={onClose}>
+    <Modal title={category ? `Edit - ${category.name}` : 'Add Expense Category'} onClose={onClose}>
       <FormRow><label style={labelStyle}>Name *</label><input style={inputStyle} value={form.name} onChange={e => set('name', e.target.value)} /></FormRow>
       <FormRow><label style={labelStyle}>Receipt Required Above (₹)</label><input type="number" min="0" step="0.01" style={inputStyle} value={form.requiresReceiptAbove} onChange={e => set('requiresReceiptAbove', e.target.value)} /><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3 }}>Set to 0 to never require a receipt.</div></FormRow>
       <FormRow><label style={labelStyle}>Daily Limit (₹, optional)</label><input type="text" inputMode="decimal" style={inputStyle} value={form.dailyLimit} onChange={e => setPositiveDecimal('dailyLimit', e.target.value)} placeholder="No limit" /></FormRow>
@@ -1209,14 +1196,14 @@ export default function AssetsExpensesPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 22 }}>
+      <PageTitleBlock card icon={Package} style={{ marginBottom: 22 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
           {role === 'Manager' ? 'Read-only view of your team\'s assets and expenses. Approval decisions are made in the Approval Center.'
             : role === 'HR Admin' || role === 'Super Admin' ? 'Manage company inventory, expense policies, and payroll-ready claims.'
             : 'Track your assigned assets and submit expense claims.'}
         </p>
-      </div>
+      </PageTitleBlock>
 
       {(role === 'Employee') && <EmployeeView token={token} />}
       {(role === 'Manager') && <ManagerView token={token} />}

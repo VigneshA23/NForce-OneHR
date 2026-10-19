@@ -19,7 +19,8 @@ import java.util.stream.Collectors;
  * <p>The one rule worth centralising: a capped list must say how many rows exist in total, not only
  * how many it shows. A provider that listed "the 5 most recent" with no total let the model report
  * 5 as the answer to "how many", which is exactly the silent under-count the attendance providers
- * were fixed for - so every capped list goes through {@link #listHeader}.
+ * were fixed for - so every capped list goes through {@link #listHeader}, which also says the rest
+ * are on the page so the answer shows what fits and links there for the remainder.
  */
 final class LiveDataText {
 
@@ -28,13 +29,14 @@ final class LiveDataText {
     private LiveDataText() {}
 
     /**
-     * "{total} {noun}:" when every row is shown, otherwise a header that states the true total and
-     * that only the first {@code shown} follow, in {@code order} (e.g. "most recent").
+     * "{total} {noun}:" when every row is shown, otherwise a header that states the true total, that
+     * only the first {@code shown} follow, in {@code order} (e.g. "most recent"), and that the rest
+     * are on the page - which the model then links to.
      */
     static String listHeader(int total, int shown, String noun, String order) {
         if (total <= shown) return "%d %s:".formatted(total, noun);
-        return "%d %s in total; only the %d %s are listed below - say the list is partial if asked for all of them:"
-                .formatted(total, noun, shown, order);
+        return "%d %s in total; only the %d %s are listed below, the other %d are on the matching OneHR page:"
+                .formatted(total, noun, shown, order, total - shown);
     }
 
     /** Joins up to {@code max} items as "- line" rows under {@link #listHeader}. */

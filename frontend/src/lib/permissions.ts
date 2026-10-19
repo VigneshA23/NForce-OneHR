@@ -1,17 +1,31 @@
 import type { MyPermissionsResponse } from '../api/me';
 import type { NavItem } from './nav.config';
 
-/** True if the user's permission matrix grants `module:action` at (at least) `scope` — the
- *  backend already cascades scopes downward (ALL also lists TEAM/OWN/etc.), so this is a plain
- *  membership check, never a lattice comparison on the frontend. Defaults to the narrowest scope
- *  (OWN) when the caller doesn't care which level, matching the backend's own convention. */
+/** Scopes a granted scope also satisfies — mirrors the backend's ScopeCoverage. GET
+ *  /api/me/permissions returns the UN-cascaded grants (a role holding ALL lists only "ALL"), so
+ *  the cascade has to happen here: a Super Admin / HR Admin with approve:ALL must still satisfy a
+ *  TEAM-level requirement. */
+const SCOPE_COVERAGE: Record<string, string[]> = {
+  OWN: ['OWN'],
+  TEAM: ['OWN', 'TEAM'],
+  DEPARTMENT: ['OWN', 'TEAM', 'DEPARTMENT'],
+  LOCATION: ['OWN', 'TEAM', 'LOCATION'],
+  ALL: ['OWN', 'TEAM', 'DEPARTMENT', 'LOCATION', 'ALL'],
+};
+
+/** True if the user's permission matrix grants `module:action` at (at least) `scope`. The
+ *  backend returns only the scopes actually granted (not cascaded), so a wider grant (e.g. ALL)
+ *  is checked via SCOPE_COVERAGE. Defaults to the narrowest scope (OWN) when the caller doesn't
+ *  care which level, matching the backend's own convention. */
 export function hasPermission(
   permissions: MyPermissionsResponse | null | undefined,
   module: string,
   action: string,
   scope: string = 'OWN'
 ): boolean {
-  return !!permissions?.permissions?.[module]?.[action]?.includes(scope);
+  const granted = permissions?.permissions?.[module]?.[action];
+  if (!granted) return false;
+  return granted.some((g) => (SCOPE_COVERAGE[g] ?? [g]).includes(scope));
 }
 
 export interface PermissionRequirement {

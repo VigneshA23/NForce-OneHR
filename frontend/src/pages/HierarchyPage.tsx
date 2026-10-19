@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import {
   GitBranch, Search, Users, User, ArrowUp, Home, ChevronRight,
   Download, FileText, X, AlertCircle, ChevronDown, Building2, Layers, Crown,
-  ZoomIn, ZoomOut, Maximize2, UserCheck, Briefcase, Hash, Activity,
+  ZoomIn, ZoomOut, Maximize2, UserCheck, Briefcase, Hash, Activity, Network
 } from 'lucide-react';
 import { hierarchyApi, type HierarchyNode, type OrgContext, type PersonCard, type BreadcrumbEntry } from '../api/hierarchy';
 import { profileApi } from '../api/profile';
@@ -10,6 +11,7 @@ import { useAuthStore } from '../store/authStore';
 import logoUrl from '../assets/nforce-logo.png';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar, getInitials, waitForAvatarPhotos } from '../components/EmployeeAvatar';
+import DashTile from '../components/DashTile';
 import './HierarchyPage.css';
 
 const PEER_MAX = 8;
@@ -178,7 +180,7 @@ function DetailDrawer({ card, onClose }: { card: PersonCard; onClose: () => void
             <Avatar card={card} size={52} isFocus={card.isFocus} />
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 3 }}>{card.name}</div>
-              <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{card.designation ?? '—'}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{card.designation ?? '–'}</div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -194,7 +196,7 @@ function DetailDrawer({ card, onClose }: { card: PersonCard; onClose: () => void
             ].map(([label, value], i) => (
               <div key={label as string} style={{ padding: '11px 14px', borderTop: i ? '1px solid var(--line)' : 'none' }}>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 3 }}>{label}</div>
-                <div style={{ fontSize: 13, color: value && value !== 'None' && value !== 'Inactive' ? 'var(--txt)' : 'var(--txt-dim)' }}>{value || '—'}</div>
+                <div style={{ fontSize: 13, color: value && value !== 'None' && value !== 'Inactive' ? 'var(--txt)' : 'var(--txt-dim)' }}>{value || '–'}</div>
               </div>
             ))}
           </div>
@@ -373,24 +375,44 @@ function MoreButton({ count, onClick }: { count: number; onClick: () => void }) 
   );
 }
 
-/* ── Summary card ─────────────────────────────────────────────────────── */
-function StatCard({ icon, label, value, sub, accent }: {
-  icon: React.ReactNode;
-  label: string;
-  value: number | null;
-  sub: string;
-  accent: string;
-}) {
+/* ── Summary tiles ────────────────────────────────────────────────────── */
+// Same tile as the Home dashboard (components/DashTile): thick accent bar, colour fade, icon box on the
+// right, hover lift. Display only; the figures are passed in unchanged.
+export interface HierarchySummary {
+  total: number; active: number; inactive: number; namedDeptCount: number; unassigned: number; levels: number;
+}
+export function HierarchyStatTiles({ summary, topCount }: { summary: HierarchySummary | null; topCount: number | null }) {
+  const num = (v: number | null | undefined) => (v === null || v === undefined ? '–' : v.toLocaleString());
   return (
-    <div className="nf-hier-stat" style={{ '--stat-accent': accent } as React.CSSProperties}>
-      <div className="nf-hier-stat-icon">{icon}</div>
-      <div style={{ minWidth: 0 }}>
-        <div className="nf-hier-stat-label">{label}</div>
-        <div className="nf-hier-stat-value">
-          {value === null ? <span className="nf-hier-stat-skel" aria-label="Loading" /> : value.toLocaleString()}
-        </div>
-        <div className="nf-hier-stat-sub" title={sub}>{sub}</div>
-      </div>
+    <div className="nf-hier-stats">
+      <DashTile
+        icon={<Users size={20} />}
+        accent="var(--info)"
+        label="Total Employees"
+        value={num(summary?.total)}
+        sub={summary ? `${summary.active.toLocaleString()} active · ${summary.inactive.toLocaleString()} inactive` : 'Loading…'}
+      />
+      <DashTile
+        icon={<Building2 size={20} />}
+        accent="var(--om-purple)"
+        label="Departments"
+        value={num(summary?.namedDeptCount)}
+        sub={summary ? (summary.unassigned > 0 ? `${summary.unassigned} ${summary.unassigned === 1 ? 'person' : 'people'} without a department` : 'Every employee is assigned') : 'Loading…'}
+      />
+      <DashTile
+        icon={<Layers size={20} />}
+        accent="var(--ok)"
+        label="Hierarchy Levels"
+        value={num(summary?.levels)}
+        sub="Reporting levels, top to bottom"
+      />
+      <DashTile
+        icon={<Crown size={20} />}
+        accent="var(--warn)"
+        label="Top of Hierarchy"
+        value={num(topCount)}
+        sub="People with no reporting manager"
+      />
     </div>
   );
 }
@@ -714,7 +736,7 @@ export default function HierarchyPage() {
     const titleX = logoImg.naturalWidth > 0
       ? 24 + (HEADER * 0.55 * logoImg.naturalWidth / logoImg.naturalHeight) + 20
       : 24;
-    gfx.fillText('NForce OneHR — Organization Hierarchy', titleX, HEADER / 2 - 4);
+    gfx.fillText('NForce OneHR - Organization Hierarchy', titleX, HEADER / 2 - 4);
 
     const crumbText = ctx?.breadcrumb.map(b => b.name).join(' › ') ?? '';
     if (crumbText) {
@@ -794,13 +816,13 @@ export default function HierarchyPage() {
     <div className="nf-hier">
 
       {/* Header — title + department filter + person search */}
-      <div className="nf-hier-head">
-        <div>
+      <div className="nf-hier-head nf-page-hdr">
+        <PageTitleBlock icon={Network}>
           <h1 className="nf-hier-title">Organization Hierarchy</h1>
           <p className="nf-hier-subtitle">
-            Click any card to re-center the view. Read-only — manage reporting lines in User Management.
+            Click any card to re-center the view. Read-only - manage reporting lines in User Management.
           </p>
-        </div>
+        </PageTitleBlock>
 
         <div className="nf-hier-filters">
           <label className={`nf-hier-select${deptFilter !== ALL_DEPTS ? ' is-active' : ''}`}>
@@ -876,37 +898,8 @@ export default function HierarchyPage() {
         </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="nf-hier-stats">
-        <StatCard
-          icon={<Users size={20} />}
-          accent="var(--info)"
-          label="Total Employees"
-          value={summary?.total ?? null}
-          sub={summary ? `${summary.active.toLocaleString()} active · ${summary.inactive.toLocaleString()} inactive` : 'Loading…'}
-        />
-        <StatCard
-          icon={<Building2 size={20} />}
-          accent="var(--om-purple)"
-          label="Departments"
-          value={summary?.namedDeptCount ?? null}
-          sub={summary ? (summary.unassigned > 0 ? `${summary.unassigned} ${summary.unassigned === 1 ? 'person' : 'people'} without a department` : 'Every employee is assigned') : 'Loading…'}
-        />
-        <StatCard
-          icon={<Layers size={20} />}
-          accent="var(--ok)"
-          label="Hierarchy Levels"
-          value={summary?.levels ?? null}
-          sub="Reporting levels, top to bottom"
-        />
-        <StatCard
-          icon={<Crown size={20} />}
-          accent="var(--warn)"
-          label="Top of Hierarchy"
-          value={rootsLoaded ? roots.length : null}
-          sub="People with no reporting manager"
-        />
-      </div>
+      {/* Summary tiles */}
+      <HierarchyStatTiles summary={summary} topCount={rootsLoaded ? roots.length : null} />
 
       <div className="nf-hier-body">
 
@@ -1112,7 +1105,7 @@ export default function HierarchyPage() {
                   <Avatar card={focusCard} size={46} isFocus />
                   <div style={{ minWidth: 0 }}>
                     <div className="nf-hier-card-name" style={{ fontSize: 14 }}>{focusCard.name}</div>
-                    <div className="nf-hier-card-desig" style={{ fontSize: 12 }}>{focusCard.designation ?? '—'}</div>
+                    <div className="nf-hier-card-desig" style={{ fontSize: 12 }}>{focusCard.designation ?? '–'}</div>
                   </div>
                 </div>
                 {(focusCard.primaryRole || focusCard.department) && (

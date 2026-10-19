@@ -171,16 +171,16 @@ body {
    treatment was previously opt-in per component class), so most of the app's ~670 plain
    <button style={{...}}> elements had zero interaction feedback at all. Excludes the handful of
    classes that already define their own hover/press transition (sidebar/topbar nav, dropdown
-   menu items, calendar cells, segmented tabs, the generic .nf-clickable affordance) so timings
+   menu items, calendar cells, the shared .nf-tab/.nf-chip bars, the generic .nf-clickable affordance) so timings
    never double up. Respects [data-motion="reduce"] above like everything else in this file. */
 @media (prefers-reduced-motion: no-preference) {
-  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-org-tab-icon):not(.nf-clickable):not(.nf-seg-tab):not(:disabled) {
+  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-clickable):not(.nf-tab):not(.nf-chip):not(:disabled) {
     transition: transform .15s ease, box-shadow .15s ease, filter .15s ease;
   }
-  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-org-tab-icon):not(.nf-clickable):not(.nf-seg-tab):not(:disabled):hover {
+  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-clickable):not(.nf-tab):not(.nf-chip):not(:disabled):hover {
     filter: brightness(1.04);
   }
-  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-org-tab-icon):not(.nf-clickable):not(.nf-seg-tab):not(:disabled):active {
+  button:not(.nf-sidebar-item):not(.nf-topbar-item):not(.nf-ot-menu-btn):not(.nf-clickable):not(.nf-tab):not(.nf-chip):not(:disabled):active {
     transform: scale(.97);
   }
 }
@@ -195,8 +195,8 @@ body {
   to   { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .nf-modal-overlay-in { animation: nf-modal-overlay-in 180ms ease both; }
-  .nf-modal-panel-in { animation: nf-modal-panel-in 280ms cubic-bezier(.22,.61,.36,1) both; }
+  .nf-modal-overlay-in { animation: nf-modal-overlay-in 100ms ease both; }
+  .nf-modal-panel-in { animation: nf-modal-panel-in 160ms cubic-bezier(.22,.61,.36,1) both; }
 }
 
 /* Accessibility: "Keyboard navigation" (User Preferences → Accessibility) — a stronger,
@@ -604,32 +604,6 @@ input[type="date"] {
   .nf-kpi-2x2-mobile { grid-template-columns: repeat(2, 1fr) !important; }
 }
 
-/* Documents & Compliance tab selector (Pending Verification / Verified /
-   Not Submitted) -> auto-adjust to the screen on mobile instead of running
-   off the right edge. The bar was `width: fit-content`, sized to the sum of
-   its three buttons' natural widths, which exceeds narrower phone screens.
-   No scrolling and no truncation: the bar goes full-width, each button is
-   an equal flex share, and the label is allowed to wrap onto a second line
-   within its own button so the full name always stays visible. */
-@media (max-width: 767px) {
-  .nf-doc-tabs {
-    width: 100% !important;
-    align-items: center;
-  }
-  .nf-doc-tabs .nf-doc-tab-btn {
-    flex: 1 1 0;
-    min-width: 0;
-    padding: 6px 4px !important;
-    font-size: 11.5px !important;
-    text-align: center;
-    justify-content: center !important;
-  }
-  .nf-doc-tabs .nf-doc-tab-label {
-    white-space: normal;
-    word-break: break-word;
-    line-height: 1.25;
-  }
-}
 
 /* My Documents & Policies (Employee) search bar -> auto-adjust to fill the
    screen on mobile instead of staying a fixed 200px, which left excess
@@ -699,27 +673,20 @@ input[type="date"] {
   }
 }
 
-/* Attendance Policy full-page view -> tighter padding and horizontally
-   scrollable tabs on mobile, so the two policy-tab buttons never force the
-   header row to overflow or wrap awkwardly on a narrow phone. */
+/* Attendance Policy full-page view -> tighter padding on mobile (the tab bar itself
+   scrolls horizontally via .nf-tabs), so nothing forces the header row to
+   overflow on a narrow phone. */
 @media (max-width: 767px) {
   .nf-attpolicy-header { padding: 16px 18px !important; }
-  .nf-attpolicy-tabs {
-    padding: 0 18px 14px !important;
-    overflow-x: auto;
-    flex-wrap: nowrap !important;
-  }
-  .nf-attpolicy-tabs button { flex-shrink: 0; white-space: nowrap; }
+  .nf-attpolicy-tabs { padding: 0 18px !important; }
   .nf-attpolicy-content { padding: 20px 18px 40px !important; }
   .nf-attpolicy-heading { font-size: 15.5px !important; margin: 24px 0 10px !important; }
   .nf-attpolicy-callout { padding: 10px 12px !important; }
 }
 
-/* Assets & Expenses HR section selector (Asset Inventory / Asset Requests /
-   Expense Categories / Payroll-Ready Claims) -> horizontally scrollable on
-   mobile instead of squeezing/wrapping four tabs into the narrow viewport.
-   Buttons keep their natural nowrap width so labels stay fully readable;
-   the bar scrolls to reveal whichever don't fit. */
+/* Generic horizontally-scrolling button strip on mobile (Directory profile pager). Tab bars
+   scroll on their own via .nf-tabs. Buttons keep their natural nowrap width so labels stay
+   fully readable; the strip scrolls to reveal whichever don't fit. */
 @media (max-width: 767px) {
   .nf-tab-scroll {
     overflow-x: auto !important;
@@ -1108,8 +1075,8 @@ input[type="date"] {
 @keyframes nf-ring-in { from { stroke-dashoffset: var(--nf-ring-circumference, 251); } to { stroke-dashoffset: var(--nf-ring-offset, 0); } }
 
 @media (prefers-reduced-motion: no-preference) {
-  .nf-section-enter { animation: nf-fade-up 360ms cubic-bezier(.22,.61,.36,1) both; }
-  .nf-ring-progress { animation: nf-ring-in 700ms cubic-bezier(.22,.61,.36,1) both; }
+  .nf-section-enter { animation: nf-fade-up 220ms cubic-bezier(.22,.61,.36,1) both; }
+  .nf-ring-progress { animation: nf-ring-in 450ms cubic-bezier(.22,.61,.36,1) both; }
 }
 
 /* Radial progress ring — draws an SVG circle via stroke-dasharray/offset set inline;
@@ -1128,37 +1095,39 @@ input[type="date"] {
    selected/today/disabled styles already set per-cell. */
 .nf-cal-cell:not(:disabled):hover { border-color: var(--brand) !important; transform: translateY(-1px); }
 .nf-cal-cell { transition: border-color .15s, transform .15s, background .15s, box-shadow .15s; }
-/* Day-cell status pill — the grid tracks are minmax(0, 1fr), so the pill is capped to its cell
-   instead of widening the column past the panel (which clipped the calendar via overflow:
-   hidden). It wraps only at spaces/hyphens ("Weekly-/off", "Partial/Day"); a single word too
-   long for the cell ("Regularization") is truncated, never broken mid-word. The pills set
-   white-space: nowrap inline, hence !important. */
-.nf-month-cal { container-type: inline-size; }
-.nf-cal-badge { display: flex; min-width: 0; }
-.nf-cal-badge > span { max-width: 100%; min-width: 0; white-space: normal !important; overflow: hidden; text-overflow: ellipsis; }
-/* Too narrow for any label (cells under ~70px — tablet/phone): each pill becomes a slim colour
-   bar in its own status colour, matching the legend above the grid (the same idea as the
-   compact rail calendar's dots). The label text stays in the DOM for screen readers. */
-@container (max-width: 559px) {
-  .nf-cal-badge > span {
-    font-size: 0 !important; padding: 0 !important; height: 5px; width: 100%; border-radius: 3px;
-    background: currentColor !important; border: none !important; opacity: .8;
-  }
-  .nf-cal-badge > span > span { display: none; }
+/* Calendar day cells carry only the date and a status mark; detail lives in the hover/focus tip. */
+.nf-cal-cell:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* Attendance Log date cell — weekday + badge share one line; the badge's own top margin is
+   dropped so the cell stays two lines tall. */
+.nf-log-date-meta { display: flex; align-items: center; gap: 2px 6px; min-height: 16px; flex-wrap: wrap; min-width: 0; }
+.nf-log-date-meta > span { margin-top: 0 !important; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+/* Attendance KPI block — ONE card: the five stat tiles in a single non-wrapping row, with the
+   Achievements section under a divider. Tiles shrink (min-width: 0) rather than wrapping onto a
+   second row; below 768px the shared .nf-kpi-scroll rule turns the stats into a swipe strip. */
+.nf-kpi-row {
+  display: flex; flex-direction: column; gap: 14px; padding: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 8px 20px -12px rgba(0,0,0,.25);
 }
+.nf-kpi-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+/* The stat value scales with its own tile (container query) so long values like "13h 21m" never
+   cross the card's outline at narrower widths or higher browser zoom. */
+.nf-kpi-stats > .nf-insight-tile { container-type: inline-size; overflow: hidden; }
+.nf-stat-value { font-size: clamp(18px, 17cqw, 28px); }
+.nf-stat-icon { width: clamp(28px, 24cqw, 40px); height: clamp(28px, 24cqw, 40px); }
+.nf-stat-icon > svg { width: 50%; height: 50%; }
 
 /* Attendance Log — sticky header while the table body scrolls */
 .nf-sticky-thead th { position: sticky; top: 0; z-index: 2; }
-
-/* Segmented tab bar — active pill slide-in */
-.nf-seg-tab { transition: background .15s, color .15s, box-shadow .15s; }
 
 /* Attendance Log — table vs. card view. The table uses table-layout:fixed with percentage
    columns so it never exceeds its container's width (no horizontal scrollbar by construction);
    below 900px a 6-column row can't stay legible even compacted, so it switches to one compact
    card per day instead. Exactly one of the two is ever in the layout (not just hidden), so the
    card list's own rows never affect the table's height or vice versa. */
-.nf-log-table-view { display: block; }
+.nf-log-table-view { display: block; position: relative; }
 .nf-log-card-view { display: none; }
 @media (max-width: 899px) {
   .nf-log-table-view { display: none; }
@@ -1232,60 +1201,104 @@ input[type="date"] {
    (see reqTableStyle in AttendancePage.tsx). Narrower: each row restacks into a card whose
    cells are labelled from their data-label, so every column and action stays visible without
    any sideways scrolling or mid-word breaking. */
-.nf-req-wrap { container-type: inline-size; }
-/* Table mode: outer columns get the same 12px inset as the Attendance Log's cells (thStyle/
-   tdStyle), so every Logs & Requests tab shares one left/right content edge. */
-@container (min-width: 780px) {
-  .nf-req-table th:first-child, .nf-req-table td:first-child { padding-left: 12px !important; }
-  .nf-req-table th:last-child, .nf-req-table td:last-child { padding-right: 12px !important; }
+.nf-req-wrap { container-type: inline-size; padding: 2px 10px 10px; }
+/* Every record is its own raised "tile": a thick bar on the left in the status colour, a soft colour fade, a
+   lift + glow on hover and a staggered fade-in. Status colour (--rc) comes from the row's own status pill
+   (data-status), defaulting to the accent colour (--brand), so it follows the red/purple/pink/blue/green theme. */
+.nf-req-table tbody tr {
+  --rc: var(--brand);
+  transition: transform .18s ease, filter .18s ease;
 }
+.nf-req-table tbody tr:has([data-status="PENDING"]) { --rc: var(--warn); }
+.nf-req-table tbody tr:has([data-status="PARTIALLY_APPROVED"]) { --rc: var(--info); }
+.nf-req-table tbody tr:has([data-status="APPROVED"]) { --rc: var(--ok); }
+.nf-req-table tbody tr:has([data-status="REJECTED"]) { --rc: var(--risk); }
+@keyframes nf-req-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  .nf-req-table tbody tr { animation: nf-req-in .22s cubic-bezier(.22,.61,.36,1) both; }
+  .nf-req-table tbody tr:nth-child(2) { animation-delay: .03s; }
+  .nf-req-table tbody tr:nth-child(3) { animation-delay: .06s; }
+  .nf-req-table tbody tr:nth-child(4) { animation-delay: .09s; }
+  .nf-req-table tbody tr:nth-child(n+5) { animation-delay: .12s; }
+}
+/* Table mode: outer columns get the same inset as the Attendance Log's cells (thStyle/tdStyle). */
+@container (min-width: 780px) {
+  .nf-req-table { border-collapse: separate !important; border-spacing: 0 10px; }
+  .nf-req-table th:first-child, .nf-req-table td:first-child { padding-left: 18px !important; }
+  .nf-req-table th:last-child, .nf-req-table td:last-child { padding-right: 14px !important; }
+  .nf-req-table thead th { border-bottom: none !important; padding-top: 4px !important; padding-bottom: 0 !important; }
+  .nf-req-table tbody td {
+    background: color-mix(in srgb, var(--rc) 4%, var(--raised));
+    border-top: 1px solid color-mix(in srgb, var(--rc) 16%, var(--line2));
+    border-bottom: 1px solid color-mix(in srgb, var(--rc) 16%, var(--line2)) !important;
+    padding-top: 13px !important; padding-bottom: 13px !important;
+    transition: background .18s, border-color .18s, box-shadow .18s;
+  }
+  .nf-req-table tbody td:first-child {
+    border-left: 4px solid var(--rc); border-radius: 12px 0 0 12px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--rc) 15%, var(--raised)), color-mix(in srgb, var(--rc) 4%, var(--raised)) 85%);
+  }
+  .nf-req-table tbody td:last-child { border-right: 1px solid color-mix(in srgb, var(--rc) 16%, var(--line2)); border-radius: 0 12px 12px 0; }
+  .nf-req-table tbody tr:hover { transform: translateY(-2px); }
+  .nf-req-table tbody tr:hover td {
+    border-color: color-mix(in srgb, var(--rc) 50%, var(--line2));
+    background: color-mix(in srgb, var(--rc) 9%, var(--raised));
+    box-shadow: 0 10px 18px -12px color-mix(in srgb, var(--rc) 70%, transparent);
+  }
+  .nf-req-table tbody tr:hover td:first-child {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--rc) 24%, var(--raised)), color-mix(in srgb, var(--rc) 9%, var(--raised)) 85%);
+  }
+}
+/* Card mode (container too narrow for the columns): each row restacks into a card of label / value lines —
+   label in a fixed left column, value beside it — so every card lines up the same way whatever the
+   content or width. The actions sit on their own line at the foot of the card. */
 @container (max-width: 779px) {
   .nf-req-table, .nf-req-table tbody, .nf-req-table thead, .nf-req-table thead tr { display: block; }
   .nf-req-table colgroup, .nf-req-table thead th { display: none; }
   /* ...except Pending Approvals' select-all checkbox, kept reachable as its own row. */
   .nf-req-table thead th.nf-req-select:not(:empty) {
-    display: flex; align-items: center; gap: 8px; padding: 10px 16px !important;
+    display: flex; align-items: center; gap: 8px; padding: 6px 4px 10px !important;
   }
   .nf-req-table thead th.nf-req-select:not(:empty)::after { content: 'Select all on this page'; }
-  .nf-req-table tr {
-    position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    grid-auto-flow: row dense; gap: 12px 16px; padding: 14px 16px; border-bottom: 1px solid var(--line);
+  .nf-req-table tbody tr {
+    position: relative; display: flex; flex-direction: column; gap: 9px; padding: 16px 16px 14px 18px; margin-bottom: 12px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--rc) 11%, var(--raised)) 0%, color-mix(in srgb, var(--rc) 3%, var(--raised)) 70%);
+    border: 1px solid color-mix(in srgb, var(--rc) 20%, var(--line2)); border-left: 4px solid var(--rc); border-radius: 14px;
+    box-shadow: 0 8px 18px -14px color-mix(in srgb, var(--rc) 60%, transparent);
   }
-  .nf-req-table tr:last-child { border-bottom: none; }
-  .nf-req-table td { display: block; min-width: 0; padding: 0 !important; border: none !important; }
+  .nf-req-table tbody tr:last-child { margin-bottom: 0; }
+  .nf-req-table tbody tr:hover { transform: translateY(-2px); box-shadow: 0 14px 24px -14px color-mix(in srgb, var(--rc) 75%, transparent); }
+  .nf-req-table td {
+    display: block; position: relative; padding: 0 0 0 134px !important; min-height: 15px;
+    min-width: 0; border: none !important; background: none; overflow-wrap: anywhere;
+  }
   /* e.g. the Action cell of a non-pending request — no label for nothing. */
   .nf-req-table td:empty { display: none; }
   .nf-req-table td::before {
-    content: attr(data-label); display: block; margin-bottom: 3px;
+    content: attr(data-label); position: absolute; left: 0; top: 2px; width: 120px;
     font-size: 9.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-dim);
   }
-  .nf-req-table td[data-label="Reason"], .nf-req-table td[data-label="Comments"] { grid-column: span 2; }
-  /* Bulk-select checkbox: pinned to the card's top-right corner rather than taking a grid cell. */
-  .nf-req-table td.nf-req-select { position: absolute; top: 12px; right: 14px; }
+  /* Employee leads the card as its title. */
+  .nf-req-table td[data-label="Employee"] { font-size: 13px; }
+  .nf-req-table td[data-label="Actions"], .nf-req-table td[data-label="Action"] {
+    margin-top: 3px; padding: 12px 0 0 0 !important; border-top: 1px solid var(--line) !important;
+  }
+  .nf-req-table td[data-label="Actions"]::before, .nf-req-table td[data-label="Action"]::before { content: none; }
+  /* Bulk-select checkbox: pinned to the card's top-right corner rather than taking a line. */
+  .nf-req-table td.nf-req-select { position: absolute; top: 12px; right: 14px; padding: 0 !important; }
   .nf-req-table td.nf-req-select::before { content: none; }
 }
-
-/* Logs & Requests tab bar — the four tabs (Attendance Log/Calendar/Attendance Requests/
-   Overtime Requests) don't fit their container's natural width below ~900px (same tier the
-   Attendance Log itself switches to cards at), one step earlier than the generic
-   .nf-tab-scroll rule's 767px breakpoint used elsewhere in the app — without this the tab row
-   overflowed the page horizontally at 768–899px even though nothing else on the page did. */
-@media (max-width: 899px) {
-  .nf-log-tabs {
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-  }
-  .nf-log-tabs > button {
-    flex: 0 0 auto;
-    white-space: nowrap;
-  }
+/* Very narrow: label stacks above its value instead of beside it. */
+@container (max-width: 340px) {
+  .nf-req-table td { padding-left: 0 !important; }
+  .nf-req-table td::before { position: static; display: block; width: auto; margin-bottom: 2px; }
 }
 
 /* DetailDrawer — subtle slide-in from the right, the one consistent detail-view shell used
    across Today, Attendance Health, the KPI tiles, and the Attendance Log. */
 @keyframes nf-drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @media (prefers-reduced-motion: no-preference) {
-  .nf-drawer-panel { animation: nf-drawer-in 220ms cubic-bezier(.22,.61,.36,1) both; }
+  .nf-drawer-panel { animation: nf-drawer-in 160ms cubic-bezier(.22,.61,.36,1) both; }
 }
 
 /* Generic "this reveals more detail on click" affordance — used on Today's sub-rows,
@@ -1331,7 +1344,8 @@ input[type="date"] {
 :has(> .nf-hero-illus) { isolation: isolate; }
 .nf-hero-illus[data-variant="male"],
 .nf-hero-illus[data-variant="female"],
-.nf-hero-illus[data-variant="non-binary"] {
+.nf-hero-illus[data-variant="non-binary"],
+.nf-hero-illus[data-variant="neutral"] {
   position: relative;
   z-index: -1;
   align-self: stretch;
@@ -1352,70 +1366,83 @@ input[type="date"] {
    is one continuous ramp for every Theme color. Smootherstep stops, no visible start or end. */
 .nf-hero-illus[data-variant="male"]::before,
 .nf-hero-illus[data-variant="female"]::before,
-.nf-hero-illus[data-variant="non-binary"]::before {
+.nf-hero-illus[data-variant="non-binary"]::before,
+.nf-hero-illus[data-variant="neutral"]::before {
   content: '';
   position: absolute;
   top: 0; bottom: 0; left: -260px;
   width: calc(260px + 20%);
   background: linear-gradient(to right, transparent 0%, color-mix(in srgb, var(--brand-deep) 0.9%, transparent) 12.5%, color-mix(in srgb, var(--brand-deep) 5.7%, transparent) 25%, color-mix(in srgb, var(--brand-deep) 15.1%, transparent) 37.5%, color-mix(in srgb, var(--brand-deep) 27.5%, transparent) 50%, color-mix(in srgb, var(--brand-deep) 39.9%, transparent) 62.5%, color-mix(in srgb, var(--brand-deep) 49.3%, transparent) 75%, color-mix(in srgb, var(--brand-deep) 54.1%, transparent) 87.5%, color-mix(in srgb, var(--brand-deep) 55%, transparent) 100%);
 }
+/* Neutral scene: ONE continuous theme gradient behind the whole right side of the banner (dark text
+   area -> accent), drawn here instead of inside the SVG, so there is no seam where the scene starts
+   and no left/right colour step. Same look as the photo variants' accent wash. */
+.nf-hero-illus[data-variant="neutral"]::before {
+  left: -420px;
+  width: calc(420px + 100%);
+  z-index: -1; /* positioned pseudo would otherwise paint over the (static) SVG and blur it */
+  background: linear-gradient(to right, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 0%, transparent) 0%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 3%, transparent) 14%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 12%, transparent) 28%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 30%, transparent) 42%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 58%, transparent) 56%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 82%, transparent) 70%, color-mix(in srgb, color-mix(in srgb, var(--brand-deep) 55%, #000) 96%, transparent) 84%, color-mix(in srgb, var(--brand) 85%, var(--brand-bright)) 100%);
+}
 /* Same row height as before the image went absolute (its aspect used to size the row). */
 .nf-hero-illus[data-variant="female"] { aspect-ratio: 935 / 308; }
 .nf-hero-illus[data-variant="male"] { aspect-ratio: 874 / 277; }
 .nf-hero-illus[data-variant="non-binary"] { aspect-ratio: 2000 / 668; }
+/* Fallback (neutral) scene — instead of a small fixed card floating in a wide banner, bleed it to the
+   banner's top/right/bottom edges and let it fill the right side (the SVG is `slice`-fitted, so it
+   simply covers the taller/wider box). Its left edge fades into the banner so there is no hard seam. */
+.nf-hero-illus:not([data-variant="male"]):not([data-variant="female"]):not([data-variant="non-binary"]) {
+  align-self: stretch;
+  width: clamp(300px, 36%, 620px);
+  aspect-ratio: auto;
+  margin: -28px -32px -28px 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
 @keyframes nf-hero-illus-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.nf-hero-illus-fig { animation: nf-hero-illus-in 420ms cubic-bezier(.22,.61,.36,1) both; }
+.nf-hero-illus-fig { animation: nf-hero-illus-in 260ms cubic-bezier(.22,.61,.36,1) both; }
 @media (max-width: 767px) {
   .nf-hero-illus { display: none !important; }
 }
 
-/* Today hero — subtle "workflow" filler beside the (now compact) Working Progress bar, so the
-   leftover row space reads as an intentional detail instead of dead air. Hidden once the row is
-   narrow enough that it would otherwise get squeezed against its neighbors. */
+/* Today hero — the live clock beside the Working Progress bar. Hidden once the row is narrow enough
+   that it would otherwise get squeezed against its neighbors. */
 @media (max-width: 900px) {
   .nf-workprogress-flow { display: none !important; }
 }
-.nf-flow-dot {
-  position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%;
-  background: var(--ok); transform: translate(-50%, -50%);
-  opacity: 0;
-  transition: filter .15s;
+/* Today hero's middle row: working progress | keep-going, with the clock floating at the right end. Below
+   900px the clock is hidden and the row falls back to a simple wrapping flex. */
+.nf-hero-midrow { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; padding-right: calc(clamp(184px, 16vw, 208px) + 16px); }
+.nf-hero-midrow > .nf-hero-keepgoing { order: 2; }
+/* The clock floats at the right end of the row and overhangs the empty space above it (and a little below), so
+   it does not stretch the row — which would open gaps around the progress bar. */
+.nf-hero-midrow > .nf-workprogress-flow { position: absolute; right: 0; bottom: -26px; }
+@media (max-width: 900px) {
+  .nf-hero-midrow { display: flex; flex-wrap: wrap; align-items: stretch; padding-right: 0; }
 }
+.nf-live-clock { width: 100%; height: 100%; }
+.nf-live-clock svg { display: block; overflow: hidden; }
+/* The hands' angles are written from the system clock by LiveClock.tsx (no CSS timers, so no drift). */
+.nf-clock-hand { transform-box: view-box; will-change: transform; }
+.nf-clock-ripple { opacity: 0; transform-origin: 100px 60px; transform-box: view-box; }
 @media (prefers-reduced-motion: no-preference) {
-  .nf-flow-dot { animation: nf-flow-move 4.8s ease-in-out infinite; }
-  .nf-flow-dot-1 { animation-delay: 0s; }
-  .nf-flow-dot-2 { animation-delay: 1.6s; }
-  .nf-flow-dot-3 { animation-delay: 3.2s; }
+  .nf-clock-orbit { animation: nf-clock-orbit 14s linear infinite; }
+  .nf-clock-ripple { animation: nf-clock-ripple 3.6s ease-out infinite; }
+  .nf-clock-ripple-2 { animation-delay: 1.2s; }
+  .nf-clock-ripple-3 { animation-delay: 2.4s; }
 }
-@keyframes nf-flow-move {
-  0%   { left: 0%;   opacity: 0; }
-  8%   { opacity: .85; }
-  50%  { opacity: .85; }
-  92%  { opacity: 0; }
-  100% { left: 100%; opacity: 0; }
+@keyframes nf-clock-orbit { to { transform: rotate(360deg); } }
+@keyframes nf-clock-ripple {
+  0%   { transform: scale(1);   opacity: .45; }
+  100% { transform: scale(1.32); opacity: 0; }
 }
-.nf-flow-track:hover .nf-flow-dot { filter: brightness(1.35); }
 
 /* ============================================================
    Organization Masters — presentational polish only.
-   Tab icon badges (per-tab accent), row icon badges, and a
+   Row icon badges (per-tab accent) and a
    lightweight section-loading state. No data/validation/CRUD
    logic here.
    ============================================================ */
-
-.nf-org-tab-icon {
-  display: flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; border-radius: 7px; flex-shrink: 0;
-  color: var(--txt-mut); background: transparent;
-  transition: background .15s, color .15s;
-}
-.nf-org-tab[aria-selected="true"] .nf-org-tab-icon {
-  background: color-mix(in srgb, var(--tab-accent, var(--brand)) 20%, transparent);
-  color: var(--tab-accent, var(--brand-bright));
-}
-.nf-org-tab:hover:not([aria-selected="true"]) .nf-org-tab-icon {
-  background: var(--raised2); color: var(--txt);
-}
 
 .nf-org-icon-badge {
   display: flex; align-items: center; justify-content: center;
@@ -1429,3 +1456,228 @@ input[type="date"] {
   border: 2px solid var(--line2); border-top-color: var(--brand-bright);
   animation: nf-org-spin .7s linear infinite;
 }
+
+/* ── Tab bars — one standard for the whole app ──────────────────────────────────────────────
+   Baseline = the Assets & Expenses underline bar (13px, 500 → 700 active, brand-red text and
+   2px brand underline, 11px count badge). Markup comes from components/TabBar.tsx.
+     .nf-tabs            content-navigation tabs (role="tablist")
+     .nf-tabs--sm        same, one step smaller, for tabs nested inside another tab's panel
+     .nf-chips/.nf-chip  filters, view toggles, period selectors (aria-pressed, not tabs) —
+                         square-cornered outline buttons, never a filled capsule
+   The bottom rule is an inset shadow (not a border) so the bar can scroll horizontally on
+   narrow screens without clipping the active underline. */
+:root {
+  --tabbar-fs: 13px;
+  --tabbar-fs-sm: 12px;
+  --tabbar-fw: 500;
+  --tabbar-fw-active: 700;
+  --tabbar-pad: 8px 16px;
+  --tabbar-pad-sm: 6px 12px;
+  --tabbar-gap: 4px;
+  --tabbar-indicator: 2px;
+  --tabbar-icon-gap: 6px;
+  --tabbar-count-fs: 11px;
+  --tabbar-count-fs-sm: 10px;
+  --chip-fs: 12px;
+  --chip-fw: 500;
+  --chip-fw-active: 600;
+  --chip-pad: 5px 12px;
+  --chip-radius: 6px;
+  /* Active text/underline: --brand-bright on dark panels (plain --brand is ~2.5:1 there),
+     --brand on light where it has the stronger contrast. */
+  --tabbar-active: var(--brand-bright);
+}
+[data-theme="light"] { --tabbar-active: var(--brand); }
+[data-theme="dark"] { --tabbar-active: var(--brand-bright); }
+
+.nf-tabs {
+  display: flex; align-items: flex-end; gap: var(--tabbar-gap);
+  box-shadow: inset 0 -1px 0 var(--line);
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.nf-tabs::-webkit-scrollbar { display: none; }
+.nf-tab {
+  display: inline-flex; align-items: center; gap: var(--tabbar-icon-gap); flex: 0 0 auto;
+  background: none; border: none; border-bottom: var(--tabbar-indicator) solid transparent;
+  border-radius: 0; margin: 0;
+  padding: var(--tabbar-pad); font-family: inherit; line-height: 1.4; white-space: nowrap;
+  font-size: var(--tabbar-fs); font-weight: var(--tabbar-fw); color: var(--txt-mut);
+  cursor: pointer; transition: color .15s, border-color .15s;
+}
+.nf-tab:hover:not(:disabled):not([aria-selected="true"]) { color: var(--txt); }
+.nf-tab[aria-selected="true"] {
+  color: var(--tabbar-active); font-weight: var(--tabbar-fw-active); border-bottom-color: var(--tabbar-active);
+}
+.nf-tab:disabled { opacity: .5; cursor: not-allowed; }
+.nf-tab:focus-visible, .nf-chip:focus-visible { outline: 2px solid var(--brand-bright); outline-offset: -2px; }
+.nf-tab svg { width: 14px; height: 14px; flex-shrink: 0; }
+.nf-tabs--sm .nf-tab { padding: var(--tabbar-pad-sm); font-size: var(--tabbar-fs-sm); }
+.nf-tabs--sm .nf-tab svg { width: 13px; height: 13px; }
+.nf-tabs-trailing { margin-left: auto; display: flex; align-items: center; gap: 8px; padding-bottom: 6px; flex-shrink: 0; }
+
+/* Count badge — subordinate to the label; filled brand only on the selected tab. */
+.nf-tab-count {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px;
+  font-size: var(--tabbar-count-fs); font-weight: 700; line-height: 1.45; font-variant-numeric: tabular-nums;
+  padding: 0 6px; border-radius: 10px; background: var(--raised2); color: var(--txt-mut);
+}
+.nf-tabs--sm .nf-tab-count { font-size: var(--tabbar-count-fs-sm); min-width: 16px; padding: 0 5px; }
+.nf-tab[aria-selected="true"] .nf-tab-count, .nf-chip[aria-pressed="true"] .nf-tab-count { background: var(--brand); color: #fff; }
+
+.nf-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.nf-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: var(--chip-pad); border-radius: var(--chip-radius); font-family: inherit; line-height: 1.4;
+  font-size: var(--chip-fs); font-weight: var(--chip-fw); white-space: nowrap;
+  background: var(--raised); color: var(--txt-mut); border: 1px solid var(--line2);
+  cursor: pointer; transition: color .15s, border-color .15s, background .15s;
+}
+.nf-chip svg { width: 13px; height: 13px; flex-shrink: 0; }
+.nf-chip:hover:not(:disabled):not([aria-pressed="true"]) { color: var(--txt); border-color: var(--txt-dim); }
+.nf-chip[aria-pressed="true"] {
+  color: var(--tabbar-active); font-weight: var(--chip-fw-active); border-color: var(--tabbar-active);
+  background: color-mix(in srgb, var(--brand) 10%, var(--raised));
+}
+.nf-chip:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Dashboard tiles (components/DashTile.tsx) — the tile is a size container, so the number and icon
+   scale with the tile itself and never cross its outline at narrow widths or higher browser zoom. */
+.nf-dash-tile { container-type: inline-size; overflow: hidden; transition: transform .15s, box-shadow .15s; }
+.nf-dash-tile:hover { transform: translateY(-2px); }
+.nf-dash-value { font-size: clamp(20px, 17cqw, 30px); }
+.nf-dash-icon { width: clamp(30px, 22cqw, 42px); height: clamp(30px, 22cqw, 42px); }
+.nf-dash-icon > svg { width: 50%; height: 50%; }
+@media (prefers-reduced-motion: reduce) { .nf-dash-tile:hover { transform: none; } }
+
+
+/* Dialog polish (Quick Actions pop-ups and the other request dialogs on the Attendance page). The cards
+   themselves are styled in AttendancePage's modalStyle / ModalHeader; this covers what inline styles
+   can't reach — focus rings, the action buttons and the close button's hover. */
+.nf-modal-close:hover { background: var(--raised) !important; color: var(--txt) !important; }
+.nf-modal input:focus, .nf-modal textarea:focus, .nf-modal select:focus {
+  outline: none !important; border-color: var(--brand) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent) !important;
+}
+.nf-modal textarea, .nf-modal select { border-radius: 10px !important; }
+.nf-modal label { letter-spacing: .07em; }
+.nf-modal-actions > button { border-radius: 10px !important; padding: 10px 20px !important; font-size: 13px !important; font-weight: 600 !important; transition: filter .15s; }
+.nf-modal-actions > button:last-child:not(:first-child) { background: var(--brand) !important; color: #fff !important; border: none !important; }
+.nf-modal-actions > button:first-child:not(:last-child) { background: var(--raised) !important; border: 1px solid var(--line2) !important; color: var(--txt-mut) !important; }
+.nf-modal-actions > button:not(:disabled):hover { filter: brightness(1.08); }
+
+/* Request-table row actions: a plain View button (+ compact Approve / Reject for pending rows an approver can decide). */
+.nf-row-view {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+  background: var(--raised); border: 1px solid var(--line2); color: var(--txt); font-size: 12px; font-weight: 600; white-space: nowrap;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.nf-row-view:hover { border-color: var(--brand); color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, var(--raised)); }
+.nf-row-view:focus-visible, .nf-row-icon:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.nf-row-icon {
+  display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+  background: var(--raised); border: 1px solid var(--line2); transition: background .15s, border-color .15s;
+}
+.nf-row-icon--approve { color: var(--ok); }
+.nf-row-icon--approve:hover { background: color-mix(in srgb, var(--ok) 14%, var(--raised)); border-color: var(--ok); }
+.nf-row-icon--reject { color: var(--risk); }
+.nf-row-icon--reject:hover { background: color-mix(in srgb, var(--risk) 14%, var(--raised)); border-color: var(--risk); }
+
+/* Snappy form controls: dropdowns (select), inputs, text areas, checkboxes and buttons react almost instantly
+   (hover / focus / press feedback), and a click never waits on a slow fade. Display only. */
+select, input, textarea, button, [role="button"], [role="option"], [role="menuitem"], [role="tab"], label {
+  transition-duration: 80ms !important;
+  transition-delay: 0s !important;
+}
+select, input, textarea, button { touch-action: manipulation; }
+
+/* Module page titles (components/PageTitleBlock): one heading + subtitle look everywhere. Margins are left to each
+   page, so spacing below the title is unchanged. */
+.nf-page-title h1 { font-family: Inter, sans-serif !important; font-size: 20px !important; font-weight: 700 !important; line-height: 1.25 !important; letter-spacing: 0 !important; color: var(--txt) !important; }
+.nf-page-title p { font-size: 13px !important; line-height: 1.45 !important; color: var(--txt-mut) !important; }
+
+/* E-mail text in tables: the theme colour (brighter variant on dark, standard on light), same as People Directory. */
+.nf-email-accent { color: var(--brand-bright) !important; }
+[data-theme="light"] .nf-email-accent { color: var(--brand) !important; }
+
+/* Attendance Details drawer: "Take a moment" breathing pacer in the spare space under the cards (theme colour). The
+   wrapper takes whatever height is left over (zero when the drawer is full) and the art hides itself when that is
+   too small to look right. */
+.nf-breathe-wrap { flex: 1 1 0; min-height: 0; position: relative; container-type: size; }
+.nf-breathe-art {
+  position: absolute; inset: 0; overflow: hidden; isolation: isolate;
+  display: grid; place-items: center; --orb: clamp(40px, 38cqh, 112px);
+}
+@container (max-height: 80px) { .nf-breathe-art { display: none; } }
+.nf-breathe-glow, .nf-breathe-ring, .nf-breathe-orb { grid-area: 1 / 1; border-radius: 50%; transform-origin: center; }
+.nf-breathe-glow {
+  width: calc(var(--orb) * 2.1); height: calc(var(--orb) * 2.1); z-index: -1;
+  background: radial-gradient(circle, color-mix(in srgb, var(--brand) 34%, transparent) 0%, transparent 68%);
+}
+.nf-breathe-ring { width: calc(var(--orb) * 1.45); height: calc(var(--orb) * 1.45); border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent); opacity: .55; }
+.nf-breathe-ring--2 { width: calc(var(--orb) * 1.85); height: calc(var(--orb) * 1.85); opacity: .28; }
+.nf-breathe-orb {
+  position: relative; width: var(--orb); height: var(--orb); display: grid; place-items: center; text-align: center;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--brand-bright, var(--brand)) 85%, #fff 15%) 0%, var(--brand) 60%, var(--brand-deep, var(--brand)) 100%);
+  box-shadow: 0 14px 34px -12px color-mix(in srgb, var(--brand) 80%, transparent), inset 0 2px 6px color-mix(in srgb, #fff 35%, transparent);
+}
+.nf-breathe-label { grid-area: 1 / 1; font-size: clamp(9.5px, 3.2cqh, 12.5px); font-weight: 700; letter-spacing: .02em; color: #fff; padding: 0 6px; line-height: 1.15; }
+.nf-breathe-label--out { opacity: 0; }
+.nf-breathe-caption {
+  position: absolute; left: 0; right: 0; bottom: 12px; text-align: center; font-size: 10.5px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--brand) 70%, var(--txt-dim));
+}
+@keyframes nf-breathe-orb { 0%, 100% { transform: scale(.82); } 50% { transform: scale(1.12); } }
+@keyframes nf-breathe-ring { 0%, 100% { transform: scale(.88); opacity: .25; } 50% { transform: scale(1.12); opacity: .6; } }
+@keyframes nf-breathe-glow { 0%, 100% { transform: scale(.85); opacity: .6; } 50% { transform: scale(1.12); opacity: 1; } }
+@keyframes nf-breathe-in { 0%, 8% { opacity: 0; } 18%, 42% { opacity: 1; } 52%, 100% { opacity: 0; } }
+@keyframes nf-breathe-out { 0%, 54% { opacity: 0; } 64%, 92% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .nf-breathe-orb { animation: nf-breathe-orb 8s ease-in-out infinite; }
+  .nf-breathe-glow { animation: nf-breathe-glow 8s ease-in-out infinite; }
+  .nf-breathe-ring--1 { animation: nf-breathe-ring 8s ease-in-out infinite; }
+  .nf-breathe-ring--2 { animation: nf-breathe-ring 8s ease-in-out infinite .5s; }
+  .nf-breathe-label--in { animation: nf-breathe-in 8s linear infinite; }
+  .nf-breathe-label--out { animation: nf-breathe-out 8s linear infinite; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nf-breathe-label--out { display: none; }
+}
+
+/* Calendar tab, panel wrapped below the calendar (e.g. zoomed in): details on the left, the pacer fills the rest of the
+   row (orb centred in that space), so there are no blank side margins. */
+[data-nf-wrapped] { flex-direction: row !important; align-items: stretch; gap: 24px; }
+[data-nf-wrapped] > :first-child { flex: 0 1 auto; min-width: 0; }
+[data-nf-wrapped] > .nf-breathe-wrap { flex: 1 1 0; min-width: 200px; margin-top: 0 !important; }
+[data-nf-wrapped] .nf-breathe-art {
+  --orb: clamp(90px, 50cqh, 150px); grid-template-columns: auto; justify-content: end; padding-right: clamp(12px, 5%, 48px);
+  background: radial-gradient(ellipse at 80% 52%, color-mix(in srgb, var(--brand) 9%, transparent) 0%, transparent 70%);
+}
+/* the caption sits under the orb itself (not centred across the whole area) */
+[data-nf-wrapped] .nf-breathe-caption { position: static; grid-area: 1 / 1; align-self: end; justify-self: center; margin-bottom: 12px; }
+/* Wide: today's details become two columns (check-in / out / worked / button, then the shift + actions), which fills the
+   middle of the row and leaves the pacer at the right, vertically centred. */
+[data-nf-wrapped="wide"] > .nf-today-details { display: grid !important; grid-template-columns: auto auto; column-gap: clamp(24px, 4vw, 56px); justify-content: start; align-content: start; }
+[data-nf-wrapped="wide"] > .nf-today-details > * { grid-column: 1; }
+[data-nf-wrapped="wide"] > .nf-today-details > .nf-day-col2 { grid-column: 2; grid-row: 1 / span 4; align-self: start; }
+
+/* Module page header card (same look as the People Directory header): a rounded, outlined panel with a soft fade into the
+   theme colour and a diagonal accent on the right. Put `nf-page-hdr` on a page's header row (title + buttons), or pass `card`
+   to PageTitleBlock when the title sits directly in the page body. Everything follows the chosen theme colour. */
+.nf-page-hdr {
+  position: relative; box-sizing: border-box;
+  padding: 18px 22px !important; border: 1px solid var(--line) !important; border-radius: 14px;
+  background: linear-gradient(100deg, var(--panel) 50%, color-mix(in srgb, var(--brand) 5%, var(--panel)) 100%) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 8px 20px -14px color-mix(in srgb, var(--brand) 45%, transparent);
+}
+.nf-page-hdr::before {
+  /* The same three curved swooshes as the People Directory header art, drawn as a mask over the theme colour so they follow it. */
+  content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: min(420px, 46%); border-radius: 0 14px 14px 0; pointer-events: none; z-index: 0;
+  background: var(--brand);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 100'%3E%3Cpath d='M150 100 C 230 70, 270 20, 420 8 L420 100 Z' fill='black' opacity='.05'/%3E%3Cpath d='M230 100 C 290 78, 330 40, 420 30 L420 100 Z' fill='black' opacity='.07'/%3E%3Cpath d='M300 100 C 340 86, 372 62, 420 56 L420 100 Z' fill='black' opacity='.10'/%3E%3C/svg%3E") right bottom / cover no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 100'%3E%3Cpath d='M150 100 C 230 70, 270 20, 420 8 L420 100 Z' fill='black' opacity='.05'/%3E%3Cpath d='M230 100 C 290 78, 330 40, 420 30 L420 100 Z' fill='black' opacity='.07'/%3E%3Cpath d='M300 100 C 340 86, 372 62, 420 56 L420 100 Z' fill='black' opacity='.10'/%3E%3C/svg%3E") right bottom / cover no-repeat;
+}
+.nf-page-hdr > * { position: relative; z-index: 1; }
+.nf-page-hdr--solo { align-items: center !important; }
+.nf-page-hdr--solo p { margin-bottom: 0 !important; }
+@media (max-width: 640px) { .nf-page-hdr { padding: 14px 14px !important; } }
