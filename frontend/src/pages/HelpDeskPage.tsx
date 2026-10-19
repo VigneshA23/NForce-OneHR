@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
   Archive, ArchiveRestore, ArrowUp, BookOpen, CheckCircle2, ChevronDown, Eye, EyeOff, FileText,
-  FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Trash2, Undo2, X, LifeBuoy
+  FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Star, Trash2, Undo2, X, LifeBuoy
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -199,6 +199,132 @@ function ReplyBubble({ reply, token }: { reply: ReplyItem; token: string }) {
   );
 }
 
+// "How well was this resolved?" — shown once a ticket is CLOSED and hasn't been rated yet.
+// Reopening (see ReopenSection below) clears any existing rating server-side, so this
+// reappears for a ticket closed a second time.
+function SatisfactionPrompt({ ticketId, token, onSubmitted }: { ticketId: string; token: string; onSubmitted: () => void }) {
+  const { showToast } = useToast();
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    if (!rating) return;
+    setSubmitting(true);
+    try {
+      await helpdeskApi.submitSatisfaction(ticketId, rating, comment.trim() || undefined, token);
+      showToast('success', 'Thanks for the feedback!');
+      onSubmitted();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to submit rating');
+      setSubmitting(false);
+    }
+  }
+
+  const shown = hoverRating || rating;
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 10 }}>How well was this resolved?</div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+        {[1, 2, 3, 4, 5].map(n => (
+          <button
+            key={n}
+            type="button"
+            aria-label={`${n} out of 5`}
+            onClick={() => setRating(n)}
+            onMouseEnter={() => setHoverRating(n)}
+            onMouseLeave={() => setHoverRating(0)}
+            disabled={submitting}
+            style={{ background: 'none', border: 'none', padding: 2, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex' }}
+          >
+            <Star size={22} fill={n <= shown ? '#F59E0B' : 'none'} color={n <= shown ? '#F59E0B' : 'var(--txt-dim)'} />
+          </button>
+        ))}
+      </div>
+      {rating > 0 && (
+        <>
+          <textarea
+            style={{ ...inputStyle, minHeight: 50, resize: 'vertical', fontFamily: 'inherit', marginBottom: 10 }}
+            placeholder="Anything else you'd like to add? (optional)"
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            disabled={submitting}
+          />
+          <button onClick={submit} disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? 'Submitting…' : 'Submit Rating'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Shown once a rating has already been submitted — just a quiet confirmation, not editable
+// (matches the backend's "once per closure" rule; reopening is the only way to rate again).
+function SatisfactionSummary({ rating, comment }: { rating: number; comment: string | null }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+        {[1, 2, 3, 4, 5].map(n => <Star key={n} size={15} fill={n <= rating ? '#F59E0B' : 'none'} color={n <= rating ? '#F59E0B' : 'var(--txt-dim)'} />)}
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
+        Thanks for rating this ticket.{comment && <div style={{ marginTop: 4, fontStyle: 'italic' }}>"{comment}"</div>}
+      </div>
+    </div>
+  );
+}
+
+// CLOSED + still within the backend's reopen window (see TicketDetail.reopenable) — the one
+// exception to "closed tickets can't be reopened" the employee can act on themselves.
+function ReopenSection({ ticketId, token, onReopened }: { ticketId: string; token: string; onReopened: () => void }) {
+  const { showToast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    setSubmitting(true);
+    try {
+      await helpdeskApi.reopen(ticketId, reason.trim() || undefined, token);
+      showToast('success', 'Ticket reopened');
+      onReopened();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to reopen ticket');
+      setSubmitting(false);
+    }
+  }
+
+  if (!expanded) {
+    return (
+      <button onClick={() => setExpanded(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line2)', color: 'var(--txt-mut)', borderRadius: 7, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginBottom: 16 }}>
+        <Undo2 size={13} /> Not fixed? Reopen this ticket
+      </button>
+    );
+  }
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 10 }}>Reopen this ticket</div>
+      <textarea
+        style={{ ...inputStyle, minHeight: 60, resize: 'vertical', fontFamily: 'inherit', marginBottom: 10 }}
+        placeholder="What's still wrong? (optional)"
+        value={reason}
+        onChange={e => setReason(e.target.value)}
+        disabled={submitting}
+        autoFocus
+      />
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button onClick={() => setExpanded(false)} disabled={submitting} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, cursor: submitting ? 'not-allowed' : 'pointer' }}>
+          Cancel
+        </button>
+        <button onClick={submit} disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+          {submitting ? 'Reopening…' : 'Reopen Ticket'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TicketDetailView({ ticketId, token, onBack, onChanged }: {
   ticketId: string; token: string; onBack: () => void; onChanged: () => void;
 }) {
@@ -283,13 +409,23 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <CheckCircle2 size={16} style={{ color: 'var(--ok)', flexShrink: 0 }} />
             <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
-              HR marked this resolved. If everything looks good, close it - closed tickets can't be reopened.
+              HR marked this resolved. If everything looks good, close it — you can still reopen it for a week after closing if it turns out it's not actually fixed.
             </span>
           </div>
           <button onClick={handleClose} disabled={closing} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, fontWeight: 600, cursor: closing ? 'not-allowed' : 'pointer', opacity: closing ? 0.7 : 1, whiteSpace: 'nowrap' }}>
             {closing ? 'Closing…' : 'Close Ticket'}
           </button>
         </div>
+      )}
+
+      {ticket.status === 'CLOSED' && (
+        ticket.satisfactionSubmittedAt
+          ? <SatisfactionSummary rating={ticket.satisfactionRating ?? 0} comment={ticket.satisfactionComment} />
+          : <SatisfactionPrompt ticketId={ticketId} token={token} onSubmitted={() => { load(); onChanged(); }} />
+      )}
+
+      {ticket.status === 'CLOSED' && ticket.reopenable && (
+        <ReopenSection ticketId={ticketId} token={token} onReopened={() => { load(); onChanged(); }} />
       )}
 
       {ticket.status !== 'CLOSED' ? (
@@ -311,9 +447,9 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
             </button>
           </div>
         </form>
-      ) : (
-        <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', textAlign: 'center' }}>This ticket is closed and cannot be reopened.</div>
-      )}
+      ) : !ticket.reopenable ? (
+        <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', textAlign: 'center' }}>This ticket is closed and can no longer be reopened.</div>
+      ) : null}
     </div>
   );
 }

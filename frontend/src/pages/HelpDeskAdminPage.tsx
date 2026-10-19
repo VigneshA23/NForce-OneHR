@@ -4,7 +4,7 @@ import DashTile from '../components/DashTile';
 import { useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Clock, Eye, History, Inbox, Info,
-  Lock, MessageSquareText, Paperclip, Play, Search, Send, SlidersHorizontal, Ticket, UserPlus,
+  Lock, MessageSquareText, Paperclip, Play, Search, Send, SlidersHorizontal, Star, Ticket, UserPlus,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -304,6 +304,21 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
                     <div><div className="nf-rq-tl-title">Resolved</div><div className="nf-rq-tl-sub">{fmtDateTime(ticket.resolvedAt)} by {ticket.resolvedByName}</div></div>
                   </li>
                 )}
+                {ticket.satisfactionRating != null && (
+                  <li>
+                    <span className="nf-rq-tl-dot nf-rq-tl-dot--filled tone-warn" />
+                    <div>
+                      <div className="nf-rq-tl-title">Rated by employee</div>
+                      <div className="nf-rq-tl-sub" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        {[1, 2, 3, 4, 5].map(n => (
+                          <Star key={n} size={13} fill={n <= ticket.satisfactionRating! ? 'currentColor' : 'none'} style={{ color: '#f59e0b' }} />
+                        ))}
+                        <span style={{ marginLeft: 4 }}>{ticket.satisfactionRating}/5</span>
+                      </div>
+                      {ticket.satisfactionComment && <div className="nf-rq-tl-sub" style={{ marginTop: 4, fontStyle: 'italic' }}>"{ticket.satisfactionComment}"</div>}
+                    </div>
+                  </li>
+                )}
               </ul>
             </div>
           </div>
@@ -397,10 +412,27 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
                 <div className="nf-rq-field-label">Assigned To</div>
                 <Person name={ticket.assignedToName} fallback="Unassigned" />
               </div>
+              {ticket.satisfactionRating != null && (
+                <div>
+                  <div className="nf-rq-field-label">Employee Rating</div>
+                  <div className="nf-rq-field-value" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {[1, 2, 3, 4, 5].map(n => (
+                      <Star key={n} size={13} fill={n <= ticket.satisfactionRating! ? 'currentColor' : 'none'} style={{ color: '#f59e0b' }} />
+                    ))}
+                    <span style={{ marginLeft: 4 }}>{ticket.satisfactionRating}/5</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="nf-rq-section-label">Description</div>
             <div className="nf-rq-quote">{ticket.description}</div>
+            {ticket.satisfactionComment && (
+              <>
+                <div className="nf-rq-section-label">Employee Feedback</div>
+                <div className="nf-rq-quote">{ticket.satisfactionComment}</div>
+              </>
+            )}
           </div>
         </div>
 

@@ -74,6 +74,16 @@ public class HelpdeskController {
         return helpdeskService.closeTicket(id, principal.getName());
     }
 
+    @PostMapping("/{id}/reopen")
+    public TicketDetailDto reopen(@PathVariable UUID id, @RequestBody(required = false) ReopenTicketRequest req, Principal principal) {
+        return helpdeskService.reopenTicket(id, req != null ? req.getReason() : null, principal.getName());
+    }
+
+    @PostMapping("/{id}/satisfaction")
+    public TicketDetailDto submitSatisfaction(@PathVariable UUID id, @Valid @RequestBody SubmitSatisfactionRequest req, Principal principal) {
+        return helpdeskService.submitSatisfaction(id, req, principal.getName());
+    }
+
     @GetMapping("/replies/{replyId}/attachment")
     public ResponseEntity<byte[]> downloadAttachment(@PathVariable UUID replyId, Principal principal) {
         HelpdeskReply reply = helpdeskService.getReplyAttachment(replyId, principal.getName());

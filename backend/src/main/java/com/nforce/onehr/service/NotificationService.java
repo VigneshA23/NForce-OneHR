@@ -48,6 +48,7 @@ public class NotificationService {
         m.put("LEAVE_REQUEST_SUBMITTED",          "MEDIUM");  // goes to manager/HR/Super Admin: action needed, routine
         m.put("HELP_CONTENT_SUBMITTED",           "MEDIUM");  // goes to approver: action needed, routine
         m.put("HELPDESK_TICKET_CREATED",          "MEDIUM");  // goes to HR: action needed, routine
+        m.put("HELPDESK_TICKET_REOPENED",         "MEDIUM");  // goes to HR/assignee: action needed, routine
         m.put("SKILL_REQUEST_SUBMITTED",          "MEDIUM");  // goes to HR: action needed, routine
         m.put("LEAVE_APPROVED",                   "MEDIUM");
         m.put("EXPENSE_MANAGER_APPROVED",         "MEDIUM");

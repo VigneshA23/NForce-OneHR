@@ -19,6 +19,7 @@ public class TicketSummaryDto {
     private UUID assignedTo;
     private String assignedToName;
     private long replyCount;
+    private Integer satisfactionRating;
     private Instant createdAt;
     private Instant updatedAt;
 }
