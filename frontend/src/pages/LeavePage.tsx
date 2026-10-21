@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import {
-  CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Hourglass, Search,
+  CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Hourglass, Pencil, Search,
   Wallet, X, CalendarDays
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -139,23 +139,52 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
   );
 }
 
-function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { types: LeaveType[]; balances: LeaveBalance[]; onClose: () => void; onCreated: (r: LeaveRequestRecord) => void; token: string }) {
+// True if both leave-type codes draw from the same balance row — either literally the same
+// type, or both members of the consolidated Annual/Sick/Casual group (see
+// LeaveService#isAnnualBalanceLeaveType).
+function sameBalanceGroup(a: string, b: string): boolean {
+  return a === b || (isAnnualBalanceLeaveType(a) && isAnnualBalanceLeaveType(b));
+}
+
+function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, token }: {
+  types: LeaveType[]; balances: LeaveBalance[]; editingRequest?: LeaveRequestRecord | null;
+  onClose: () => void; onSaved: (r: LeaveRequestRecord, wasEdit: boolean) => void; token: string;
+}) {
   const { showToast } = useToast();
+  const isEdit = !!editingRequest;
   // Local calendar date, not new Date().toISOString().slice(0, 10) — the ISO/UTC form can land
   // on the wrong side of midnight relative to the user's actual local day, which would let the
   // date picker's min slip a day off from what "today" really is.
   const now = new Date();
   const today = toISODate(now.getFullYear(), now.getMonth(), now.getDate());
-  const [form, setForm] = useState<SubmitLeaveRequestPayload>({ leaveTypeCode: types[0]?.code ?? '', startDate: today, endDate: today, halfDay: false, halfDaySession: undefined, reason: '' });
+  const [form, setForm] = useState<SubmitLeaveRequestPayload>(editingRequest ? {
+    leaveTypeCode: editingRequest.leaveTypeCode,
+    startDate: editingRequest.startDate,
+    endDate: editingRequest.endDate,
+    halfDay: editingRequest.halfDay,
+    halfDaySession: editingRequest.halfDaySession ?? undefined,
+    reason: editingRequest.employeeReason,
+  } : { leaveTypeCode: types[0]?.code ?? '', startDate: today, endDate: today, halfDay: false, halfDaySession: undefined, reason: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // While editing, the request being edited is still PENDING in the DB and already reserved
+  // against its own balance row (see LeaveService#availableBalance) — add its own days back here
+  // so editing a request that already consumes its full balance isn't wrongly flagged as
+  // over-limit by this early-UX check. Mirrors the backend's own exclusion (LeaveService#update)
+  // and is keyed off the request's ORIGINAL type/days, independent of whatever type is currently
+  // selected in the form. A no-op for an originally-Unpaid request, which never reserved against
+  // any balance row to begin with.
+  const effectiveBalances = editingRequest && editingRequest.leaveTypeClassification === 'PAID'
+    ? balances.map(b => sameBalanceGroup(b.leaveTypeCode, editingRequest.leaveTypeCode)
+        ? { ...b, remainingDays: b.remainingDays + Number(editingRequest.totalDays) }
+        : b)
+    : balances;
 
   // Early-UX only, mirroring the backend's own day-count formula (LeaveService#submitRequest) —
   // the backend independently re-validates against the same status-aware balance regardless of
   // what's computed here, so this can never be relied on to enforce the limit by itself.
-  const selectedBalance = balances.find(b =>
-    b.leaveTypeCode === form.leaveTypeCode
-    || (isAnnualBalanceLeaveType(form.leaveTypeCode) && isAnnualBalanceLeaveType(b.leaveTypeCode)));
+  const selectedBalance = effectiveBalances.find(b => sameBalanceGroup(b.leaveTypeCode, form.leaveTypeCode));
   const effectiveEndDate = form.halfDay ? form.startDate : form.endDate;
   const requestedDays = form.halfDay
     ? 0.5
@@ -166,7 +195,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
   // — the backend independently re-validates against ALL of the employee's paid balances regardless
   // of what's checked here, so this can never be relied on to enforce the rule by itself.
   const selectedType = types.find(t => t.code === form.leaveTypeCode);
-  const hasAnyPaidBalance = balances.some(b => b.remainingDays > 0);
+  const hasAnyPaidBalance = effectiveBalances.some(b => b.remainingDays > 0);
   const blockedUnpaidWithPaidBalance = selectedType?.classification === 'UNPAID' && hasAnyPaidBalance;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -186,9 +215,12 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
     }
     setSubmitting(true); setError(null);
     try {
-      const created = await leaveApi.submit({ ...form, endDate: form.halfDay ? form.startDate : form.endDate }, token);
-      onCreated(created);
-      showToast('success', 'Leave request submitted');
+      const payload = { ...form, endDate: form.halfDay ? form.startDate : form.endDate };
+      const saved = editingRequest
+        ? await leaveApi.update(editingRequest.id, payload, token)
+        : await leaveApi.submit(payload, token);
+      onSaved(saved, isEdit);
+      showToast('success', isEdit ? 'Leave request updated' : 'Leave request submitted');
       onClose();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Submit failed';
@@ -200,7 +232,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
   return (
     <div style={overlayStyle}>
       <div style={modalStyle}>
-        <ModalHeader title="Request Leave" onClose={onClose} />
+        <ModalHeader title={isEdit ? 'Edit Leave Request' : 'Request Leave'} onClose={onClose} />
         <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           <div style={{ gridColumn: '1/-1' }}>
@@ -250,7 +282,9 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
           </div>
           <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || exceedsBalance || blockedUnpaidWithPaidBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 0.6 : 1 }}>{submitting ? 'Submitting…' : 'Submit Request'}</button>
+            <button type="submit" disabled={submitting || exceedsBalance || blockedUnpaidWithPaidBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 0.6 : 1 }}>
+              {submitting ? (isEdit ? 'Saving…' : 'Submitting…') : (isEdit ? 'Save Changes' : 'Submit Request')}
+            </button>
           </div>
         </form>
       </div>
@@ -276,6 +310,7 @@ export default function LeavePage() {
   const [loading, setLoading] = useState(true);
   const [leaveError, setLeaveError] = useState('');
   const [showRequest, setShowRequest] = useState(false);
+  const [editingRequest, setEditingRequest] = useState<LeaveRequestRecord | null>(null);
 
   useEffect(() => {
     setLeaveError('');
@@ -336,8 +371,8 @@ export default function LeavePage() {
   // The optimistic prepend shows the new request instantly; refreshLeaveData then reconciles
   // both the requests list and the balances against the server (and safely coalesces with any
   // notification-triggered refresh that happens to land around the same time — see its comment).
-  async function handleCreated(r: LeaveRequestRecord) {
-    setRequests(prev => [r, ...prev]);
+  async function handleSaved(r: LeaveRequestRecord, wasEdit: boolean) {
+    setRequests(prev => wasEdit ? prev.map(x => x.id === r.id ? r : x) : [r, ...prev]);
     await refreshLeaveData();
   }
 
@@ -463,7 +498,7 @@ export default function LeavePage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Type', 'Dates', 'Days', 'Status', 'Reason', 'Approved/Rejected By'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {['Type', 'Dates', 'Days', 'Status', 'Reason', 'Approved/Rejected By', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -504,6 +539,19 @@ export default function LeavePage() {
                         </div>
                       )}
                     </td>
+                    <td style={tdStyle}>
+                      {r.status === 'PENDING' && (
+                        <button
+                          type="button"
+                          onClick={() => setEditingRequest(r)}
+                          aria-label={`Edit leave request for ${r.leaveTypeName}`}
+                          title="Edit request"
+                          style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 10px', fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}
+                        >
+                          <Pencil size={12} /> Edit
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -525,7 +573,10 @@ export default function LeavePage() {
       </div>
 
       {showRequest && (
-        <RequestLeaveModal types={types} balances={balances} token={token} onClose={() => setShowRequest(false)} onCreated={handleCreated} />
+        <RequestLeaveModal types={types} balances={balances} token={token} onClose={() => setShowRequest(false)} onSaved={handleSaved} />
+      )}
+      {editingRequest && (
+        <RequestLeaveModal types={types} balances={balances} editingRequest={editingRequest} token={token} onClose={() => setEditingRequest(null)} onSaved={handleSaved} />
       )}
     </div>
   );

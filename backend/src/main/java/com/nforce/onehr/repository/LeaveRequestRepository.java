@@ -70,6 +70,12 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
     boolean existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
             UUID employeeUserId, Collection<String> statuses, LocalDate startDateAtOrBefore, LocalDate endDateAtOrAfter);
 
+    // Same overlap guard as above, used by LeaveService#update: excludes the request being edited
+    // itself so editing a request's dates doesn't flag it as overlapping with its own prior range.
+    boolean existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
+            UUID employeeUserId, Collection<String> statuses, LocalDate startDateAtOrBefore, LocalDate endDateAtOrAfter,
+            UUID excludedId);
+
     // Backs LeaveService#availableBalance: sums PENDING days across a set of leave-type IDs
     // within a calendar year for one employee, so the available balance excludes in-flight requests.
     @Query("SELECT COALESCE(SUM(r.totalDays), 0) FROM LeaveRequest r " +
@@ -83,6 +89,22 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
             @Param("status") String status,
             @Param("startDate") LocalDate startDate,
             @Param("endDate") LocalDate endDate);
+
+    // Same PENDING-reservation sum as above, used by LeaveService#update: excludes the request
+    // being edited so its own (not-yet-saved) reservation isn't double-counted against itself.
+    @Query("SELECT COALESCE(SUM(r.totalDays), 0) FROM LeaveRequest r " +
+           "WHERE r.employeeUserId = :employeeUserId " +
+           "AND r.leaveType.id IN :leaveTypeIds " +
+           "AND r.status = :status " +
+           "AND r.startDate BETWEEN :startDate AND :endDate " +
+           "AND r.id <> :excludedId")
+    BigDecimal sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetweenAndIdNot(
+            @Param("employeeUserId") UUID employeeUserId,
+            @Param("leaveTypeIds") Collection<UUID> leaveTypeIds,
+            @Param("status") String status,
+            @Param("startDate") LocalDate startDate,
+            @Param("endDate") LocalDate endDate,
+            @Param("excludedId") UUID excludedId);
 
     // Backs ExpectedWorkHoursService#loadPartialHourLeaveByEmployeeDate: approved HOURLY/
     // QUARTER_DAY leave overlapping [from, to] for a set of employees.

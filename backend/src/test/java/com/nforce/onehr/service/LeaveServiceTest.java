@@ -129,6 +129,14 @@ class LeaveServiceTest {
         lenient().when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
                         any(), any(), eq("PENDING"), any(), any()))
                 .thenReturn(BigDecimal.ZERO);
+        // update()'s exclude-self variants of the same two guards — same zero/false defaults,
+        // overridden explicitly by tests that care about them.
+        lenient().when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetweenAndIdNot(
+                        any(), any(), eq("PENDING"), any(), any(), any()))
+                .thenReturn(BigDecimal.ZERO);
+        lenient().when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
+                        any(), any(), any(), any(), any()))
+                .thenReturn(false);
         // Pinned to the JVM's own default zone (not a hardcoded business zone like
         // "Asia/Kolkata") so LeaveService's zone-aware "today" always matches this test's own
         // LocalDate.now() calls, regardless of which machine/CI runner executes the suite.
@@ -1163,6 +1171,99 @@ class LeaveServiceTest {
 
         assertEquals("PENDING", resp.getStatus());
         assertEquals(new BigDecimal("24"), resp.getTotalDays());
+    }
+
+    // ── update() — edit a still-pending request ──────────────────────────────────────────────
+
+    private LeaveRequest pendingRequest(LocalDate start, LocalDate end, BigDecimal totalDays) {
+        return LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(start).endDate(end).totalDays(totalDays)
+                .status("PENDING").employeeReason("Original reason").build();
+    }
+
+    @Test
+    void update_pendingRequest_byOwner_appliesChangesAndLogsAudit() {
+        LeaveRequest existing = pendingRequest(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), BigDecimal.ONE);
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveRequestRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate newStart = LocalDate.now().plusDays(10);
+        LocalDate newEnd = LocalDate.now().plusDays(12);
+        LeaveRequestResponse resp = leaveService.update(existing.getId(), request(newStart, newEnd, false, "Updated reason"), employeeEmail);
+
+        assertEquals(newStart, resp.getStartDate());
+        assertEquals(newEnd, resp.getEndDate());
+        assertEquals("Updated reason", resp.getEmployeeReason());
+        assertEquals(new BigDecimal("3"), resp.getTotalDays());
+        assertEquals("PENDING", resp.getStatus());
+        verify(auditService).log(eq(employeeId), eq("LEAVE_REQUEST_UPDATED"), eq(existing.getId()), any(), any());
+    }
+
+    @Test
+    void update_byNonOwner_isDenied() {
+        LeaveRequest existing = pendingRequest(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), BigDecimal.ONE);
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(strangerUser));
+        when(leaveRequestRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+
+        assertThrows(AccessDeniedException.class,
+                () -> leaveService.update(existing.getId(), request(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), false, "x"), strangerEmail));
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void update_nonPendingRequest_isRejected() {
+        LeaveRequest decided = pendingRequest(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), BigDecimal.ONE);
+        decided.setStatus("APPROVED");
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveRequestRepository.findById(decided.getId())).thenReturn(Optional.of(decided));
+
+        assertThrows(IllegalStateException.class,
+                () -> leaveService.update(decided.getId(), request(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), false, "x"), employeeEmail));
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void update_doesNotCountOwnPriorReservationAgainstItself() {
+        // Existing request already reserves 5 days of a 5-day Annual quota; editing it (even to
+        // the exact same 5 days) must not be rejected as "exceeds balance" by double-counting its
+        // own pre-edit reservation — the AndIdNot sum (stubbed to ZERO as if only this request's
+        // own days were pending) reflects that exclusion.
+        LocalDate start = LocalDate.now().plusDays(5);
+        LocalDate end = start.plusDays(4);
+        LeaveRequest existing = pendingRequest(start, end, new BigDecimal("5"));
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveRequestRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("5"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LeaveRequestResponse resp = leaveService.update(existing.getId(), request(start, end, false, "Same dates, edited reason"), employeeEmail);
+
+        assertEquals(new BigDecimal("5"), resp.getTotalDays());
+        verify(leaveRequestRepository).save(any(LeaveRequest.class));
+    }
+
+    @Test
+    void update_overlapsAnotherRequest_isRejected() {
+        LeaveRequest existing = pendingRequest(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), BigDecimal.ONE);
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveRequestRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate newStart = LocalDate.now().plusDays(20);
+        LocalDate newEnd = LocalDate.now().plusDays(21);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(newEnd), eq(newStart), eq(existing.getId())))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.update(existing.getId(), request(newStart, newEnd, false, "Moved dates"), employeeEmail));
+        assertTrue(ex.getMessage().contains("overlap"));
+        verify(leaveRequestRepository, never()).save(any());
     }
 
     @Test

@@ -72,6 +72,14 @@ public class LeaveController {
         return leaveService.listMyRequests(principal.getName());
     }
 
+    /** Edit a still-pending leave request — own requests only, PENDING status only (enforced in the service). */
+    @PatchMapping("/requests/{id}")
+    public LeaveRequestResponse updateRequest(@PathVariable UUID id,
+                                               @Valid @RequestBody CreateLeaveRequestRequest req,
+                                               Principal principal) {
+        return leaveService.update(id, req, principal.getName());
+    }
+
     @GetMapping("/approvals")
     public List<LeaveRequestResponse> pendingApprovals(Principal principal) {
         return leaveService.listPendingApprovals(principal.getName());

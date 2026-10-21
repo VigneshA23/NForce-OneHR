@@ -288,6 +288,120 @@ public class LeaveService {
     }
 
     /**
+     * Edit a still-pending leave request. Only the submitting employee may edit, and only while
+     * status is PENDING — approved/rejected requests are immutable history (mirrors
+     * RegularizationService#update's precedent). Re-runs every validation {@link #submitRequest}
+     * enforces (working days, overlap, balance, unpaid-vs-paid rule), excluding this request's own
+     * reservation from each check — see {@link #availableBalance(LeaveBalance, UUID)} — so editing
+     * a request never counts its own pre-edit reservation against itself. No notification is sent
+     * (same as RegularizationService#update); the approver sees the new details next time they open it.
+     */
+    @Transactional
+    public LeaveRequestResponse update(UUID requestId, CreateLeaveRequestRequest req, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        LeaveRequest existing = leaveRequestRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
+        if (!existing.getEmployeeUserId().equals(actor.getId())) {
+            throw new AccessDeniedException("You can only edit your own requests");
+        }
+        if (!"PENDING".equals(existing.getStatus())) {
+            throw new IllegalStateException("Only pending requests can be edited");
+        }
+        // Captured once, before `existing` is reassigned by save() below — reassignment means
+        // existing.getId() itself isn't effectively final and can't be referenced from the lambda
+        // further down (the balance-sum stream).
+        final UUID existingId = existing.getId();
+
+        LeaveType type = leaveTypeRepository.findByCode(req.getLeaveTypeCode())
+                .orElseThrow(() -> new IllegalArgumentException("Unknown leave type: " + req.getLeaveTypeCode()));
+
+        if (req.getEndDate().isBefore(req.getStartDate())) {
+            throw new IllegalArgumentException("End date cannot be before start date");
+        }
+        if (req.isHalfDay() && !req.getEndDate().isEqual(req.getStartDate())) {
+            throw new IllegalArgumentException("A half-day request must use the same start and end date");
+        }
+        if (req.isHalfDay() && !(LeaveHalfDaySession.FIRST_HALF.equals(req.getHalfDaySession())
+                || LeaveHalfDaySession.SECOND_HALF.equals(req.getHalfDaySession()))) {
+            throw new IllegalArgumentException("A half-day request must specify First Half or Second Half");
+        }
+
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        if (req.getStartDate().isBefore(today)) {
+            throw new IllegalArgumentException("Leave cannot be requested for a date before today");
+        }
+        requireOnlyWorkingDays(actor.getId(), req.getStartDate(), req.getEndDate());
+
+        if (leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
+                actor.getId(), OVERLAP_BLOCKING_STATUSES, req.getEndDate(), req.getStartDate(), existingId)) {
+            throw new IllegalArgumentException("You already have a pending or approved leave request that overlaps these dates.");
+        }
+
+        BigDecimal totalDays = req.isHalfDay()
+                ? new BigDecimal("0.5")
+                : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
+
+        if (!type.isPaid() && hasAnyPositivePaidBalance(actor.getId(), req.getStartDate().getYear(), existingId)) {
+            throw new IllegalArgumentException(
+                    "You cannot apply for unpaid leave while you have an available paid leave balance.");
+        }
+
+        if (type.isPaid()) {
+            int year = req.getStartDate().getYear();
+            LeaveType balanceType = isAnnualBalanceLeaveType(type) ? annualLeaveType() : type;
+            LeaveBalance balance = leaveBalanceRepository
+                    .findByEmployeeUserIdAndLeaveTypeIdAndYear(actor.getId(), balanceType.getId(), year)
+                    .orElseThrow(() -> new IllegalArgumentException("No " + balanceType.getName() + " balance configured for " + year));
+
+            BigDecimal remaining = availableBalance(balance, existingId);
+            if (remaining.compareTo(totalDays) < 0) {
+                throw new IllegalArgumentException("Leave request exceeds your available " + balanceType.getName()
+                        + " balance of " + formatDays(remaining) + " days.");
+            }
+        } else {
+            int year = req.getStartDate().getYear();
+            BigDecimal availablePaidDays = leaveBalanceRepository.findByEmployeeUserIdAndYear(actor.getId(), year).stream()
+                    .filter(b -> b.getLeaveType().isPaid())
+                    .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
+                            || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
+                    .map(b -> availableBalance(b, existingId))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            if (availablePaidDays.signum() > 0) {
+                throw new IllegalArgumentException("You have " + formatDays(availablePaidDays)
+                        + " day(s) of paid leave available — use that before applying for " + type.getName() + ".");
+            }
+        }
+
+        String before = auditSnapshot.toJson(Map.of(
+                "leaveTypeCode", existing.getLeaveType().getCode(),
+                "startDate", existing.getStartDate().toString(),
+                "endDate", existing.getEndDate().toString(),
+                "halfDay", existing.isHalfDay(),
+                "totalDays", existing.getTotalDays(),
+                "reason", existing.getEmployeeReason()));
+
+        existing.setLeaveType(type);
+        existing.setStartDate(req.getStartDate());
+        existing.setEndDate(req.getEndDate());
+        existing.setHalfDay(req.isHalfDay());
+        existing.setHalfDaySession(req.isHalfDay() ? req.getHalfDaySession() : null);
+        existing.setTotalDays(totalDays);
+        existing.setEmployeeReason(req.getReason().trim());
+        existing.setDurationType(req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY);
+        existing = leaveRequestRepository.save(existing);
+
+        String after = auditSnapshot.toJson(Map.of(
+                "leaveTypeCode", existing.getLeaveType().getCode(),
+                "startDate", existing.getStartDate().toString(),
+                "endDate", existing.getEndDate().toString(),
+                "halfDay", existing.isHalfDay(),
+                "totalDays", existing.getTotalDays(),
+                "reason", existing.getEmployeeReason()));
+        auditService.log(actor.getId(), "LEAVE_REQUEST_UPDATED", existing.getId(), before, after);
+        return toRequestResponse(existing);
+    }
+
+    /**
      * Rejects the request at the first date in [start, end] that is an active holiday of the
      * employee's Location or an off day of the Shift governing that date — the shift is resolved
      * per date via {@link EmployeeShiftAssignmentResolver}, since a reassignment can land inside
@@ -770,12 +884,25 @@ public class LeaveService {
      * they all draw from this one row (see {@link #annualBalanceGroupTypeIds}).
      */
     private BigDecimal availableBalance(LeaveBalance b) {
+        return availableBalance(b, null);
+    }
+
+    /**
+     * {@code excludeRequestId} variant used by {@link #update}: a request being edited is still
+     * PENDING in the DB at validation time, so without exclusion its own (pre-edit) reservation
+     * would be double-counted against itself, making the balance look smaller than it really is.
+     */
+    private BigDecimal availableBalance(LeaveBalance b, UUID excludeRequestId) {
         Collection<UUID> pendingTypeIds = isAnnualBalanceLeaveType(b.getLeaveType())
                 ? annualBalanceGroupTypeIds()
                 : Set.of(b.getLeaveType().getId());
-        BigDecimal pendingReserved = leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
-                b.getEmployeeUserId(), pendingTypeIds, "PENDING",
-                LocalDate.of(b.getYear(), 1, 1), LocalDate.of(b.getYear(), 12, 31));
+        BigDecimal pendingReserved = excludeRequestId == null
+                ? leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
+                        b.getEmployeeUserId(), pendingTypeIds, "PENDING",
+                        LocalDate.of(b.getYear(), 1, 1), LocalDate.of(b.getYear(), 12, 31))
+                : leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetweenAndIdNot(
+                        b.getEmployeeUserId(), pendingTypeIds, "PENDING",
+                        LocalDate.of(b.getYear(), 1, 1), LocalDate.of(b.getYear(), 12, 31), excludeRequestId);
         if (pendingReserved == null) pendingReserved = BigDecimal.ZERO;
         return b.getTotalDays().subtract(b.getUsedDays()).subtract(pendingReserved);
     }
@@ -788,11 +915,16 @@ public class LeaveService {
      * sees, reusing #availableBalance rather than a duplicate calculation.
      */
     private boolean hasAnyPositivePaidBalance(UUID employeeUserId, int year) {
+        return hasAnyPositivePaidBalance(employeeUserId, year, null);
+    }
+
+    /** {@code excludeRequestId} variant used by {@link #update} — see {@link #availableBalance(LeaveBalance, UUID)}. */
+    private boolean hasAnyPositivePaidBalance(UUID employeeUserId, int year, UUID excludeRequestId) {
         return leaveBalanceRepository.findByEmployeeUserIdAndYear(employeeUserId, year).stream()
                 .filter(b -> b.getLeaveType().isPaid())
                 .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
                         || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
-                .anyMatch(b -> availableBalance(b).compareTo(BigDecimal.ZERO) > 0);
+                .anyMatch(b -> availableBalance(b, excludeRequestId).compareTo(BigDecimal.ZERO) > 0);
     }
 
     private boolean isAnnualBalanceLeaveType(LeaveType type) {

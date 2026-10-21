@@ -315,7 +315,9 @@ pages:
   - pageId: my-skills
     module: allocations
     variants:
-      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+      # HR Admin/Super Admin deliberately excluded — removed from their nav.config.ts sidebar
+      # (self-service page not needed in those portals); Employee/Manager unaffected.
+      - roles: [EMPLOYEE, MANAGER]
         label: "My Skills"
         route: /my-skills
         description: "Your skills picked from the managed skill list with a 1-5 self-rating; managers can also rate their direct reports' skills."
