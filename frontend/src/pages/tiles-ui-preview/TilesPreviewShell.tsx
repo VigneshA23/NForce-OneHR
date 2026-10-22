@@ -45,6 +45,7 @@ import { HRView } from '../AssetsExpensesPage';
 import BenchOpportunitiesPage from '../BenchOpportunitiesPage';
 import PoliciesPage from '../PoliciesPage';
 import DocumentsPage from '../DocumentsPage';
+import HelpDeskPage from '../HelpDeskPage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -68,6 +69,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'opps-page', label: 'Opportunities (full page)', title: 'Internal Opportunities', subtitle: 'HR view with sample data: post form with skill chips and opportunity cards.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
+  { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -399,6 +401,43 @@ function DocumentsMock() {
   return ready ? <DocumentsPage /> : null;
 }
 
+function HelpMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample data and an HR/Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const item = (id: string, type: string, title: string, description: string, status: string, attachmentCount = 0) => ({
+      id, type, title, description, category: null, status, featured: false, displayOrder: 0, viewCount: 0, attachmentCount, audience: [], rejectionReason: null, createdAt: '', updatedAt: '',
+    });
+    const all = [
+      item('f1', 'FAQ', 'test faq', 'A short answer to a test question.', 'PENDING_APPROVAL'),
+      item('f2', 'FAQ', "How do I respond to an employee's HR Service Request ticket?", 'Open the ticket from HR Service Requests, read the thread and reply or change the status.', 'PUBLISHED'),
+      item('f3', 'FAQ', "Who approves my Help & Guidance content before it's published?", 'Super Admins approve content that HR submits for approval.', 'PENDING_APPROVAL'),
+      item('g1', 'GUIDE', 'This a new fact for Test', 'This a new fact for Test', 'PENDING_APPROVAL'),
+      item('g2', 'GUIDE', 'Test Guide to testdefect', 'This is a test guide', 'PUBLISHED', 1),
+      item('g3', 'QUICK_HELP', "Forgot to Check In or Check Out? Here's What to Do", "Missed a punch? Don't try to log a new entry — use Attendance regularization.", 'DRAFT'),
+    ];
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/hr/help-content') || url.endsWith('/api/help-content')) {
+        return json({ content: all, totalElements: all.length, totalPages: 1, number: 0, size: 100 });
+      }
+      if (url.endsWith('/api/helpdesk/my')) return json({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 10 });
+      if (url.includes('/api/helpdesk')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <HelpDeskPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -608,6 +647,8 @@ function Tiles({ page }: { page: string }) {
       return <PoliciesMock />;
     case 'documents-page':
       return <DocumentsMock />;
+    case 'help-page':
+      return <HelpMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:
