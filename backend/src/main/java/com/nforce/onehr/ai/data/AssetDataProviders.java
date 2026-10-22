@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.asset.AssetAssignmentResponse;
 import com.nforce.onehr.dto.asset.AssetRequestResponse;
 import com.nforce.onehr.service.AssetService;
@@ -32,7 +31,7 @@ public final class AssetDataProviders {
         @Override public String id() { return "asset.my-requests"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your recent asset requests"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("assets", "requests"); }
 
         @Override
@@ -61,7 +60,7 @@ public final class AssetDataProviders {
         @Override public String id() { return "asset.my-assignments"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Company assets assigned to you"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("assets", "my-assets"); }
 
         @Override
@@ -100,7 +99,7 @@ public final class AssetDataProviders {
         @Override public String id() { return "org-assets.summary"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "Company asset inventory"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR, AudienceBucket.ADMIN); }
+        @Override public Set<String> authorities() { return Set.of("expenses:VIEW:ALL"); }
         @Override public Set<String> modules() { return Set.of("assets-admin", "assets"); }
 
         @Override
@@ -138,9 +137,7 @@ public final class AssetDataProviders {
         @Override public String title() { return "Asset requests waiting for your decision"; }
 
         @Override
-        public Set<AudienceBucket> audiences() {
-            return Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
-        }
+        public Set<String> authorities() { return Set.of("expenses:APPROVE:TEAM"); }
 
         @Override public Set<String> modules() { return Set.of("assets", "approvals"); }
 

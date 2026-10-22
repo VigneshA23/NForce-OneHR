@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 
 import java.util.Optional;
 import java.util.Set;
@@ -16,7 +15,7 @@ import java.util.Set;
  *
  * <p><strong>A provider returns exactly what the caller's own role can already see in the UI,
  * through the same code that shows it there</strong> - which is what {@link #scope()} is for, and
- * what {@code DataProviderSafetyTest} enforces against {@link #audiences()}:
+ * what {@code DataProviderSafetyTest} enforces against {@link #authorities()}:
  *
  * <ul>
  *   <li>{@link DataScope#SELF}, {@link DataScope#APPROVALS} and {@link DataScope#TEAM} call an
@@ -27,8 +26,8 @@ import java.util.Set;
  *       own.</li>
  *   <li>{@link DataScope#ORGANISATION} may reach an org-wide read, such as
  *       {@code LeaveService.listOrgLeave(from, to)}, because the service methods behind org-wide
- *       screens usually take no actor at all. That makes {@link #audiences()} the only gate, so an
- *       organisation provider's audiences must mirror the {@code @PreAuthorize} on the controller
+ *       screens usually take no actor at all. That makes {@link #authorities()} the only gate, so an
+ *       organisation provider's authorities must mirror the {@code @PreAuthorize} on the controller
  *       that serves the same data to the UI - never wider - and it should prefer counts and short,
  *       capped lists over row dumps.</li>
  * </ul>
@@ -65,14 +64,28 @@ public interface AssistantDataProvider {
      */
     DataScope scope();
 
+    /** {@link #authorities()} for a provider every signed-in user may run (their own records). */
+    Set<String> EVERYONE = Set.of();
+
     /**
-     * Which audience buckets may run this at all.
+     * Who may run this at all: a caller holding ANY one of these {@code "module:ACTION:SCOPE"}
+     * permissions (cascaded, so an ALL grant satisfies a TEAM one), or {@link #EVERYONE}.
      *
      * <p>A second gate on top of the service's own scoping, not a replacement for it: "what is
      * waiting on me to approve" is meaningless for an Employee and should not run, even though
-     * the underlying service would correctly return nothing.
+     * the underlying service would correctly return nothing. Permissions rather than role codes, so
+     * a custom role holding the same grant gets the same data an HR Admin or Manager would.
      */
-    Set<AudienceBucket> audiences();
+    Set<String> authorities();
+
+    /**
+     * Permissions whose holders get a better-fitting provider for the same question, so this one
+     * stands aside for them rather than competing for the turn - e.g. {@code Headcount} for anyone
+     * who can run {@code UserAccounts}. Empty by default.
+     */
+    default Set<String> standsAsideFor() {
+        return Set.of();
+    }
 
     /**
      * Knowledge modules whose retrieval should trigger this provider.
@@ -99,7 +112,7 @@ public interface AssistantDataProvider {
      * As {@link #fetch(AssistantRequestContext)}, for the rare provider whose data genuinely
      * depends on a date range the user named in the question itself ("this week", "last 30
      * days") rather than one fixed window. The question is not a second authorisation channel -
-     * every provider is still gated by {@link #audiences()} and, for {@link DataScope#TEAM},
+     * every provider is still gated by {@link #authorities()} and, for {@link DataScope#TEAM},
      * scoped to the caller's direct reports exactly as {@link #fetch(AssistantRequestContext)}
      * would be - it only ever adjusts which dates are read, through the same deterministic
      * business-date arithmetic every other date in this system uses ({@code MyTeamDateRange}),

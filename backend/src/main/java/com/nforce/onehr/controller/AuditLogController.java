@@ -76,9 +76,15 @@ public class AuditLogController {
                 isSuperAdmin(authentication), authentication.getName());
     }
 
+    /**
+     * Whether the caller may see ACCESS_CONTROL actions (user/role administration events). Gated
+     * on user_management:VIEW:ALL — seeded SUPER_ADMIN-only, exactly the role this used to check,
+     * and the same authority the frontend uses to pick the Super Admin audit view. The audit
+     * module's own permissions can't express it: they're OWN-scoped for every role by design (V225).
+     */
     private boolean isSuperAdmin(Authentication authentication) {
         return authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> a.equals("ROLE_SUPER_ADMIN"));
+                .anyMatch(a -> a.equals("user_management:VIEW:ALL"));
     }
 }

@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import com.nforce.onehr.entity.EmployeeDocument;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -24,7 +25,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DocumentService {
 
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    // Seeded to exactly HR_ADMIN + SUPER_ADMIN (V225) — the set the old ADMIN_ROLES check named.
+    private static final String VIEW_ALL = "documents:VIEW:ALL";
+    private static final String APPROVE_ALL = "documents:APPROVE:ALL";
 
     private final EmployeeDocumentRepository docRepo;
     private final DocumentTypeRepository docTypeRepo;
@@ -32,6 +35,7 @@ public class DocumentService {
     private final UserRepository userRepo;
     private final NotificationRepository notificationRepo;
     private final NotificationService notificationService;
+    private final EffectivePermissionService effectivePermissionService;
 
     // ── Employee: list my documents with required doc computation ──
 
@@ -177,7 +181,7 @@ public class DocumentService {
         User actor = requireUser(actorEmail);
         EmployeeDocument doc = docRepo.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
-        boolean isAdmin = actor.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
+        boolean isAdmin = effectivePermissionService.hasAuthority(actor, VIEW_ALL);
         boolean isOwner = doc.getEmployeeUserId().equals(actor.getId());
         if (!isAdmin && !isOwner) {
             throw new AccessDeniedException("Access denied");
@@ -193,7 +197,7 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public List<EmployeeDocumentResponse> listPending(String actorEmail) {
         UUID actorId = requireUser(actorEmail).getId();
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, VIEW_ALL);
         List<EmployeeDocument> docs = docRepo.findByStatusOrderByUploadedAtDesc("PENDING_VERIFICATION")
                 .stream().filter(d -> !d.getEmployeeUserId().equals(actorId)).collect(Collectors.toList());
         Map<UUID, String> names = nameMapFor(docs.stream().map(EmployeeDocument::getEmployeeUserId).collect(Collectors.toSet()));
@@ -203,7 +207,7 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public List<EmployeeDocumentResponse> listAll(String actorEmail) {
         UUID actorId = requireUser(actorEmail).getId();
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, VIEW_ALL);
         List<EmployeeDocument> docs = adminVisibleDocuments(actorId);
         Map<UUID, String> names = nameMapFor(docs.stream().map(EmployeeDocument::getEmployeeUserId).collect(Collectors.toSet()));
         return docs.stream().map(d -> EmployeeDocumentResponse.from(d, names.get(d.getEmployeeUserId()))).collect(Collectors.toList());
@@ -216,7 +220,7 @@ public class DocumentService {
      */
     @Transactional(readOnly = true)
     public List<EmployeeDocumentResponse> documentsForEmployee(String actorEmail, UUID employeeUserId) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, VIEW_ALL);
         Employee emp = employeeRepo.findById(employeeUserId)
                 .orElseThrow(() -> new NoSuchElementException("Employee not found: " + employeeUserId));
         return docRepo.findByEmployeeUserIdAndSupersededFalseOrderByUploadedAtDesc(employeeUserId).stream()
@@ -229,7 +233,7 @@ public class DocumentService {
     @Transactional
     public EmployeeDocumentResponse verifyDocument(String actorEmail, UUID documentId, VerifyDocumentRequest req) {
         User actor = requireUser(actorEmail);
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, APPROVE_ALL);
 
         EmployeeDocument doc = docRepo.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
@@ -280,7 +284,7 @@ public class DocumentService {
         User actor = requireUser(actorEmail);
         EmployeeDocument doc = docRepo.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
-        boolean isAdmin = actor.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
+        boolean isAdmin = effectivePermissionService.hasAuthority(actor, VIEW_ALL);
         boolean isOwner = doc.getEmployeeUserId().equals(actor.getId());
         if (!isAdmin && !isOwner) {
             throw new AccessDeniedException("Access denied");
@@ -292,7 +296,7 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public List<MissingDocumentDto> listMissing(String actorEmail) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, VIEW_ALL);
         List<Employee> employees = employeeRepo.findAllActiveNonAdminWithDetails();
         List<DocumentType> docTypes = docTypeRepo.findByActiveTrueOrderByNameAsc();
 
@@ -315,7 +319,7 @@ public class DocumentService {
 
     @Transactional
     public void remindMissingDocument(String actorEmail, UUID employeeUserId, Integer documentTypeId) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, VIEW_ALL);
         DocumentType dt = docTypeRepo.findById(documentTypeId)
                 .orElseThrow(() -> new NoSuchElementException("Document type not found: " + documentTypeId));
         // Same eligibility as listMissing: only an active, non-admin employee who genuinely hasn't
@@ -344,7 +348,7 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public DocumentAdminKpiDto getAdminKpis(String actorEmail) {
         UUID actorId = requireUser(actorEmail).getId();
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, VIEW_ALL);
         // Computed from exactly the rows the admin lists show (current version, non-deleted,
         // excluding the caller's own documents) so every KPI card matches its tab. Previously
         // totalDocuments was docRepo.count() — every row including superseded versions, deleted
@@ -471,10 +475,8 @@ public class DocumentService {
                 .orElseThrow(() -> new NoSuchElementException("User not found: " + email));
     }
 
-    private void requireAdminRole(String email) {
-        User u = requireUser(email);
-        boolean isAdmin = u.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
-        if (!isAdmin) {
+    private void requireAuthority(String email, String authority) {
+        if (!effectivePermissionService.hasAuthority(requireUser(email), authority)) {
             throw new AccessDeniedException("Access denied");
         }
     }

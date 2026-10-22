@@ -4,6 +4,7 @@ import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.expense.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -18,7 +19,17 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ExpenseService {
 
-    private static final Set<String> FINAL_APPROVER_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    // Permission gates (V225/V236 seed). Each one's seeded holder set is exactly the role set the
+    // old FINAL_APPROVER_ROLES / "is SUPER_ADMIN" checks named, so system roles behave identically
+    // and a custom role granted the permission behaves like those holders:
+    //   APPROVE:ALL / VIEW:ALL / CONFIGURE:ALL -> HR_ADMIN + SUPER_ADMIN (MANAGER's TEAM grant doesn't reach ALL)
+    //   OVERRIDE (expenses_override:APPROVE:ALL, V236) -> SUPER_ADMIN only
+    private static final String APPROVE_ALL = "expenses:APPROVE:ALL";
+    private static final String VIEW_ALL = "expenses:VIEW:ALL";
+    private static final String CONFIGURE_ALL = "expenses:CONFIGURE:ALL";
+    private static final String OVERRIDE = "expenses_override:APPROVE:ALL";
+    private static final String STAGE_HR_ADMIN = "HR_ADMIN";
+    private static final String STAGE_SUPER_ADMIN = "SUPER_ADMIN";
 
     private final ExpenseClaimRepository claimRepo;
     private final ExpenseCategoryRepository categoryRepo;
@@ -30,6 +41,8 @@ public class ExpenseService {
     private final NotificationService notificationService;
     private final AttendanceProperties attendanceProperties;
     private final ApprovalRuleEvaluationService approvalRuleEvaluationService;
+    private final EffectivePermissionService effectivePermissionService;
+    private final RoleRepository roleRepo;
 
     // ── Categories ────────────────────────────────────────
 
@@ -40,7 +53,7 @@ public class ExpenseService {
 
     @Transactional
     public ExpenseCategoryResponse createCategory(CreateExpenseCategoryRequest req, String actorEmail) {
-        requireFinalApprover(actorEmail);
+        requirePermission(actorEmail, CONFIGURE_ALL);
         ExpenseCategory cat = ExpenseCategory.builder()
                 .name(req.getName().trim())
                 .requiresReceiptAbove(req.getRequiresReceiptAbove())
@@ -53,7 +66,7 @@ public class ExpenseService {
 
     @Transactional
     public ExpenseCategoryResponse updateCategory(Integer categoryId, CreateExpenseCategoryRequest req, String actorEmail) {
-        requireFinalApprover(actorEmail);
+        requirePermission(actorEmail, CONFIGURE_ALL);
         ExpenseCategory cat = categoryRepo.findById(categoryId)
                 .orElseThrow(() -> new IllegalArgumentException("Category not found"));
         cat.setName(req.getName().trim());
@@ -145,7 +158,13 @@ public class ExpenseService {
         ExpenseClaim claim = claimRepo.findById(claimId)
                 .orElseThrow(() -> new NoSuchElementException("Expense claim not found: " + claimId));
         if (!claim.getEmployeeUserId().equals(actor.getId())) {
-            requireCurrentManagerOf(actor, claim.getEmployeeUserId());
+            Approver approver = approver(actor);
+            // Whoever can decide the claim's current final stage needs its receipt to do so — for
+            // the system stages that's already covered by the APPROVE:ALL override below; this
+            // adds the holders of a custom-role stage (V236).
+            boolean atTheirStage = "MANAGER_APPROVED".equals(claim.getStatus())
+                    && canActAtFinalStage(approver, claim.getPendingFinalStage());
+            if (!atTheirStage) requireCurrentManagerOf(approver, claim.getEmployeeUserId());
         }
         if (claim.getReceiptUrl() == null || claim.getReceiptUrl().isBlank()) {
             throw new NoSuchElementException("No receipt attached to this claim");
@@ -216,7 +235,7 @@ public class ExpenseService {
     public ExpenseClaimResponse managerApprove(UUID claimId, String actorEmail) {
         User actor = requireActor(actorEmail);
         ExpenseClaim claim = requireClaimInStatus(claimId, "SUBMITTED");
-        requireCurrentManagerOf(actor, claim.getEmployeeUserId());
+        requireCurrentManagerOf(approver(actor), claim.getEmployeeUserId());
         String approverRole = resolveManagerStageApproverRole(actor, claim.getEmployeeUserId());
 
         String before = auditSnapshot.toJson(Map.of("status", "SUBMITTED"));
@@ -264,7 +283,7 @@ public class ExpenseService {
     public ExpenseClaimResponse managerReject(UUID claimId, String reason, String actorEmail) {
         User actor = requireActor(actorEmail);
         ExpenseClaim claim = requireClaimInStatus(claimId, "SUBMITTED");
-        requireCurrentManagerOf(actor, claim.getEmployeeUserId());
+        requireCurrentManagerOf(approver(actor), claim.getEmployeeUserId());
         String approverRole = resolveManagerStageApproverRole(actor, claim.getEmployeeUserId());
 
         String before = auditSnapshot.toJson(Map.of("status", "SUBMITTED"));
@@ -297,22 +316,36 @@ public class ExpenseService {
     // clearance (finalApprove/finalReject still require MANAGER_APPROVED via requireClaimInStatus).
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> pendingForFinalApprover(String actorEmail) {
-        User actor = requireActor(actorEmail);
-        requireFinalApproverRole(actor);
+        Approver approver = approver(requireActor(actorEmail));
+        requireFinalStageAccess(approver);
+        // SUBMITTED claims are here for the manager-stage override, so only for APPROVE:ALL holders
+        // (every caller that got this far before V236) — a custom-stage-only approver sees just
+        // the claims awaiting their stage.
+        boolean managerStageOverride = approver.can(APPROVE_ALL);
         // A multi-layer claim (see ExpenseClaim.pendingFinalStage) only shows at the final stage
         // for whoever can act on its CURRENT stage — an HR Admin who already approved a
         // Manager -> HR Admin -> Super Admin claim no longer sees it once it moves on to Super Admin.
         return toClaimResponses(claimRepo.findSummaryByStatusIn(List.of("SUBMITTED", "MANAGER_APPROVED")).stream()
-                .filter(c -> !"MANAGER_APPROVED".equals(c.getStatus()) || canActAtFinalStage(actor, c.getPendingFinalStage()))
+                .filter(c -> "MANAGER_APPROVED".equals(c.getStatus())
+                        ? canActAtFinalStage(approver, c.getPendingFinalStage())
+                        : managerStageOverride)
                 .collect(Collectors.toList()));
+    }
+
+    /** Whether {@link #pendingForFinalApprover} is open to this user — for callers (e.g. the
+     * Approval Center) deciding whether to ask, instead of re-deriving "is HR/SA" from role codes. */
+    @Transactional(readOnly = true)
+    public boolean hasFinalApproverQueue(String actorEmail) {
+        return hasFinalStageAccess(approver(requireActor(actorEmail)));
     }
 
     @Transactional
     public ExpenseClaimResponse finalApprove(UUID claimId, String actorEmail) {
         User actor = requireActor(actorEmail);
-        requireFinalApproverRole(actor);
+        Approver approver = approver(actor);
+        requireFinalStageAccess(approver);
         ExpenseClaim claim = requireClaimInStatus(claimId, "MANAGER_APPROVED");
-        requireCanActAtFinalStage(actor, claim);
+        requireCanActAtFinalStage(approver, claim);
         requireNotSameApproverAsManagerStage(actor, claim);
 
         // Multi-layer approval: this approval satisfies the current stage, plus any immediately
@@ -320,7 +353,7 @@ public class ExpenseService {
         // HR Admin stage of Manager -> HR Admin -> Super Admin isn't asked to approve twice). If a
         // stage held by someone else remains, the claim stays MANAGER_APPROVED and moves on to it.
         String next = nextFinalStage(claim, claim.getPendingFinalStage());
-        while (next != null && actorHasRole(actor, next)) {
+        while (next != null && holdsStage(approver, next)) {
             next = nextFinalStage(claim, next);
         }
         if (next != null) {
@@ -355,9 +388,10 @@ public class ExpenseService {
     @Transactional
     public ExpenseClaimResponse finalReject(UUID claimId, String reason, String actorEmail) {
         User actor = requireActor(actorEmail);
-        requireFinalApproverRole(actor);
+        Approver approver = approver(actor);
+        requireFinalStageAccess(approver);
         ExpenseClaim claim = requireClaimInStatus(claimId, "MANAGER_APPROVED");
-        requireCanActAtFinalStage(actor, claim);
+        requireCanActAtFinalStage(approver, claim);
         requireNotSameApproverAsManagerStage(actor, claim);
 
         String before = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED"));
@@ -380,14 +414,14 @@ public class ExpenseService {
 
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> clearedForPayroll(String actorEmail) {
-        requireFinalApprover(actorEmail);
+        requirePermission(actorEmail, VIEW_ALL);
         return toClaimResponses(claimRepo.findSummaryByStatus("CLEARED_FOR_PAYROLL"));
     }
 
     @Transactional
     public ExpenseClaimResponse markPaid(UUID claimId, String actorEmail) {
         User actor = requireActor(actorEmail);
-        requireFinalApproverRole(actor);
+        requirePermission(actor, APPROVE_ALL);
         ExpenseClaim claim = requireClaimInStatus(claimId, "CLEARED_FOR_PAYROLL");
 
         String before = auditSnapshot.toJson(Map.of("status", "CLEARED_FOR_PAYROLL"));
@@ -443,7 +477,7 @@ public class ExpenseService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> hrTileSummary(String actorEmail) {
-        requireFinalApprover(actorEmail);
+        requirePermission(actorEmail, VIEW_ALL);
         long pendingClearance = claimRepo.findByStatus("MANAGER_APPROVED").size();
         BigDecimal pendingAmount = claimRepo.sumAmountByStatus("MANAGER_APPROVED");
         return Map.of("pendingClearanceCount", pendingClearance, "pendingAmount", pendingAmount);
@@ -451,33 +485,72 @@ public class ExpenseService {
 
     // ── Guards ────────────────────────────────────────────
 
-    private void requireFinalApprover(String actorEmail) {
-        requireFinalApproverRole(requireActor(actorEmail));
+    /** The actor's expense-approval powers, resolved once per request (one permission query). */
+    private record Approver(User user, Set<String> authorities, Set<String> activeRoleCodes, boolean holdsCustomRole) {
+        boolean can(String authority) { return authorities.contains(authority); }
     }
 
-    private void requireFinalApproverRole(User actor) {
-        if (!isFinalApprover(actor)) {
-            throw new AccessDeniedException("HR Admin or Super Admin role required");
+    private Approver approver(User actor) {
+        List<Role> active = EffectivePermissionService.activeRoles(actor.getRoles());
+        return new Approver(actor, effectivePermissionService.coverage(actor.getRoles()),
+                active.stream().map(Role::getCode).collect(Collectors.toSet()),
+                active.stream().anyMatch(r -> !r.isSystem()));
+    }
+
+    private void requirePermission(String actorEmail, String authority) {
+        requirePermission(requireActor(actorEmail), authority);
+    }
+
+    private void requirePermission(User actor, String authority) {
+        if (!effectivePermissionService.hasAuthority(actor, authority)) {
+            throw new AccessDeniedException("Permission required: " + authority);
         }
     }
 
-    private boolean isFinalApprover(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> FINAL_APPROVER_ROLES.contains(r.getCode()));
+    /** May reach the final-stage queue/actions at all: APPROVE:ALL holders (exactly today's
+     * HR_ADMIN/SUPER_ADMIN), or a custom role's holder, since a custom role can be named as a
+     * stage (V236). Which claims they may actually decide is canActAtFinalStage's per-claim call. */
+    private boolean hasFinalStageAccess(Approver approver) {
+        return approver.can(APPROVE_ALL) || approver.holdsCustomRole();
     }
 
-    private boolean actorHasRole(User actor, String roleCode) {
-        return actor.getRoles().stream().anyMatch(r -> roleCode.equals(r.getCode()));
+    private void requireFinalStageAccess(Approver approver) {
+        if (!hasFinalStageAccess(approver)) {
+            throw new AccessDeniedException("Permission required: " + APPROVE_ALL);
+        }
     }
 
-    /** Null stage = legacy single final stage, either role. Otherwise the stage's own role, with
-     * Super Admin's usual override (it may act at the HR Admin stage too, never the reverse). */
-    private boolean canActAtFinalStage(User actor, String stage) {
-        if (stage == null) return isFinalApprover(actor);
-        return actorHasRole(actor, stage) || actorHasRole(actor, "SUPER_ADMIN");
+    /**
+     * Who may act at a final stage:
+     * <ul>
+     *   <li>null (legacy single final stage) / HR_ADMIN stage: expenses:APPROVE:ALL — exactly the
+     *       HR_ADMIN + SUPER_ADMIN pair that could act there before;</li>
+     *   <li>SUPER_ADMIN stage: expenses_override:APPROVE:ALL — Super Admin only, as before;</li>
+     *   <li>a custom-role stage (V236): that role's active holders.</li>
+     * </ul>
+     * The override permission also acts at any non-HR stage — Super Admin's usual override, which
+     * already let it act at the HR Admin stage (via APPROVE:ALL), never the reverse.
+     */
+    private boolean canActAtFinalStage(Approver approver, String stage) {
+        if (stage == null || STAGE_HR_ADMIN.equals(stage)) return approver.can(APPROVE_ALL);
+        if (approver.can(OVERRIDE)) return true;
+        return !STAGE_SUPER_ADMIN.equals(stage) && approver.activeRoleCodes().contains(stage);
     }
 
-    private void requireCanActAtFinalStage(User actor, ExpenseClaim claim) {
-        if (!canActAtFinalStage(actor, claim.getPendingFinalStage())) {
+    /**
+     * Whether the actor holds {@code stage} outright (not merely via an override), so one approval
+     * also satisfies it. SUPER_ADMIN stage: the override permission (holder set = Super Admin, as
+     * before). HR_ADMIN stage: deliberately still the HR_ADMIN role itself — "HR Admin but not
+     * Super Admin" can't be a permission (Super Admin holds them all), and Super Admin skipping a
+     * later HR stage would change today's routing. Custom-role stage: that role's holders.
+     */
+    private boolean holdsStage(Approver approver, String stage) {
+        if (STAGE_SUPER_ADMIN.equals(stage)) return approver.can(OVERRIDE);
+        return approver.activeRoleCodes().contains(stage);
+    }
+
+    private void requireCanActAtFinalStage(Approver approver, ExpenseClaim claim) {
+        if (!canActAtFinalStage(approver, claim.getPendingFinalStage())) {
             throw new AccessDeniedException("This claim is awaiting " + stageLabel(claim.getPendingFinalStage()) + " approval");
         }
     }
@@ -493,22 +566,24 @@ public class ExpenseService {
         }
     }
 
-    /** The HR_ADMIN/SUPER_ADMIN stage after {@code current} in the claim's snapshotted stage list,
+    /** The final (non-Manager) stage after {@code current} in the claim's snapshotted stage list,
      * or null when {@code current} is the last one (or the claim predates V201's stage list). */
     private String nextFinalStage(ExpenseClaim claim, String current) {
         if (claim.getApprovalStages() == null || current == null) return null;
         List<String> stages = ApprovalRuleEvaluationService.parseStages(claim.getApprovalStages());
         int i = stages.indexOf(current);
         for (int j = i + 1; i >= 0 && j < stages.size(); j++) {
-            if (FINAL_APPROVER_ROLES.contains(stages.get(j))) return stages.get(j);
+            if (ApprovalRuleEvaluationService.isFinalStage(stages.get(j))) return stages.get(j);
         }
         return null;
     }
 
-    private static String stageLabel(String stage) {
-        if ("SUPER_ADMIN".equals(stage)) return "Super Admin";
-        if ("HR_ADMIN".equals(stage)) return "HR Admin";
-        return "HR Admin or Super Admin";
+    private String stageLabel(String stage) {
+        if (STAGE_SUPER_ADMIN.equals(stage)) return "Super Admin";
+        if (STAGE_HR_ADMIN.equals(stage)) return "HR Admin";
+        if (stage == null) return "HR Admin or Super Admin";
+        // A custom-role stage (V236): its display name, falling back to the code if since deleted.
+        return roleRepo.findByCode(stage).map(Role::getDisplayName).orElse(stage);
     }
 
     /** MANAGER if {@code actor} is the employee's actual current reporting manager, otherwise
@@ -521,25 +596,26 @@ public class ExpenseService {
         if (current.isPresent() && current.get().getManagerUserId().equals(actor.getId())) {
             return ApprovalRuleEvaluationService.ROLE_MANAGER;
         }
+        // Audit/display label only (not an access decision) — left as a role-code check.
         boolean isSuperAdmin = actor.getRoles().stream().anyMatch(r -> "SUPER_ADMIN".equals(r.getCode()));
         return isSuperAdmin ? "SUPER_ADMIN" : "HR_ADMIN";
     }
 
-    private static String managerStageApproverPhrase(String approverRole) {
+    private String managerStageApproverPhrase(String approverRole) {
         if (ApprovalRuleEvaluationService.ROLE_MANAGER.equals(approverRole)) return "by your manager";
         return "by " + stageLabel(approverRole) + " on behalf of your manager";
     }
 
-    private void requireCurrentManagerOf(User actor, UUID employeeUserId) {
-        // HR_ADMIN/SUPER_ADMIN may decide the manager stage too, not just the final stage —
-        // same override convention as every other approval workflow in the app (Regularization/
-        // Asset/Overtime/AttendanceRequest/WebClockIn). ONEHR-140 follow-up: this manager-stage
-        // check was the one place in this service missing that override, causing HR Admin
-        // "Access Denied" on managerApprove/managerReject.
-        if (isFinalApprover(actor)) return;
+    private void requireCurrentManagerOf(Approver approver, UUID employeeUserId) {
+        // expenses:APPROVE:ALL holders (HR_ADMIN/SUPER_ADMIN by default) may decide the manager
+        // stage too, not just the final stage — same override convention as every other approval
+        // workflow in the app (Regularization/Asset/Overtime/AttendanceRequest/WebClockIn).
+        // ONEHR-140 follow-up: this manager-stage check was the one place in this service missing
+        // that override, causing HR Admin "Access Denied" on managerApprove/managerReject.
+        if (approver.can(APPROVE_ALL)) return;
         EmployeeManagerHistory current = historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(employeeUserId)
                 .orElseThrow(() -> new AccessDeniedException("Employee has no assigned manager"));
-        if (!current.getManagerUserId().equals(actor.getId())) {
+        if (!current.getManagerUserId().equals(approver.user().getId())) {
             throw new AccessDeniedException("You are not the current manager of this employee");
         }
     }

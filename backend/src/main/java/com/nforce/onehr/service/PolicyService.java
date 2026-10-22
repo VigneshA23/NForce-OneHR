@@ -7,6 +7,7 @@ import com.nforce.onehr.entity.PolicyAcknowledgment;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.util.AttachmentValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -23,7 +24,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PolicyService {
 
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    // Audience targeting (who a policy is addressed to / must acknowledge it), not access control.
     private static final Set<String> ALL_ROLE_CODES = Set.of("EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN");
 
     // Policy notification "Open Related Page" destination — every recipient, regardless of
@@ -36,6 +37,7 @@ public class PolicyService {
     private final UserRepository userRepo;
     private final EmployeeRepository employeeRepo;
     private final NotificationService notificationService;
+    private final EffectivePermissionService effectivePermissionService;
 
     // ── Employee: my policies (filtered by audience) ──
 
@@ -82,7 +84,7 @@ public class PolicyService {
 
     @Transactional(readOnly = true)
     public List<PolicyResponse> listAll(String actorEmail) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:VIEW:ALL");
         return policyRepo.findAllListItems().stream()
                 .map(p -> PolicyResponse.from(p, null, null))
                 .collect(Collectors.toList());
@@ -93,7 +95,7 @@ public class PolicyService {
     @Transactional
     public PolicyResponse publish(String actorEmail, PublishPolicyRequest req, MultipartFile attachment) throws IOException {
         User actor = requireUser(actorEmail);
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:CREATE:ALL");
 
         policyRepo.findByTitleOrderByPublishedAtDesc(req.getTitle()).forEach(old -> {
             old.setActive(false);
@@ -129,7 +131,7 @@ public class PolicyService {
 
     @Transactional
     public PolicyResponse uploadAttachment(String actorEmail, Long policyId, MultipartFile file) throws IOException {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:EDIT:ALL");
         Policy p = policyRepo.findById(policyId)
                 .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
         AttachmentValidator.validate(file);
@@ -151,7 +153,7 @@ public class PolicyService {
     public PolicyResponse publishNewVersion(String actorEmail, Long policyId, PublishPolicyVersionRequest req,
                                              MultipartFile attachment) throws IOException {
         User actor = requireUser(actorEmail);
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:EDIT:ALL");
 
         Policy current = policyRepo.findById(policyId)
                 .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
@@ -203,7 +205,7 @@ public class PolicyService {
 
     @Transactional(readOnly = true)
     public List<PolicyResponse> getVersionHistory(String actorEmail, Long policyId) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:VIEW:ALL");
         Policy anchor = policyRepo.findById(policyId)
                 .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
 
@@ -284,7 +286,7 @@ public class PolicyService {
 
     @Transactional
     public PolicyResponse editPolicy(String actorEmail, Long policyId, UpdatePolicyRequest req) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:EDIT:ALL");
         Policy p = policyRepo.findById(policyId)
                 .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
         if (req.getTitle() != null && !req.getTitle().isBlank()) p.setTitle(req.getTitle());
@@ -297,7 +299,7 @@ public class PolicyService {
 
     @Transactional
     public PolicyResponse deactivatePolicy(String actorEmail, Long policyId) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:EDIT:ALL");
         Policy p = policyRepo.findById(policyId)
                 .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
         p.setActive(false);
@@ -308,7 +310,7 @@ public class PolicyService {
 
     @Transactional
     public PolicyResponse reactivatePolicy(String actorEmail, Long policyId) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:EDIT:ALL");
         Policy p = policyRepo.findById(policyId)
                 .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
         p.setActive(true);
@@ -319,7 +321,7 @@ public class PolicyService {
 
     @Transactional
     public void deletePolicy(String actorEmail, Long policyId) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:DELETE:ALL");
         if (!policyRepo.existsById(policyId)) throw new NoSuchElementException("Policy not found: " + policyId);
         ackRepo.deleteByPolicyId(policyId);
         policyRepo.deleteById(policyId);
@@ -329,7 +331,7 @@ public class PolicyService {
 
     @Transactional(readOnly = true)
     public List<PolicyAcknowledgmentResponse> listAcknowledgments(String actorEmail, Long policyId) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:VIEW:ALL");
         Set<UUID> adminIds = userRepo.findAdminUserIds();
         List<PolicyAcknowledgment> acks = ackRepo.findByPolicyIdOrderByAcknowledgedAtDesc(policyId).stream()
                 .filter(a -> !adminIds.contains(a.getEmployeeUserId()))
@@ -354,7 +356,7 @@ public class PolicyService {
 
     @Transactional
     public void resetAcknowledgment(String actorEmail, Long policyId, UUID employeeUserId) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:EDIT:ALL");
         PolicyAcknowledgment ack = ackRepo.findByPolicyIdAndEmployeeUserId(policyId, employeeUserId)
                 .orElseThrow(() -> new NoSuchElementException("Acknowledgment not found"));
         ack.setAcknowledgedAt(null);
@@ -365,7 +367,7 @@ public class PolicyService {
 
     @Transactional
     public void remindEmployee(String actorEmail, Long policyId, UUID employeeUserId) {
-        requireAdminRole(actorEmail);
+        requireAuthority(actorEmail, "policies:EDIT:ALL");
         Policy p = policyRepo.findById(policyId)
                 .orElseThrow(() -> new NoSuchElementException("Policy not found: " + policyId));
         notificationService.send(employeeUserId, "POLICY_REMINDER",
@@ -406,10 +408,10 @@ public class PolicyService {
                 .orElseThrow(() -> new NoSuchElementException("User not found: " + email));
     }
 
-    private void requireAdminRole(String email) {
-        User u = requireUser(email);
-        boolean isAdmin = u.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
-        if (!isAdmin) {
+    // Every policies:* authority used here is seeded to exactly HR_ADMIN + SUPER_ADMIN (V225) — the
+    // set the old ADMIN_ROLES check named — and matches the endpoint's own @PreAuthorize.
+    private void requireAuthority(String email, String authority) {
+        if (!effectivePermissionService.hasAuthority(requireUser(email), authority)) {
             throw new AccessDeniedException("Access denied");
         }
     }

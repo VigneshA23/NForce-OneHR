@@ -14,6 +14,7 @@ import TalentPerformancePage from './pages/talent/TalentPerformancePage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
 import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
 import UserManagementPage from './pages/UserManagementPage';
+import RolesPermissionsPage from './pages/RolesPermissionsPage';
 import ProfilePage from './pages/ProfilePage';
 import EmployeeProfileViewPage from './pages/EmployeeProfileViewPage';
 import UserPreferencesPage from './pages/UserPreferencesPage';
@@ -212,6 +213,7 @@ export default function App() {
           <Route path="/my-skills"    element={<MySkillsPage />} />
           <Route path="/talent-performance" element={<TalentPerformancePage />} />
           <Route path="/access"         element={<UserManagementPage />} />
+          <Route path="/roles"          element={<RolesPermissionsPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
           <Route path="/profile"        element={<ProfilePage />} />
           <Route path="/profile/:userId" element={<EmployeeProfileViewPage />} />

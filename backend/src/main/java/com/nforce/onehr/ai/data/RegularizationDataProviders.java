@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.service.AttendanceRulesService;
 import com.nforce.onehr.service.RegularizationService;
@@ -46,7 +45,7 @@ public final class RegularizationDataProviders {
         @Override public String id() { return "regularization.my-requests"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your regularization requests"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("attendance", "requests", "regularization"); }
 
         @Override
@@ -83,9 +82,7 @@ public final class RegularizationDataProviders {
         @Override public String title() { return "Regularization requests waiting for your decision"; }
 
         @Override
-        public Set<AudienceBucket> audiences() {
-            return Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
-        }
+        public Set<String> authorities() { return Set.of("regularization:APPROVE:TEAM"); }
 
         @Override public Set<String> modules() { return Set.of("attendance", "approvals", "regularization-approvals"); }
 

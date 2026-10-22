@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.helpdesk.HelpdeskDashboardDto;
 import com.nforce.onehr.dto.helpdesk.TicketSummaryDto;
 import com.nforce.onehr.service.AttendanceRulesService;
@@ -42,7 +41,7 @@ public final class HelpdeskDataProviders {
         @Override public String id() { return "helpdesk.my-tickets"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "HR service requests (tickets) you raised"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("helpdesk", "requests", "help"); }
 
         @Override
@@ -84,7 +83,7 @@ public final class HelpdeskDataProviders {
         @Override public String id() { return "org-helpdesk.queue"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "HR service request (ticket) queue"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR, AudienceBucket.ADMIN); }
+        @Override public Set<String> authorities() { return Set.of("helpdesk:VIEW:ALL"); }
         @Override public Set<String> modules() { return Set.of("helpdesk-admin", "helpdesk", "requests"); }
 
         @Override

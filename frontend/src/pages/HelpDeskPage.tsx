@@ -7,6 +7,7 @@ import {
   FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Star, Trash2, Undo2, X, LifeBuoy
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
 import {
   helpdeskApi,
@@ -1005,13 +1006,14 @@ const STATUS_FILTERS: Array<TicketStatus | 'ALL'> = ['ALL', 'OPEN', 'IN_PROGRESS
 
 export default function HelpDeskPage() {
   const token = useAuthStore(s => s.token)!;
-  const user = useAuthStore(s => s.user);
+  const permissions = useAuthStore(s => s.permissions);
   const { showToast } = useToast();
-  // HR_ADMIN/SUPER_ADMIN see the same page as employees, plus inline content-management
-  // controls — matching the ADMIN_ROLES check already authoritative server-side in
-  // HelpdeskService/HrHelpContentController. Hiding these controls is presentation only;
-  // every mutating call still goes through the same @PreAuthorize-guarded HR endpoints.
-  const isAdmin = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN';
+  // Content admins see the same page as employees, plus inline content-management controls and
+  // the admin content list — gated on hr_help_content:VIEW:ALL, what HrHelpContentController's
+  // list/detail endpoints require (seeded to exactly HR_ADMIN + SUPER_ADMIN, the roles this used
+  // to check). Hiding these controls is presentation only; every mutating call still goes
+  // through the same @PreAuthorize-guarded HR endpoints.
+  const isAdmin = hasPermission(permissions, 'hr_help_content', 'VIEW', 'ALL');
 
   // Session-scoped view-count dedup, shared across every content-detail open on this page visit
   // (Guides/Quick Help/Documents opened via ContentModal) — kept here rather than inside

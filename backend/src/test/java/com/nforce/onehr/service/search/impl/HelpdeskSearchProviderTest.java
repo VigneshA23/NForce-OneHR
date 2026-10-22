@@ -1,5 +1,7 @@
 package com.nforce.onehr.service.search.impl;
 
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.dto.helpdesk.TicketSummaryDto;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
@@ -9,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -36,6 +39,10 @@ import static org.mockito.Mockito.when;
 class HelpdeskSearchProviderTest {
 
     @Mock private HelpdeskService helpdeskService;
+
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(java.util.Map.of(
+            "CUSTOM_DESK_VIEWER", java.util.Map.of("helpdesk:VIEW", "ALL"),
+            "CUSTOM_OTHER", java.util.Map.of("helpdesk:EDIT", "ALL")));
     @InjectMocks private HelpdeskSearchProvider provider;
 
     private User userWithRole(String roleCode) {
@@ -109,5 +116,28 @@ class HelpdeskSearchProviderTest {
     @Test
     void refineUrl_nonAdmin_pointsAtHelpDeskPage() {
         assertEquals("/help?ticketSearch=leave", provider.refineUrl(userWithRole("EMPLOYEE"), "leave"));
+    }
+
+    @Test
+    void customRoleWithHelpdeskView_seesFullQueue() {
+        User viewer = userWithRole("CUSTOM_DESK_VIEWER");
+        when(helpdeskService.listQueue(eq(viewer.getEmail()), isNull(), isNull(), eq("leave"), eq(0), eq(5)))
+                .thenReturn(Page.empty());
+
+        provider.preview(viewer, "leave", 5);
+
+        verify(helpdeskService, never()).listMine(any(), any(), any(), anyInt(), anyInt());
+        assertEquals("/requests?search=leave", provider.refineUrl(viewer, "leave"));
+    }
+
+    @Test
+    void customRoleWithoutHelpdeskView_seesOnlyOwnTickets() {
+        User other = userWithRole("CUSTOM_OTHER");
+        when(helpdeskService.listMine(eq(other.getEmail()), isNull(), eq("leave"), eq(0), eq(5)))
+                .thenReturn(Page.empty());
+
+        provider.preview(other, "leave", 5);
+
+        verify(helpdeskService, never()).listQueue(any(), any(), any(), any(), anyInt(), anyInt());
     }
 }

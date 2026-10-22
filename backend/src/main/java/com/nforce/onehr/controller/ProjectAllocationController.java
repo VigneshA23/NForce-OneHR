@@ -26,14 +26,14 @@ public class ProjectAllocationController {
     /** US-B04: single-employee allocation — the baseline {@link ProjectAllocationService} validates for both this and bulk. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('project_allocations:CREATE:ALL')")
     public ProjectAllocationResponse allocate(@Valid @RequestBody ProjectAllocationRequest req) {
         return service.allocate(req);
     }
 
     /** US-B10: bulk-allocate the same project/capacity/date-range to multiple employees, with per-employee partial success. */
     @PostMapping("/bulk")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('project_allocations:CREATE:ALL')")
     public BulkAllocationResponse bulkAllocate(@Valid @RequestBody BulkProjectAllocationRequest req) {
         return service.bulkAllocate(req);
     }
@@ -44,7 +44,7 @@ public class ProjectAllocationController {
      * needs for their own reports.
      */
     @GetMapping("/capacity")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('project_allocations:VIEW:TEAM')")
     public List<EmployeeCapacityResponse> capacity(@RequestParam(required = false) UUID departmentId,
                                                      @RequestParam(required = false) UUID projectId,
                                                      Principal principal) {

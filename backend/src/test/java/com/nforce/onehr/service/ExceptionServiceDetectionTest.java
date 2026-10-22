@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.SeedMatrix;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.entity.*;
@@ -134,7 +135,7 @@ class ExceptionServiceDetectionTest {
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
                 workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
                 workHoursShortageCalculationService, policyEngine, attendancePenaltyRepository, attendancePenaltyService,
-                shiftVersionResolver, shiftRepository);
+                shiftVersionResolver, shiftRepository, SeedMatrix.permissionService());
 
         lenient().when(employeeShiftAssignmentResolver.resolve(any(), any())).thenAnswer(inv ->
                 EmployeeShiftAssignment.builder().employeeUserId(employeeId).shift(currentEmployeeShift).effectiveFrom(LocalDate.MIN).build());

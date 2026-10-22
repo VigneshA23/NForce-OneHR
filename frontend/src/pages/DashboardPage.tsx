@@ -14,6 +14,8 @@ import DashTile from '../components/DashTile';
 import { usePreviewMode } from '../lib/previewMode';
 import { previewMonthHistory, PREVIEW_CONFIG, PREVIEW_STATS, PREVIEW_BALANCES, previewRequests, previewHolidays } from './dashboard-ui-preview/dashboardPreviewData';
 import { useAuthStore } from '../store/authStore';
+import { hasOrgWorkforceView, hasPermission } from '../lib/permissions';
+import type { MyPermissionsResponse } from '../api/me';
 import { dashboardApi, type TeamJoiner, type ManagerDashboard } from '../api/dashboard';
 import { usersApi, type EmployeeRecord } from '../api/employees';
 import { auditApi, type AuditLogEntry, type AuditLogStats } from '../api/audit';
@@ -2155,11 +2157,34 @@ function SuperAdminDashboardView() {
 
 // ── Entry point ──────────────────────────────────────────────────────────────────
 
+export type DashboardView = 'super-admin' | 'hr' | 'manager' | 'employee';
+
+/**
+ * Which dashboard to render. The org-wide (HR) and team (Manager) views are chosen by the
+ * permissions their endpoints require — hasOrgWorkforceView (HR Admin + Super Admin) and
+ * attendance:VIEW:TEAM (Manager + HR Admin + Super Admin, /attendance/team) — so the four system
+ * roles land exactly where they did by role. The Super Admin composite dashboard stays on the
+ * primary role: no seeded permission marks "Super Admin's home page" without also matching a
+ * custom role that merely holds one of its modules (e.g. user_management). Until permissions have
+ * loaded (first render after sign-in) this falls back to the old role mapping, so the landing page
+ * doesn't flash the Employee dashboard — and fire its requests — for everyone else.
+ */
+export function dashboardViewFor(role: string, permissions: MyPermissionsResponse | null | undefined): DashboardView {
+  if (role === 'SUPER_ADMIN') return 'super-admin';
+  if (!permissions) {
+    return role === 'HR_ADMIN' ? 'hr' : role === 'MANAGER' ? 'manager' : role === 'EMPLOYEE' ? 'employee' : 'super-admin';
+  }
+  if (hasOrgWorkforceView(permissions)) return 'hr';
+  if (hasPermission(permissions, 'attendance', 'VIEW', 'TEAM')) return 'manager';
+  return 'employee';
+}
+
 export default function DashboardPage() {
   const role = useAuthStore(s => s.user?.role) ?? '';
-  if (role === 'MANAGER')     return <TeamDashboardView scope="manager" />;
-  if (role === 'HR_ADMIN')    return <TeamDashboardView scope="hr" />;
-  if (role === 'EMPLOYEE')    return <EmployeeDashboardView />;
-  if (role === 'SUPER_ADMIN') return <SuperAdminDashboardView />;
+  const permissions = useAuthStore(s => s.permissions);
+  const view = dashboardViewFor(role, permissions);
+  if (view === 'manager')  return <TeamDashboardView scope="manager" />;
+  if (view === 'hr')       return <TeamDashboardView scope="hr" />;
+  if (view === 'employee') return <EmployeeDashboardView />;
   return <SuperAdminDashboardView />;
 }

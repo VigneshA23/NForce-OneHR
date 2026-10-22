@@ -22,10 +22,10 @@ import com.nforce.onehr.ai.navigation.PageRegistry;
 import com.nforce.onehr.ai.prompt.PromptBuilder;
 import com.nforce.onehr.ai.response.ResponseValidator;
 import com.nforce.onehr.ai.response.UnknownResponses;
-import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.service.AttendanceRulesService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -112,7 +112,7 @@ class AiAssistantServiceTest {
                 // and an empty provider list is the honest way to say "no live data this turn"
                 // rather than mocking away a collaborator that would otherwise run real queries.
                 new AssistantDataService(List.of()),
-                interactionLogger, properties);
+                interactionLogger, properties, SeedMatrix.permissionService());
 
         when(userRepository.findByEmail(EMAIL)).thenReturn(Optional.of(employeeUser()));
         when(conversationService.resolve(any(), any()))
@@ -122,15 +122,15 @@ class AiAssistantServiceTest {
 
     private User employeeUser() {
         return User.builder().id(employeeId).email(EMAIL).active(true)
-                .roles(Set.of(Role.builder().id(1).code("EMPLOYEE").displayName("Employee").build()))
+                .roles(Set.of(SeedMatrix.role("EMPLOYEE")))
                 .build();
     }
 
     private User hrAdminUser() {
         return User.builder().id(employeeId).email(EMAIL).active(true)
                 .roles(Set.of(
-                        Role.builder().id(1).code("EMPLOYEE").displayName("Employee").build(),
-                        Role.builder().id(2).code("HR_ADMIN").displayName("HR Admin").build()))
+                        SeedMatrix.role("EMPLOYEE"),
+                        SeedMatrix.role("HR_ADMIN")))
                 .build();
     }
 

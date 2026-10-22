@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.ManagerDashboardDto;
@@ -49,9 +48,17 @@ public final class TeamDataProviders {
 
     private static final int MAX_NAMES = 25;
 
-    /** Manager, HR Admin and Super Admin: whoever has direct reports at all. Never Employee. */
-    private static final Set<AudienceBucket> TEAM_AUDIENCES =
-            Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
+    /**
+     * The team-view grant behind My Team's own endpoints ({@code /attendance/team*}). Seeded for
+     * Manager, HR Admin and Super Admin - whoever has direct reports at all - never Employee.
+     */
+    static final String TEAM_ATTENDANCE = "attendance:VIEW:TEAM";
+
+    /**
+     * Team Assets &amp; Expenses: assets have no permission module of their own yet, so the page's
+     * expenses grant stands in (same Manager/HR Admin/Super Admin holders as before).
+     */
+    private static final String TEAM_ASSETS = "expenses:VIEW:TEAM";
 
     /** Direct reports and recent team joiners - the Manager Home "My team" card. */
     @Component
@@ -66,7 +73,7 @@ public final class TeamDataProviders {
         @Override public String id() { return "team.members"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports"; }
-        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of(TEAM_ATTENDANCE); }
         @Override public Set<String> modules() { return Set.of("team", "people"); }
 
         @Override
@@ -114,7 +121,7 @@ public final class TeamDataProviders {
         @Override public String id() { return "team-attendance.today"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' attendance today and this past week"; }
-        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of(TEAM_ATTENDANCE); }
         @Override public Set<String> modules() { return Set.of("team-attendance", "team", "attendance"); }
 
         @Override
@@ -159,7 +166,7 @@ public final class TeamDataProviders {
         @Override public String id() { return "team-leave.upcoming"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' approved leave, today and the next 14 days"; }
-        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of("leave:VIEW:TEAM"); }
         @Override public Set<String> modules() { return Set.of("team-leave", "team", "leave"); }
 
         @Override
@@ -191,7 +198,7 @@ public final class TeamDataProviders {
         @Override public String id() { return "team-penalties.active"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Active attendance penalties across your direct reports"; }
-        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of(TEAM_ATTENDANCE); }
         @Override public Set<String> modules() { return Set.of("team-penalties", "team", "penalties"); }
 
         @Override
@@ -218,7 +225,7 @@ public final class TeamDataProviders {
         @Override public String id() { return "team-expenses.claims"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' expense claims"; }
-        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of("expenses:VIEW:TEAM"); }
         @Override public Set<String> modules() { return Set.of("team-expenses", "team", "assets"); }
 
         @Override
@@ -247,7 +254,7 @@ public final class TeamDataProviders {
         @Override public String id() { return "team-assets.requests"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' asset requests"; }
-        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of(TEAM_ASSETS); }
         @Override public Set<String> modules() { return Set.of("team-assets", "team", "assets"); }
 
         @Override
@@ -277,7 +284,7 @@ public final class TeamDataProviders {
         @Override public String id() { return "team-assets.assignments"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Company assets currently assigned to your direct reports"; }
-        @Override public Set<AudienceBucket> audiences() { return TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of(TEAM_ASSETS); }
         @Override public Set<String> modules() { return Set.of("team-assets", "team", "assets"); }
 
         @Override

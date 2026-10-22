@@ -14,6 +14,7 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.ProjectAllocationRepository;
 import com.nforce.onehr.repository.ProjectRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,20 +39,20 @@ import java.util.stream.Collectors;
  * <p>{@link #capacityView} (US-B05, filterable by {@link #capacityView} since US-B13) is the team
  * capacity read path. Its visibility is deliberately the same hierarchy rule {@link LeaveService}
  * uses for approvals — {@link DirectReportScopeService}'s direct-report set for a plain Manager,
- * unrestricted only for HR_ADMIN/SUPER_ADMIN — so a Manager's department/project filters can only
+ * unrestricted only for holders of project_allocations:VIEW:ALL (HR_ADMIN/SUPER_ADMIN by default) —
+ * so a Manager's department/project filters can only
  * narrow that set further, never substitute for it.
  */
 @Service
 @RequiredArgsConstructor
 public class ProjectAllocationService {
 
-    private static final Set<String> VISIBILITY_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
-
     private final ProjectAllocationRepository allocationRepository;
     private final EmployeeRepository employeeRepository;
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
     private final DirectReportScopeService directReportScopeService;
+    private final EffectivePermissionService effectivePermissionService;
 
     @Transactional
     public ProjectAllocationResponse allocate(ProjectAllocationRequest req) {
@@ -111,16 +112,16 @@ public class ProjectAllocationService {
      * {@link DirectReportScopeService} (the same hierarchy query Leave approvals is built on) as a
      * set of allowed employee ids, which {@code projectId} can only narrow further by intersection
      * — never widen, never replace — so a Manager can never see outside their own direct reports
-     * no matter which filters are supplied. Only HR_ADMIN/SUPER_ADMIN get no such set at all.
+     * no matter which filters are supplied. Only project_allocations:VIEW:ALL holders get no such set at all.
      */
     @Transactional(readOnly = true)
     public List<EmployeeCapacityResponse> capacityView(String actorEmail, UUID departmentId, UUID projectId) {
         User actor = resolveUser(actorEmail);
 
-        // null = unrestricted (HR_ADMIN/SUPER_ADMIN only); any other value is the hard ceiling
+        // null = unrestricted (project_allocations:VIEW:ALL only); any other value is the hard ceiling
         // every further filter gets intersected into, never unioned or bypassed.
         Set<UUID> allowedIds = null;
-        if (!hasVisibilityOverride(actor)) {
+        if (!effectivePermissionService.hasAuthority(actor, "project_allocations:VIEW:ALL")) {
             allowedIds = directReportScopeService.directReportIds(actorEmail);
             if (allowedIds.isEmpty()) {
                 return List.of();
@@ -184,10 +185,6 @@ public class ProjectAllocationService {
         Set<UUID> result = new HashSet<>(a);
         result.retainAll(b);
         return result;
-    }
-
-    private boolean hasVisibilityOverride(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> VISIBILITY_OVERRIDE_ROLES.contains(r.getCode()));
     }
 
     private User resolveUser(String actorEmail) {

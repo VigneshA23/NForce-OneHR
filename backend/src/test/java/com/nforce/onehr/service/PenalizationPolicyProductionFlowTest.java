@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
@@ -94,7 +95,7 @@ class PenalizationPolicyProductionFlowTest {
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
                 workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
                 workHoursShortageCalculationService, policyEngine, attendancePenaltyRepository, attendancePenaltyService,
-                shiftVersionResolver, shiftRepository);
+                shiftVersionResolver, shiftRepository, SeedMatrix.permissionService());
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeId));

@@ -311,7 +311,7 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
                       color: checked ? 'var(--brand)' : 'var(--txt-mut)',
                     }}
                   >
-                    {checked ? '+ ' : ''}{role.replace('_', ' ')} Approval
+                    {checked ? '+ ' : ''}{metadata.approvalRoleLabels?.[role] ?? role.replace('_', ' ')} Approval
                   </button>
                 );
               })}

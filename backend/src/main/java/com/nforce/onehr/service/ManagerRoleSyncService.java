@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -89,14 +90,20 @@ public class ManagerRoleSyncService {
     }
 
     /**
-     * Call after any operation that replaces a user's whole role set wholesale (e.g. a Super
-     * Admin changing someone's primary role, which clears and rebuilds their {@code roles}) — an
+     * Call while building the replacement role set of any operation that replaces a user's roles
+     * wholesale (a Super Admin changing someone's primary role, or Manage Roles) — an
      * auto-granted MANAGER status reflects live reporting lines, not a primary-role choice, so it
      * survives that kind of reset. A no-op if this user holds no auto-grant marker.
      */
     @Transactional
-    public void restoreIfAutoGranted(User user) {
-        if (!autoGrantRepository.existsById(user.getId())) return;
-        roleRepository.findByCode(MANAGER).ifPresent(user.getRoles()::add);
+    public void restoreIfAutoGranted(UUID userId, Set<Role> roles) {
+        if (!isAutoGranted(userId)) return;
+        roleRepository.findByCode(MANAGER).ifPresent(roles::add);
+    }
+
+    /** True if this user's MANAGER role is a grant this service made (and may later revoke). */
+    @Transactional(readOnly = true)
+    public boolean isAutoGranted(UUID userId) {
+        return autoGrantRepository.existsById(userId);
     }
 }

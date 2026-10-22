@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.response;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AssistantResponse;
 import com.nforce.onehr.ai.contract.AssistantResponseType;
@@ -51,7 +52,7 @@ class ResponseValidatorTest {
                 .userId(UUID.randomUUID())
                 .primaryRoleCode(role.name())
                 .shellRole(role)
-                .audiences(Set.of(buckets))
+                .audiences(Set.of(buckets)).authorities(SeedAuthorities.of(Set.of(buckets)))
                 .build();
     }
 

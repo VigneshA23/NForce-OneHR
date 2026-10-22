@@ -1,5 +1,7 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.dto.helpdesk.AssignTicketRequest;
 import com.nforce.onehr.dto.helpdesk.CreateHelpdeskTicketRequest;
 import com.nforce.onehr.dto.helpdesk.SubmitSatisfactionRequest;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
@@ -55,6 +58,10 @@ class HelpdeskServiceTest {
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
 
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(java.util.Map.of(
+            "CUSTOM_DESK_AGENT", java.util.Map.of("helpdesk:VIEW", "ALL", "helpdesk:EDIT", "ALL"),
+            "CUSTOM_DESK_VIEWER", java.util.Map.of("helpdesk:VIEW", "ALL"),
+            "CUSTOM_OTHER", java.util.Map.of("hr_help_content:VIEW", "ALL")));
     @InjectMocks private HelpdeskService helpdeskService;
 
     private final UUID employeeId = UUID.randomUUID();
@@ -443,7 +450,7 @@ class HelpdeskServiceTest {
         HelpdeskTicket ticket = openTicket();
         when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
         when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
-        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId)); // does not include the target
+        doReturn(Set.of(hrAdminId)).when(effectivePermissionService).activeUserIdsWithAuthority("helpdesk", "EDIT", "ALL"); // does not include the target
 
         AssignTicketRequest req = new AssignTicketRequest();
         req.setAssigneeUserId(otherEmployeeId);
@@ -458,9 +465,9 @@ class HelpdeskServiceTest {
         UUID deactivatedAdminId = UUID.randomUUID();
         when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
         when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
-        // The deactivated admin still holds the HR_ADMIN role, but findActiveAdminUserIds()
+        // The deactivated admin still holds the HR_ADMIN role, but the active-only holder lookup
         // excludes them — proving the assignment check is active-only, not just role-only.
-        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId));
+        doReturn(Set.of(hrAdminId)).when(effectivePermissionService).activeUserIdsWithAuthority("helpdesk", "EDIT", "ALL");
 
         AssignTicketRequest req = new AssignTicketRequest();
         req.setAssigneeUserId(deactivatedAdminId);
@@ -476,7 +483,7 @@ class HelpdeskServiceTest {
         HelpdeskTicket ticket = openTicket(); // OPEN
         when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
         when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
-        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId));
+        doReturn(Set.of(hrAdminId)).when(effectivePermissionService).activeUserIdsWithAuthority("helpdesk", "EDIT", "ALL");
 
         AssignTicketRequest req = new AssignTicketRequest();
         req.setAssigneeUserId(hrAdminId);
@@ -739,5 +746,102 @@ class HelpdeskServiceTest {
         when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
 
         assertFalse(helpdeskService.getDetail(ticket.getId(), employeeEmail).isReopenable());
+    }
+
+    // ── Permission-based checks: custom roles behave like the seeded holders ─────
+
+    private User customUser(String roleCode) {
+        User u = User.builder().id(UUID.randomUUID()).email(roleCode.toLowerCase() + "@test.com").active(true)
+                .roles(Set.of(Role.builder().id(100).code(roleCode).displayName(roleCode).build())).build();
+        lenient().when(userRepo.findByEmail(u.getEmail())).thenReturn(Optional.of(u));
+        return u;
+    }
+
+    @Test
+    void getDetail_someoneElsesTicket_visibleWithInternalNotesToViewPermissionHolders_only() {
+        HelpdeskTicket ticket = openTicket();
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+        HelpdeskReply internal = HelpdeskReply.builder().id(UUID.randomUUID()).ticketId(ticket.getId())
+                .senderId(hrAdminId).senderRole("HR").message("internal").internal(true).build();
+        when(replyRepo.findByTicketIdOrderByCreatedAtAsc(ticket.getId())).thenReturn(List.of(internal));
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        User viewer = customUser("CUSTOM_DESK_VIEWER");
+        User other = customUser("CUSTOM_OTHER");
+
+        assertEquals(1, helpdeskService.getDetail(ticket.getId(), hrAdminEmail).getReplies().size()); // system role unchanged
+        assertEquals(1, helpdeskService.getDetail(ticket.getId(), viewer.getEmail()).getReplies().size());
+        assertThrows(AccessDeniedException.class, () -> helpdeskService.getDetail(ticket.getId(), other.getEmail()));
+    }
+
+    @Test
+    void addReply_onSomeoneElsesTicket_asCustomRoleWithEdit_repliesAsHr() throws Exception {
+        HelpdeskTicket ticket = openTicket();
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+        User agent = customUser("CUSTOM_DESK_AGENT");
+
+        var reply = helpdeskService.addReply(ticket.getId(), "on it", true, null, agent.getEmail());
+
+        assertEquals("HR", reply.getSenderRole());
+        assertTrue(reply.isInternal());
+    }
+
+    @Test
+    void addReply_onSomeoneElsesTicket_asCustomRoleWithViewOnly_isDenied() {
+        HelpdeskTicket ticket = openTicket();
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+        User viewer = customUser("CUSTOM_DESK_VIEWER");
+
+        assertThrows(AccessDeniedException.class,
+                () -> helpdeskService.addReply(ticket.getId(), "hi", false, null, viewer.getEmail()));
+        verify(replyRepo, never()).save(any());
+    }
+
+    @Test
+    void updateStatus_requiresEditPermission_notRoleCode() {
+        HelpdeskTicket ticket = openTicket();
+        lenient().when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+        User agent = customUser("CUSTOM_DESK_AGENT");
+        User viewer = customUser("CUSTOM_DESK_VIEWER");
+        UpdateTicketStatusRequest req = new UpdateTicketStatusRequest();
+        req.setStatus("IN_PROGRESS");
+
+        assertEquals("IN_PROGRESS", helpdeskService.updateStatus(ticket.getId(), req, agent.getEmail()).getStatus());
+        assertThrows(AccessDeniedException.class, () -> helpdeskService.updateStatus(ticket.getId(), req, viewer.getEmail()));
+    }
+
+    @Test
+    void assignTicket_toCustomRoleHolderOfEditPermission_isAccepted() {
+        HelpdeskTicket ticket = openTicket();
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+        User agent = customUser("CUSTOM_DESK_AGENT");
+        doReturn(Set.of(hrAdminId, agent.getId())).when(effectivePermissionService)
+                .activeUserIdsWithAuthority("helpdesk", "EDIT", "ALL");
+        AssignTicketRequest req = new AssignTicketRequest();
+        req.setAssigneeUserId(agent.getId());
+
+        assertEquals(agent.getId(), helpdeskService.assignTicket(ticket.getId(), req, hrAdminEmail).getAssignedTo());
+    }
+
+    @Test
+    void listAssignableAgents_includesCustomRoleHolders_andKeepsDeactivatedAdmins() {
+        when(userRepo.findByEmail(hrAdminEmail)).thenReturn(Optional.of(hrAdminUser));
+        User agent = customUser("CUSTOM_DESK_AGENT");
+        UUID deactivatedAdminId = UUID.randomUUID();
+        doReturn(Set.of(hrAdminId, agent.getId())).when(effectivePermissionService)
+                .activeUserIdsWithAuthority("helpdesk", "EDIT", "ALL");
+        when(userRepo.findAdminUserIds()).thenReturn(Set.of(hrAdminId, deactivatedAdminId));
+
+        var ids = helpdeskService.listAssignableAgents(hrAdminEmail).stream()
+                .map(a -> a.getUserId()).collect(java.util.stream.Collectors.toSet());
+
+        assertEquals(Set.of(hrAdminId, agent.getId(), deactivatedAdminId), ids);
+    }
+
+    @Test
+    void listAssignableAgents_asCustomRoleWithoutHelpdeskView_isDenied() {
+        User other = customUser("CUSTOM_OTHER");
+
+        assertThrows(AccessDeniedException.class, () -> helpdeskService.listAssignableAgents(other.getEmail()));
     }
 }

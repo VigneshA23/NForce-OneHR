@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.SeedMatrix;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.attendance.AttendanceInterpretation;
@@ -114,7 +115,7 @@ class LateArrivalGraceUnificationTest {
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
                 workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
                 workHoursShortageCalculationService, policyEngine, attendancePenaltyRepository, attendancePenaltyService,
-                shiftVersionResolver, shiftRepository);
+                shiftVersionResolver, shiftRepository, SeedMatrix.permissionService());
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeId));

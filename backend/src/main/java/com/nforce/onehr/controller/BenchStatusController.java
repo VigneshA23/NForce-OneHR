@@ -29,8 +29,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class BenchStatusController {
 
-    private static final String HR = "hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')";
-
     private final BenchStatusService service;
     private final BenchReportService reportService;
     private final BenchAgingService agingService;
@@ -38,14 +36,14 @@ public class BenchStatusController {
     /** US-A01: mark an employee as On Bench. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize(HR)
+    @PreAuthorize("hasAuthority('bench:CREATE:ALL')")
     public BenchStatusResponse start(@Valid @RequestBody BenchStatusRequest req, Principal principal) {
         return service.start(principal.getName(), req);
     }
 
     /** US-A06: end a bench episode — with an allocation, or with a close-out reason. */
     @PatchMapping("/{id}/end")
-    @PreAuthorize(HR)
+    @PreAuthorize("hasAuthority('bench:EDIT:ALL')")
     public BenchStatusResponse end(@PathVariable UUID id, @RequestBody(required = false) EndBenchRequest req,
                                     Principal principal) {
         return service.end(principal.getName(), id, req == null ? new EndBenchRequest() : req);
@@ -53,14 +51,14 @@ public class BenchStatusController {
 
     /** US-A02: the caller's own benched direct reports. The team is derived from the principal, never a request parameter. */
     @GetMapping("/team")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('bench:VIEW:TEAM')")
     public List<TeamBenchResponse> team(Principal principal) {
         return service.teamBench(principal.getName());
     }
 
     /** US-A04/US-A08: the active bench list, filterable by aging bucket and skills (AND/OR). */
     @GetMapping
-    @PreAuthorize(HR)
+    @PreAuthorize("hasAuthority('bench:VIEW:ALL')")
     public List<BenchListRow> list(@RequestParam(required = false) String bucket,
                                     @RequestParam(required = false) Set<UUID> skillIds,
                                     @RequestParam(defaultValue = "OR") String mode) {
@@ -69,34 +67,34 @@ public class BenchStatusController {
 
     /** US-A06: allocations the employee of this episode could be linked to when ending bench. */
     @GetMapping("/{id}/allocations")
-    @PreAuthorize(HR)
+    @PreAuthorize("hasAuthority('bench:VIEW:ALL')")
     public List<AllocationOption> allocationOptions(@PathVariable UUID id) {
         return reportService.allocationOptions(id);
     }
 
     /** US-A03: headcount, bench %, bucket counts and the 90-day trend. */
     @GetMapping("/dashboard")
-    @PreAuthorize(HR)
+    @PreAuthorize("hasAuthority('bench:VIEW:ALL')")
     public BenchDashboard dashboard() {
         return reportService.dashboard();
     }
 
     /** US-A13: aggregate bench cost by compensation band. */
     @GetMapping("/cost")
-    @PreAuthorize(HR)
+    @PreAuthorize("hasAuthority('bench:VIEW:ALL')")
     public BenchCost cost() {
         return reportService.cost();
     }
 
     @GetMapping("/aging-config")
-    @PreAuthorize(HR)
+    @PreAuthorize("hasAuthority('bench:VIEW:ALL')")
     public AgingConfigResponse agingConfig() {
         return agingService.getConfig();
     }
 
     /** US-A04/US-A05: replace the aging buckets and the notification threshold. */
     @PutMapping("/aging-config")
-    @PreAuthorize(HR)
+    @PreAuthorize("hasAuthority('bench:CONFIGURE:ALL')")
     public AgingConfigResponse saveAgingConfig(@Valid @RequestBody AgingConfigRequest req) {
         return agingService.saveConfig(req);
     }

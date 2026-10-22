@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.assignments.EmployeeAssignmentRow;
 import com.nforce.onehr.dto.attendance.AttendanceRequestResponse;
@@ -75,7 +74,6 @@ public final class MyTeamDataProviders {
     private MyTeamDataProviders() {}
 
     private static final int MAX_ROWS = 25;
-    private static final Set<AudienceBucket> MY_TEAM_AUDIENCES = Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
     /** Matches the Efforts and Negligence tabs' own default (`useTeamDateRange(7)`). */
     private static final int DEFAULT_EFFORT_WINDOW_DAYS = 7;
     /** Matches the Penalties tab's own default (`useTeamDateRange(30)`), reused for request reports. */
@@ -96,7 +94,7 @@ public final class MyTeamDataProviders {
         @Override public String id() { return "my-team-effort.leaderboard"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' work hours and on-time leaderboard"; }
-        @Override public Set<AudienceBucket> audiences() { return MY_TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of(TeamDataProviders.TEAM_ATTENDANCE); }
         @Override public Set<String> modules() { return Set.of("my-team-effort", "team-effort", "team-punctuality", "my-team", "team"); }
 
         @Override
@@ -157,7 +155,7 @@ public final class MyTeamDataProviders {
         @Override public String id() { return "my-team-negligence.summary"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' late arrivals, least hours worked and frequent breaks"; }
-        @Override public Set<AudienceBucket> audiences() { return MY_TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of(TeamDataProviders.TEAM_ATTENDANCE); }
         @Override public Set<String> modules() { return Set.of("my-team-negligence", "team-negligence", "my-team", "team"); }
 
         @Override
@@ -222,7 +220,7 @@ public final class MyTeamDataProviders {
         @Override public String id() { return "my-team-assignments.roster"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' shift, weekly-off and penalisation-policy assignments"; }
-        @Override public Set<AudienceBucket> audiences() { return MY_TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of("employee_assignments:VIEW:TEAM"); }
         @Override public Set<String> modules() { return Set.of("my-team-assignments", "team-assignments", "my-team", "team"); }
 
         @Override
@@ -275,7 +273,7 @@ public final class MyTeamDataProviders {
         @Override public String id() { return "my-team-requests.report"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' regularization, overtime, partial day, web clock-in and WFH requests"; }
-        @Override public Set<AudienceBucket> audiences() { return MY_TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of("reports:VIEW:TEAM"); }
         @Override public Set<String> modules() { return Set.of("my-team-requests", "team-requests", "my-team", "team"); }
 
         @Override
@@ -331,7 +329,7 @@ public final class MyTeamDataProviders {
         @Override public String id() { return "my-team-overview.extras"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports on WFH today, and their current leave balances"; }
-        @Override public Set<AudienceBucket> audiences() { return MY_TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of(TeamDataProviders.TEAM_ATTENDANCE); }
         @Override public Set<String> modules() { return Set.of("my-team-overview", "my-team", "team"); }
 
         @Override
@@ -405,7 +403,7 @@ public final class MyTeamDataProviders {
         @Override public String id() { return "my-team-attendance.discrepancies"; }
         @Override public DataScope scope() { return DataScope.TEAM; }
         @Override public String title() { return "Your direct reports' absences, late arrivals, missed punches, half days and early departures"; }
-        @Override public Set<AudienceBucket> audiences() { return MY_TEAM_AUDIENCES; }
+        @Override public Set<String> authorities() { return Set.of(TeamDataProviders.TEAM_ATTENDANCE); }
         @Override public Set<String> modules() { return Set.of("my-team-attendance", "team-attendance", "my-team", "team"); }
 
         @Override

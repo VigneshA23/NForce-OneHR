@@ -5,11 +5,13 @@ import com.nforce.onehr.dto.attendance.OvertimeRequestResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.OvertimeRequest;
+import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.OvertimeRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -42,8 +44,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class OvertimeRequestService {
 
-    private static final Set<String> APPROVER_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
-    private static final Set<String> ELIGIBLE_APPROVER_ROLES = Set.of("MANAGER", "HR_ADMIN");
+    // Seeded (V225) to Manager at TEAM and HR Admin/Super Admin at ALL, so ALL is exactly the old
+    // HR_ADMIN/SUPER_ADMIN override and TEAM the old Manager check — a custom role granted
+    // overtime:APPROVE now gets the same treatment as those roles.
+    private static final String APPROVE_ALL = "overtime:APPROVE:ALL";
+    private static final String APPROVE_TEAM = "overtime:APPROVE:TEAM";
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_APPROVED = "APPROVED";
     private static final String STATUS_REJECTED = "REJECTED";
@@ -56,6 +61,7 @@ public class OvertimeRequestService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
+    private final EffectivePermissionService effectivePermissionService;
 
     @Transactional
     public OvertimeRequestResponse submit(CreateOvertimeRequest req, String actorEmail) {
@@ -124,13 +130,13 @@ public class OvertimeRequestService {
         return toResponseList(requestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId()));
     }
 
-    /** Manager sees only requests assigned to them; HR/Super Admin see all pending requests. */
+    /** Manager sees only requests assigned to them; APPROVE_ALL holders (HR/Super Admin) see all pending requests. */
     @Transactional(readOnly = true)
     public List<OvertimeRequestResponse> listPendingForApprover(String actorEmail) {
         User actor = requireActor(actorEmail);
         List<OvertimeRequest> pending = requestRepository.findByStatus(STATUS_PENDING);
 
-        if (hasOverrideRole(actor)) {
+        if (effectivePermissionService.hasAuthority(actor, APPROVE_ALL)) {
             return toResponseList(pending);
         }
         return toResponseList(pending.stream()
@@ -186,8 +192,14 @@ public class OvertimeRequestService {
         if (managerUserId != null) {
             User candidate = userRepository.findById(managerUserId)
                     .orElseThrow(() -> new IllegalArgumentException("Selected manager not found"));
-            boolean eligible = candidate.getRoles().stream()
-                    .anyMatch(r -> ELIGIBLE_APPROVER_ROLES.contains(r.getCode()));
+            // Super Admin's own grant deliberately doesn't count (same as RegularizationService's
+            // ELIGIBLE_APPROVER_ROLES) — they already review everything via APPROVE_ALL, so aren't
+            // offered as an explicit "Assign To" target. Any other role granting TEAM is: Manager
+            // and HR Admin exactly as before, plus custom roles.
+            List<Role> nonSuperAdminRoles = candidate.getRoles().stream()
+                    .filter(r -> !"SUPER_ADMIN".equals(r.getCode()))
+                    .toList();
+            boolean eligible = effectivePermissionService.coverage(nonSuperAdminRoles).contains(APPROVE_TEAM);
             if (!eligible) {
                 throw new IllegalArgumentException("Selected user is not an eligible approver");
             }
@@ -208,17 +220,13 @@ public class OvertimeRequestService {
     }
 
     private void assertCanReview(OvertimeRequest req, User actor) {
-        if (hasOverrideRole(actor)) return;
+        Set<String> granted = effectivePermissionService.coverage(actor.getRoles());
+        if (granted.contains(APPROVE_ALL)) return;
         if (actor.getId().equals(req.getAssignedApproverId())) return;
 
-        boolean isManager = actor.getRoles().stream().anyMatch(r -> r.getCode().equals("MANAGER"));
-        if (isManager && isCurrentManagerOf(actor.getId(), req.getEmployeeUserId())) return;
+        if (granted.contains(APPROVE_TEAM) && isCurrentManagerOf(actor.getId(), req.getEmployeeUserId())) return;
 
         throw new AccessDeniedException("You are not authorized to review this request");
-    }
-
-    private boolean hasOverrideRole(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
     }
 
     private boolean isCurrentManagerOf(UUID managerCandidateId, UUID employeeUserId) {

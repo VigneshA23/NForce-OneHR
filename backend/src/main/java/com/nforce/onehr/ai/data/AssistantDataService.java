@@ -192,9 +192,14 @@ public class AssistantDataService {
         return dot < 0 ? provider.id() : provider.id().substring(0, dot);
     }
 
-    /** Both gates must pass before a provider is even considered for the budget. */
-    private boolean mayRun(AssistantDataProvider provider, AssistantRequestContext context) {
-        return provider.audiences().stream().anyMatch(context.getAudiences()::contains);
+    /**
+     * Both gates must pass before a provider is even considered for the budget: the caller holds
+     * one of its permissions (or it is for everyone), and holds none it stands aside for.
+     */
+    static boolean mayRun(AssistantDataProvider provider, AssistantRequestContext context) {
+        boolean permitted = provider.authorities().isEmpty()
+                || provider.authorities().stream().anyMatch(context::holds);
+        return permitted && provider.standsAsideFor().stream().noneMatch(context::holds);
     }
 
     /** A provider's relevance is the best score among the modules it covers. */

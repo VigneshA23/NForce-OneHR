@@ -15,7 +15,7 @@ import java.security.Principal;
 import java.util.List;
 import java.util.UUID;
 
-/** US-A10/A11/A12: internal opportunities for benched employees. Role/visibility rules live in the service. */
+/** US-A10/A11/A12: internal opportunities for benched employees. Permission/visibility rules live in the service. */
 @RestController
 @RequestMapping("/api/opportunities")
 @RequiredArgsConstructor
@@ -25,7 +25,7 @@ public class OpportunityController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAuthority('opportunities:CREATE:ALL')")
     public OpportunityResponse post(@Valid @RequestBody OpportunityRequest req, Principal principal) {
         return service.post(principal.getName(), req);
     }
@@ -42,14 +42,14 @@ public class OpportunityController {
     }
 
     @GetMapping("/{id}/interests")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAuthority('opportunities:VIEW:ALL')")
     public List<InterestResponse> interests(@PathVariable UUID id, Principal principal) {
         return service.interests(principal.getName(), id);
     }
 
     /** US-A12: assign an employee — creates the allocation, ends their bench, closes the opportunity. */
     @PostMapping("/{id}/close")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('opportunities:APPROVE:ALL')")
     public OpportunityResponse close(@PathVariable UUID id, @Valid @RequestBody CloseOpportunityRequest req,
                                       Principal principal) {
         return service.close(principal.getName(), id, req);

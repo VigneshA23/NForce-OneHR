@@ -46,7 +46,7 @@ public class ApprovalRule {
 
     // Comma-separated role codes required when the condition evaluates true, e.g.
     // "MANAGER,HR_ADMIN". Always starts with MANAGER — see ApprovalRuleService validation.
-    @Column(name = "approval_stages", nullable = false, length = 100)
+    @Column(name = "approval_stages", nullable = false, length = 500)
     private String approvalStages;
 
     @Column(nullable = false)

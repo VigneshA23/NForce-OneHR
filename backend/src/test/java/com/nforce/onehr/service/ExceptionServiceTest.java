@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
@@ -77,7 +78,9 @@ class ExceptionServiceTest {
                 regularizationRequestRepository, attendanceProperties, emailService, attendancePenaltyEvaluationService,
                 workingDayService, holidayRepository, penalizationPolicyResolutionService, expectedWorkHoursService,
                 workHoursShortageCalculationService, attendancePolicyEngine, attendancePenaltyRepository,
-                attendancePenaltyService, shiftVersionResolver, shiftRepository);
+                attendancePenaltyService, shiftVersionResolver, shiftRepository, SeedMatrix.permissionService(java.util.Map.of(
+                        "CUSTOM_EXC_ADMIN", java.util.Map.of("exceptions:VIEW", "ALL", "attendance:VIEW", "ALL"),
+                        "CUSTOM_ATT_TEAM", java.util.Map.of("attendance:VIEW", "TEAM"))));
         // Default: employeeId is the only account holding the EMPLOYEE role — matches
         // EmployeeService.listEmployees()'s own definition of who counts as an employee.
         lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeId));
@@ -164,6 +167,58 @@ class ExceptionServiceTest {
         verify(attendanceRepository).findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to);
         verify(attendanceRepository, never()).findByEmployeeUserIdInAndWorkDateBetween(
                 argThat(ids -> ids.contains(managerDirectReportId)), any(), any());
+    }
+
+    // ── Permission migration (V234): scope comes from <module>:VIEW:ALL / :TEAM, not role codes.
+    //    The dashboard checks exceptions:VIEW, the Penalties detection pass attendance:VIEW. ──
+
+    @Test
+    void superAdmin_scopeIsOrgWide_onBothPaths() {
+        User sa = userWithRole(hrEmail, "SUPER_ADMIN", UUID.randomUUID());
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(sa));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(anyList(), eq(from), eq(to))).thenReturn(List.of());
+
+        exceptionService.getExceptionsForCaller(hrEmail, from, to);
+        exceptionService.detectForCaller(hrEmail, from, to);
+
+        verify(attendanceRepository, times(2)).findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to);
+        verify(historyRepository, never()).findByManagerUserIdAndEffectiveToIsNull(any());
+    }
+
+    @Test
+    void customRoleWithViewAll_scopeIsOrgWide_likeHrAdmin() {
+        User custom = userWithRole(hrEmail, "CUSTOM_EXC_ADMIN", UUID.randomUUID());
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(custom));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(anyList(), eq(from), eq(to))).thenReturn(List.of());
+
+        exceptionService.getExceptionsForCaller(hrEmail, from, to);
+        exceptionService.detectForCaller(hrEmail, from, to);
+
+        verify(attendanceRepository, times(2)).findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to);
+        verify(historyRepository, never()).findByManagerUserIdAndEffectiveToIsNull(any());
+    }
+
+    @Test
+    void customRoleWithOnlyAttendanceViewTeam_detectsForItsTeam_butIsDeniedTheExceptionsDashboard() {
+        User custom = userWithRole(managerEmail, "CUSTOM_ATT_TEAM", managerId);
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(custom));
+        when(historyRepository.findByManagerUserIdAndEffectiveToIsNull(managerId))
+                .thenReturn(List.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to)).thenReturn(List.of());
+
+        exceptionService.detectForCaller(managerEmail, from, to);
+        verify(attendanceRepository).findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), from, to);
+
+        assertThrows(AccessDeniedException.class, () -> exceptionService.getExceptionsForCaller(managerEmail, from, to));
+    }
+
+    @Test
+    void employee_isDeniedOnBothPaths() {
+        User plain = userWithRole(employeeEmail, "EMPLOYEE", employeeId);
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(plain));
+
+        assertThrows(AccessDeniedException.class, () -> exceptionService.detectForCaller(employeeEmail, from, to));
+        assertThrows(AccessDeniedException.class, () -> exceptionService.getExceptionsForCaller(employeeEmail, from, to));
     }
 
     @Test

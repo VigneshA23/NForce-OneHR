@@ -186,4 +186,25 @@ class ApprovalRuleEvaluationServiceTest {
 
         assertTrue(decision.secondApprovalRequired());
     }
+
+    // ── V236: a custom-role stage is a second-approval stage like HR_ADMIN/SUPER_ADMIN ─────────
+
+    @Test
+    void customRoleStage_conditionTrue_requiresSecondApproval() {
+        ApprovalRule rule = ruleAbove500("MANAGER,CUSTOM_FIN");
+        when(ruleRepository.findByRequestTypeAndActiveTrue("EXPENSE")).thenReturn(Optional.of(rule));
+
+        ApprovalRuleEvaluationService.Decision decision = evaluationService.evaluateExpense(new BigDecimal("750"));
+
+        assertTrue(decision.secondApprovalRequired());
+        assertEquals(List.of("MANAGER", "CUSTOM_FIN"), decision.requiredStages());
+        assertEquals(rule.getId(), decision.evaluatedRuleId(), "not ignored as a no-second-stage rule");
+    }
+
+    @Test
+    void customRoleStage_conditionFalse_managerOnly() {
+        when(ruleRepository.findByRequestTypeAndActiveTrue("EXPENSE")).thenReturn(Optional.of(ruleAbove500("MANAGER,CUSTOM_FIN")));
+
+        assertFalse(evaluationService.evaluateExpense(new BigDecimal("100")).secondApprovalRequired());
+    }
 }

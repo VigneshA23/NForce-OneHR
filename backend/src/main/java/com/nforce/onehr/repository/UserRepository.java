@@ -84,6 +84,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             """)
     Set<UUID> findEmployeeRoleUserIds();
 
+    // [roleId, holderCount] for every role, excluding soft-deleted accounts — Roles overview's
+    // "Assigned users" column in one query instead of one per role.
+    @Query("SELECT r.id, COUNT(u) FROM User u JOIN u.roles r WHERE u.deletedAt IS NULL GROUP BY r.id")
+    List<Object[]> countHoldersByRole();
+
+    @Query("SELECT u FROM User u JOIN u.roles r WHERE r.id = :roleId AND u.deletedAt IS NULL")
+    List<User> findHoldersOfRole(@Param("roleId") Integer roleId);
+
     // Every account regardless of role — the scope of the nightly attendance-exception emails,
     // which (unlike the Exceptions dashboard and penalties) go to Managers/HR/Super Admins too.
     @Query("SELECT u.id FROM User u WHERE u.deletedAt IS NULL")

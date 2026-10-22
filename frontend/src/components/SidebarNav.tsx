@@ -8,6 +8,8 @@ interface SidebarNavProps {
   /** Narrows NAV[role] down to what the current user's live permissions actually grant — see
    *  buildRoleNav's own doc comment. Omitted shows the role's full default set. */
   isVisible?: (item: NavItem) => boolean;
+  /** Items outside NAV[role] granted by the user's custom roles — see permissions.ts customRoleNavItems. */
+  extraItems?: NavItem[];
   /** Called when a real (non-placeholder) module link is clicked — lets the shell close the mobile drawer. */
   onNavigate?: () => void;
 }
@@ -28,10 +30,10 @@ interface SidebarNavProps {
  * artwork just shows through (or gets covered by) whatever's currently in front — no separate
  * "make room for the artwork" logic needed here.
  */
-export function SidebarNav({ role, currentKey, isVisible, onNavigate }: SidebarNavProps) {
+export function SidebarNav({ role, currentKey, isVisible, extraItems, onNavigate }: SidebarNavProps) {
   // Items that only exist as a disabled "P2" placeholder (Phase 2 / locked modules) are left out of the menu
   // entirely. Nothing else about visibility changes: the same role + permission filter applies to the rest.
-  const tree = buildRoleNav(role, (item) => !isNavItemDisabled(item) && (!isVisible || isVisible(item)));
+  const tree = buildRoleNav(role, (item) => !isNavItemDisabled(item) && (!isVisible || isVisible(item)), extraItems);
   const activeAncestors = findActiveAncestors(tree, currentKey) ?? [];
 
   // Which group keys are currently expanded. Independent per node (not a single-open-branch

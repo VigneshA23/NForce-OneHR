@@ -11,6 +11,7 @@ import com.nforce.onehr.repository.EmployeeDocumentRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.NotificationRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,7 +54,8 @@ class DocumentServiceTest {
 
     @BeforeEach
     void setUp() {
-        documentService = new DocumentService(docRepo, docTypeRepo, employeeRepo, userRepo, notificationRepo, notificationService);
+        documentService = new DocumentService(docRepo, docTypeRepo, employeeRepo, userRepo, notificationRepo, notificationService,
+                SeedMatrix.permissionService());
 
         employeeId = UUID.randomUUID();
         User employee = User.builder().id(employeeId).email(EMPLOYEE_EMAIL)

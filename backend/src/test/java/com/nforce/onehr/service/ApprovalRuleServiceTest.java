@@ -5,9 +5,11 @@ import com.nforce.onehr.dto.workflow.ApprovalRulePreviewResponse;
 import com.nforce.onehr.dto.workflow.ApprovalRuleRequest;
 import com.nforce.onehr.dto.workflow.ApprovalRuleResponse;
 import com.nforce.onehr.entity.ApprovalRule;
+import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.ApprovalRuleRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.RoleRepository;
 import com.nforce.onehr.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +36,7 @@ class ApprovalRuleServiceTest {
     @Mock private ApprovalRuleEvaluationService evaluationService;
     @Mock private UserRepository userRepository;
     @Mock private EmployeeRepository employeeRepository;
+    @Mock private RoleRepository roleRepository;
 
     @InjectMocks
     private ApprovalRuleService service;
@@ -86,6 +89,19 @@ class ApprovalRuleServiceTest {
     // every other @Valid-annotated request DTO in this codebase) — a service-layer unit test
     // would only be exercising Mockito, not real validation, so that case belongs to a
     // controller-level/@WebMvcTest, not here.
+
+    @Test
+    void create_repeatedStage_rejected() {
+        // A repeated stage made ExpenseService#finalApprove loop forever (nextFinalStage uses indexOf).
+        when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
+        ApprovalRuleRequest req = validExpenseRuleRequest();
+        req.setApprovalStages(List.of("MANAGER", "HR_ADMIN", "HR_ADMIN"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.create(req, actorEmail));
+        assertTrue(ex.getMessage().contains("only once"));
+        verify(ruleRepository, never()).save(any());
+    }
 
     @Test
     void create_unsupportedRequestType_rejected() {
@@ -360,5 +376,65 @@ class ApprovalRuleServiceTest {
         req.setApprovalStages(List.of("MANAGER"));
 
         assertThrows(IllegalArgumentException.class, () -> service.preview(req));
+    }
+
+    // ── Custom roles as stages (V236) ─────────
+
+    private static Role customRole(String code, String name, boolean active) {
+        return Role.builder().id(code.hashCode()).code(code).displayName(name).system(false).active(active).build();
+    }
+
+    private void stubCreateSucceeds() {
+        when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
+        lenient().when(ruleRepository.existsByRequestTypeAndConditionFieldAndOperatorAndConditionValueAndIdNot(
+                any(), any(), any(), any(), any())).thenReturn(false);
+        lenient().when(ruleRepository.save(any(ApprovalRule.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    @Test
+    void create_activeCustomRoleStage_accepted() {
+        stubCreateSucceeds();
+        when(roleRepository.findAll()).thenReturn(List.of(customRole("CUSTOM_FIN", "Finance", true)));
+        ApprovalRuleRequest req = validExpenseRuleRequest();
+        req.setApprovalStages(List.of("MANAGER", "CUSTOM_FIN"));
+
+        assertEquals(List.of("MANAGER", "CUSTOM_FIN"), service.create(req, actorEmail).getApprovalStages());
+    }
+
+    @Test
+    void create_inactiveCustomRoleStage_rejected() {
+        stubCreateSucceeds();
+        when(roleRepository.findAll()).thenReturn(List.of(customRole("CUSTOM_FIN", "Finance", false)));
+        ApprovalRuleRequest req = validExpenseRuleRequest();
+        req.setApprovalStages(List.of("MANAGER", "CUSTOM_FIN"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.create(req, actorEmail));
+        assertTrue(ex.getMessage().contains("Invalid approval role"));
+    }
+
+    @Test
+    void create_nonStageSystemRole_stillRejected() {
+        stubCreateSucceeds();
+        when(roleRepository.findAll()).thenReturn(List.of(
+                Role.builder().id(1).code("EMPLOYEE").displayName("Employee").system(true).build()));
+        ApprovalRuleRequest req = validExpenseRuleRequest();
+        req.setApprovalStages(List.of("MANAGER", "EMPLOYEE"));
+
+        assertThrows(IllegalArgumentException.class, () -> service.create(req, actorEmail));
+    }
+
+    @Test
+    void metadata_listsSystemStagesThenActiveCustomRoles_withLabels() {
+        when(roleRepository.findAll()).thenReturn(List.of(
+                Role.builder().id(3).code("HR_ADMIN").displayName("HR Admin").system(true).build(),
+                customRole("CUSTOM_FIN", "Finance", true),
+                customRole("CUSTOM_OLD", "Old", false)));
+
+        var md = service.metadata();
+
+        assertEquals(List.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN", "CUSTOM_FIN"), md.getApprovalRoles());
+        assertEquals("HR Admin", md.getApprovalRoleLabels().get("HR_ADMIN"));
+        assertEquals("Finance", md.getApprovalRoleLabels().get("CUSTOM_FIN"));
+        assertEquals("SUPER_ADMIN", md.getApprovalRoleLabels().get("SUPER_ADMIN"), "falls back to the code");
     }
 }

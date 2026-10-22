@@ -57,7 +57,7 @@ class ReportsControllerTest {
     void exportAttendanceRequests_returnsCsvWithSafeFilename_noInternalIds() {
         List<AttendanceRequestReportRow> rows = List.of(
                 AttendanceRequestReportRow.builder().employeeCode("NF-1").fullName("Employee One").status("APPROVED").build());
-        when(reportsService.getAttendanceRequestReport("manager@test.com", ReportsService.ReportType.WEB_CLOCK_IN, from, to))
+        when(reportsService.exportAttendanceRequestReport("manager@test.com", ReportsService.ReportType.WEB_CLOCK_IN, from, to))
                 .thenReturn(rows);
         when(reportsService.toCsv(rows)).thenReturn("Employee Code,Employee Name,Status\nNF-1,Employee One,APPROVED\n");
 

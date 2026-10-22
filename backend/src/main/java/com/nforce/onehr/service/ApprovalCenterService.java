@@ -11,14 +11,13 @@ import com.nforce.onehr.dto.helpcontent.ApprovalAttemptDto;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -43,9 +42,14 @@ public class ApprovalCenterService {
     private final OvertimeRequestService overtimeRequestService;
     private final HelpContentService helpContentService;
     private final UserRepository userRepo;
+    private final EffectivePermissionService effectivePermissionService;
 
     /**
-     * All pending approval items visible to the caller.
+     * All pending approval items visible to the caller. Each module's queue is included when the
+     * caller holds that module's APPROVE permission at TEAM or wider — seeded (V225) to exactly
+     * Manager/HR Admin/Super Admin, the old role gate — and the module's own service narrows it
+     * (assigned / own reports, or everything for an ALL holder). So a custom role granted, say,
+     * overtime:APPROVE gets the overtime queue and nothing else.
      * - Manager: LEAVE (own reports), REGULARIZATION (own reports), EXPENSE at MANAGER stage (own reports), ASSET_REQUEST (own reports)
      * - HR Admin / Super Admin: LEAVE (all), REGULARIZATION (all), EXPENSE at either stage (all —
      *   see ExpenseService.pendingForFinalApprover for why this includes MANAGER-stage claims
@@ -54,76 +58,86 @@ public class ApprovalCenterService {
     public List<ApprovalItemDto> pendingApprovals(String email) {
         User actor = userRepo.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
+        Set<String> granted = effectivePermissionService.coverage(actor.getRoles());
+        // FAQs & Guides approval is relationship-based (the author's manager chain), so its queue
+        // stays on the role gate plus the hr_help_content:APPROVE:ALL fallback below.
         Set<String> roleCodes = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
         boolean isAdmin = roleCodes.contains("HR_ADMIN") || roleCodes.contains("SUPER_ADMIN");
         boolean isManager = roleCodes.contains("MANAGER");
 
         List<ApprovalItemDto> items = new ArrayList<>();
 
-        if (isManager) {
-            // Leave
+        // Leave — TEAM: own reports; ALL (HR/SA): all pending, regardless of direct-report relationship
+        if (granted.contains("leave:APPROVE:TEAM")) {
             leaveService.listPendingApprovals(email).stream()
                     .map(this::leaveToApprovalItem).forEach(items::add);
-            // Regularization — managers see own reports' pending requests
-            regularizationService.listPendingForApprover(email).stream()
-                    .map(this::regularizationToApprovalItem).forEach(items::add);
-            // Expense — manager stage only
-            expenseService.pendingForManager(email).stream()
-                    .map(c -> expenseToApprovalItem(c, "MANAGER")).forEach(items::add);
-            // Asset requests
-            assetService.listPendingForApprover(email).stream()
-                    .map(this::assetRequestToApprovalItem).forEach(items::add);
-            // WFH / Partial Day — managers see own reports' pending requests
-            attendanceRequestService.listPendingForApprover(email).stream()
-                    .map(this::attendanceRequestToApprovalItem).forEach(items::add);
-            // Overtime — managers see own reports' pending requests
-            overtimeRequestService.listPendingForApprover(email).stream()
-                    .map(this::overtimeToApprovalItem).forEach(items::add);
-            // FAQs & Guides — manager sees only attempts resolved to them
-            helpContentService.listPendingApprovalsForApprover(email).stream()
-                    .map(this::helpContentToApprovalItem).forEach(items::add);
         }
-
-        if (isAdmin) {
-            // Leave — HR/SA see all pending, regardless of direct-report relationship
-            leaveService.listPendingApprovals(email).stream()
-                    .map(this::leaveToApprovalItem).forEach(items::add);
-            // Regularization — HR/SA see all pending
+        // Regularization — TEAM: requests assigned to them; ALL (HR/SA): all pending
+        if (granted.contains("regularization:APPROVE:TEAM")) {
             regularizationService.listPendingForApprover(email).stream()
                     .map(this::regularizationToApprovalItem).forEach(items::add);
+        }
+        if (granted.contains("expenses:APPROVE:ALL")) {
             // Expense — HR/SA see claims at both stages now (SUBMITTED and MANAGER_APPROVED), so
             // tag each item with its ACTUAL stage rather than hardcoding "FINAL" — the frontend
             // routes the approve/reject click through managerApprove/managerReject vs
             // finalApprove/finalReject based on this field (ApprovalsPage.tsx approveItem/
             // rejectItem), and a still-SUBMITTED claim must go through the manager-stage endpoint
             // (which already allows HR/SA to act on it — see requireCurrentManagerOf) since
-            // finalApprove/finalReject reject anything not already MANAGER_APPROVED.
+            // finalApprove/finalReject reject anything not already MANAGER_APPROVED. Every
+            // SUBMITTED claim is in here, so the manager-stage list below adds nothing for an
+            // HR/SA who is also a Manager.
             expenseService.pendingForFinalApprover(email).stream()
                     .map(c -> expenseToApprovalItem(c, "SUBMITTED".equals(c.getStatus()) ? "MANAGER" : "FINAL"))
                     .forEach(items::add);
-            // Asset requests — HR/SA approve PENDING only (APPROVED → fulfilled via HR Assets page)
+        } else {
+            // Expense — manager stage only
+            if (granted.contains("expenses:APPROVE:TEAM")) {
+                expenseService.pendingForManager(email).stream()
+                        .map(c -> expenseToApprovalItem(c, "MANAGER")).forEach(items::add);
+            }
+            // A Workflow Studio stage can name a custom role; its holders get just the claims waiting
+            // at that stage (ExpenseService filters by stage). Only asked for holders of an active
+            // custom role — a system-role-only user without expenses:APPROVE:ALL can't be one.
+            boolean holdsCustomRole = actor.getRoles().stream().anyMatch(r -> !r.isSystem() && r.isActive());
+            if (holdsCustomRole && expenseService.hasFinalApproverQueue(email)) {
+                expenseService.pendingForFinalApprover(email).stream()
+                        .map(c -> expenseToApprovalItem(c, "FINAL")).forEach(items::add);
+            }
+        }
+        // Asset requests (V242) — APPROVE:ALL (HR/SA): every PENDING request (APPROVED ones are
+        // fulfilled from the HR Assets page, not approved here); APPROVE:TEAM (Manager): their own
+        // reports' PENDING requests. A Manager who is also HR/SA used to also get APPROVED ones here
+        // via the role-code path; they now get the same PENDING-only list as any other HR/SA.
+        if (granted.contains("assets:APPROVE:ALL")) {
             assetService.listPendingForApprover(email).stream()
                     .filter(r -> "PENDING".equals(r.getStatus()))
                     .map(this::assetRequestToApprovalItem).forEach(items::add);
-            // WFH / Partial Day — HR/SA see all pending
+        } else if (granted.contains("assets:APPROVE:TEAM")) {
+            assetService.listPendingForApprover(email).stream()
+                    .map(this::assetRequestToApprovalItem).forEach(items::add);
+        }
+        // WFH / Partial Day — TEAM: requests assigned to them; ALL (HR/SA): all pending
+        if (granted.contains("attendance_requests:APPROVE:TEAM")) {
             attendanceRequestService.listPendingForApprover(email).stream()
                     .map(this::attendanceRequestToApprovalItem).forEach(items::add);
-            // Overtime — HR/SA see all pending
+        }
+        // Overtime — TEAM: requests assigned to them; ALL (HR/SA): all pending
+        if (granted.contains("overtime:APPROVE:TEAM")) {
             overtimeRequestService.listPendingForApprover(email).stream()
                     .map(this::overtimeToApprovalItem).forEach(items::add);
-            // FAQs & Guides — Super Admin has blanket fallback-authority visibility, same
-            // convention as every other request type's admin branch here.
+        }
+        // hr_help_content:APPROVE:ALL (V238, Super Admin by default) is the approval fallback —
+        // a custom role granted it gets the queue too; managers approve their own reports' content.
+        if (isManager || isAdmin || granted.contains("hr_help_content:APPROVE:ALL")) {
+            // FAQs & Guides — attempts resolved to the caller; Super Admin has blanket
+            // fallback-authority visibility, same convention as every other request type here.
             helpContentService.listPendingApprovalsForApprover(email).stream()
                     .map(this::helpContentToApprovalItem).forEach(items::add);
         }
-
-        // De-duplicate by (id + requestType) in case manager and admin roles overlap
-        Map<String, ApprovalItemDto> seen = new LinkedHashMap<>();
-        for (ApprovalItemDto item : items) {
-            String key = item.getRequestType() + ":" + item.getId();
-            seen.putIfAbsent(key, item);
-        }
-        return new ArrayList<>(seen.values());
+        // Each queue is fetched at most once, so (unlike the old overlapping Manager + Admin
+        // branches) there are no duplicates to drop.
+        return items;
     }
 
     // ── Mappers ───────────────────────────────────────────

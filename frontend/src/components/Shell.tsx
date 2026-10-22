@@ -6,7 +6,7 @@ import {
   Clock as ClockIcon, ArrowRight,
 } from 'lucide-react';
 import { NAV, ALL_NAV_ITEMS, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
-import { isNavItemVisible } from '../lib/permissions';
+import { customRoleNavItems, isNavItemVisible } from '../lib/permissions';
 import { meApi } from '../api/me';
 import { AccessDenied } from './AccessDenied';
 import { searchApi, type SearchResultItem as ApiSearchResultItem, type SearchGroup } from '../api/search';
@@ -199,7 +199,10 @@ export function Shell() {
   const name        = storeUser?.fullName || email || 'User';
   const permissions = useAuthStore((s) => s.permissions);
 
-  const navItems = NAV[role];
+  // NAV[role] plus any gated items this user's custom roles grant (see customRoleNavItems) — a
+  // custom-role holder's primary role is usually Employee, whose curated nav lists no admin items.
+  const extraNavItems = useMemo(() => customRoleNavItems(NAV[role], permissions), [role, permissions]);
+  const navItems = useMemo(() => [...NAV[role], ...extraNavItems], [role, extraNavItems]);
   // Narrows the role's full candidate list down to what this user's live permissions actually
   // grant — a plain membership check per item (see isNavItemVisible), not a re-derivation of role
   // logic. Search suggestions and the sidebar both use this filtered set; `current` below still
@@ -360,7 +363,14 @@ export function Shell() {
   const setPermissions = useAuthStore((s) => s.setPermissions);
   useEffect(() => {
     if (!token) return;
-    meApi.getPermissions(token).then(setPermissions).catch(() => {});
+    const refresh = () => { meApi.getPermissions(token).then(setPermissions).catch(() => {}); };
+    refresh();
+    // A role's permissions can be edited in Roles & Permissions without ending anyone's session
+    // (the server re-resolves them per request, so enforcement is already current) — re-fetching
+    // when the tab regains focus keeps the nav/route gating from lagging behind it.
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [token, setPermissions]);
 
   // Heal stale sessions (fullName predating the fullName-in-login-response change) and pick
@@ -795,7 +805,7 @@ export function Shell() {
 
         {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see
             nav.config.ts), further narrowed by this user's live permissions (isNavItemVisible) */}
-        <SidebarNav role={role} currentKey={current.key} isVisible={isItemVisible} onNavigate={() => setNavOpen(false)} />
+        <SidebarNav role={role} currentKey={current.key} isVisible={isItemVisible} extraItems={extraNavItems} onNavigate={() => setNavOpen(false)} />
       </aside>
 
       {/* Main area */}

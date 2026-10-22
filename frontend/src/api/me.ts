@@ -7,6 +7,9 @@ export interface MyPermissionsResponse {
   primaryRole: string;
   roles: string[];
   permissions: Record<string, Partial<Record<string, string[]>>>;
+  /** The subset granted by custom (non-system) roles — drives customRoleNavItems. Optional: a
+   *  persisted response from before this field existed simply has none. */
+  customRolePermissions?: Record<string, Partial<Record<string, string[]>>>;
 }
 
 async function handle<T>(res: Response): Promise<T> {

@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.data;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.ai.contract.ShellRole;
@@ -80,7 +81,7 @@ class MyTeamDataProvidersTest {
     private AssistantRequestContext as(ShellRole role, AudienceBucket... audiences) {
         return AssistantRequestContext.builder()
                 .userId(UUID.randomUUID()).actorEmail(EMAIL).primaryRoleCode(role.name())
-                .shellRole(role).audiences(Set.of(audiences)).build();
+                .shellRole(role).audiences(Set.of(audiences)).authorities(SeedAuthorities.of(Set.of(audiences))).build();
     }
 
     // ---------------------------------------------------------------- MyTeamEffort
@@ -166,8 +167,10 @@ class MyTeamDataProvidersTest {
     @Test
     void effort_isRunnableByHrAdminAndSuperAdminToo_notJustManager() {
         MyTeamDataProviders.MyTeamEffort provider = new MyTeamDataProviders.MyTeamEffort(attendanceService, attendanceRulesService);
-        assertThat(provider.audiences()).containsExactlyInAnyOrder(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
-        assertThat(provider.audiences()).doesNotContain(AudienceBucket.EMPLOYEE);
+        for (AudienceBucket admin : List.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN)) {
+            assertThat(AssistantDataService.mayRun(provider, as(ShellRole.MANAGER, admin, AudienceBucket.EMPLOYEE))).as(admin.name()).isTrue();
+        }
+        assertThat(AssistantDataService.mayRun(provider, as(ShellRole.EMPLOYEE, AudienceBucket.EMPLOYEE))).isFalse();
     }
 
     // ---------------------------------------------------------------- MyTeamNegligence

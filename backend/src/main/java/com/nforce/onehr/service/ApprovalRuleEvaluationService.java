@@ -10,7 +10,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -36,9 +35,15 @@ public class ApprovalRuleEvaluationService {
     public static final String CONDITION_FIELD_AMOUNT = "AMOUNT";
     public static final String ROLE_MANAGER = "MANAGER";
 
-    // Either role satisfies the "second approval" stage — same convention ExpenseService's own
-    // FINAL_APPROVER_ROLES already uses for who may act at that stage.
-    private static final Set<String> FINAL_STAGE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    /**
+     * Every stage after Manager is a "second approval" stage — HR_ADMIN, SUPER_ADMIN, or (since
+     * V236) an active custom role's code. ApprovalRuleService only ever saves those values, so for
+     * every pre-V236 rule this is exactly the old {HR_ADMIN, SUPER_ADMIN} membership test. Who may
+     * act at each stage is ExpenseService#canActAtFinalStage's job, not this class's.
+     */
+    public static boolean isFinalStage(String stage) {
+        return !ROLE_MANAGER.equals(stage);
+    }
 
     private final ApprovalRuleRepository ruleRepository;
 
@@ -62,20 +67,20 @@ public class ApprovalRuleEvaluationService {
     }
 
     private Decision evaluate(ApprovalRule rule, BigDecimal amount) {
-        // A rule whose own stages name no HR_ADMIN/SUPER_ADMIN stage routes BOTH branches of its
+        // A rule whose own stages name no second-approval stage routes BOTH branches of its
         // condition to Manager-only, so activating it silently removed the HR final-clearance
         // stage from every expense claim (Manager-approved claims went straight to
         // CLEARED_FOR_PAYROLL and never reached HR's Approval Center queue). ApprovalRuleService
         // now rejects such rules on save; any saved before that is ignored here in favor of the
         // legacy default rather than stripping HR out of the workflow.
-        if (parseStages(rule.getApprovalStages()).stream().noneMatch(FINAL_STAGE_ROLES::contains)) {
+        if (parseStages(rule.getApprovalStages()).stream().noneMatch(ApprovalRuleEvaluationService::isFinalStage)) {
             log.warn("Approval rule {} has no second-approval stage ({}); ignoring it and applying the legacy default",
                     rule.getId(), rule.getApprovalStages());
             return legacyDefault();
         }
         boolean matches = evaluateCondition(amount, rule.getOperator(), new BigDecimal(rule.getConditionValue()));
         List<String> stages = matches ? parseStages(rule.getApprovalStages()) : List.of(ROLE_MANAGER);
-        boolean secondApprovalRequired = stages.stream().anyMatch(FINAL_STAGE_ROLES::contains);
+        boolean secondApprovalRequired = stages.stream().anyMatch(ApprovalRuleEvaluationService::isFinalStage);
         log.info("Approval rule {} evaluated for {}: amount vs {} {} {} -> {}, stages={}",
                 rule.getId(), rule.getRequestType(), rule.getOperator(), rule.getConditionValue(), matches,
                 secondApprovalRequired ? "second approval required" : "manager only", stages);

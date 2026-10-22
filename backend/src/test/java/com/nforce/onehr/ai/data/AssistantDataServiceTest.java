@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.data;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.ai.contract.KnowledgeType;
@@ -38,7 +39,7 @@ class AssistantDataServiceTest {
                 .actorEmail("someone@nforceone.com")
                 .primaryRoleCode(role.name())
                 .shellRole(role)
-                .audiences(audiences)
+                .audiences(audiences).authorities(SeedAuthorities.of(audiences))
                 .build();
     }
 
@@ -56,19 +57,19 @@ class AssistantDataServiceTest {
     /** A provider that records whether it was asked for anything. */
     private static class SpyProvider implements AssistantDataProvider {
         private final String id;
-        private final Set<AudienceBucket> audiences;
+        private final Set<String> authorities;
         private final Set<String> modules;
         private final String body;
         final AtomicBoolean fetched = new AtomicBoolean(false);
 
-        SpyProvider(String id, Set<AudienceBucket> audiences, Set<String> modules, String body) {
-            this.id = id; this.audiences = audiences; this.modules = modules; this.body = body;
+        SpyProvider(String id, Set<String> authorities, Set<String> modules, String body) {
+            this.id = id; this.authorities = authorities; this.modules = modules; this.body = body;
         }
 
         @Override public String id() { return id; }
         @Override public String title() { return "title of " + id; }
         @Override public DataScope scope() { return DataScope.SELF; }
-        @Override public Set<AudienceBucket> audiences() { return audiences; }
+        @Override public Set<String> authorities() { return authorities; }
         @Override public Set<String> modules() { return modules; }
 
         @Override
@@ -82,7 +83,7 @@ class AssistantDataServiceTest {
     @DisplayName("a provider runs when its module was retrieved")
     void relevantProviderRuns() {
         SpyProvider leave = new SpyProvider("leave.balances",
-                Set.of(AudienceBucket.values()), Set.of("leave"), "- Annual: 12 of 18 days remaining");
+                AssistantDataProvider.EVERYONE, Set.of("leave"), "- Annual: 12 of 18 days remaining");
         AssistantDataService service = new AssistantDataService(List.of(leave));
 
         AssistantDataService.LiveData data = service.fetch(employee(), List.of(knowledgeFrom("leave")));
@@ -97,7 +98,7 @@ class AssistantDataServiceTest {
     @DisplayName("an unrelated question reads nothing at all")
     void irrelevantProviderIsNeverCalled() {
         SpyProvider expenses = new SpyProvider("expense.my-claims",
-                Set.of(AudienceBucket.values()), Set.of("assets"), "- Travel, 400 on 2026-01-02: SUBMITTED");
+                AssistantDataProvider.EVERYONE, Set.of("assets"), "- Travel, 400 on 2026-01-02: SUBMITTED");
         AssistantDataService service = new AssistantDataService(List.of(expenses));
 
         // Asking about leave must not cause a read of somebody's expense claims. This is the
@@ -112,7 +113,7 @@ class AssistantDataServiceTest {
     @DisplayName("nothing is read when retrieval found nothing")
     void noKnowledgeMeansNoRead() {
         SpyProvider leave = new SpyProvider("leave.balances",
-                Set.of(AudienceBucket.values()), Set.of("leave"), "- Annual: 12 days");
+                AssistantDataProvider.EVERYONE, Set.of("leave"), "- Annual: 12 days");
         AssistantDataService service = new AssistantDataService(List.of(leave));
 
         assertThat(service.fetch(employee(), List.of()).isEmpty()).isTrue();
@@ -123,7 +124,7 @@ class AssistantDataServiceTest {
     @DisplayName("an employee never triggers a manager-only provider")
     void audienceGateIsEnforcedBeforeFetching() {
         SpyProvider approvals = new SpyProvider("leave.pending-approvals",
-                Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN),
+                Set.of("leave:APPROVE:TEAM"),
                 Set.of("leave"), "3 awaiting your decision.");
         AssistantDataService service = new AssistantDataService(List.of(approvals));
 
@@ -139,7 +140,7 @@ class AssistantDataServiceTest {
     @DisplayName("a manager does trigger it")
     void managerGetsApprovalData() {
         SpyProvider approvals = new SpyProvider("leave.pending-approvals",
-                Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN),
+                Set.of("leave:APPROVE:TEAM"),
                 Set.of("leave"), "3 awaiting your decision.");
         AssistantDataService service = new AssistantDataService(List.of(approvals));
 
@@ -151,7 +152,7 @@ class AssistantDataServiceTest {
     @DisplayName("a provider with nothing to say contributes no section")
     void emptyResultsAreOmitted() {
         SpyProvider empty = new SpyProvider("expense.my-claims",
-                Set.of(AudienceBucket.values()), Set.of("assets"), null);
+                AssistantDataProvider.EVERYONE, Set.of("assets"), null);
         AssistantDataService service = new AssistantDataService(List.of(empty));
 
         AssistantDataService.LiveData data = service.fetch(employee(), List.of(knowledgeFrom("assets")));
@@ -165,7 +166,7 @@ class AssistantDataServiceTest {
     @DisplayName("a failing provider costs its figure, not the turn")
     void failureIsSwallowed() {
         AssistantDataProvider broken = new SpyProvider("leave.balances",
-                Set.of(AudienceBucket.values()), Set.of("leave"), "x") {
+                AssistantDataProvider.EVERYONE, Set.of("leave"), "x") {
             @Override
             public Optional<String> fetch(AssistantRequestContext context) {
                 throw new IllegalStateException("database is on fire");
@@ -184,10 +185,10 @@ class AssistantDataServiceTest {
         // Order here mimics Spring handing the beans over in an arbitrary order, with the provider
         // the question is really about listed last.
         List<AssistantDataProvider> asSpringMightInject = List.of(
-                new SpyProvider("attendance.today", Set.of(AudienceBucket.values()), Set.of("attendance"), "a"),
-                new SpyProvider("attendance.my-exceptions", Set.of(AudienceBucket.values()), Set.of("attendance"), "b"),
-                new SpyProvider("leave.balances", Set.of(AudienceBucket.values()), Set.of("leave"), "c"),
-                new SpyProvider("expense.my-claims", Set.of(AudienceBucket.values()), Set.of("assets"), "d"));
+                new SpyProvider("attendance.today", AssistantDataProvider.EVERYONE, Set.of("attendance"), "a"),
+                new SpyProvider("attendance.my-exceptions", AssistantDataProvider.EVERYONE, Set.of("attendance"), "b"),
+                new SpyProvider("leave.balances", AssistantDataProvider.EVERYONE, Set.of("leave"), "c"),
+                new SpyProvider("expense.my-claims", AssistantDataProvider.EVERYONE, Set.of("assets"), "d"));
         AssistantDataService service = new AssistantDataService(asSpringMightInject);
 
         // An expense question: the expense chunk is the strongest hit, the others scraped in.
@@ -206,12 +207,12 @@ class AssistantDataServiceTest {
     @DisplayName("at most four providers may fire on one turn")
     void personalDataPerTurnIsCapped() {
         List<AssistantDataProvider> many = List.of(
-                new SpyProvider("p1", Set.of(AudienceBucket.values()), Set.of("leave"), "a"),
-                new SpyProvider("p2", Set.of(AudienceBucket.values()), Set.of("leave"), "b"),
-                new SpyProvider("p3", Set.of(AudienceBucket.values()), Set.of("leave"), "c"),
-                new SpyProvider("p4", Set.of(AudienceBucket.values()), Set.of("leave"), "d"),
-                new SpyProvider("p5", Set.of(AudienceBucket.values()), Set.of("leave"), "e"),
-                new SpyProvider("p6", Set.of(AudienceBucket.values()), Set.of("leave"), "f"));
+                new SpyProvider("p1", AssistantDataProvider.EVERYONE, Set.of("leave"), "a"),
+                new SpyProvider("p2", AssistantDataProvider.EVERYONE, Set.of("leave"), "b"),
+                new SpyProvider("p3", AssistantDataProvider.EVERYONE, Set.of("leave"), "c"),
+                new SpyProvider("p4", AssistantDataProvider.EVERYONE, Set.of("leave"), "d"),
+                new SpyProvider("p5", AssistantDataProvider.EVERYONE, Set.of("leave"), "e"),
+                new SpyProvider("p6", AssistantDataProvider.EVERYONE, Set.of("leave"), "f"));
         AssistantDataService service = new AssistantDataService(many);
 
         // A ceiling on how much of one person's record a single question can pull into a prompt
@@ -227,20 +228,20 @@ class AssistantDataServiceTest {
         // single "approvals"-tagged provider was even considered, even though the question was about
         // neither type specifically - it was about the page as a whole.
         List<AssistantDataProvider> providers = List.of(
-                new SpyProvider("leave.balances", Set.of(AudienceBucket.values()), Set.of("leave"), "a"),
-                new SpyProvider("leave.my-requests", Set.of(AudienceBucket.values()), Set.of("leave", "requests"), "b"),
+                new SpyProvider("leave.balances", AssistantDataProvider.EVERYONE, Set.of("leave"), "a"),
+                new SpyProvider("leave.my-requests", AssistantDataProvider.EVERYONE, Set.of("leave", "requests"), "b"),
                 new SpyProvider("leave.pending-approvals",
-                        Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN),
+                        Set.of("leave:APPROVE:TEAM"),
                         Set.of("leave", "approvals"), "3 awaiting your decision."),
                 new SpyProvider("expense.pending-approvals",
-                        Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN),
+                        Set.of("leave:APPROVE:TEAM"),
                         Set.of("assets", "approvals"), "14 awaiting your decision."));
         AssistantDataService service = new AssistantDataService(providers);
 
         AssistantRequestContext onApprovalCenter = AssistantRequestContext.builder()
                 .userId(UUID.randomUUID()).actorEmail("m@nforceone.com")
                 .primaryRoleCode("MANAGER").shellRole(ShellRole.MANAGER)
-                .audiences(Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER))
+                .audiences(Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER)))
                 .currentPageId("approvals").currentModule("approvals")
                 .build();
 
@@ -256,9 +257,9 @@ class AssistantDataServiceTest {
     @DisplayName("a family only gets a second slot once every other relevant family already has its first")
     void secondSlotRequiresEveryFamilyToHaveOne() {
         List<AssistantDataProvider> providers = List.of(
-                new SpyProvider("leave.balances", Set.of(AudienceBucket.values()), Set.of("leave"), "a"),
-                new SpyProvider("leave.my-requests", Set.of(AudienceBucket.values()), Set.of("leave", "requests"), "b"),
-                new SpyProvider("expense.my-claims", Set.of(AudienceBucket.values()), Set.of("assets"), "c"));
+                new SpyProvider("leave.balances", AssistantDataProvider.EVERYONE, Set.of("leave"), "a"),
+                new SpyProvider("leave.my-requests", AssistantDataProvider.EVERYONE, Set.of("leave", "requests"), "b"),
+                new SpyProvider("expense.my-claims", AssistantDataProvider.EVERYONE, Set.of("assets"), "c"));
         AssistantDataService service = new AssistantDataService(providers);
 
         // "leave" alone is relevant (no page/assets boost at all), so Expense's own score is 0 and
@@ -286,11 +287,11 @@ class AssistantDataServiceTest {
         // family's first-round pick outright. This is asserted against six tied peripheral families,
         // well beyond what any reasonable cap increase alone could have covered.
         List<AssistantDataProvider> providers = new java.util.ArrayList<>(List.of(
-                new SpyProvider("attendance.my-exceptions", Set.of(AudienceBucket.values()), Set.of("attendance", "exceptions"), "a"),
-                new SpyProvider("attendance.my-penalties", Set.of(AudienceBucket.values()), Set.of("attendance", "penalties"), "b"),
-                new SpyProvider("attendance.today", Set.of(AudienceBucket.values()), Set.of("attendance"), "c")));
+                new SpyProvider("attendance.my-exceptions", AssistantDataProvider.EVERYONE, Set.of("attendance", "exceptions"), "a"),
+                new SpyProvider("attendance.my-penalties", AssistantDataProvider.EVERYONE, Set.of("attendance", "penalties"), "b"),
+                new SpyProvider("attendance.today", AssistantDataProvider.EVERYONE, Set.of("attendance"), "c")));
         for (String peer : List.of("attendance-request", "overtime", "regularization", "leave", "expense", "asset")) {
-            providers.add(new SpyProvider(peer + ".my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "d"));
+            providers.add(new SpyProvider(peer + ".my-requests", AssistantDataProvider.EVERYONE, Set.of("attendance", "requests"), "d"));
         }
         AssistantDataService service = new AssistantDataService(providers);
 
@@ -310,17 +311,17 @@ class AssistantDataServiceTest {
         // first, and with three other page-tied families filling the cap it would take the
         // attendance family's only slot: "what time did I check in today" answered from exceptions.
         List<AssistantDataProvider> providers = List.of(
-                new SpyProvider("attendance.my-exceptions", Set.of(AudienceBucket.values()), Set.of("attendance", "exceptions"), "a"),
-                new SpyProvider("attendance.today", Set.of(AudienceBucket.values()), Set.of("attendance", "attendance-today"), "b"),
-                new SpyProvider("attendance-request.my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "c"),
-                new SpyProvider("overtime.my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "d"),
-                new SpyProvider("regularization.my-requests", Set.of(AudienceBucket.values()), Set.of("attendance", "requests"), "e"));
+                new SpyProvider("attendance.my-exceptions", AssistantDataProvider.EVERYONE, Set.of("attendance", "exceptions"), "a"),
+                new SpyProvider("attendance.today", AssistantDataProvider.EVERYONE, Set.of("attendance", "attendance-today"), "b"),
+                new SpyProvider("attendance-request.my-requests", AssistantDataProvider.EVERYONE, Set.of("attendance", "requests"), "c"),
+                new SpyProvider("overtime.my-requests", AssistantDataProvider.EVERYONE, Set.of("attendance", "requests"), "d"),
+                new SpyProvider("regularization.my-requests", AssistantDataProvider.EVERYONE, Set.of("attendance", "requests"), "e"));
         AssistantDataService service = new AssistantDataService(providers);
 
         AssistantRequestContext onAttendancePage = AssistantRequestContext.builder()
                 .userId(UUID.randomUUID()).actorEmail("e@nforceone.com")
                 .primaryRoleCode("EMPLOYEE").shellRole(ShellRole.EMPLOYEE)
-                .audiences(Set.of(AudienceBucket.EMPLOYEE))
+                .audiences(Set.of(AudienceBucket.EMPLOYEE)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.EMPLOYEE)))
                 .currentPageId("attendance").currentModule("attendance")
                 .build();
 
@@ -339,14 +340,14 @@ class AssistantDataServiceTest {
         // topic-adjacent to "attendance" must not be able to push it out of the cap just by
         // existing, however many of them also score.
         SpyProvider selfHistory = new SpyProvider("attendance.my-history",
-                Set.of(AudienceBucket.values()), Set.of("attendance", "attendance-history"), "daily rows");
+                AssistantDataProvider.EVERYONE, Set.of("attendance", "attendance-history"), "daily rows");
         List<AssistantDataProvider> providers = new java.util.ArrayList<>(List.of(selfHistory,
-                new SpyProvider("team-attendance.today", Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN),
+                new SpyProvider("team-attendance.today", Set.of("leave:APPROVE:TEAM"),
                         Set.of("team-attendance", "team", "attendance"), "team today")));
         for (String family : List.of("my-team-effort", "my-team-negligence", "my-team-assignments",
                 "my-team-requests", "my-team-overview")) {
             providers.add(new SpyProvider(family + ".x",
-                    Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN),
+                    Set.of("leave:APPROVE:TEAM"),
                     Set.of(family, "team"), "team-ish data"));
         }
         AssistantDataService service = new AssistantDataService(providers);
@@ -366,7 +367,7 @@ class AssistantDataServiceTest {
         // ONEHR - "last 5" answered with rows, "previous 5" with directions: retrieval ranked today's
         // attendance above the history, and with every slot taken in the first round only one
         // attendance provider fit.
-        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        Set<String> all = AssistantDataProvider.EVERYONE;
         AssistantDataService service = new AssistantDataService(List.of(
                 new SpyProvider("attendance.today", all, Set.of("attendance", "attendance-today"), "today"),
                 new SpyProvider("attendance.my-history", all, Set.of("attendance", "attendance-history"), "rows"),
@@ -383,7 +384,7 @@ class AssistantDataServiceTest {
     @Test
     @DisplayName("attendance for any named period gets the history, today alone does not")
     void attendanceForAPeriodPicksTheHistory() {
-        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        Set<String> all = AssistantDataProvider.EVERYONE;
         AssistantDataService service = new AssistantDataService(List.of(
                 new SpyProvider("attendance.today", all, Set.of("attendance", "attendance-today"), "today"),
                 new SpyProvider("attendance.my-history", all, Set.of("attendance", "attendance-history"), "rows"),
@@ -404,7 +405,7 @@ class AssistantDataServiceTest {
     void ownProfileWordingPicksTheProfile() {
         // ONEHR - asked on Team Attendance, six attendance families took all four slots on the
         // page's 0.75 alone, the profile's 0.70 match never got one, and the model invented a manager.
-        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        Set<String> all = AssistantDataProvider.EVERYONE;
         List<AssistantDataProvider> providers = new java.util.ArrayList<>(List.of(
                 new SpyProvider("profile.me", all, Set.of("my-profile", "profile", "people"), "- Reporting manager: Naveen")));
         for (String family : List.of("attendance", "attendance-request", "org-attendance", "overtime",
@@ -415,7 +416,7 @@ class AssistantDataServiceTest {
         AssistantRequestContext onAttendancePage = AssistantRequestContext.builder()
                 .userId(UUID.randomUUID()).actorEmail("m@nforceone.com")
                 .primaryRoleCode("MANAGER").shellRole(ShellRole.MANAGER)
-                .audiences(Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER))
+                .audiences(Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER)))
                 .currentPageId("attendance").currentModule("attendance")
                 .build();
         List<RetrievalResult> weakProfileMatch = List.of(knowledgeFrom("my-profile", 0.70));
@@ -435,8 +436,8 @@ class AssistantDataServiceTest {
     void regularizationWordingPicksRegularizations() {
         // ONEHR - regularization sorted fifth among six "attendance" families for four slots, so
         // "how many regularization requests did I raise" was answered with "I cannot access that".
-        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
-        Set<AudienceBucket> approvers = Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
+        Set<String> all = AssistantDataProvider.EVERYONE;
+        Set<String> approvers = Set.of("regularization:APPROVE:TEAM");
         List<AssistantDataProvider> providers = new java.util.ArrayList<>(List.of(
                 new SpyProvider("regularization.my-requests", all, Set.of("attendance", "requests", "regularization"), "mine"),
                 new SpyProvider("regularization.pending-approvals", approvers,
@@ -459,9 +460,9 @@ class AssistantDataServiceTest {
     void joinerWordingPicksTheHeadcount() {
         // ONEHR - a Super Admin's "how many employees joined this month by department" retrieved the
         // user-accounts knowledge but the block lost its slot to four closer-scoring families.
-        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        Set<String> all = AssistantDataProvider.EVERYONE;
         AssistantDataService service = new AssistantDataService(List.of(
-                new SpyProvider("org-users.summary", Set.of(AudienceBucket.ADMIN), Set.of("users", "headcount", "access", "administration"), "users"),
+                new SpyProvider("org-users.summary", Set.of("user_management:VIEW:ALL"), Set.of("users", "headcount", "access", "administration"), "users"),
                 new SpyProvider("profile.me", all, Set.of("my-profile", "profile", "people"), "me"),
                 new SpyProvider("team.members", all, Set.of("team", "people"), "team"),
                 new SpyProvider("org-onboarding.summary", all, Set.of("onboarding"), "onboarding"),
@@ -483,10 +484,10 @@ class AssistantDataServiceTest {
     @DisplayName("leave type wording gets the organisation masters' leave types, not only the caller's balances")
     void leaveTypeWordingPicksTheMasters() {
         // ONEHR - a Super Admin's "how many active leave types are configured" was sent to Organization Masters.
-        Set<AudienceBucket> all = Set.of(AudienceBucket.values());
+        Set<String> all = AssistantDataProvider.EVERYONE;
         AssistantDataService service = new AssistantDataService(List.of(
                 new SpyProvider("leave.balances", all, Set.of("leave", "leave-balances"), "balances"),
-                new SpyProvider("org-structure.summary", Set.of(AudienceBucket.HR, AudienceBucket.ADMIN),
+                new SpyProvider("org-structure.summary", Set.of("organization:EDIT:ALL"),
                         Set.of("organization", "administration", "leave-types"), "structure")));
         AssistantRequestContext superAdmin = context(Set.of(AudienceBucket.ADMIN, AudienceBucket.EMPLOYEE), ShellRole.SUPER_ADMIN);
 
@@ -502,7 +503,7 @@ class AssistantDataServiceTest {
     @Test
     @DisplayName("an every-turn provider runs outside the cap, whatever retrieval matched")
     void everyTurnProviderRunsOutsideTheCap() {
-        AssistantDataProvider named = new SpyProvider("people-named.matches", Set.of(AudienceBucket.values()),
+        AssistantDataProvider named = new SpyProvider("people-named.matches", AssistantDataProvider.EVERYONE,
                 Set.of("people-named"), "Praveen Gurram (this is you)") {
             @Override public boolean consultedEveryTurn() { return true; }
         };
@@ -516,13 +517,13 @@ class AssistantDataServiceTest {
     @DisplayName("the current page can make a provider relevant on its own")
     void currentPageContributesToSelection() {
         SpyProvider expenses = new SpyProvider("expense.my-claims",
-                Set.of(AudienceBucket.values()), Set.of("assets"), "- Travel, 400: SUBMITTED");
+                AssistantDataProvider.EVERYONE, Set.of("assets"), "- Travel, 400: SUBMITTED");
         AssistantDataService service = new AssistantDataService(List.of(expenses));
 
         AssistantRequestContext onExpensesPage = AssistantRequestContext.builder()
                 .userId(UUID.randomUUID()).actorEmail("e@nforceone.com")
                 .primaryRoleCode("EMPLOYEE").shellRole(ShellRole.EMPLOYEE)
-                .audiences(Set.of(AudienceBucket.EMPLOYEE))
+                .audiences(Set.of(AudienceBucket.EMPLOYEE)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.EMPLOYEE)))
                 .currentPageId("assets").currentModule("assets")
                 .build();
 

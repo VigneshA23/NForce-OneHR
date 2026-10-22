@@ -1,5 +1,7 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.dto.reports.AttendanceRequestReportRow;
 import com.nforce.onehr.entity.AttendanceRequest;
 import com.nforce.onehr.entity.Employee;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -52,6 +55,9 @@ class ReportsServiceTest {
     @Mock private OvertimeRequestRepository overtimeRequestRepository;
     @Mock private AttendanceRequestRepository attendanceRequestRepository;
 
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(java.util.Map.of(
+            "CUSTOM_REPORTER", java.util.Map.of("reports:VIEW", "ALL", "reports:EXPORT", "ALL"),
+            "CUSTOM_TEAM_REPORTER", java.util.Map.of("reports:VIEW", "TEAM", "reports:EXPORT", "TEAM")));
     @InjectMocks private ReportsService reportsService;
 
     private final UUID managerId = UUID.randomUUID();
@@ -329,6 +335,52 @@ class ReportsServiceTest {
         reportsService.getAttendanceRequestReport(managerEmail, ReportsService.ReportType.OVERTIME, from, to);
 
         verify(employeeRepository, never()).findAllWithDetails();
+    }
+
+    private Employee callerWithRole(String email, String roleCode) {
+        UUID id = UUID.randomUUID();
+        Employee e = Employee.builder().userId(id).fullName(roleCode)
+                .user(User.builder().id(id).roles(new HashSet<>(Set.of(role(roleCode)))).build()).build();
+        when(employeeRepository.findByUser_Email(email)).thenReturn(Optional.of(e));
+        return e;
+    }
+
+    @Test
+    void customRoleWithOrgWideReports_getsOrgWideEmployees_forViewAndExport() {
+        callerWithRole("custom@test.com", "CUSTOM_REPORTER");
+        when(employeeRepository.findAllWithDetails()).thenReturn(List.of());
+
+        reportsService.getAttendanceRequestReport("custom@test.com", ReportsService.ReportType.OVERTIME, from, to);
+        reportsService.exportAttendanceRequestReport("custom@test.com", ReportsService.ReportType.OVERTIME, from, to);
+
+        verify(employeeRepository, times(2)).findAllWithDetails();
+        verify(managerHistoryRepository, never()).findCurrentDirectReportIds(any());
+    }
+
+    @Test
+    void customRoleWithTeamReportsOnly_seesOnlyDirectReports_forViewAndExport() {
+        Employee caller = callerWithRole("team@test.com", "CUSTOM_TEAM_REPORTER");
+        when(managerHistoryRepository.findCurrentDirectReportIds(caller.getUserId())).thenReturn(List.of());
+        when(employeeRepository.findAllById(List.of())).thenReturn(List.of());
+
+        reportsService.getAttendanceRequestReport("team@test.com", ReportsService.ReportType.OVERTIME, from, to);
+        reportsService.exportAttendanceRequestReport("team@test.com", ReportsService.ReportType.OVERTIME, from, to);
+
+        verify(employeeRepository, never()).findAllWithDetails();
+    }
+
+    @Test
+    void systemRoles_exportScope_matchesViewScope() {
+        callerWithRole("hr@test.com", "HR_ADMIN");
+        when(employeeRepository.findAllWithDetails()).thenReturn(List.of());
+        reportsService.exportAttendanceRequestReport("hr@test.com", ReportsService.ReportType.OVERTIME, from, to);
+        verify(employeeRepository).findAllWithDetails();
+
+        Employee mgr = callerWithRole("mgr@test.com", "MANAGER");
+        when(managerHistoryRepository.findCurrentDirectReportIds(mgr.getUserId())).thenReturn(List.of());
+        when(employeeRepository.findAllById(List.of())).thenReturn(List.of());
+        reportsService.exportAttendanceRequestReport("mgr@test.com", ReportsService.ReportType.OVERTIME, from, to);
+        verify(employeeRepository).findAllWithDetails(); // still just the HR call
     }
 
     // ── getAttendanceRequestReportForDirectReports: the AI assistant's My Team entry point ──────

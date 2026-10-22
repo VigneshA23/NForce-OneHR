@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.doc.ComplianceSummaryDto;
 import com.nforce.onehr.dto.doc.DocumentAdminKpiDto;
 import com.nforce.onehr.dto.doc.RequiredDocumentDto;
@@ -37,7 +36,7 @@ public final class DocumentDataProviders {
         @Override public String id() { return "document.my-compliance"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your required documents and compliance status"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("documents", "my-documents"); }
 
         @Override
@@ -81,7 +80,7 @@ public final class DocumentDataProviders {
         @Override public String id() { return "org-documents.compliance"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "Organisation document verification and policy acknowledgement status"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR, AudienceBucket.ADMIN); }
+        @Override public Set<String> authorities() { return Set.of("documents:VIEW:ALL"); }
         @Override public Set<String> modules() { return Set.of("documents-admin", "documents", "policies"); }
 
         @Override

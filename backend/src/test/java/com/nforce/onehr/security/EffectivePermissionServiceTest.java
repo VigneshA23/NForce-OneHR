@@ -106,4 +106,32 @@ class EffectivePermissionServiceTest {
 
         assertEquals(Set.of("TEAM"), permissions.get("attendance").get("VIEW"));
     }
+
+    @Test
+    void computeAuthorities_inactiveRole_contributesNothing() {
+        Role active = Role.builder().id(2).code("MANAGER").build();
+        Role inactive = Role.builder().id(9).code("CUSTOM_X").active(false).build();
+        when(rolePermissionRepository.findByRoleIdsWithPermissionAndModule(List.of(2)))
+                .thenReturn(List.of(grant(active, "leave", "APPROVE", "TEAM")));
+
+        List<String> authorities = effectivePermissionService.computeAuthorities(List.of(active, inactive))
+                .stream().map(a -> a.getAuthority()).toList();
+
+        // Only role 2 was queried — the inactive role's id never reaches the repository.
+        assertTrue(authorities.contains("leave:APPROVE:TEAM"));
+        verify(rolePermissionRepository).findByRoleIdsWithPermissionAndModule(List.of(2));
+    }
+
+    @Test
+    void assertWithinCeiling_rejectsAnythingBeyondTheActorsCoverage_includingWiderScopes() {
+        Role manager = Role.builder().id(2).code("MANAGER").build();
+        when(rolePermissionRepository.findByRoleIdsWithPermissionAndModule(List.of(2)))
+                .thenReturn(List.of(grant(manager, "leave", "APPROVE", "TEAM")));
+
+        assertDoesNotThrow(() -> effectivePermissionService.assertWithinCeiling(List.of(manager), Set.of("leave:APPROVE:OWN"), "x"));
+        assertThrows(IllegalArgumentException.class,
+                () -> effectivePermissionService.assertWithinCeiling(List.of(manager), Set.of("leave:APPROVE:ALL"), "x"));
+        assertThrows(IllegalArgumentException.class,
+                () -> effectivePermissionService.assertWithinCeiling(List.of(manager), Set.of("roles:CONFIGURE:ALL"), "x"));
+    }
 }

@@ -47,6 +47,16 @@ public class PageReference {
     private Set<ShellRole> roles;
 
     /**
+     * The page's permission requirement, any one of which suffices ({@code "module:ACTION:SCOPE"}),
+     * mirroring frontend {@code permissions.ts#NAV_ITEM_REQUIREMENTS}; empty for an ungated page.
+     * Narrows {@link #roles}' sidebar to what the caller's permissions grant, and lets a custom role
+     * holding it reach the page from outside their shell role's nav - see
+     * {@code PageRegistry#reachable}.
+     */
+    @Builder.Default
+    private Set<String> permissions = Set.of();
+
+    /**
      * True when this page is a roadmap placeholder (nav.config.ts {@code phase: 2} or
      * {@code locked}). Such pages are described but are never emitted as a navigation target.
      */

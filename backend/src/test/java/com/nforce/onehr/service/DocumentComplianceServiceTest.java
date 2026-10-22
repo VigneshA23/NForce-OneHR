@@ -4,6 +4,7 @@ import com.nforce.onehr.controller.DocumentController;
 import com.nforce.onehr.dto.doc.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,7 +50,8 @@ class DocumentComplianceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new DocumentService(docRepo, docTypeRepo, employeeRepo, userRepo, notificationRepo, notificationService);
+        service = new DocumentService(docRepo, docTypeRepo, employeeRepo, userRepo, notificationRepo, notificationService,
+                SeedMatrix.permissionService());
         empUser = user(empId, EMP_EMAIL, "EMPLOYEE");
         lenient().when(userRepo.findByEmail(EMP_EMAIL)).thenReturn(Optional.of(empUser));
         lenient().when(userRepo.findByEmail(OTHER_EMP_EMAIL)).thenReturn(Optional.of(user(otherEmpId, OTHER_EMP_EMAIL, "EMPLOYEE")));

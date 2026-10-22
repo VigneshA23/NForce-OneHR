@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.PunchResponse;
 import com.nforce.onehr.dto.attendance.AttendanceConfigResponse;
@@ -65,7 +64,7 @@ public final class AttendanceDataProviders {
         @Override public String id() { return "attendance.today"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your attendance today"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("attendance", "attendance-today"); }
 
         @Override
@@ -159,7 +158,7 @@ public final class AttendanceDataProviders {
         @Override public String id() { return "attendance.my-history"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your attendance log, exceptions and active penalties"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("attendance", "attendance-history", "exceptions", "penalties"); }
 
         private record Item(LocalDate date, String type, String detail) {}
@@ -348,7 +347,7 @@ public final class AttendanceDataProviders {
         @Override public String id() { return "attendance.my-shift"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your shift, grace period and weekly offs"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("attendance", "shift"); }
 
         @Override

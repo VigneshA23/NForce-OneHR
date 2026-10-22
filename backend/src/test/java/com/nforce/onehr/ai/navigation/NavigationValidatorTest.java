@@ -1,15 +1,22 @@
 package com.nforce.onehr.ai.navigation;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.ai.contract.NavigationAction;
 import com.nforce.onehr.ai.contract.ShellRole;
+import com.nforce.onehr.entity.Role;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -40,7 +47,7 @@ class NavigationValidatorTest {
                 .userId(UUID.randomUUID())
                 .primaryRoleCode(role.name())
                 .shellRole(role)
-                .audiences(Set.of(buckets))
+                .audiences(Set.of(buckets)).authorities(SeedAuthorities.of(Set.of(buckets)))
                 .build();
     }
 
@@ -207,7 +214,7 @@ class NavigationValidatorTest {
         void missingOrUnresolvableContextFailsClosed() {
             var noRole = AssistantRequestContext.builder()
                     .userId(UUID.randomUUID())
-                    .audiences(Set.of(AudienceBucket.ADMIN))
+                    .audiences(Set.of(AudienceBucket.ADMIN)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.ADMIN)))
                     .build();
 
             assertThat(validator.validate("leave", noRole)).isEmpty();
@@ -246,6 +253,83 @@ class NavigationValidatorTest {
 
             assertThat(validator.validateCurrentPage("performance", employee)).isPresent();
             assertThat(validator.validate("performance", employee)).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("permission-based reachability")
+    class Permissions {
+
+        private final PageRegistry registry = new PageRegistry();
+
+        Permissions() {
+            ReflectionTestUtils.invokeMethod(registry, "load");
+        }
+
+        /** An Employee whose custom role grants exactly {@code grants} ("module:ACTION" -> scope). */
+        private AssistantRequestContext employeeWithCustomRole(Map<String, String> grants) {
+            EffectivePermissionService permissions = SeedMatrix.permissionService(Map.of("CUSTOM_X", grants));
+            Role custom = Role.builder().id(99).code("CUSTOM_X").displayName("Custom").build();
+            return AssistantRequestContext.builder()
+                    .userId(UUID.randomUUID()).primaryRoleCode("EMPLOYEE").shellRole(ShellRole.EMPLOYEE)
+                    .audiences(Set.of(AudienceBucket.EMPLOYEE))
+                    .authorities(permissions.coverage(List.of(SeedMatrix.role("EMPLOYEE"), custom)))
+                    .customAuthorities(permissions.coverage(List.of(custom)))
+                    .build();
+        }
+
+        @Test
+        @DisplayName("with the seeded roles, every role (and real combination) reaches exactly its nav, as before")
+        void systemRolesReachExactlyTheirOwnNav() {
+            Map<ShellRole, String[]> holders = Map.of(
+                    ShellRole.EMPLOYEE, new String[] {"EMPLOYEE"},
+                    ShellRole.MANAGER, new String[] {"EMPLOYEE", "MANAGER"},
+                    ShellRole.HR_ADMIN, new String[] {"EMPLOYEE", "MANAGER", "HR_ADMIN"},
+                    ShellRole.SUPER_ADMIN, new String[] {"EMPLOYEE", "SUPER_ADMIN"});
+            for (ShellRole role : ShellRole.values()) {
+                for (String[] codes : List.of(holders.get(role), new String[] {"EMPLOYEE", role.name()})) {
+                    var context = AssistantRequestContext.builder().shellRole(role)
+                            .authorities(SeedAuthorities.ofRoles(Arrays.stream(codes).distinct().toArray(String[]::new)))
+                            .customAuthorities(Set.of()).build();
+                    assertThat(registry.reachable(context)).as("%s %s", role, Arrays.toString(codes))
+                            .containsExactlyElementsOf(registry.forRole(role));
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("a custom role with user_management:VIEW:ALL can be navigated to User Management")
+        void customRoleReachesItsGrantedPage() {
+            var context = employeeWithCustomRole(Map.of("user_management:VIEW", "ALL"));
+
+            Optional<NavigationAction> action = validator.validate("access", context);
+
+            assertThat(action).isPresent();
+            assertThat(action.get().getLabel()).isEqualTo("User Management");
+            // Its own nav is untouched, and nothing it was not granted opens.
+            assertThat(validator.validate("leave", context)).isPresent();
+            assertThat(validator.validate("roles", context)).isEmpty();
+            assertThat(validator.validate("employees", context)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("without the permission, a custom role reaches nothing beyond its primary role's nav")
+        void customRoleWithoutThePermissionDoesNot() {
+            var context = employeeWithCustomRole(Map.of("leave:VIEW", "ALL"));
+
+            assertThat(validator.validate("access", context)).isEmpty();
+            assertThat(registry.reachable(context)).containsExactlyElementsOf(registry.forRole(ShellRole.EMPLOYEE));
+        }
+
+        @Test
+        @DisplayName("a custom-granted page uses the highest role's label, and same-requirement pages are offered once")
+        void customGrantsMirrorTheSidebar() {
+            var reports = employeeWithCustomRole(Map.of("reports:VIEW", "ALL", "organization:EDIT", "ALL"));
+
+            assertThat(validator.labelFor("reports", reports)).contains("Reports & Analytics");
+            // organization and masters share one requirement; the sidebar adds only the first.
+            assertThat(validator.validate("organization", reports)).isPresent();
+            assertThat(validator.validate("masters", reports)).isEmpty();
         }
     }
 }

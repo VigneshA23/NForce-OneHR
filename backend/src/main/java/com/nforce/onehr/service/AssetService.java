@@ -4,6 +4,7 @@ import com.nforce.onehr.dto.asset.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -17,8 +18,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AssetService {
 
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
-    private static final Set<String> MANAGER_AND_ADMIN = Set.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN");
+    // Permission gates (V242) — replace the old HR_ADMIN/SUPER_ADMIN / MANAGER role-code checks.
+    private static final String VIEW_ALL = "assets:VIEW:ALL";
+    private static final String CREATE_ALL = "assets:CREATE:ALL";
+    private static final String EDIT_ALL = "assets:EDIT:ALL";
+    private static final String APPROVE_ALL = "assets:APPROVE:ALL";
+    private static final String APPROVE_TEAM = "assets:APPROVE:TEAM";
 
     private final AssetRepository assetRepo;
     private final AssetCategoryRepository categoryRepo;
@@ -31,6 +36,7 @@ public class AssetService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
+    private final EffectivePermissionService effectivePermissionService;
 
     // ── Categories ────────────────────────────────────────
 
@@ -129,8 +135,8 @@ public class AssetService {
     @Transactional(readOnly = true)
     public List<AssetRequestResponse> listPendingForApprover(String actorEmail) {
         User actor = requireActor(actorEmail);
-        if (isAdminRole(actor)) {
-            // HR/Super Admin see PENDING (to approve) + APPROVED (ready to fulfill)
+        if (effectivePermissionService.hasAuthority(actor, APPROVE_ALL)) {
+            // HR/Super Admin (assets:APPROVE:ALL) see PENDING (to approve) + APPROVED (ready to fulfill)
             return toRequestResponses(requestRepo.findByStatusIn(List.of("PENDING", "APPROVED")));
         }
         // Manager: only own direct reports, only PENDING
@@ -187,7 +193,7 @@ public class AssetService {
 
     @Transactional(readOnly = true)
     public List<AssetResponse> listAllAssets(String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, VIEW_ALL);
         List<Asset> assets = assetRepo.findAllWithDetails();
         return toAssetResponses(assets);
     }
@@ -197,13 +203,13 @@ public class AssetService {
     // category/location/assignment/assignee hydration just to read assets.length.
     @Transactional(readOnly = true)
     public long countAssets(String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, VIEW_ALL);
         return assetRepo.count();
     }
 
     @Transactional
     public AssetResponse createAsset(CreateAssetRequest req, String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, CREATE_ALL);
         if (assetRepo.existsByAssetTag(req.getAssetTag())) {
             throw new IllegalArgumentException("Asset tag already exists: " + req.getAssetTag());
         }
@@ -235,7 +241,7 @@ public class AssetService {
 
     @Transactional
     public AssetResponse assignAsset(Long assetId, AssignAssetRequest req, String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, EDIT_ALL);
         User actor = requireActor(actorEmail);
         Asset asset = requireAsset(assetId);
         if (!"AVAILABLE".equals(asset.getStatus())) {
@@ -264,7 +270,7 @@ public class AssetService {
 
     @Transactional
     public AssetResponse reassignAsset(Long assetId, AssignAssetRequest req, String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, EDIT_ALL);
         User actor = requireActor(actorEmail);
         Asset asset = requireAsset(assetId);
         if (!"ASSIGNED".equals(asset.getStatus())) {
@@ -294,7 +300,7 @@ public class AssetService {
 
     @Transactional
     public AssetResponse markReturned(Long assetId, MarkReturnedRequest req, String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, EDIT_ALL);
         User actor = requireActor(actorEmail);
         Asset asset = requireAsset(assetId);
         if (!"ASSIGNED".equals(asset.getStatus())) {
@@ -320,7 +326,7 @@ public class AssetService {
 
     @Transactional
     public AssetResponse retireAsset(Long assetId, String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, EDIT_ALL);
         User actor = requireActor(actorEmail);
         Asset asset = requireAsset(assetId);
         String before = auditSnapshot.toJson(Map.of("status", asset.getStatus()));
@@ -348,7 +354,7 @@ public class AssetService {
 
     @Transactional
     public AssetRequestResponse fulfillRequest(Long requestId, FulfillAssetRequestRequest req, String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, EDIT_ALL);
         User actor = requireActor(actorEmail);
         AssetRequest assetReq = requestRepo.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Asset request not found"));
@@ -464,7 +470,7 @@ public class AssetService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> hrTileSummary(String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, VIEW_ALL);
         long totalAssigned = assignmentRepo.countByEffectiveToIsNull();
         long available = assetRepo.countByStatus("AVAILABLE");
         long overdue = assignmentRepo.findOverdueAssignments().size();
@@ -482,24 +488,23 @@ public class AssetService {
 
     @Transactional(readOnly = true)
     public List<AssetResponse> availableByCategory(Integer categoryId, String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, VIEW_ALL);
         return toAssetResponses(assetRepo.findByCategoryIdAndStatus(categoryId, "AVAILABLE"));
     }
 
     // ── Guards ────────────────────────────────────────────
 
-    private void requireAdmin(String actorEmail) {
+    private void requireAuthority(String actorEmail, String authority) {
         User actor = requireActor(actorEmail);
-        if (!isAdminRole(actor)) {
-            throw new AccessDeniedException("HR Admin or Super Admin role required");
+        if (!effectivePermissionService.hasAuthority(actor, authority)) {
+            throw new AccessDeniedException("Not authorized to perform this asset action");
         }
     }
 
     private void assertCanDecideRequest(User actor, UUID requestOwnerUserId) {
-        if (isAdminRole(actor)) return;
-        boolean isManager = actor.getRoles().stream()
-                .anyMatch(r -> "MANAGER".equals(r.getCode()));
-        if (isManager) {
+        Set<String> authorities = effectivePermissionService.coverage(actor.getRoles());
+        if (authorities.contains(APPROVE_ALL)) return;
+        if (authorities.contains(APPROVE_TEAM)) {
             boolean isReport = historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(requestOwnerUserId)
                     .map(EmployeeManagerHistory::getManagerUserId)
                     .map(actor.getId()::equals)
@@ -507,10 +512,6 @@ public class AssetService {
             if (isReport) return;
         }
         throw new AccessDeniedException("Not authorized to decide on this request");
-    }
-
-    private boolean isAdminRole(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
     }
 
     private AssetRequest requirePendingRequest(Long requestId) {

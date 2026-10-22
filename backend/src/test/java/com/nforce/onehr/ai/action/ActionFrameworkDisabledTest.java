@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.action;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AssistantResponse;
@@ -130,7 +131,7 @@ class ActionFrameworkDisabledTest {
         private final AssistantRequestContext superAdminContext = AssistantRequestContext.builder()
                 .userId(UUID.randomUUID())
                 .primaryRoleCode("SUPER_ADMIN")
-                .audiences(Set.of(AudienceBucket.ADMIN, AudienceBucket.EMPLOYEE))
+                .audiences(Set.of(AudienceBucket.ADMIN, AudienceBucket.EMPLOYEE)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.ADMIN, AudienceBucket.EMPLOYEE)))
                 .build();
 
         @Test

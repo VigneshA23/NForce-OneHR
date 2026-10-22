@@ -8,6 +8,7 @@ import {
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { useAuthStore } from '../store/authStore';
+import { hasOrgWorkforceView, hasPermission } from '../lib/permissions';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import { attendanceApi, type AttendanceRecord } from '../api/attendance';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
@@ -199,10 +200,12 @@ function AccessDenied() {
 
 export default function ReportsPage() {
   const token = useAuthStore(s => s.token) ?? '';
-  const role = useAuthStore(s => s.user?.role);
-  const isHr = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
-  const isManager = role === 'MANAGER';
-  const authorized = isHr || isManager;
+  const permissions = useAuthStore(s => s.permissions);
+  // Org-wide = every org endpoint `load` fetches (HR Admin + Super Admin, see hasOrgWorkforceView);
+  // otherwise the team view, whose /attendance/team requires attendance:VIEW:TEAM (seeded to
+  // Manager + HR Admin + Super Admin, so only Manager ever reaches this branch by role).
+  const isHr = hasOrgWorkforceView(permissions);
+  const authorized = isHr || hasPermission(permissions, 'attendance', 'VIEW', 'TEAM');
 
   const [directReports, setDirectReports] = useState<DirectReport[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -245,8 +248,6 @@ export default function ReportsPage() {
   // always a live server response, never a client-side re-slice of one stale fetch.
   useEffect(() => { load(); }, [load]);
 
-  if (!authorized) return <AccessDenied />;
-
   const departmentOptions = useMemo(
     () => Array.from(new Set(directReports.map(r => r.departmentName).filter((d): d is string => !!d))).sort(),
     [directReports]
@@ -262,6 +263,9 @@ export default function ReportsPage() {
     [attendanceRecords, headcountSummary.total]
   );
   const leaveSummary = useMemo(() => computeLeaveSummary(leaveRecords, pendingLeaveCount), [leaveRecords, pendingLeaveCount]);
+
+  // After every hook: `authorized` now comes from permissions, which can arrive after first render.
+  if (!authorized) return <AccessDenied />;
 
   const headcountPieData = [
     { name: 'Active', value: headcountSummary.active },

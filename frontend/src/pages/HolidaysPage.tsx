@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { orgApi, type LocationRow } from '../api/org';
 
@@ -304,8 +305,13 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
 
 export default function HolidaysPage() {
   const token = useAuthStore(s => s.token)!;
-  const role = useAuthStore(s => s.user?.role);
-  const isAdmin = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  const permissions = useAuthStore(s => s.permissions);
+  // Each gate is the permission HolidayController requires for that call — all four seeded to
+  // exactly HR_ADMIN + SUPER_ADMIN (V225), the roles this page used to check.
+  const isAdmin = hasPermission(permissions, 'holidays', 'VIEW', 'ALL');
+  const canCreate = hasPermission(permissions, 'holidays', 'CREATE', 'ALL');
+  const canEdit = hasPermission(permissions, 'holidays', 'EDIT', 'ALL');
+  const canDelete = hasPermission(permissions, 'holidays', 'DELETE', 'ALL');
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
   const [holidayError, setHolidayError] = useState('');
   const [showAddHoliday, setShowAddHoliday] = useState(false);
@@ -410,7 +416,7 @@ export default function HolidaysPage() {
               {adminLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           )}
-          {isAdmin && (
+          {canCreate && (
             <button onClick={() => setShowAddHoliday(true)} style={{ ...primaryButtonStyle, boxShadow: '0 2px 10px rgba(177,17,22,.25)' }}>
               <Plus size={14} /> Add Holiday
             </button>
@@ -479,21 +485,21 @@ export default function HolidaysPage() {
                       {isAdmin && (
                         <td style={holidayTdStyle}>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                            <button
+                            {canEdit && <button
                               onClick={() => setEditingHoliday(h)}
                               aria-label={`Edit ${h.holidayName}`}
                               style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
                             >
                               <Pencil size={12} />
-                            </button>
-                            <button
+                            </button>}
+                            {canDelete && <button
                               onClick={() => handleDeleteHoliday(h)}
                               disabled={deletingId === h.id}
                               aria-label={`Delete ${h.holidayName}`}
                               style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: deletingId === h.id ? 'not-allowed' : 'pointer', color: 'var(--risk)', opacity: deletingId === h.id ? 0.5 : 1 }}
                             >
                               <Trash2 size={12} />
-                            </button>
+                            </button>}
                           </div>
                         </td>
                       )}

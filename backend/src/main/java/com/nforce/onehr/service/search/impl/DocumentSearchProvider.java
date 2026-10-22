@@ -2,8 +2,8 @@ package com.nforce.onehr.service.search.impl;
 
 import com.nforce.onehr.dto.doc.EmployeeDocumentResponse;
 import com.nforce.onehr.dto.search.SearchResultItem;
-import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.service.DocumentService;
 import com.nforce.onehr.service.search.RelevanceScorer;
 import com.nforce.onehr.service.search.SearchProvider;
@@ -12,7 +12,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.nforce.onehr.service.search.SearchSupport.encode;
@@ -20,7 +19,8 @@ import static com.nforce.onehr.service.search.SearchSupport.paginate;
 
 /**
  * Documents — reuses {@link DocumentService#myDocuments} (Employee/Manager: their own uploads
- * only) or {@link DocumentService#listAll} (HR Admin/Super Admin: every employee's documents),
+ * only) or {@link DocumentService#listAll} (holders of documents:VIEW:ALL — HR Admin/Super Admin
+ * by default: every employee's documents),
  * exactly the same role-scoped source each role's existing Documents page already fetches. Text
  * matching/pagination happen here because neither existing endpoint takes a search param, but the
  * underlying record set is never wider than what that role could already list.
@@ -29,9 +29,8 @@ import static com.nforce.onehr.service.search.SearchSupport.paginate;
 @RequiredArgsConstructor
 public class DocumentSearchProvider implements SearchProvider {
 
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
-
     private final DocumentService documentService;
+    private final EffectivePermissionService effectivePermissionService;
 
     @Override
     public String moduleKey() {
@@ -61,7 +60,8 @@ public class DocumentSearchProvider implements SearchProvider {
     }
 
     private boolean isAdmin(User actor) {
-        return actor.getRoles().stream().map(Role::getCode).anyMatch(ADMIN_ROLES::contains);
+        // Same authority DocumentService#listAll requires, so the admin branch never 403s.
+        return effectivePermissionService.hasAuthority(actor, "documents:VIEW:ALL");
     }
 
     private SearchProviderResult search(User actor, String query, int page, int size) {

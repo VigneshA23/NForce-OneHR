@@ -9,6 +9,7 @@ import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.KudosRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -16,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -24,8 +24,8 @@ import java.util.stream.Collectors;
  * "Appreciate your lead" / peer kudos (ONEHR-73), extended (ONEHR: Managers and HR/Super Admin
  * Can Give Appreciation) so the eligible-recipient rules now differ by the sender's role:
  * <ul>
- *   <li>HR_ADMIN / SUPER_ADMIN — any active, currently-employed person org-wide (see
- *       {@link #ORG_WIDE_KUDOS_ROLES}), not just their own reporting line.</li>
+ *   <li>Holders of {@code kudos:CREATE:ALL} (seeded to HR_ADMIN / SUPER_ADMIN, V242) — any active,
+ *       currently-employed person org-wide, not just their own reporting line.</li>
  *   <li>Everyone else (Manager and plain Employee alike) — unchanged relationship scope: their
  *       own current reporting manager, a current peer (same-manager sibling), or — newly — one of
  *       their own current direct reports (see {@link #isCurrentManagerOf}). A plain Employee with
@@ -46,8 +46,7 @@ public class KudosService {
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
     private final NotificationService notificationService;
-
-    private static final Set<String> ORG_WIDE_KUDOS_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    private final EffectivePermissionService effectivePermissionService;
 
     @Transactional
     public KudosResponse send(SendKudosRequest req, String actorEmail) {
@@ -118,13 +117,13 @@ public class KudosService {
     }
 
     /**
-     * HR_ADMIN/SUPER_ADMIN may appreciate any eligible recipient org-wide — {@link
+     * Holders of kudos:CREATE:ALL (HR_ADMIN/SUPER_ADMIN by default) may appreciate any eligible recipient org-wide — {@link
      * #isEligibleRecipient} has already ruled out deactivated/offboarded recipients by this
      * point, so no further relationship check is needed for those roles. Everyone else keeps the
      * existing relationship-scoped rule, now including their own current direct reports.
      */
     private boolean canAppreciate(User from, UUID toId) {
-        if (from.getRoles().stream().anyMatch(r -> ORG_WIDE_KUDOS_ROLES.contains(r.getCode()))) {
+        if (effectivePermissionService.hasAuthority(from, "kudos:CREATE:ALL")) {
             return true;
         }
         return isManagerOrPeerOf(from.getId(), toId) || isCurrentManagerOf(from.getId(), toId);

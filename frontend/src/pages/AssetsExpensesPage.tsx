@@ -5,7 +5,7 @@ import { Check, ExternalLink, Paperclip, Plus, Package } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { TabBar } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
-import { toShellRole } from '../lib/nav.config';
+import { assetsExpensesView } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
 import {
   assetsApi,
@@ -1188,10 +1188,10 @@ function ExpenseCategoryModal({ category, token, onClose, onSaved }: { category:
 export default function AssetsExpensesPage() {
   const token = useAuthStore(s => s.token)!;
   const user = useAuthStore(s => s.user);
-  const role = toShellRole(user?.role);
+  const view = assetsExpensesView(useAuthStore(s => s.permissions), user?.role);
 
-  const pageTitle = role === 'Manager' ? 'Team Assets & Expenses'
-    : role === 'HR Admin' || role === 'Super Admin' ? 'Assets & Expense Management'
+  const pageTitle = view === 'manager' ? 'Team Assets & Expenses'
+    : view === 'hr' ? 'Assets & Expense Management'
     : 'My Assets & Expenses';
 
   return (
@@ -1199,15 +1199,15 @@ export default function AssetsExpensesPage() {
       <PageTitleBlock card icon={Package} style={{ marginBottom: 22 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
-          {role === 'Manager' ? 'Read-only view of your team\'s assets and expenses. Approval decisions are made in the Approval Center.'
-            : role === 'HR Admin' || role === 'Super Admin' ? 'Manage company inventory, expense policies, and payroll-ready claims.'
+          {view === 'manager' ? 'Read-only view of your team\'s assets and expenses. Approval decisions are made in the Approval Center.'
+            : view === 'hr' ? 'Manage company inventory, expense policies, and payroll-ready claims.'
             : 'Track your assigned assets and submit expense claims.'}
         </p>
       </PageTitleBlock>
 
-      {(role === 'Employee') && <EmployeeView token={token} />}
-      {(role === 'Manager') && <ManagerView token={token} />}
-      {(role === 'HR Admin' || role === 'Super Admin') && <HRView token={token} />}
+      {view === 'employee' && <EmployeeView token={token} />}
+      {view === 'manager' && <ManagerView token={token} />}
+      {view === 'hr' && <HRView token={token} />}
     </div>
   );
 }

@@ -20,6 +20,8 @@ export interface EmployeeRecord {
   fullName: string;
   email: string;
   role: string;
+  /** Every role held, by display name (incl. custom roles) — populated by /api/users only. */
+  roleNames?: string[];
   businessUnitId: string | null;
   businessUnitName: string | null;
   departmentId: string | null;

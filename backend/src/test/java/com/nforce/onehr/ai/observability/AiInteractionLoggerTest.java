@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.observability;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AssistantResponse;
 import com.nforce.onehr.ai.contract.AssistantResponseType;
@@ -54,7 +55,7 @@ class AiInteractionLoggerTest {
                 .userId(userId)
                 .primaryRoleCode("HR_ADMIN")
                 .shellRole(ShellRole.HR_ADMIN)
-                .audiences(Set.of(AudienceBucket.HR, AudienceBucket.EMPLOYEE))
+                .audiences(Set.of(AudienceBucket.HR, AudienceBucket.EMPLOYEE)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.HR, AudienceBucket.EMPLOYEE)))
                 .currentPageId("leave")
                 .build();
     }

@@ -9,6 +9,7 @@ import {
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
 import { ChipGroup } from '../components/TabBar';
 import {
@@ -107,7 +108,7 @@ const fieldLabel: React.CSSProperties = { ...miniLabel, display: 'block', margin
  * API access to. Loads independently of the period selector: billing is always "this month",
  * whether the charts show the last 7, 30 or 90 days.
  */
-function BillingCard({ token }: { token: string }) {
+function BillingCard({ token, canConfigure }: { token: string; canConfigure: boolean }) {
   const { showToast } = useToast();
 
   const [billing, setBilling] = useState<AiBilling | null>(null);
@@ -208,9 +209,11 @@ function BillingCard({ token }: { token: string }) {
             </div>
           )}
         </div>
-        <button onClick={() => (editing ? setEditing(false) : openEditor())} style={ghostBtn}>
-          <Settings2 size={13} /> {editing ? 'Close' : 'Configure'}
-        </button>
+        {canConfigure && (
+          <button onClick={() => (editing ? setEditing(false) : openEditor())} style={ghostBtn}>
+            <Settings2 size={13} /> {editing ? 'Close' : 'Configure'}
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -305,7 +308,7 @@ function formatIndexedAt(iso: string | null): string {
  * so that "I fixed the knowledge base" and "the assistant now answers correctly" are the same
  * moment for a Super Admin, instead of a manual API call nobody but engineering knows to make.
  */
-function KnowledgeBaseCard({ token }: { token: string }) {
+function KnowledgeBaseCard({ token, canConfigure }: { token: string; canConfigure: boolean }) {
   const { showToast } = useToast();
 
   const [health, setHealth] = useState<AssistantHealth | null>(null);
@@ -352,14 +355,16 @@ function KnowledgeBaseCard({ token }: { token: string }) {
           <div style={cardTitle}>Knowledge base</div>
           <div style={cardSub}>What NORA answers from. Content changes only apply after a re-index.</div>
         </div>
-        <button
-          onClick={runReindex}
-          disabled={reindexing || loading}
-          style={{ ...ghostBtn, cursor: (reindexing || loading) ? 'default' : 'pointer', opacity: loading ? 0.6 : 1 }}
-        >
-          <RefreshCw size={13} style={reindexing ? { animation: 'nf-spin 1s linear infinite' } : undefined} />
-          {reindexing ? 'Re-indexing…' : 'Re-index now'}
-        </button>
+        {canConfigure && (
+          <button
+            onClick={runReindex}
+            disabled={reindexing || loading}
+            style={{ ...ghostBtn, cursor: (reindexing || loading) ? 'default' : 'pointer', opacity: loading ? 0.6 : 1 }}
+          >
+            <RefreshCw size={13} style={reindexing ? { animation: 'nf-spin 1s linear infinite' } : undefined} />
+            {reindexing ? 'Re-indexing…' : 'Re-index now'}
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -412,8 +417,11 @@ function KnowledgeBaseCard({ token }: { token: string }) {
 
 export default function ApiUsagePage() {
   const token = useAuthStore(s => s.token) ?? '';
-  const role = useAuthStore(s => s.user?.role);
-  const authorized = role === 'SUPER_ADMIN';
+  const permissions = useAuthStore(s => s.permissions);
+  // The same permissions the /admin/* endpoints require (AiAssistantController) — both seeded
+  // to SUPER_ADMIN only (V225).
+  const authorized = hasPermission(permissions, 'ai_assistant', 'VIEW', 'ALL');
+  const canConfigure = hasPermission(permissions, 'ai_assistant', 'CONFIGURE', 'ALL');
 
   const [days, setDays] = useState<number>(30);
   const [stats, setStats] = useState<AiUsageStats | null>(null);
@@ -470,8 +478,8 @@ export default function ApiUsagePage() {
 
       {/* Billing and knowledge base side by side, like the paired cards on the other admin pages */}
       <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 12, marginBottom: 18, alignItems: 'start' }}>
-        <BillingCard token={token} />
-        <KnowledgeBaseCard token={token} />
+        <BillingCard token={token} canConfigure={canConfigure} />
+        <KnowledgeBaseCard token={token} canConfigure={canConfigure} />
       </div>
 
       {/* Period selector */}

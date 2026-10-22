@@ -30,6 +30,13 @@ public final class ScopeCoverage {
             "ALL", Set.of("OWN", "TEAM", "DEPARTMENT", "LOCATION", "ALL")
     );
 
+    /** The inverse: every granted scope that satisfies a check at {@code requiredScope}. */
+    public static Set<String> grantingScopes(String requiredScope) {
+        Set<String> out = new java.util.HashSet<>();
+        COVERAGE.forEach((granted, covered) -> { if (covered.contains(requiredScope)) out.add(granted); });
+        return out;
+    }
+
     /** Every scope level the given granted scope satisfies, including itself. */
     public static Set<String> coverage(String grantedScope) {
         return COVERAGE.getOrDefault(grantedScope, Set.of(grantedScope));

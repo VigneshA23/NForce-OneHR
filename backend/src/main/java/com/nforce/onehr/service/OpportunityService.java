@@ -18,6 +18,7 @@ import com.nforce.onehr.repository.InternalOpportunityRepository;
 import com.nforce.onehr.repository.OpportunityInterestRepository;
 import com.nforce.onehr.repository.SkillTaxonomyRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,8 +48,10 @@ public class OpportunityService {
 
     public static final String NOTIFICATION_TYPE = "OPPORTUNITY_INTEREST";
     static final String AUDIT_CLOSED = "INTERNAL_OPPORTUNITY_CLOSED";
-    private static final Set<String> POSTER_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN", "MANAGER");
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    // V241: posters (MANAGER/HR/SA) hold CREATE + VIEW:ALL; assigning/closing (HR/SA) is APPROVE.
+    private static final String POST = "opportunities:CREATE:ALL";
+    private static final String VIEW_ALL = "opportunities:VIEW:ALL";
+    private static final String ASSIGN = "opportunities:APPROVE:ALL";
 
     private final InternalOpportunityRepository opportunityRepository;
     private final OpportunityInterestRepository interestRepository;
@@ -61,11 +64,12 @@ public class OpportunityService {
     private final BenchStatusService benchStatusService;
     private final AuditService auditService;
     private final AuditSnapshotSerializer snapshotSerializer;
+    private final EffectivePermissionService effectivePermissionService;
 
     @Transactional
     public OpportunityResponse post(String actorEmail, OpportunityRequest req) {
         User actor = resolveUser(actorEmail);
-        requireAnyRole(actor, POSTER_ROLES, "Only HR or a Manager can post an opportunity");
+        require(actor, POST, "Only HR or a Manager can post an opportunity");
         Map<UUID, SkillTaxonomy> skills = taxonomyById();
         for (UUID id : req.requiredSkillIds()) {
             if (!skills.containsKey(id)) throw new NoSuchElementException("Required skill not found in the taxonomy");
@@ -80,13 +84,13 @@ public class OpportunityService {
     }
 
     /**
-     * What the caller may see: HR/Manager see every opportunity; anyone else sees OPEN ones only
+     * What the caller may see: holders of opportunities:VIEW:ALL (HR/Manager) see every opportunity; anyone else sees OPEN ones only
      * while they themselves are on bench (US-A10 visibility rule) and nothing otherwise.
      */
     @Transactional(readOnly = true)
     public List<OpportunityResponse> list(String actorEmail) {
         User actor = resolveUser(actorEmail);
-        boolean privileged = actorHasAnyRole(actor, POSTER_ROLES);
+        boolean privileged = effectivePermissionService.hasAuthority(actor, VIEW_ALL);
         boolean benched = benchRepository.existsByEmployeeUserIdAndActiveTrue(actor.getId());
         if (!privileged && !benched) return List.of();
 
@@ -130,7 +134,7 @@ public class OpportunityService {
     public List<InterestResponse> interests(String actorEmail, UUID opportunityId) {
         User actor = resolveUser(actorEmail);
         InternalOpportunity opp = findOpportunity(opportunityId);
-        if (!actorHasAnyRole(actor, ADMIN_ROLES) && !opp.getPostedByUserId().equals(actor.getId())) {
+        if (!opp.getPostedByUserId().equals(actor.getId()) && !effectivePermissionService.hasAuthority(actor, ASSIGN)) {
             throw new org.springframework.security.access.AccessDeniedException("Only the poster or HR can see who is interested");
         }
         List<OpportunityInterest> rows = interestRepository.findByOpportunityIdOrderByExpressedAtAsc(opportunityId);
@@ -145,7 +149,7 @@ public class OpportunityService {
     @Transactional
     public OpportunityResponse close(String actorEmail, UUID opportunityId, CloseOpportunityRequest req) {
         User actor = resolveUser(actorEmail);
-        requireAnyRole(actor, ADMIN_ROLES, "Only HR can close an opportunity");
+        require(actor, ASSIGN, "Only HR can close an opportunity");
         InternalOpportunity opp = findOpportunity(opportunityId);
         if (opp.getStatus() != OpportunityStatus.OPEN) {
             throw new IllegalStateException("This opportunity is already closed");
@@ -203,14 +207,9 @@ public class OpportunityService {
         return userRepository.findByEmail(email).orElseThrow(() -> new IllegalStateException("Actor not found"));
     }
 
-    // Internal business-logic helper, not a Spring Security SpEL gate — named to avoid matching
-    // NoRawRoleChecksTest's literal "hasAnyRole(" scan (same reasoning as actorHasRole in
-    // RegularizationService/ExpenseService/LeaveService).
-    private boolean actorHasAnyRole(User user, Set<String> roles) {
-        return user.getRoles().stream().anyMatch(r -> roles.contains(r.getCode()));
-    }
-
-    private void requireAnyRole(User user, Set<String> roles, String message) {
-        if (!actorHasAnyRole(user, roles)) throw new org.springframework.security.access.AccessDeniedException(message);
+    private void require(User user, String authority, String message) {
+        if (!effectivePermissionService.hasAuthority(user, authority)) {
+            throw new org.springframework.security.access.AccessDeniedException(message);
+        }
     }
 }

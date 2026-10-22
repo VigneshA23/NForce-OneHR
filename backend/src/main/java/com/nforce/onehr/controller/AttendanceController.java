@@ -31,7 +31,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -278,27 +277,19 @@ public class AttendanceController {
     }
 
     /**
-     * Super Admin: full history org-wide, with optional filters. Deliberately narrower than the
-     * general regularization:VIEW:ALL grant below (HR_ADMIN holds that one too, for the
-     * single-stage approve flow) — Super-Admin-only is checked explicitly here rather than via
-     * the permission matrix, since the matrix has no way to express "ALL scope, but only for this
-     * one role" without a finer-grained action/scope just for this endpoint. See V225's header.
+     * Full history org-wide, with optional filters. Deliberately narrower than the general
+     * regularization:VIEW:ALL grant (HR_ADMIN holds that one too, for the single-stage approve
+     * flow): regularization:EXPORT:ALL is seeded to SUPER_ADMIN only (V234), replacing the
+     * literal ROLE_SUPER_ADMIN check this endpoint used to make on top of VIEW:ALL.
      */
     @GetMapping("/regularization/all")
-    @PreAuthorize("hasAuthority('regularization:VIEW:ALL')")
+    @PreAuthorize("hasAuthority('regularization:EXPORT:ALL')")
     public List<RegularizationResponse> allRegularizations(
             @RequestParam(required = false) UUID employeeUserId,
             @RequestParam(required = false) UUID approverUserId,
             @RequestParam(required = false) UUID departmentId,
             @RequestParam(required = false) String month,
-            @RequestParam(required = false) String status,
-            Authentication authentication) {
-        boolean isSuperAdmin = authentication.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> a.equals("ROLE_SUPER_ADMIN"));
-        if (!isSuperAdmin) {
-            throw new AccessDeniedException("Access denied");
-        }
+            @RequestParam(required = false) String status) {
         return regularizationService.listAll(employeeUserId, approverUserId, departmentId, month, status);
     }
 
@@ -406,10 +397,11 @@ public class AttendanceController {
     /**
      * Bulk cancel — each id is independently re-validated server-side (exists, still a direct
      * report, still cancellable, no active regularization) rather than trusting the frontend's
-     * "cancellable" flag; one id's failure doesn't affect the rest of the batch.
+     * "cancellable" flag; one id's failure doesn't affect the rest of the batch. A write, so it
+     * needs attendance:EDIT (V234 — seeded to exactly attendance:VIEW's holders), not just VIEW.
      */
     @PostMapping("/penalties/cancel")
-    @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
+    @PreAuthorize("hasAuthority('attendance:EDIT:TEAM')")
     public PenaltyCancelResultResponse cancelPenalties(@Valid @RequestBody PenaltyCancelRequest req, Principal principal) {
         return attendancePenaltyService.cancelBulk(principal.getName(), req.getPenaltyIds(), req.getReason());
     }

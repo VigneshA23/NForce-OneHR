@@ -1,5 +1,7 @@
 package com.nforce.onehr.controller;
 
+import com.nforce.onehr.entity.Role;
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.service.AuditActionGroup;
 import com.nforce.onehr.service.AuditQueryService;
 import org.junit.jupiter.api.Test;
@@ -12,7 +14,9 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -22,7 +26,9 @@ import static org.mockito.Mockito.when;
 
 /**
  * Trusts Spring's own {@code @PreAuthorize} enforcement (no {@code @WebMvcTest} precedent
- * elsewhere in this repo) — only the role→isSuperAdmin boolean mapping is unit-tested here.
+ * elsewhere in this repo) — only the authorities→isSuperAdmin boolean mapping is unit-tested here.
+ * Authorities are built the way the request filter builds them: ROLE_&lt;CODE&gt; plus the real seeded
+ * permission coverage of the role (SeedMatrix).
  */
 @ExtendWith(MockitoExtension.class)
 class AuditLogControllerTest {
@@ -31,9 +37,19 @@ class AuditLogControllerTest {
 
     @InjectMocks private AuditLogController controller;
 
+    private static final Map<String, Map<String, String>> CUSTOM = Map.of(
+            "CUSTOM_ACCESS_AUDITOR", Map.of("user_management:VIEW", "ALL", "audit:VIEW", "OWN"),
+            "CUSTOM_AUDITOR", Map.of("audit:VIEW", "OWN", "audit:EXPORT", "OWN"));
+
     private Authentication authWithRole(String roleAuthority) {
-        return new UsernamePasswordAuthenticationToken(
-                "user@test.com", "n/a", List.of(new SimpleGrantedAuthority(roleAuthority)));
+        String code = roleAuthority.substring("ROLE_".length());
+        Role role = code.startsWith("CUSTOM_")
+                ? Role.builder().id(100).code(code).displayName(code).build()
+                : SeedMatrix.role(code);
+        List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+        authorities.add(new SimpleGrantedAuthority(roleAuthority));
+        SeedMatrix.permissionService(CUSTOM).coverage(List.of(role)).forEach(a -> authorities.add(new SimpleGrantedAuthority(a)));
+        return new UsernamePasswordAuthenticationToken("user@test.com", "n/a", authorities);
     }
 
     @Test
@@ -66,6 +82,20 @@ class AuditLogControllerTest {
         controller.list(null, null, null, null, null, 0, 20, authWithRole("ROLE_SUPER_ADMIN"));
 
         verify(auditQueryService).search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(true), eq("user@test.com"));
+    }
+
+    @Test
+    void list_customRoleWithUserManagementView_passesIsSuperAdminTrue() {
+        controller.list(null, null, null, null, null, 0, 20, authWithRole("ROLE_CUSTOM_ACCESS_AUDITOR"));
+
+        verify(auditQueryService).search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(true), eq("user@test.com"));
+    }
+
+    @Test
+    void list_customRoleWithoutUserManagementView_passesIsSuperAdminFalse() {
+        controller.list(null, null, null, null, null, 0, 20, authWithRole("ROLE_CUSTOM_AUDITOR"));
+
+        verify(auditQueryService).search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(false), eq("user@test.com"));
     }
 
     @Test

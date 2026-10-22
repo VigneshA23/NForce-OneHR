@@ -13,8 +13,9 @@ import java.util.Optional;
  * Decides whether a navigation target proposed by the model may be shown to this user.
  *
  * <p>This is the whole of the "never let the model invent a route" guarantee, so it is deliberately
- * an allowlist with no escape hatch: a target survives only by matching a registry entry for the
- * caller's own shell role. Everything else is dropped.
+ * an allowlist with no escape hatch: a target survives only by matching a registry entry the
+ * caller's own sidebar offers - their shell role's nav narrowed by their permissions, plus gated
+ * pages their custom roles grant ({@link PageRegistry#reachable}). Everything else is dropped.
  *
  * <p>The frontend is not a second line of defence here. Shell resolves the current nav item with
  * {@code navItems.find(n => path.startsWith(n.path)) ?? navItems[0]} and then renders the outlet
@@ -52,7 +53,7 @@ public class NavigationValidator {
             return Optional.empty();
         }
 
-        Optional<PageReference> match = pageRegistry.find(pageId, context.getShellRole());
+        Optional<PageReference> match = pageRegistry.find(pageId, context);
         if (match.isEmpty()) {
             // Two different causes, deliberately logged apart: an unknown id means the model
             // invented something, which is a knowledge/prompt problem; a known id the role cannot
@@ -86,7 +87,7 @@ public class NavigationValidator {
      */
     public Optional<String> labelFor(String pageId, AssistantRequestContext context) {
         if (pageId == null || context == null || context.getShellRole() == null) return Optional.empty();
-        return pageRegistry.find(pageId, context.getShellRole()).map(PageReference::getLabel);
+        return pageRegistry.find(pageId, context).map(PageReference::getLabel);
     }
 
     /**
@@ -101,6 +102,6 @@ public class NavigationValidator {
         if (pageId == null || pageId.isBlank() || context == null || context.getShellRole() == null) {
             return Optional.empty();
         }
-        return pageRegistry.find(pageId.trim(), context.getShellRole());
+        return pageRegistry.find(pageId, context);
     }
 }

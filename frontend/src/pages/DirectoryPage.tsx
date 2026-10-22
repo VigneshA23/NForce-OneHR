@@ -5,6 +5,7 @@ import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, Chevro
 import * as XLSX from 'xlsx';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
 import { PersonAvatar as Avatar, PersonCell } from '../components/PersonCell';
 import { AppreciateButton, KudosModal, type KudosTarget } from './MyTeamPage';
@@ -136,9 +137,9 @@ export default function DirectoryPage() {
   const token = useAuthStore(s => s.token) ?? '';
   const navigate = useNavigate();
   const user = useAuthStore(s => s.user);
-  // HR/Super Admin can appreciate any active employee org-wide (KudosService#canAppreciate);
-  // everyone else keeps My Team's relationship-scoped Appreciate buttons.
-  const canAppreciateAnyone = user?.role === 'HR_ADMIN' || user?.role === 'SUPER_ADMIN';
+  // kudos:CREATE:ALL (V242, HR Admin/Super Admin by default) can appreciate any active employee
+  // org-wide (KudosService#canAppreciate); everyone else keeps My Team's relationship-scoped buttons.
+  const canAppreciateAnyone = hasPermission(useAuthStore(s => s.permissions), 'kudos', 'CREATE', 'ALL');
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
   const [all, setAll]         = useState<DirectoryEntry[]>([]);
   const [loading, setLoading] = useState(true);

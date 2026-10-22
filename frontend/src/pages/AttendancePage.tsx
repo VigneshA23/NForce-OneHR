@@ -38,6 +38,8 @@ import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole, type Role } from '../lib/nav.config';
+import { hasPermission } from '../lib/permissions';
+import type { MyPermissionsResponse } from '../api/me';
 import { previewRegularizations, previewAttendanceRequests, previewOvertimeRequests, previewRoster, previewRosterEmails } from './attendance-ui-preview/attendancePreviewData';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
 import { TimeFormatProvider, useTimeFormat, formatLateBySeconds } from '../context/TimeFormatContext';
@@ -5673,8 +5675,8 @@ export interface RegularizationSectionHandle {
   openNewRequest: () => void;
 }
 
-const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: string; canApprove: boolean; isSuperAdmin: boolean; isManager: boolean; isPreview?: boolean }>(
-  function RegularizationSection({ token, canApprove, isSuperAdmin, isManager, isPreview = false }, ref) {
+const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: string; canApprove: boolean; isSuperAdmin: boolean; canViewAuditTrail: boolean; isManager: boolean; isPreview?: boolean }>(
+  function RegularizationSection({ token, canApprove, isSuperAdmin, canViewAuditTrail, isManager, isPreview = false }, ref) {
   const { showToast } = useToast();
   const { formatTime, formatDuration } = useTimeFormat();
   const [myRequests, setMyRequests] = useState<RegularizationRecord[]>([]);
@@ -5766,7 +5768,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <SectionHeading title="Attendance Regularization" hint="Request corrections for missed or incorrect punches." />
-        {isSuperAdmin && (
+        {canViewAuditTrail && (
           <Link to="/attendance/regularization/all" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 14px', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
             <ShieldCheck size={13} /> View All & Audit Trail
           </Link>
@@ -7386,13 +7388,57 @@ function DayRoster({ scope, isPreview = false }: { scope: 'team' | 'all'; isPrev
 // outer bar can match Keka's exact 4-tab list (Overtime Requests moved out to its own main tab).
 type AttendanceRequestsSubTab = 'REGULARIZATION' | 'WFH_PARTIAL_DAY';
 
+export interface AttendanceAccess {
+  canApproveRegularization: boolean;
+  canApproveAttendanceRequests: boolean;
+  canApproveOvertime: boolean;
+  /** May act on legacy PARTIALLY_APPROVED regularizations — HR/Super Admin only server-side. */
+  regularizationFinalStage: boolean;
+  /** No lookback window / monthly limit on one's own regularization requests (V234 regularization:CONFIGURE:ALL — Super Admin by default). */
+  regularizationUnlimited: boolean;
+  /** "View All & Audit Trail" — GET /attendance/regularization/all (V234 regularization:EXPORT:ALL — Super Admin by default). */
+  regularizationAuditTrail: boolean;
+  roster: 'team' | 'all' | null;
+}
+
+/** Each approval queue / roster is gated on the permission its own endpoint requires
+ *  (AttendanceController, AttendanceRequestController, OvertimeRequestController) — every one
+ *  seeded to exactly the role set this page used to check (V225): the *:APPROVE:TEAM trio to
+ *  Manager/HR Admin/Super Admin, regularization:APPROVE:ALL and attendance:VIEW:ALL to HR Admin/
+ *  Super Admin, attendance:VIEW:TEAM to Manager (+ HR/SA, who take the 'all' branch first). */
+export function attendanceAccess(permissions: MyPermissionsResponse | null | undefined): AttendanceAccess {
+  return {
+    canApproveRegularization: hasPermission(permissions, 'regularization', 'APPROVE', 'TEAM'),
+    canApproveAttendanceRequests: hasPermission(permissions, 'attendance_requests', 'APPROVE', 'TEAM'),
+    canApproveOvertime: hasPermission(permissions, 'overtime', 'APPROVE', 'TEAM'),
+    regularizationFinalStage: hasPermission(permissions, 'regularization', 'APPROVE', 'ALL'),
+    regularizationUnlimited: hasPermission(permissions, 'regularization', 'CONFIGURE', 'ALL'),
+    regularizationAuditTrail: hasPermission(permissions, 'regularization', 'EXPORT', 'ALL'),
+    roster: hasPermission(permissions, 'attendance', 'VIEW', 'ALL') ? 'all'
+      : hasPermission(permissions, 'attendance', 'VIEW', 'TEAM') ? 'team' : null,
+  };
+}
+
 function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }: { forcePreview?: boolean; previewRole?: Role }) {
   // The router has no role guard, so — like Shell — the page resolves the role itself.
   const token = useAuthStore((s) => s.token)!;
   const authRole = toShellRole(useAuthStore((s) => s.user?.role));
-  // Preview route only: the role is chosen by the preview frame, since there is no signed-in user.
+  const permissions = useAuthStore((s) => s.permissions);
+  // Preview route only: the role is chosen by the preview frame, since there is no signed-in user
+  // (and so no permissions) — its access mirrors what that role's seeded permissions grant.
   const role: Role = forcePreview ? previewRole : authRole;
-  const canApprove = role === 'Manager' || role === 'HR Admin' || role === 'Super Admin';
+  const isOrgRole = role === 'HR Admin' || role === 'Super Admin';
+  const access: AttendanceAccess = forcePreview
+    ? {
+        canApproveRegularization: role !== 'Employee',
+        canApproveAttendanceRequests: role !== 'Employee',
+        canApproveOvertime: role !== 'Employee',
+        regularizationFinalStage: isOrgRole,
+        regularizationUnlimited: role === 'Super Admin',
+        regularizationAuditTrail: role === 'Super Admin',
+        roster: isOrgRole ? 'all' : role === 'Manager' ? 'team' : null,
+      }
+    : attendanceAccess(permissions);
 
   const subtitle = role === 'Manager'
     ? 'Review daily attendance for the selected month, and your team’s attendance for any day.'
@@ -7510,7 +7556,7 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
         <MyAttendance
           ref={myAttendanceRef}
-          isSuperAdmin={role === 'Super Admin'}
+          isSuperAdmin={access.regularizationUnlimited}
           logsTab={logsTab}
           onLogsTabChange={setLogsTab}
           isPreviewMode={isPreviewMode}
@@ -7530,20 +7576,19 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
                   />
                 </div>
                 {requestsSubTab === 'REGULARIZATION' && (
-                  <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} isPreview={forcePreview} />
+                  <RegularizationSection ref={regularizationRef} token={token} canApprove={access.canApproveRegularization} isSuperAdmin={access.regularizationUnlimited} canViewAuditTrail={access.regularizationAuditTrail} isManager={!access.regularizationFinalStage} isPreview={forcePreview} />
                 )}
                 {requestsSubTab === 'WFH_PARTIAL_DAY' && (
-                  <AttendanceRequestsSection token={token} canApprove={canApprove} isPreview={forcePreview} />
+                  <AttendanceRequestsSection token={token} canApprove={access.canApproveAttendanceRequests} isPreview={forcePreview} />
                 )}
               </div>
             ) : logsTab === 'OVERTIME' ? (
-              <OvertimeRequestsSection token={token} canApprove={canApprove} isPreview={forcePreview} />
+              <OvertimeRequestsSection token={token} canApprove={access.canApproveOvertime} isPreview={forcePreview} />
             ) : null
           }
         />
 
-        {role === 'Manager' && <DayRoster scope="team" isPreview={forcePreview} />}
-        {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" isPreview={forcePreview} />}
+        {access.roster && <DayRoster scope={access.roster} isPreview={forcePreview} />}
       </div>
     </div>
   );

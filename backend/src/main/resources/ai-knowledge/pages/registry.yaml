@@ -15,6 +15,12 @@
 #    label, depending on role (requests, documents, audit). Those get one variant per behaviour,
 #    not one shared entry.
 #
+# `permissions` (optional, any one suffices) mirrors frontend/src/lib/permissions.ts
+# NAV_ITEM_REQUIREMENTS for that page (PageRegistryParityTest guards it). It narrows each role's nav
+# to what the caller's permissions grant, and lets a custom role holding it reach the page from
+# outside their shell role's nav, exactly as the sidebar's customRoleNavItems does. See
+# PageRegistry#reachable.
+#
 # `placeholder: true` marks a roadmap item that renders the "Ships in Phase 2" placeholder rather
 # than a real page. These are described so the assistant can explain them, but NavigationValidator
 # refuses to emit them as targets.
@@ -214,6 +220,7 @@ pages:
 
   - pageId: approvals
     module: approvals
+    permissions: ["regularization:APPROVE:TEAM", "attendance_requests:APPROVE:TEAM", "overtime:APPROVE:TEAM", "leave:APPROVE:TEAM", "expenses:APPROVE:TEAM"]
     variants:
       - roles: [MANAGER, HR_ADMIN, SUPER_ADMIN]
         label: "Approval Center"
@@ -222,6 +229,7 @@ pages:
 
   - pageId: exceptions
     module: attendance
+    permissions: ["exceptions:VIEW:TEAM"]
     variants:
       - roles: [MANAGER, HR_ADMIN]
         label: "Exception Dashboard"
@@ -230,6 +238,7 @@ pages:
 
   - pageId: audit
     module: audit
+    permissions: ["audit:VIEW:OWN"]
     variants:
       # Different pages behind one path - see App.tsx AuditRouter.
       - roles: [MANAGER, HR_ADMIN]
@@ -243,6 +252,7 @@ pages:
 
   - pageId: employees
     module: people
+    permissions: ["employees:VIEW:ALL"]
     variants:
       - roles: [HR_ADMIN]
         label: "Employee Master"
@@ -251,6 +261,7 @@ pages:
 
   - pageId: onboarding
     module: onboarding
+    permissions: ["onboarding:VIEW:ALL"]
     variants:
       - roles: [HR_ADMIN]
         label: "Onboarding"
@@ -259,6 +270,7 @@ pages:
 
   - pageId: documents
     module: documents
+    permissions: ["documents:VIEW:ALL"]
     variants:
       # Distinct from my-documents - see App.tsx DocumentsRouter.
       - roles: [HR_ADMIN]
@@ -268,6 +280,7 @@ pages:
 
   - pageId: policies
     module: policies
+    permissions: ["policies:VIEW:ALL"]
     variants:
       # Super Admin gained this item when dev merged in the policy-acknowledgement work.
       # PageRegistryParityTest caught the drift the same day.
@@ -278,6 +291,7 @@ pages:
 
   - pageId: organization
     module: organization
+    permissions: ["organization:EDIT:ALL"]
     variants:
       - roles: [HR_ADMIN]
         label: "Organization Structure"
@@ -286,6 +300,7 @@ pages:
 
   - pageId: allocations
     module: allocations
+    permissions: ["project_allocations:CREATE:ALL"]
     variants:
       - roles: [HR_ADMIN]
         label: "Project Allocations"
@@ -294,6 +309,7 @@ pages:
 
   - pageId: bench
     module: allocations
+    permissions: ["bench:VIEW:TEAM"]
     variants:
       - roles: [MANAGER]
         label: "Team Bench"
@@ -322,6 +338,7 @@ pages:
 
   - pageId: masters
     module: organization
+    permissions: ["organization:EDIT:ALL"]
     variants:
       # Same component as organization (OrgSetupPage), reached under a different key and label.
       - roles: [SUPER_ADMIN]
@@ -331,14 +348,25 @@ pages:
 
   - pageId: access
     module: access
+    permissions: ["user_management:VIEW:ALL"]
     variants:
       - roles: [SUPER_ADMIN]
         label: "User Management"
         route: /access
         description: "User accounts and role assignment: invite users, change roles, reset passwords, and deactivate or restore accounts."
 
+  - pageId: roles
+    module: access
+    permissions: ["roles:VIEW:ALL"]
+    variants:
+      - roles: [SUPER_ADMIN]
+        label: "Roles & Permissions"
+        route: /roles
+        description: "Define what each role can do: create custom roles, configure role permissions, and see or change who holds each role."
+
   - pageId: workflows
     module: administration
+    permissions: ["approval_rules:VIEW:ALL"]
     variants:
       - roles: [SUPER_ADMIN]
         label: "Workflow Studio"
@@ -347,6 +375,7 @@ pages:
 
   - pageId: reports
     module: reports
+    permissions: ["reports:VIEW:TEAM"]
     variants:
       - roles: [MANAGER]
         label: "Reports & Analytics"
@@ -359,6 +388,7 @@ pages:
 
   - pageId: api-usage
     module: api-usage
+    permissions: ["ai_assistant:VIEW:ALL"]
     variants:
       - roles: [SUPER_ADMIN]
         label: "API Usage"
@@ -405,6 +435,7 @@ pages:
 
   - pageId: talent-performance
     module: performance
+    permissions: ["talent_skills:VIEW:ALL"]
     variants:
       - roles: [HR_ADMIN, SUPER_ADMIN]
         label: "Performance"

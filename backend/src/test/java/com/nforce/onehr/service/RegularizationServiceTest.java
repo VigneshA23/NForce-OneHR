@@ -1,5 +1,7 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.dto.attendance.CreateRegularizationRequest;
 import com.nforce.onehr.dto.attendance.RegularizationResponse;
 import com.nforce.onehr.entity.Attendance;
@@ -70,6 +72,14 @@ class RegularizationServiceTest {
     @Mock private com.nforce.onehr.repository.AttendanceRulesRepository attendanceRulesRepository;
     @Mock private ShiftVersionResolver shiftVersionResolver;
     @Mock private com.nforce.onehr.repository.ShiftRepository shiftRepository;
+
+    // The REAL permission engine over the seeded matrix (system roles behave exactly as seeded),
+    // plus custom roles for the permission-migration tests at the bottom of this file.
+    private final EffectivePermissionService effectivePermissionService = spy(SeedMatrix.permissionService(Map.of(
+            "CUSTOM_REG_ADMIN", Map.of("regularization:APPROVE", "ALL", "regularization:VIEW", "ALL"),
+            "CUSTOM_REG_REVIEWER", Map.of("regularization:APPROVE", "TEAM", "regularization:VIEW", "TEAM"),
+            "CUSTOM_REG_EXEMPT", Map.of("regularization:CONFIGURE", "ALL"),
+            "CUSTOM_UNRELATED", Map.of("leave:APPROVE", "ALL", "attendance:VIEW", "ALL"))));
 
     private RegularizationService regularizationService;
     // Hoisted out of setUp() (rather than kept as local variables there) purely so
@@ -237,7 +247,7 @@ class RegularizationServiceTest {
         regularizationService = new RegularizationService(regularizationRepository, regularizationApprovalRepository,
                 attendanceRepository, historyRepository, userRepository, employeeRepository, auditService,
                 auditSnapshot, notificationService, exceptionService, attendanceInterpretationService,
-                attendanceRulesService, clock);
+                attendanceRulesService, clock, effectivePermissionService);
 
         // @Value-injected fields — never populated outside a Spring container.
         Field employeeLookback = RegularizationService.class.getDeclaredField("employeeLookbackDays");
@@ -1786,8 +1796,8 @@ class RegularizationServiceTest {
     @Test
     void listApprovers_returnsEligibleRoleEmployeesOnly() {
         Employee managerEmployee = Employee.builder().userId(managerId).fullName("Manager One").user(managerUser).build();
-        when(employeeRepository.findActiveByRoleCodes(Set.of("MANAGER", "HR_ADMIN")))
-                .thenReturn(List.of(managerEmployee));
+        doReturn(Set.of(managerId)).when(effectivePermissionService).activeUserIdsWithAuthority("regularization", "APPROVE", "TEAM");
+        when(employeeRepository.findAllByIdWithUserDetails(Set.of(managerId))).thenReturn(List.of(managerEmployee));
 
         List<?> approvers = regularizationService.listApprovers();
 
@@ -2019,5 +2029,205 @@ class RegularizationServiceTest {
         regularizationService.reject(pending.getId(), null, managerEmail);
 
         verify(notificationService, times(1)).send(eq(employeeId), eq("REGULARIZATION_REJECTED"), any(), any(), any());
+    }
+
+    // ── Permission migration (V234): role-code checks became permission checks. System roles keep
+    //    exactly their old behavior (the tests above, run against the real seed); a custom role
+    //    granted the permission gets the privileged behavior, one without it does not. ──
+
+    private User customUser(UUID id, String roleCode) {
+        User u = User.builder().id(id).email(roleCode.toLowerCase() + "@test.com")
+                .roles(Set.of(Role.builder().id(50).code(roleCode).displayName(roleCode).build(),
+                        Role.builder().id(3).code("EMPLOYEE").displayName("Employee").build()))
+                .build();
+        lenient().when(userRepository.findByEmail(u.getEmail())).thenReturn(Optional.of(u));
+        lenient().when(userRepository.findById(id)).thenReturn(Optional.of(u));
+        return u;
+    }
+
+    private RegularizationRequest pendingFor(UUID approverId, String status) {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest r = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(employeeId).assignedApproverId(approverId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status(status).build();
+        lenient().when(regularizationRepository.findById(r.getId())).thenReturn(Optional.of(r));
+        lenient().when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, date)).thenReturn(Optional.empty());
+        lenient().when(attendanceRepository.save(any(Attendance.class))).thenAnswer(inv -> inv.getArgument(0));
+        return r;
+    }
+
+    @Test
+    void approve_customRoleWithApproveAll_bypassesLikeHrAdmin_evenWhenNotAssigned() {
+        User admin = customUser(UUID.randomUUID(), "CUSTOM_REG_ADMIN");
+        RegularizationRequest pending = pendingFor(managerId, "PENDING");
+
+        RegularizationResponse resp = regularizationService.approve(pending.getId(), null, admin.getEmail());
+
+        assertEquals("APPROVED", resp.getStatus());
+        verify(regularizationApprovalRepository).save(argThat(a -> "CUSTOM_REG_ADMIN".equals(a.getActorRole())));
+    }
+
+    @Test
+    void approve_customRoleWithApproveAll_canFinalizePartiallyApproved() {
+        User admin = customUser(UUID.randomUUID(), "CUSTOM_REG_ADMIN");
+        RegularizationRequest partial = pendingFor(managerId, "PARTIALLY_APPROVED");
+
+        assertEquals("APPROVED", regularizationService.approve(partial.getId(), null, admin.getEmail()).getStatus());
+    }
+
+    @Test
+    void approve_customRoleWithApproveTeam_actsLikeManager_onItsAssignedRequest() {
+        User reviewer = customUser(UUID.randomUUID(), "CUSTOM_REG_REVIEWER");
+        RegularizationRequest pending = pendingFor(reviewer.getId(), "PENDING");
+
+        assertEquals("APPROVED", regularizationService.approve(pending.getId(), null, reviewer.getEmail()).getStatus());
+    }
+
+    @Test
+    void approve_customRoleWithApproveTeam_notAssignedAndNotManager_isDenied() {
+        User reviewer = customUser(UUID.randomUUID(), "CUSTOM_REG_REVIEWER");
+        RegularizationRequest pending = pendingFor(managerId, "PENDING");
+
+        assertThrows(AccessDeniedException.class, () -> regularizationService.approve(pending.getId(), null, reviewer.getEmail()));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void approve_customRoleWithApproveTeam_cannotFinalizePartiallyApproved() {
+        // PARTIALLY_APPROVED was HR/Super-Admin-only — i.e. the ALL override, not TEAM.
+        User reviewer = customUser(UUID.randomUUID(), "CUSTOM_REG_REVIEWER");
+        RegularizationRequest partial = pendingFor(reviewer.getId(), "PARTIALLY_APPROVED");
+
+        assertThrows(AccessDeniedException.class, () -> regularizationService.approve(partial.getId(), null, reviewer.getEmail()));
+        assertThrows(AccessDeniedException.class, () -> regularizationService.reject(partial.getId(), "x", reviewer.getEmail()));
+    }
+
+    @Test
+    void approveAndReject_customRoleWithoutRegularizationPermission_isDeniedEvenAsAssignedApprover() {
+        User other = customUser(UUID.randomUUID(), "CUSTOM_UNRELATED");
+        RegularizationRequest pending = pendingFor(other.getId(), "PENDING");
+
+        assertThrows(AccessDeniedException.class, () -> regularizationService.approve(pending.getId(), null, other.getEmail()));
+        assertThrows(AccessDeniedException.class, () -> regularizationService.reject(pending.getId(), "x", other.getEmail()));
+        verify(regularizationRepository, never()).save(any());
+    }
+
+    @Test
+    void reject_customRoleWithApproveAll_succeedsWithoutBeingAssigned() {
+        User admin = customUser(UUID.randomUUID(), "CUSTOM_REG_ADMIN");
+        RegularizationRequest pending = pendingFor(managerId, "PENDING");
+
+        assertEquals("REJECTED", regularizationService.reject(pending.getId(), "No", admin.getEmail()).getStatus());
+    }
+
+    @Test
+    void listPendingForApprover_customApproveAllSeesEverything_customApproveTeamOnlyAssigned() {
+        User admin = customUser(UUID.randomUUID(), "CUSTOM_REG_ADMIN");
+        User reviewer = customUser(UUID.randomUUID(), "CUSTOM_REG_REVIEWER");
+        RegularizationRequest mine = pendingFor(reviewer.getId(), "PENDING");
+        RegularizationRequest notMine = pendingFor(managerId, "PENDING");
+        lenient().when(regularizationRepository.findByStatusIn(List.of("PENDING", "PARTIALLY_APPROVED"))).thenReturn(List.of(mine, notMine));
+        lenient().when(regularizationRepository.findByStatus("PENDING")).thenReturn(List.of(mine, notMine));
+
+        assertEquals(2, regularizationService.listPendingForApprover(admin.getEmail()).size());
+        assertEquals(List.of(mine.getId()), regularizationService.listPendingForApprover(reviewer.getEmail()).stream()
+                .map(RegularizationResponse::getId).toList());
+    }
+
+    @Test
+    void submit_customRoleWithConfigure_isExemptFromLookbackAndMonthlyLimit_likeSuperAdmin() {
+        // superAdminId's Employee record is stubbed in setUp(); here that account holds only the custom role.
+        User exempt = customUser(superAdminId, "CUSTOM_REG_EXEMPT");
+        LocalDate tooOld = LocalDate.now().minusDays(10);
+
+        RegularizationResponse resp = regularizationService.submit(
+                request(tooOld, tooOld.atTime(9, 0), tooOld.atTime(18, 0), "Old correction"), exempt.getEmail());
+
+        assertEquals("PENDING", resp.getStatus());
+        verify(regularizationRepository, never()).countByEmployeeUserIdAndCreatedAtBetween(any(), any(), any());
+        assertTrue(regularizationService.getBalance(exempt.getEmail()).unlimited());
+    }
+
+    @Test
+    void submit_customRoleWithoutConfigure_isBoundByLookbackWindow() {
+        User other = customUser(superAdminId, "CUSTOM_UNRELATED");
+        LocalDate tooOld = LocalDate.now().minusDays(10);
+
+        assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
+                request(tooOld, tooOld.atTime(9, 0), tooOld.atTime(18, 0), "Old correction"), other.getEmail()));
+        assertFalse(regularizationService.getBalance(other.getEmail()).unlimited());
+    }
+
+    @Test
+    void getBalance_onlySuperAdminIsUnlimited_amongSystemRoles() {
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+
+        assertTrue(regularizationService.getBalance(superAdminEmail).unlimited());
+        assertFalse(regularizationService.getBalance(hrEmail).unlimited());
+        assertFalse(regularizationService.getBalance(managerEmail).unlimited());
+        assertFalse(regularizationService.getBalance(employeeEmail).unlimited());
+    }
+
+    @Test
+    void getHistoryForManager_viewAllSeesAnyone_othersOnlyDirectReports() {
+        UUID notAReport = UUID.randomUUID();
+        LocalDate date = LocalDate.now();
+        lenient().when(historyRepository.findCurrentDirectReportIds(any())).thenReturn(List.of());
+        lenient().when(regularizationRepository.findByEmployeeUserIdAndAttendanceDateOrderByCreatedAtDesc(notAReport, date))
+                .thenReturn(List.of());
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        User admin = customUser(UUID.randomUUID(), "CUSTOM_REG_ADMIN");
+        User reviewer = customUser(UUID.randomUUID(), "CUSTOM_REG_REVIEWER");
+
+        assertDoesNotThrow(() -> regularizationService.getHistoryForManager(hrEmail, notAReport, date));
+        assertDoesNotThrow(() -> regularizationService.getHistoryForManager(superAdminEmail, notAReport, date));
+        assertDoesNotThrow(() -> regularizationService.getHistoryForManager(admin.getEmail(), notAReport, date));
+        assertThrows(AccessDeniedException.class, () -> regularizationService.getHistoryForManager(managerEmail, notAReport, date));
+        assertThrows(AccessDeniedException.class, () -> regularizationService.getHistoryForManager(reviewer.getEmail(), notAReport, date));
+    }
+
+    @Test
+    void listApprovers_isPermissionBased_andStillLeavesOutSuperAdminOnlyAccounts() {
+        User reviewer = customUser(UUID.randomUUID(), "CUSTOM_REG_REVIEWER");
+        User superAdminAndManager = User.builder().id(UUID.randomUUID()).email("sa-mgr@test.com")
+                .roles(Set.of(Role.builder().id(4).code("SUPER_ADMIN").build(), Role.builder().id(1).code("MANAGER").build()))
+                .build();
+        Set<UUID> holders = Set.of(managerId, hrId, superAdminId, reviewer.getId(), superAdminAndManager.getId());
+        doReturn(holders).when(effectivePermissionService).activeUserIdsWithAuthority("regularization", "APPROVE", "TEAM");
+        when(employeeRepository.findAllByIdWithUserDetails(holders)).thenReturn(List.of(
+                Employee.builder().userId(managerId).fullName("A Manager").user(managerUser).build(),
+                Employee.builder().userId(hrId).fullName("B HR").user(hrUser).build(),
+                Employee.builder().userId(superAdminId).fullName("C Super").user(superAdminUser).build(),
+                Employee.builder().userId(reviewer.getId()).fullName("D Custom").user(reviewer).build(),
+                Employee.builder().userId(superAdminAndManager.getId()).fullName("E SA Manager").user(superAdminAndManager).build()));
+
+        List<UUID> ids = regularizationService.listApprovers().stream()
+                .map(com.nforce.onehr.dto.attendance.ApproverOptionDto::getUserId).toList();
+
+        assertEquals(List.of(managerId, hrId, reviewer.getId(), superAdminAndManager.getId()), ids);
+    }
+
+    @Test
+    void submit_selectedApprover_customReviewerAccepted_superAdminOnlyAndUnrelatedRejected() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        User reviewer = customUser(UUID.randomUUID(), "CUSTOM_REG_REVIEWER");
+        User unrelated = customUser(UUID.randomUUID(), "CUSTOM_UNRELATED");
+        LocalDate today = LocalDate.now();
+
+        CreateRegularizationRequest toReviewer = request(today, today.atTime(9, 0), today.atTime(18, 0), "Missed punch");
+        toReviewer.setManagerUserId(reviewer.getId());
+        assertEquals(reviewer.getId(), regularizationService.submit(toReviewer, employeeEmail).getAssignedApproverId());
+
+        for (UUID ineligible : List.of(superAdminId, unrelated.getId())) {
+            CreateRegularizationRequest req = request(today, today.atTime(9, 0), today.atTime(18, 0), "Missed punch");
+            req.setManagerUserId(ineligible);
+            assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(req, employeeEmail));
+        }
     }
 }

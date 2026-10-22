@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveRequestResponse;
@@ -30,6 +31,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
+import com.nforce.onehr.security.EffectivePermissionService;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -39,6 +42,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -78,6 +82,10 @@ class LeaveServiceTest {
     // Unstubbed by default → Optional.empty() (no shift) → every date counts, the pre-shift rule.
     @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
     @Mock private HolidayRepository holidayRepository;
+    // The REAL permission engine over the seeded matrix, plus custom roles for the V234 tests.
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
+            "CUSTOM_LEAVE_ADMIN", Map.of("leave:APPROVE", "ALL"),
+            "CUSTOM_LEAVE_TEAM", Map.of("leave:APPROVE", "TEAM", "leave:VIEW", "ALL")));
 
     @InjectMocks private LeaveService leaveService;
 
@@ -1914,5 +1922,67 @@ class LeaveServiceTest {
 
         assertTrue(leaveService.listTeamBalances(managerEmail).isEmpty());
         verify(leaveBalanceRepository, never()).findByEmployeeUserIdInAndYear(any(), any());
+    }
+
+    // ── Permission migration (V234): the HR/SA override is leave:APPROVE:ALL. System roles keep
+    //    their behavior (tests above, against the real seed); a custom role with it gets the
+    //    override, one without it (even with TEAM + VIEW:ALL) does not. ──
+
+    private LeaveRequest pendingAnnual(UUID ownerId) {
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(ownerId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+        lenient().when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        lenient().when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+        return pending;
+    }
+
+    @Test
+    void overrideHolders_amongSystemRoles_areExactlyHrAdminAndSuperAdmin() {
+        assertTrue(effectivePermissionService.hasAuthority(userWithRole(strangerId, strangerEmail, "HR_ADMIN"), "leave:APPROVE:ALL"));
+        assertTrue(effectivePermissionService.hasAuthority(userWithRole(strangerId, strangerEmail, "SUPER_ADMIN"), "leave:APPROVE:ALL"));
+        assertFalse(effectivePermissionService.hasAuthority(userWithRole(strangerId, strangerEmail, "MANAGER"), "leave:APPROVE:ALL"));
+        assertFalse(effectivePermissionService.hasAuthority(userWithRole(strangerId, strangerEmail, "EMPLOYEE"), "leave:APPROVE:ALL"));
+    }
+
+    @Test
+    void approveAndQueue_customRoleWithApproveAll_overridesLikeHrAdmin() {
+        User custom = userWithRole(strangerId, strangerEmail, "CUSTOM_LEAVE_ADMIN");
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(custom));
+        LeaveRequest pending = pendingAnnual(employeeId);
+        when(leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING")).thenReturn(List.of(pending));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+
+        assertEquals(1, leaveService.listPendingApprovals(strangerEmail).size());
+        assertEquals("APPROVED", leaveService.approve(pending.getId(), strangerEmail).getStatus());
+        verify(historyRepository, never()).findByEmployeeUserIdAndEffectiveToIsNull(employeeId);
+    }
+
+    @Test
+    void approveAndQueue_customRoleWithoutApproveAll_isConfinedToTheReportingLine() {
+        User custom = userWithRole(strangerId, strangerEmail, "CUSTOM_LEAVE_TEAM");
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(custom));
+        LeaveRequest pending = pendingAnnual(employeeId);
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+
+        assertTrue(leaveService.listPendingApprovals(strangerEmail).isEmpty());
+        assertThrows(AccessDeniedException.class, () -> leaveService.approve(pending.getId(), strangerEmail));
+        assertThrows(AccessDeniedException.class, () -> leaveService.reject(pending.getId(), "No", strangerEmail));
+        verify(leaveRequestRepository, never()).findByStatusOrderByCreatedAtAsc(any());
+    }
+
+    @Test
+    void superAdminsOwnLeave_stillRoutesToTheirManager_evenForACustomOverrideHolder() {
+        UUID superAdminId = UUID.randomUUID();
+        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(userWithRole(superAdminId, "sa@test.com", "SUPER_ADMIN")));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(superAdminId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(superAdminId).managerUserId(managerId).build()));
+        User custom = userWithRole(strangerId, strangerEmail, "CUSTOM_LEAVE_ADMIN");
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(custom));
+        LeaveRequest pending = pendingAnnual(superAdminId);
+
+        assertThrows(AccessDeniedException.class, () -> leaveService.approve(pending.getId(), strangerEmail));
     }
 }

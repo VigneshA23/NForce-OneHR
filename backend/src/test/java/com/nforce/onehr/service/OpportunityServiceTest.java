@@ -18,6 +18,8 @@ import com.nforce.onehr.repository.InternalOpportunityRepository;
 import com.nforce.onehr.repository.OpportunityInterestRepository;
 import com.nforce.onehr.repository.SkillTaxonomyRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,6 +30,7 @@ import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
@@ -65,19 +68,31 @@ class OpportunityServiceTest {
     private final User benchedEmployee = user("EMPLOYEE");
     private final User activeEmployee = user("EMPLOYEE");
 
+    private final User superAdmin = user("SUPER_ADMIN");
+    private final User customPoster = user("CUSTOM_POSTER");
+    private final User customAssigner = user("CUSTOM_ASSIGNER");
+
+    // Real seed matrix (V241) plus custom roles: a poster (CREATE + VIEW:ALL) and an assigner (APPROVE only).
+    private final EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
+            "CUSTOM_POSTER", Map.of("opportunities:CREATE", "ALL", "opportunities:VIEW", "ALL"),
+            "CUSTOM_ASSIGNER", Map.of("opportunities:APPROVE", "ALL")));
+
     private static User user(String role) {
         User u = new User();
         u.setId(UUID.randomUUID());
-        Role r = new Role();
-        r.setCode(role);
-        u.setRoles(Set.of(r));
+        Role r = role.startsWith("CUSTOM_") ? Role.builder().id(99).code(role).displayName(role).build() : SeedMatrix.role(role);
+        u.setRoles(new java.util.HashSet<>(java.util.List.of(SeedMatrix.role("EMPLOYEE"), r)));
         return u;
     }
 
     @BeforeEach
     void setUp() {
         service = new OpportunityService(opportunityRepository, interestRepository, taxonomyRepository, benchRepository,
-                employeeRepository, userRepository, notificationService, allocationService, benchStatusService, auditService, snapshotSerializer);
+                employeeRepository, userRepository, notificationService, allocationService, benchStatusService, auditService,
+                snapshotSerializer, effectivePermissionService);
+        lenient().when(userRepository.findByEmail("sa@t")).thenReturn(Optional.of(superAdmin));
+        lenient().when(userRepository.findByEmail("poster@t")).thenReturn(Optional.of(customPoster));
+        lenient().when(userRepository.findByEmail("assigner@t")).thenReturn(Optional.of(customAssigner));
         lenient().when(userRepository.findByEmail("hr@t")).thenReturn(Optional.of(hr));
         lenient().when(userRepository.findByEmail("mgr@t")).thenReturn(Optional.of(manager));
         lenient().when(userRepository.findByEmail("benched@t")).thenReturn(Optional.of(benchedEmployee));
@@ -146,6 +161,21 @@ class OpportunityServiceTest {
         assertEquals(1, service.list("hr@t").size());
     }
 
+    @Test
+    void post_andSeeEverything_followOpportunityPermissions_notRoleCodes() {
+        InternalOpportunity opp = openOpportunity(); // stubs a mock itself, so not inside thenReturn(...)
+        when(opportunityRepository.findAllByOrderByCreatedAtDesc()).thenReturn(List.of(opp));
+        for (String email : List.of("hr@t", "sa@t", "mgr@t", "poster@t")) {
+            assertEquals(OpportunityStatus.OPEN,
+                    service.post(email, new OpportunityRequest("x", 1, Set.of(skillId))).status(), email);
+            assertEquals(1, service.list(email).size(), email);
+        }
+        // the assigner holds APPROVE but neither CREATE nor VIEW:ALL, and is not on bench
+        assertThrows(AccessDeniedException.class,
+                () -> service.post("assigner@t", new OpportunityRequest("x", 1, Set.of(skillId))));
+        assertTrue(service.list("assigner@t").isEmpty());
+    }
+
     // ---- US-A11 ----
 
     @Test
@@ -191,6 +221,20 @@ class OpportunityServiceTest {
         InternalOpportunity opp = openOpportunity();
 
         assertThrows(AccessDeniedException.class, () -> service.interests("benched@t", opp.getId()));
+    }
+
+    @Test
+    void interests_areVisibleToThePoster_andToApproveHolders_only() {
+        InternalOpportunity opp = openOpportunity(); // posted by the manager
+        when(interestRepository.findByOpportunityIdOrderByExpressedAtAsc(opp.getId())).thenReturn(List.of());
+
+        for (String email : List.of("mgr@t", "hr@t", "sa@t", "assigner@t")) {
+            assertTrue(service.interests(email, opp.getId()).isEmpty(), email);
+        }
+        // a poster-role holder (custom, or another manager) who didn't post this one is refused
+        assertThrows(AccessDeniedException.class, () -> service.interests("poster@t", opp.getId()));
+        opp.setPostedByUserId(UUID.randomUUID());
+        assertThrows(AccessDeniedException.class, () -> service.interests("mgr@t", opp.getId()));
     }
 
     // ---- US-A12 ----
@@ -266,5 +310,15 @@ class OpportunityServiceTest {
         opp.setStatus(OpportunityStatus.CLOSED);
         assertThrows(IllegalStateException.class, () -> service.close("hr@t", opp.getId(), closeRequest()));
         verifyNoInteractions(allocationService);
+    }
+
+    @Test
+    void close_followsOpportunitiesApprove_forSuperAdminAndCustomRoles() {
+        when(allocationService.allocate(any(ProjectAllocationRequest.class)))
+                .thenReturn(ProjectAllocationResponse.builder().id(UUID.randomUUID()).build());
+        for (String email : List.of("sa@t", "assigner@t")) {
+            assertEquals(OpportunityStatus.CLOSED, service.close(email, openOpportunity().getId(), closeRequest()).status(), email);
+        }
+        assertThrows(AccessDeniedException.class, () -> service.close("poster@t", openOpportunity().getId(), closeRequest()));
     }
 }

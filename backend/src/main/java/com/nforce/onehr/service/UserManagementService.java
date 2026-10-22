@@ -4,9 +4,12 @@ import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.dto.roles.RoleDtos;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.security.ForceLogoutBroadcaster;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,6 +30,9 @@ public class UserManagementService {
 
     private static final Set<String> PHASE1_ROLES = Set.of("EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN");
     private static final SecureRandom RANDOM = new SecureRandom();
+    // Assigning or removing ANY role - including the one picked when creating a user - needs this
+    // on top of the endpoint's own user_management permission (see validateRoleChange).
+    private static final String ASSIGN_ROLES_AUTHORITY = "user_roles:EDIT:ALL";
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
@@ -61,6 +67,9 @@ public class UserManagementService {
     // Only for the "Effective From cannot be in the past" check below — the org-wide business-day
     // clock (see AttendanceProperties.zone's own Javadoc), never the JVM default (UTC on Railway).
     private final AttendanceProperties attendanceProperties;
+    // Privilege-ceiling checks (see validateRoleChange / assertCanManage) and the effective-
+    // permissions view of Manage Roles.
+    private final EffectivePermissionService effectivePermissionService;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -75,6 +84,10 @@ public class UserManagementService {
 
         Role role = roleRepository.findByCode(roleCode)
                 .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
+        Set<Role> initialRoles = rolesFor(role);
+        // Creating an account with a role IS assigning that role - same guard as Manage Roles, so
+        // user_management:CREATE alone can never mint a Super Admin.
+        validateRoleChange(actor, null, Set.of(), initialRoles);
 
         String tempPassword = generateTempPassword();
         User newUser = User.builder()
@@ -82,7 +95,7 @@ public class UserManagementService {
                 .passwordHash(passwordEncoder.encode(tempPassword))
                 .mustChangePassword(true)
                 .active(true)
-                .roles(rolesFor(role))
+                .roles(initialRoles)
                 .build();
         newUser = userRepository.save(newUser);
 
@@ -241,6 +254,7 @@ public class UserManagementService {
         Employee emp = employeeRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         User target = emp.getUser();
+        assertCanManage(actor, target);
         String before = auditSnapshot.toJson(userSnapshot(emp, target));
         String currentRole = RoleUtils.primaryRoleCode(target.getRoles(), null);
         UUID currentManagerId = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(userId)
@@ -362,13 +376,19 @@ public class UserManagementService {
             if (!Objects.equals(currentRole, roleCode)) {
                 Role newRole = roleRepository.findByCode(roleCode)
                         .orElseThrow(() -> new IllegalArgumentException("Role not found: " + roleCode));
-                target.getRoles().clear();
-                target.getRoles().addAll(rolesFor(newRole));
+                // This field picks the PRIMARY (system) role only — custom roles granted through
+                // Manage Roles are carried over untouched rather than wiped by the reset.
+                Set<Role> next = target.getRoles().stream().filter(r -> !r.isSystem())
+                        .collect(Collectors.toCollection(HashSet::new));
+                next.addAll(rolesFor(newRole));
                 // An auto-granted MANAGER status (see ManagerRoleAutoGrant) reflects live
-                // reporting lines, not this primary-role choice — restore it after the clear
-                // above so changing someone's role never silently drops a status they still
-                // hold by virtue of actually having direct reports.
-                managerRoleSyncService.restoreIfAutoGranted(target);
+                // reporting lines, not this primary-role choice — kept in the replacement set so
+                // changing someone's role never silently drops a status they still hold by
+                // virtue of actually having direct reports.
+                managerRoleSyncService.restoreIfAutoGranted(target.getId(), next);
+                validateRoleChange(actor, target, target.getRoles(), next);
+                target.getRoles().clear();
+                target.getRoles().addAll(next);
                 forceLogoutRequired = true;
                 roleChanged = true;
                 // Separate, access-control-specific audit entry alongside the generic
@@ -459,6 +479,7 @@ public class UserManagementService {
         Employee emp = employeeRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         User target = emp.getUser();
+        assertCanManage(actor, target);
 
         String before = auditSnapshot.toJson(Map.of("joiningDate", emp.getJoiningDate().toString()));
         emp.setJoiningDate(req.getNewJoiningDate());
@@ -560,6 +581,9 @@ public class UserManagementService {
         User actor = requireActor(actorEmail);
         User target = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        // A reset hands the actor a working temp password — the most direct takeover path if a
+        // lesser admin could do it to a Super Admin.
+        assertCanManage(actor, target);
 
         // Snapshot deliberately excludes the password hash — never log credential material,
         // only the safe, hash-free "must change password" flag flip.
@@ -603,6 +627,7 @@ public class UserManagementService {
         Employee emp = employeeRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         User target = emp.getUser();
+        assertCanManage(actor, target);
 
         if (!active) assertNotSelfOrLastActiveSuperAdmin(actor, target, "deactivate");
 
@@ -627,6 +652,7 @@ public class UserManagementService {
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
         if (target.getDeletedAt() != null)
             throw new IllegalArgumentException("User is already deleted");
+        assertCanManage(actor, target);
         assertNotSelfOrLastActiveSuperAdmin(actor, target, "delete");
         String before = auditSnapshot.toJson(Map.of("deletedAt", "null", "active", target.isActive()));
         target.setDeletedAt(Instant.now());
@@ -665,6 +691,116 @@ public class UserManagementService {
             if (!anotherActiveSuperAdminExists)
                 throw new IllegalArgumentException("Cannot " + verb + " the last active Super Admin. Assign Super Admin to another user first.");
         }
+    }
+
+    /**
+     * The guard every role-assignment path shares (createUser, updateUser's role field,
+     * setUserRoles / Roles & Permissions membership). {@code target} is null when creating.
+     *  - assigning roles needs user_roles:EDIT:ALL, on top of whichever endpoint got us here;
+     *  - nobody changes their own roles (no self-escalation, no self-lockout) — same "ask another
+     *    Super Admin" rule as self-deactivation;
+     *  - only active, assignable roles can be newly added (placeholders like DELIVERY can't);
+     *  - privilege ceiling: every permission of the roles held before OR after must already be
+     *    within the actor's own coverage, so assigning can't grant more than the actor has and
+     *    removing can't strip a more-privileged account;
+     *  - the last active Super Admin can't lose that role (same rule as deactivate/delete).
+     */
+    private void validateRoleChange(User actor, User target, Set<Role> current, Set<Role> next) {
+        if (!effectivePermissionService.coverage(actor.getRoles()).contains(ASSIGN_ROLES_AUTHORITY))
+            throw new AccessDeniedException("Missing " + ASSIGN_ROLES_AUTHORITY);
+        if (target != null && target.getId().equals(actor.getId()))
+            throw new IllegalArgumentException("You cannot change your own roles. Ask another administrator to do this.");
+        for (Role added : next) {
+            if (current.contains(added)) continue;
+            if (!added.isActive())
+                throw new IllegalArgumentException("Role '" + added.getDisplayName() + "' is inactive and cannot be assigned.");
+            if (added.isSystem() && !added.isPhase1())
+                throw new IllegalArgumentException("Role '" + added.getDisplayName() + "' is not assignable.");
+        }
+        Set<Role> touched = new HashSet<>(current);
+        touched.addAll(next);
+        effectivePermissionService.assertWithinCeiling(actor.getRoles(), effectivePermissionService.coverage(touched),
+                "You can only assign or remove roles whose permissions you hold yourself.");
+        if (target != null && target.isActive() && holdsSuperAdmin(current) && !holdsSuperAdmin(next)) {
+            boolean anotherActiveSuperAdminExists = userRepository.findActiveSuperAdmins().stream()
+                    .anyMatch(u -> !u.getId().equals(target.getId()));
+            if (!anotherActiveSuperAdminExists)
+                throw new IllegalArgumentException("Cannot remove Super Admin from the last active Super Admin. Assign Super Admin to another user first.");
+        }
+    }
+
+    /**
+     * Rejects acting on an account whose access exceeds the actor's own (e.g. a custom-role user
+     * administrator resetting a Super Admin's password or editing their email). A Super Admin
+     * always passes — their coverage is the superset (see EffectivePermissionService).
+     */
+    private void assertCanManage(User actor, User target) {
+        effectivePermissionService.assertWithinCeiling(actor.getRoles(), effectivePermissionService.coverage(target.getRoles()),
+                "You can't manage this account: it has access beyond your own.");
+    }
+
+    private static boolean holdsSuperAdmin(Collection<Role> roles) {
+        return roles.stream().anyMatch(r -> "SUPER_ADMIN".equals(r.getCode()));
+    }
+
+    /** Manage Roles: the user's held roles plus their effective permissions and which role grants each. */
+    @Transactional(readOnly = true)
+    public RoleDtos.UserRolesResponse getUserRoles(UUID userId) {
+        User user = userRepository.findById(userId).filter(u -> u.getDeletedAt() == null)
+                .orElseThrow(() -> new NoSuchElementException("User not found"));
+        boolean autoManager = managerRoleSyncService.isAutoGranted(userId);
+        List<RoleDtos.RoleRef> roles = user.getRoles().stream()
+                .sorted(Comparator.comparing(Role::getDisplayName))
+                .map(r -> new RoleDtos.RoleRef(r.getId(), r.getCode(), r.getDisplayName(), r.isSystem(), r.isActive(),
+                        autoManager && "MANAGER".equals(r.getCode())))
+                .toList();
+        List<RoleDtos.EffectiveGrant> effective = effectivePermissionService.effectiveGrantsWithSources(user.getRoles()).stream()
+                .map(g -> new RoleDtos.EffectiveGrant(g.moduleCode(), g.moduleName(), g.action(), g.scope(), g.sources()))
+                .toList();
+        String fullName = employeeRepository.findById(userId).map(Employee::getFullName).orElse(user.getEmail());
+        return new RoleDtos.UserRolesResponse(userId, fullName, user.getEmail(), roles, effective);
+    }
+
+    /**
+     * Manage Roles: replaces the user's whole role set with {@code roleIds}. EMPLOYEE (the base role
+     * every account holds — see rolesFor) and an auto-granted MANAGER (follows live reporting lines)
+     * are always kept. Like any other role change, it ends the user's sessions so their client
+     * reloads the new nav/permissions (backend authorization is re-resolved per request anyway).
+     */
+    @Transactional
+    public RoleDtos.UserRolesResponse setUserRoles(UUID userId, Collection<Integer> roleIds, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        User target = userRepository.findById(userId).filter(u -> u.getDeletedAt() == null)
+                .orElseThrow(() -> new NoSuchElementException("User not found"));
+        Set<Role> next = new HashSet<>();
+        for (Integer roleId : new LinkedHashSet<>(roleIds)) {
+            next.add(roleRepository.findById(roleId)
+                    .orElseThrow(() -> new IllegalArgumentException("Unknown role: " + roleId)));
+        }
+        roleRepository.findByCode("EMPLOYEE").ifPresent(next::add);
+        managerRoleSyncService.restoreIfAutoGranted(userId, next);
+
+        Set<Role> current = new HashSet<>(target.getRoles());
+        if (next.equals(current)) return getUserRoles(userId);
+        validateRoleChange(actor, target, current, next);
+
+        target.getRoles().clear();
+        target.getRoles().addAll(next);
+        target.setTokenVersion(target.getTokenVersion() + 1);
+        target.setTokenVersionReason("PROFILE_UPDATED");
+        userRepository.save(target);
+
+        auditService.log(actor.getId(), "ROLE_CHANGED", userId,
+                auditSnapshot.toJson(Map.of("roles", roleCodes(current))),
+                auditSnapshot.toJson(Map.of("roles", roleCodes(next))));
+        notificationService.send(target.getId(), "ACCOUNT", "Roles Updated",
+                "Your roles have been updated by an administrator.", "/profile");
+        forceLogoutAfterCommit(target.getId());
+        return getUserRoles(userId);
+    }
+
+    private static List<String> roleCodes(Collection<Role> roles) {
+        return roles.stream().map(Role::getCode).sorted().toList();
     }
 
     /**
@@ -730,6 +866,7 @@ public class UserManagementService {
                 .fullName(emp.getFullName())
                 .email(user.getEmail())
                 .role(role)
+                .roleNames(user.getRoles().stream().map(Role::getDisplayName).filter(Objects::nonNull).sorted().toList())
                 .businessUnitId(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId().toString() : null)
                 .businessUnitName(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null)
                 .departmentId(emp.getDepartment() != null ? emp.getDepartment().getId().toString() : null)

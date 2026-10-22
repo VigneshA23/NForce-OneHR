@@ -14,17 +14,18 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/projects")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
 public class ProjectController {
 
     private final ProjectService service;
 
     @GetMapping
+    @PreAuthorize("hasAuthority('projects:VIEW:ALL')")
     public List<ProjectResponse> list() {
         return service.listActive();
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('projects:CREATE:ALL')")
     @ResponseStatus(HttpStatus.CREATED)
     public ProjectResponse create(@Valid @RequestBody CreateProjectRequest req) {
         return service.create(req);

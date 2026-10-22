@@ -1,20 +1,31 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.asset.AssetResponse;
+import com.nforce.onehr.dto.asset.CreateAssetRequest;
 import com.nforce.onehr.entity.Asset;
 import com.nforce.onehr.entity.AssetAssignment;
 import com.nforce.onehr.entity.AssetCategory;
+import com.nforce.onehr.entity.AssetRequest;
+import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -37,6 +48,12 @@ class AssetServiceTest {
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private NotificationService notificationService;
+    // Real seed matrix (V225..V242) plus custom roles: one holding every assets permission, one
+    // holding only assets:APPROVE:TEAM, one holding an unrelated permission only.
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
+            "CUSTOM_ASSETS", Map.of("assets:VIEW", "ALL", "assets:CREATE", "ALL", "assets:EDIT", "ALL", "assets:APPROVE", "ALL"),
+            "CUSTOM_TEAM_APPROVER", Map.of("assets:APPROVE", "TEAM"),
+            "CUSTOM_OTHER", Map.of("holidays:VIEW", "ALL")));
 
     @InjectMocks
     private AssetService assetService;
@@ -48,7 +65,7 @@ class AssetServiceTest {
     @BeforeEach
     void setUp() {
         adminUser = User.builder().id(UUID.randomUUID()).email(adminEmail)
-                .roles(Set.of(Role.builder().id(1).code("HR_ADMIN").displayName("HR Admin").build()))
+                .roles(Set.of(SeedMatrix.role("HR_ADMIN")))
                 .build();
         category = AssetCategory.builder().id(1).name("Laptop").build();
 
@@ -96,5 +113,118 @@ class AssetServiceTest {
 
         assertEquals("RETIRED", res.getStatus());
         verify(assignmentRepo, never()).save(any());
+    }
+
+    // ── Permission gates (V242): system roles unchanged, custom roles follow their grants ──
+
+    private final String actorEmail = "actor@test.com";
+    private final UUID actorId = UUID.randomUUID();
+    private final UUID requesterId = UUID.randomUUID();
+
+    private void actingAs(String roleCode) {
+        Role role = roleCode.startsWith("CUSTOM_")
+                ? Role.builder().id(100).code(roleCode).displayName(roleCode).build()
+                : SeedMatrix.role(roleCode);
+        User actor = User.builder().id(actorId).email(actorEmail).roles(Set.of(role)).build();
+        lenient().when(userRepo.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
+    }
+
+    private void retirableAsset() {
+        lenient().when(assetRepo.findById(1L)).thenReturn(Optional.of(assetWithStatus("AVAILABLE")));
+        lenient().when(assetRepo.save(any(Asset.class))).thenAnswer(inv -> inv.getArgument(0));
+    }
+
+    private void pendingRequest(boolean requesterReportsToActor) {
+        lenient().when(requestRepo.findById(5L)).thenReturn(Optional.of(AssetRequest.builder()
+                .id(5L).employeeUserId(requesterId).categoryId(1).status("PENDING").build()));
+        lenient().when(historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(requesterId)).thenReturn(Optional.of(
+                EmployeeManagerHistory.builder().employeeUserId(requesterId)
+                        .managerUserId(requesterReportsToActor ? actorId : UUID.randomUUID()).build()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"HR_ADMIN", "SUPER_ADMIN", "CUSTOM_ASSETS"})
+    void inventoryGates_allowHrSuperAdminAndCustomRoleWithAssetsPermissions(String roleCode) {
+        actingAs(roleCode);
+        retirableAsset();
+
+        assertDoesNotThrow(() -> assetService.listAllAssets(actorEmail));
+        assertDoesNotThrow(() -> assetService.countAssets(actorEmail));
+        assertDoesNotThrow(() -> assetService.hrTileSummary(actorEmail));
+        assertDoesNotThrow(() -> assetService.availableByCategory(1, actorEmail));
+        assertDoesNotThrow(() -> assetService.retireAsset(1L, actorEmail));
+        // Past the CREATE gate: fails on the unknown category, not on authorization.
+        CreateAssetRequest create = new CreateAssetRequest();
+        create.setAssetTag("A-9");
+        create.setCategoryId(99);
+        assertThrows(IllegalArgumentException.class, () -> assetService.createAsset(create, actorEmail));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EMPLOYEE", "MANAGER", "CUSTOM_OTHER", "CUSTOM_TEAM_APPROVER"})
+    void inventoryGates_denyEveryoneElse(String roleCode) {
+        actingAs(roleCode);
+        retirableAsset();
+
+        assertThrows(AccessDeniedException.class, () -> assetService.listAllAssets(actorEmail));
+        assertThrows(AccessDeniedException.class, () -> assetService.countAssets(actorEmail));
+        assertThrows(AccessDeniedException.class, () -> assetService.hrTileSummary(actorEmail));
+        assertThrows(AccessDeniedException.class, () -> assetService.availableByCategory(1, actorEmail));
+        assertThrows(AccessDeniedException.class, () -> assetService.retireAsset(1L, actorEmail));
+        assertThrows(AccessDeniedException.class, () -> assetService.createAsset(new CreateAssetRequest(), actorEmail));
+        verify(assetRepo, never()).save(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"HR_ADMIN", "SUPER_ADMIN", "CUSTOM_ASSETS"})
+    void approve_orgWideHolderCanDecideAnyonesRequest(String roleCode) {
+        actingAs(roleCode);
+        pendingRequest(false);
+
+        assertEquals("APPROVED", assetService.approveRequest(5L, actorEmail).getStatus());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MANAGER", "CUSTOM_TEAM_APPROVER"})
+    void approve_teamHolderCanDecideOnlyADirectReportsRequest(String roleCode) {
+        actingAs(roleCode);
+        pendingRequest(true);
+        assertEquals("REJECTED", assetService.rejectRequest(5L, "no", actorEmail).getStatus());
+
+        pendingRequest(false);
+        assertThrows(AccessDeniedException.class, () -> assetService.approveRequest(5L, actorEmail));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EMPLOYEE", "CUSTOM_OTHER"})
+    void approve_deniedWithoutApprovePermissionEvenForADirectReport(String roleCode) {
+        actingAs(roleCode);
+        pendingRequest(true);
+
+        assertThrows(AccessDeniedException.class, () -> assetService.approveRequest(5L, actorEmail));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"HR_ADMIN", "SUPER_ADMIN", "CUSTOM_ASSETS"})
+    void pendingQueue_orgWideHolderSeesPendingAndApprovedForEveryone(String roleCode) {
+        actingAs(roleCode);
+        when(requestRepo.findByStatusIn(List.of("PENDING", "APPROVED"))).thenReturn(List.of());
+
+        assetService.listPendingForApprover(actorEmail);
+
+        verify(requestRepo, never()).findByStatus(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"MANAGER", "EMPLOYEE", "CUSTOM_TEAM_APPROVER"})
+    void pendingQueue_everyoneElseSeesOnlyDirectReportsPending(String roleCode) {
+        actingAs(roleCode);
+        when(requestRepo.findByStatus("PENDING")).thenReturn(List.of(
+                AssetRequest.builder().id(5L).employeeUserId(requesterId).categoryId(1).status("PENDING").build(),
+                AssetRequest.builder().id(6L).employeeUserId(UUID.randomUUID()).categoryId(1).status("PENDING").build()));
+        when(historyRepo.findCurrentDirectReportIds(actorId)).thenReturn(List.of(requesterId));
+
+        assertEquals(List.of(5L), assetService.listPendingForApprover(actorEmail).stream().map(r -> r.getId()).toList());
+        verify(requestRepo, never()).findByStatusIn(any());
     }
 }

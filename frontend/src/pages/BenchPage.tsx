@@ -2,6 +2,7 @@ import { useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { UsersRound } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { TabBar, type TabDef } from '../components/TabBar';
 import OverviewSection from './bench/OverviewSection';
 import BenchListSection from './bench/BenchListSection';
@@ -25,8 +26,8 @@ const HR_TABS: TabDef<BenchTab>[] = [
  */
 export default function BenchPage() {
   const token = useAuthStore(s => s.token) ?? '';
-  const role = useAuthStore(s => s.user?.role);
-  const canManage = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  // bench:EDIT:ALL (V241) — mark/end/settings; seeded to HR Admin/Super Admin, the old gate.
+  const canManage = hasPermission(useAuthStore(s => s.permissions), 'bench', 'EDIT', 'ALL');
   const [tab, setTab] = useState<BenchTab>('overview');
   const [flash, setFlash] = useState('');
 

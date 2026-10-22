@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.response;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AssistantResponse;
 import com.nforce.onehr.ai.contract.AssistantResponseType;
@@ -50,7 +51,7 @@ class ConfidentialityGuardTest {
         NavigationValidator navigationValidator = new NavigationValidator(registry);
         validator = new ResponseValidator(navigationValidator, new UnknownResponses(navigationValidator));
         employee = AssistantRequestContext.builder().userId(UUID.randomUUID()).primaryRoleCode("EMPLOYEE")
-                .shellRole(ShellRole.EMPLOYEE).audiences(Set.of(AudienceBucket.EMPLOYEE)).build();
+                .shellRole(ShellRole.EMPLOYEE).audiences(Set.of(AudienceBucket.EMPLOYEE)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.EMPLOYEE))).build();
         attendanceLabel = navigationValidator.labelFor("attendance", employee).orElseThrow();
     }
 

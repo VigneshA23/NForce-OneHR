@@ -4,7 +4,7 @@ package com.nforce.onehr.ai.data;
  * Whose records a live-data provider returns.
  *
  * <p>Stated to the model on every section, so "42 active users" is never read back to an admin as
- * though it were their own record, and checked against each provider's audiences by
+ * though it were their own record, and checked against each provider's authorities by
  * {@code DataProviderSafetyTest}: the wider the scope, the narrower the set of roles allowed to run
  * it. That pairing is the whole safety argument for anything beyond {@link #SELF}.
  */
@@ -38,10 +38,10 @@ public enum DataScope {
     TEAM("team", "the signed-in user's direct reports"),
 
     /**
-     * Organisation-wide figures. Only ever for the HR/Admin audiences whose own UI already shows the
-     * same data, mirroring the {@code @PreAuthorize} on the controller that serves it - the service
-     * methods behind org-wide screens usually take no actor at all, so the audience gate is the only
-     * thing standing between them and everyone else.
+     * Organisation-wide figures. Only ever behind an ALL-scope permission whose holders' own UI
+     * already shows the same data, mirroring the {@code @PreAuthorize} on the controller that serves
+     * it - the service methods behind org-wide screens usually take no actor at all, so the
+     * permission gate is the only thing standing between them and everyone else.
      */
     ORGANISATION("organisation", "organisation-wide data");
 

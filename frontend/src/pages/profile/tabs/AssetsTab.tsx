@@ -6,7 +6,7 @@ import { expensesApi, type ExpenseCategory, type ExpenseClaimResponse } from '..
 import { KebabMenu } from '../../../components/KebabMenu';
 import { ReceiptViewerModal } from '../../../components/expenses/ReceiptViewerModal';
 import { useAuthStore } from '../../../store/authStore';
-import { toShellRole } from '../../../lib/nav.config';
+import { assetsExpensesView } from '../../../lib/permissions';
 import { panelStyle, thStyle, tdStyle, StatusBadge, fmtDate, fmtCurrency, EmptyRow } from '../../assets/shared';
 import { useEmployeeAssetsData } from '../../assets/useEmployeeAssetsData';
 import { RequestAssetModal } from '../../assets/RequestAssetModal';
@@ -71,10 +71,10 @@ function RequestTrackingModal({ request, onClose }: { request: AssetRequestRespo
  */
 export function AssetsTab({ token }: { token: string }) {
   const user = useAuthStore(s => s.user);
-  const role = toShellRole(user?.role);
+  const view = assetsExpensesView(useAuthStore(s => s.permissions), user?.role);
 
-  if (role === 'Manager') return <ManagerView token={token} hideTiles />;
-  if (role === 'HR Admin' || role === 'Super Admin') return <HRView token={token} hideTiles />;
+  if (view === 'manager') return <ManagerView token={token} hideTiles />;
+  if (view === 'hr') return <HRView token={token} hideTiles />;
   return <EmployeeAssetsTab token={token} />;
 }
 

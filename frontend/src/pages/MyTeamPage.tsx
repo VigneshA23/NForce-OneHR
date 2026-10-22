@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp, Search, Check, X, AlertTriangle, Users, CheckCi
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
+import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import {
@@ -2452,6 +2453,10 @@ function PenaltiesTab({ token }: { token: string }) {
   const [cancelBusy, setCancelBusy] = useState(false);
   const [lastResult, setLastResult] = useState<{ succeeded: number; failures: { label: string; reason: string }[] } | null>(null);
   const [historyFor, setHistoryFor] = useState<PenaltyRow | null>(null);
+  // Cancelling is a write — POST /attendance/penalties/cancel needs attendance:EDIT:TEAM (V234),
+  // seeded to the same Manager/HR Admin/Super Admin holders as viewing, so only a custom role
+  // granted view-only loses the action.
+  const canCancel = hasPermission(useAuthStore(s => s.permissions), 'attendance', 'EDIT', 'TEAM');
 
   // Department/location option lists — sourced from the Org master data (Super Admin
   // configuration), same as SuperAdminRegularizationPage/PenalizationPolicyAllocationSection,
@@ -2565,7 +2570,7 @@ function PenaltiesTab({ token }: { token: string }) {
       </div>
 
       <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <BulkButton label="Cancel Penalty" disabled={selected.size === 0} onClick={() => { setCancelOpen(true); setCancelReason(''); }} />
+        {canCancel && <BulkButton label="Cancel Penalty" disabled={selected.size === 0} onClick={() => { setCancelOpen(true); setCancelReason(''); }} />}
         <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
           Total: <b style={{ color: 'var(--txt)' }}>{rows.length}</b>{selected.size > 0 && <> · {selected.size} selected</>}
         </span>
@@ -2990,7 +2995,12 @@ export default function MyTeamPage() {
   const token = useAuthStore(s => s.token)!;
   const user = useAuthStore(s => s.user);
   const role = toShellRole(user?.role);
-  const isEmployee = role === 'Employee';
+  const permissions = useAuthStore(s => s.permissions);
+  // "Employee" here means "no direct-reports view": the roster/calendar below is built on
+  // /attendance/team + /attendance/team-month, which require attendance:VIEW:TEAM — seeded to
+  // exactly Manager/HR Admin/Super Admin, the non-Employee roles. Until permissions have loaded,
+  // fall back to the role so viewMode's one-time initializer below doesn't lock a manager into Peers.
+  const isEmployee = permissions ? !hasPermission(permissions, 'attendance', 'VIEW', 'TEAM') : role === 'Employee';
   // Efforts/Punctuality, Negligence, Penalties and Employee Assignments are manager tools for
   // monitoring one's own reports — not part of HR Admin's My Team view. Reports stays: HR relies
   // on its org-wide Overtime/WFH/Partial Day request reports (see ReportsService), which have no

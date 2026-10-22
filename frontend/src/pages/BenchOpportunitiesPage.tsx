@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { Briefcase } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { opportunitiesApi, type InterestedEmployee, type Opportunity } from '../api/opportunities';
 import { skillsApi, type Skill } from '../api/skills';
 import { projectsApi, type ProjectRecord } from '../api/projectAllocations';
@@ -118,9 +119,11 @@ function AssignPanel({ token, opp, onDone, onCancel }: { token: string; opp: Opp
 /** US-A10/A11/A12: internal opportunities — post (HR/Manager), express interest (benched), assign & close (HR). */
 export default function BenchOpportunitiesPage() {
   const token = useAuthStore(s => s.token) ?? '';
-  const role = useAuthStore(s => s.user?.role);
-  const canPost = role === 'HR_ADMIN' || role === 'SUPER_ADMIN' || role === 'MANAGER';
-  const canAssign = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  // V241 — the permissions OpportunityController requires, seeded to the old role sets:
+  // CREATE to Manager/HR Admin/Super Admin, APPROVE (assign & close) to HR Admin/Super Admin.
+  const permissions = useAuthStore(s => s.permissions);
+  const canPost = hasPermission(permissions, 'opportunities', 'CREATE', 'ALL');
+  const canAssign = hasPermission(permissions, 'opportunities', 'APPROVE', 'ALL');
 
   const [opps, setOpps] = useState<Opportunity[] | null>(null);
   const [skills, setSkills] = useState<Skill[]>([]);
