@@ -42,6 +42,7 @@ import { KpiCard as ReportKpi, Section as ReportSection, HeadcountRows } from '.
 import ApiUsagePage, { KpiCard as ApiKpi } from '../ApiUsagePage';
 import { useAuthStore } from '../../store/authStore';
 import { HRView } from '../AssetsExpensesPage';
+import BenchOpportunitiesPage from '../BenchOpportunitiesPage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -62,6 +63,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'holidays', label: 'Holidays calendar', title: 'Holidays', subtitle: 'Month calendar with holidays highlighted, today marked and a legend.' },
   { key: 'api-page', label: 'API Usage (full page)', title: 'API Usage', subtitle: 'The whole page with sample data: billing, knowledge base, period switch and charts.' },
   { key: 'assets-page', label: 'Assets (full page)', title: 'Assets & Expenses', subtitle: 'The HR view with sample data: pill tabs, filters, inventory table and inline row actions.' },
+  { key: 'opps-page', label: 'Opportunities (full page)', title: 'Internal Opportunities', subtitle: 'HR view with sample data: post form with skill chips and opportunity cards.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -277,6 +279,38 @@ function AssetsMock() {
   return ready ? <HRView token="mock-token" hideTiles /> : null;
 }
 
+function OppsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample data and an HR/Super Admin role; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const opp = (id: string, title: string, weeks: number, status: 'OPEN' | 'CLOSED', skills: string[], postedBy: string, interestCount: number, assignedEmployee: string | null) =>
+      ({ id, title, durationWeeks: weeks, status, requiredSkills: skills, postedBy, createdAt: '', interestCount, interested: false, assignedEmployee });
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/skill-taxonomy')) return json([{ id: 's1', skill: 'Java', category: 'Backend' }, { id: 's2', skill: 'React', category: 'Frontend' }, { id: 's3', skill: 'SQL', category: 'Data' }, { id: 's4', skill: 'Python', category: 'Backend' }]);
+      if (url.endsWith('/api/opportunities')) {
+        return json([
+          opp('o1', 'Frontend developer for dashboard revamp', 6, 'OPEN', ['React', 'SQL'], 'Narendra Reddy', 3, null),
+          opp('o2', 'QA: Java developer for report automation', 4, 'CLOSED', ['Java', 'SQL'], 'Narendra Reddy', 1, 'Chandrasekhar G'),
+          opp('o3', 'Backend help for payroll (QA sample)', 4, 'CLOSED', ['Java', 'SQL'], 'Suresh Kumar Hanumalla', 1, 'Suresh Kumar Hanumalla'),
+        ]);
+      }
+      if (url.includes('/api/opportunities/') && url.endsWith('/interests')) return json([{ employeeId: 'e1', employeeName: 'Chandrasekhar G', expressedAt: '' }, { employeeId: 'e2', employeeName: 'Nikitha Toom', expressedAt: '' }]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <BenchOpportunitiesPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -480,6 +514,8 @@ function Tiles({ page }: { page: string }) {
       return <ApiUsageMock />;
     case 'assets-page':
       return <AssetsMock />;
+    case 'opps-page':
+      return <OppsMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:
