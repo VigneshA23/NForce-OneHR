@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
-import { Users, CalendarCheck, Clock, Download, ShieldAlert, BarChart3 } from 'lucide-react';
+import { Users, CalendarCheck, Clock, Download, ShieldAlert, BarChart3, X } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -172,8 +172,120 @@ function exportDashboardToExcel(opts: {
 // ── Small presentational bits ───────────────────────────────
 
 // Same tile as the Home dashboard (components/DashTile); display only.
-export function KpiCard({ icon, label, value, note, danger, accent }: { icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean; accent?: string }) {
-  return <DashTile icon={icon} label={label} value={String(value)} sub={note} accent={danger ? 'var(--risk)' : (accent ?? 'var(--brand)')} />;
+export function KpiCard({ icon, label, value, note, danger, accent, onClick }: {
+  icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean; accent?: string; onClick?: () => void;
+}) {
+  return <DashTile icon={icon} label={label} value={String(value)} sub={note} accent={danger ? 'var(--risk)' : (accent ?? 'var(--brand)')} onClick={onClick} />;
+}
+
+// ── Stat-card drill-down modal ───────────────────────────────────────────────
+// Each KPI card above only ever shows one aggregate number — clicking it opens the per-employee
+// detail that number was computed from, so "Present Today: 58" or "Late/Absent: 2/0" is never a
+// dead end. Reuses the exact same loaded data (filteredReports/attendanceRecords/leaveRecords/
+// pendingLeaveRecords) the cards and charts above already computed from — no extra API calls.
+type DetailsView = 'headcount' | 'present' | 'lateAbsent' | 'leave' | null;
+
+function StatusPill({ label, color }: { label: string; color: string }) {
+  return (
+    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, color, background: `color-mix(in srgb, ${color} 15%, transparent)` }}>
+      {label}
+    </span>
+  );
+}
+
+function DetailsModal({ view, onClose, reports, attendance, attendanceDate, leave, pendingLeave }: {
+  view: Exclude<DetailsView, null>;
+  onClose: () => void;
+  reports: DirectReport[];
+  attendance: AttendanceRecord[];
+  attendanceDate: string;
+  leave: LeaveRequestRecord[];
+  pendingLeave: LeaveRequestRecord[];
+}) {
+  const presentStatuses = new Set(['PRESENT', 'HALF_DAY', 'MISSING_CHECKOUT']);
+  const config: Record<Exclude<DetailsView, null>, { title: string; headers: string[]; rows: React.ReactNode[] }> = {
+    headcount: {
+      title: 'Employees',
+      headers: ['Name', 'Code', 'Department', 'Designation', 'Status'],
+      rows: reports.map(r => (
+        <tr key={r.userId}>
+          <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
+          <td style={{ ...tdS, fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</td>
+          <td style={tdS}>{r.departmentName ?? '–'}</td>
+          <td style={tdS}>{r.designationName ?? '–'}</td>
+          <td style={tdS}><StatusPill label={r.active ? 'Active' : 'Inactive'} color={r.active ? '#2FB67C' : 'var(--txt-dim)'} /></td>
+        </tr>
+      )),
+    },
+    present: {
+      title: `Present — ${attendanceDate}`,
+      headers: ['Name', 'Code', 'Check-In', 'Status'],
+      rows: attendance.filter(a => presentStatuses.has(a.status ?? '')).map(a => (
+        <tr key={a.employeeUserId}>
+          <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{a.fullName}</td>
+          <td style={{ ...tdS, fontFamily: 'Inter, sans-serif' }}>{a.employeeCode}</td>
+          <td style={tdS}>{a.checkInAt ? new Date(a.checkInAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '–'}</td>
+          <td style={tdS}><StatusPill label={a.status ?? '–'} color="#2FB67C" /></td>
+        </tr>
+      )),
+    },
+    lateAbsent: {
+      title: `Late / Absent — ${attendanceDate}`,
+      headers: ['Name', 'Code', 'Status', 'Late By'],
+      rows: attendance.filter(a => a.status === 'LATE' || a.status === 'ABSENT').map(a => (
+        <tr key={a.employeeUserId}>
+          <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{a.fullName}</td>
+          <td style={{ ...tdS, fontFamily: 'Inter, sans-serif' }}>{a.employeeCode}</td>
+          <td style={tdS}><StatusPill label={a.status === 'LATE' ? 'Late' : 'Absent'} color={a.status === 'LATE' ? 'var(--warn)' : '#E4373D'} /></td>
+          <td style={tdS}>{a.lateByMinutes ? `${a.lateByMinutes}m` : '–'}</td>
+        </tr>
+      )),
+    },
+    leave: {
+      title: 'Leave in period',
+      headers: ['Employee', 'Type', 'Dates', 'Days', 'Status'],
+      rows: [...leave, ...pendingLeave].map(r => (
+        <tr key={r.id}>
+          <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>
+          <td style={tdS}>{r.leaveTypeName}</td>
+          <td style={tdS}>{r.startDate}{r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ' (half day)' : ''}</td>
+          <td style={tdS}>{r.totalDays}</td>
+          <td style={tdS}><StatusPill label={r.status} color={r.status === 'APPROVED' ? '#2FB67C' : r.status === 'PENDING' ? 'var(--warn)' : '#E4373D'} /></td>
+        </tr>
+      )),
+    },
+  };
+  const { title, headers, rows } = config[view];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ ...card, width: '100%', maxWidth: 720, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif', flex: 1 }}>{title}</h3>
+          <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{rows.length}</span>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, display: 'flex' }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div style={{ overflow: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>{headers.map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
+            <tbody>
+              {rows.length === 0
+                ? <tr><td colSpan={headers.length} style={{ ...tdS, textAlign: 'center', padding: 30 }}>Nothing to show.</td></tr>
+                : rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -207,9 +319,10 @@ export default function ReportsPage() {
   const [directReports, setDirectReports] = useState<DirectReport[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [leaveRecords, setLeaveRecords] = useState<LeaveRequestRecord[]>([]);
-  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
+  const [pendingLeaveRecords, setPendingLeaveRecords] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [detailsView, setDetailsView] = useState<DetailsView>(null);
 
   const [attendanceDate, setAttendanceDate] = useState(todayIsoDate());
   const [leaveFrom, setLeaveFrom] = useState(monthStartIso());
@@ -234,7 +347,7 @@ export default function ReportsPage() {
         setDirectReports(headcount.directReports);
         setAttendanceRecords(attendance);
         setLeaveRecords(leave);
-        setPendingLeaveCount(pending.length);
+        setPendingLeaveRecords(pending);
       })
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load dashboard'))
       .finally(() => setLoading(false));
@@ -261,7 +374,7 @@ export default function ReportsPage() {
     () => computeAttendanceSummary(attendanceRecords, headcountSummary.total),
     [attendanceRecords, headcountSummary.total]
   );
-  const leaveSummary = useMemo(() => computeLeaveSummary(leaveRecords, pendingLeaveCount), [leaveRecords, pendingLeaveCount]);
+  const leaveSummary = useMemo(() => computeLeaveSummary(leaveRecords, pendingLeaveRecords.length), [leaveRecords, pendingLeaveRecords]);
 
   const headcountPieData = [
     { name: 'Active', value: headcountSummary.active },
@@ -338,10 +451,10 @@ export default function ReportsPage() {
         <>
           {/* KPI cards */}
           <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-            <KpiCard icon={<Users size={20} />} label={isHr ? 'Total Headcount' : 'Direct Reports'} value={headcountSummary.total} accent="var(--info)" note={`${headcountSummary.active} active · ${headcountSummary.inactive} inactive`} />
-            <KpiCard icon={<CalendarCheck size={20} />} label="Present Today" value={attendanceSummary.present} accent="var(--ok)" note={`of ${headcountSummary.total} for ${attendanceDate}`} />
-            <KpiCard icon={<Clock size={20} />} label="Late / Absent" value={`${attendanceSummary.late} / ${attendanceSummary.absent}`} accent="var(--warn)" note="on the selected date" danger={attendanceSummary.absent > 0} />
-            <KpiCard icon={<CalendarCheck size={20} />} label="Leave (period)" value={leaveSummary.approvedCount} accent="var(--om-purple)" note={`${leaveSummary.totalDaysApproved}d approved · ${leaveSummary.pendingCount} pending`} />
+            <KpiCard icon={<Users size={20} />} label={isHr ? 'Total Headcount' : 'Direct Reports'} value={headcountSummary.total} accent="var(--info)" note={`${headcountSummary.active} active · ${headcountSummary.inactive} inactive`} onClick={() => setDetailsView('headcount')} />
+            <KpiCard icon={<CalendarCheck size={20} />} label="Present Today" value={attendanceSummary.present} accent="var(--ok)" note={`of ${headcountSummary.total} for ${attendanceDate}`} onClick={() => setDetailsView('present')} />
+            <KpiCard icon={<Clock size={20} />} label="Late / Absent" value={`${attendanceSummary.late} / ${attendanceSummary.absent}`} accent="var(--warn)" note="on the selected date" danger={attendanceSummary.absent > 0} onClick={() => setDetailsView('lateAbsent')} />
+            <KpiCard icon={<CalendarCheck size={20} />} label="Leave (period)" value={leaveSummary.approvedCount} accent="var(--om-purple)" note={`${leaveSummary.totalDaysApproved}d approved · ${leaveSummary.pendingCount} pending`} onClick={() => setDetailsView('leave')} />
           </div>
 
           {/* Charts */}
@@ -427,6 +540,18 @@ export default function ReportsPage() {
             </table>
           </Section>
         </>
+      )}
+
+      {detailsView && (
+        <DetailsModal
+          view={detailsView}
+          onClose={() => setDetailsView(null)}
+          reports={filteredReports}
+          attendance={attendanceRecords}
+          attendanceDate={attendanceDate}
+          leave={leaveRecords}
+          pendingLeave={pendingLeaveRecords}
+        />
       )}
     </div>
   );

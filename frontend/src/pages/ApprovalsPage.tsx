@@ -827,6 +827,26 @@ export default function ApprovalsPage() {
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table className="apv-table">
+              {/* table-layout: fixed + width: 100% (see ApprovalsPage.css's .apv-table) with every
+                  column given an explicit PERCENTAGE here — not pixels. Percentages always sum to
+                  100% of whatever the card's actual width is, so the table can never end up wider
+                  than its container (no horizontal scrollbar, Actions never pushed off-screen),
+                  regardless of zoom level or how much room the sidebar leaves. Each column still
+                  gets a deliberate, content-proportional share (Reason the most, since it's the
+                  free-text column) instead of one single column absorbing 100% of any leftover
+                  space, which is what produced the very visible dead gaps in both earlier passes
+                  at this (fixed-px columns either came up short of 100%, or — when stretched to
+                  fill — dumped all the slack into whichever one column was left unset). */}
+              <colgroup>
+                <col style={{ width: '3%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '8%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th className="apv-check">
@@ -874,13 +894,13 @@ export default function ApprovalsPage() {
                           <span className="apv-type-icon" style={{ background: TYPE_COLORS[item.requestType], color: TYPE_TEXT[item.requestType] }} aria-hidden="true">
                             <TypeIcon size={16} />
                           </span>
-                          <span className="apv-type-label">{TYPE_LABELS[item.requestType]}</span>
+                          <span className="apv-type-label" title={TYPE_LABELS[item.requestType]}>{TYPE_LABELS[item.requestType]}</span>
                         </div>
                       </td>
                       <td className="apv-cell-emp" data-label="Employee">
                         <div className="apv-emp">
                           <EmployeeAvatar userId={item.employeeUserId} name={item.employeeName} size={32} fontSize={11.5} />
-                          <span className="apv-emp-name">{item.employeeName}</span>
+                          <span className="apv-emp-name" title={item.employeeName}>{item.employeeName}</span>
                         </div>
                       </td>
                       <td className="apv-cell-dates apv-dates" data-label="Requested Dates">{requestedDates}</td>
