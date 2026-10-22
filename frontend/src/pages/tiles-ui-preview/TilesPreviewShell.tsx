@@ -41,6 +41,7 @@ import type { AuditLogEntry } from '../../api/audit';
 import { KpiCard as ReportKpi, Section as ReportSection, HeadcountRows } from '../ReportsPage';
 import ApiUsagePage, { KpiCard as ApiKpi } from '../ApiUsagePage';
 import { useAuthStore } from '../../store/authStore';
+import { HRView } from '../AssetsExpensesPage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -60,6 +61,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'api-usage', label: 'API Usage', title: 'API Usage', subtitle: 'Assistant request volume, tokens and latency.' },
   { key: 'holidays', label: 'Holidays calendar', title: 'Holidays', subtitle: 'Month calendar with holidays highlighted, today marked and a legend.' },
   { key: 'api-page', label: 'API Usage (full page)', title: 'API Usage', subtitle: 'The whole page with sample data: billing, knowledge base, period switch and charts.' },
+  { key: 'assets-page', label: 'Assets (full page)', title: 'Assets & Expenses', subtitle: 'The HR view with sample data: pill tabs, filters, inventory table and inline row actions.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -240,6 +242,39 @@ function ApiUsageMock() {
     };
   }, []);
   return ready ? <ApiUsagePage /> : null;
+}
+
+function AssetsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: answer the page's calls with sample data, restore fetch on leave.
+    const prevFetch = window.fetch;
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const mk = (id: number, assetTag: string, categoryName: string, brand: string | null, model: string | null, status: string, condition: string, custodian: string | null) => ({
+      id, assetTag, categoryId: 1, categoryName, brand, model, serialNumber: null, purchaseDate: null, purchaseCost: null, warrantyExpiry: null,
+      condition, status, locationId: null, locationName: null, currentCustodianName: custodian, currentCustodianUserId: custodian ? `u${id}` : null, createdAt: '', updatedAt: '',
+    });
+    const inventory = [
+      mk(1, 'LPT-4567', 'Monitor', null, null, 'AVAILABLE', 'GOOD', null),
+      mk(2, 'BADGE-001', 'Access Card', 'Badge', null, 'RETIRED', 'GOOD', null),
+      mk(3, 'MBP16-001', 'Laptop', 'Apple', 'MacBook Pro 16', 'RETIRED', 'DAMAGED', null),
+      mk(4, 'LT', 'Access Card', 'acess', 'XP125', 'ASSIGNED', 'GOOD', 'sai krishna challa'),
+      mk(5, 'DU27-001', 'Monitor', 'Dell', 'UltraSharp 27', 'RETIRED', 'GOOD', null),
+      mk(6, 'LT-24-500', 'Laptop', 'MSI', '1929000', 'ASSIGNED', 'FAIR', 'Nikitha Toom'),
+      mk(7, 'hp-4543', 'Mobile Phone', null, null, 'AVAILABLE', 'GOOD', null),
+    ];
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/assets')) return json(inventory);
+      if (url.endsWith('/api/assets/tiles/hr')) return json({ totalAssigned: 8, available: 12, overdueReturns: 0 });
+      if (url.endsWith('/api/assets/requests/pending')) return json([]);
+      if (url.includes('/api/expenses') || url.includes('/api/assets')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    setReady(true);
+    return () => { window.fetch = prevFetch; };
+  }, []);
+  return ready ? <HRView token="mock-token" hideTiles /> : null;
 }
 
 function Tiles({ page }: { page: string }) {
@@ -443,6 +478,8 @@ function Tiles({ page }: { page: string }) {
     }
     case 'api-page':
       return <ApiUsageMock />;
+    case 'assets-page':
+      return <AssetsMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:
