@@ -35,6 +35,9 @@ import { Tile } from '../assets/shared';
 import { PolicyStatTiles } from '../PoliciesPage';
 import { DocumentStatTiles } from '../DocumentsPage';
 import { AuditStatCards } from '../../components/audit/AuditStatCards';
+import { AuditCategoryChips } from '../../components/audit/AuditCategoryChips';
+import { AuditLogTable } from '../../components/audit/AuditLogTable';
+import type { AuditLogEntry } from '../../api/audit';
 import { KpiCard as ReportKpi } from '../ReportsPage';
 import { KpiCard as ApiKpi } from '../ApiUsagePage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
@@ -158,6 +161,35 @@ function MastersMock() {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+const AUDIT_ROWS: AuditLogEntry[] = [
+  ['ATTENDANCE_REGULARIZATION_APPROVED', 'ATTENDANCE', 'Veera Venkata Chandrasekhar Reddy Gandrala', '2026-10-21T19:43:00'],
+  ['ATTENDANCE_REGULARIZATION_APPROVED', 'ATTENDANCE', 'Nikitha Toom', '2026-10-21T19:43:00'],
+  ['HELPDESK_TICKET_STATUS_CHANGED', 'OTHER', '878af0dc...', '2026-10-19T19:25:00'],
+  ['LEAVE_APPROVED', 'LEAVE', 'Arun Kumar', '2026-10-18T11:02:00'],
+  ['EMPLOYEE_UPDATED', 'EMPLOYEE', 'Meera Nair', '2026-10-17T16:40:00'],
+  ['USER_ROLE_CHANGED', 'ACCESS', 'Rahul Verma', '2026-10-16T09:15:00'],
+].map(([action, actionGroup, targetLabel, occurredAt], i) => ({
+  id: i + 1, occurredAt, actorId: null, actorName: 'Admin', actorEmail: null, action, actionCategory: action,
+  actionGroup, targetId: null, targetLabel, targetEmployeeCode: null, affectedUsers: null, beforeState: null, afterState: null,
+} as unknown as AuditLogEntry));
+
+function AuditPillsMock({ showAccess }: { showAccess: boolean }) {
+  const [g, setG] = useState<'ALL' | 'EMPLOYEE' | 'ATTENDANCE' | 'LEAVE' | 'EXPENSE' | 'ASSET' | 'ACCESS' | 'OTHER'>('ALL');
+  const rows = g === 'ALL' ? AUDIT_ROWS : AUDIT_ROWS.filter(r => r.actionGroup === g);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <AuditCategoryChips active={g} onChange={setG} showAccess={showAccess} />
+      <div className="nf-audit-meta">
+        <span className="nf-audit-count"><b>{rows.length}</b> record(s) found</span>
+        {showAccess && <span className="nf-audit-note">Includes access-control events</span>}
+      </div>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+        <AuditLogTable rows={rows} />
       </div>
     </div>
   );
@@ -305,10 +337,12 @@ function Tiles({ page }: { page: string }) {
       const stats = { totalCount: 1284, todayCount: 17, byGroup: { EMPLOYEE: 402, LEAVE: 318, ATTENDANCE: 291, ASSET: 96, EXPENSE: 77, ACCESS: 100 } };
       return (
         <>
-          <div style={rowTitle}>HR Admin (6 tiles)</div>
+          <div style={rowTitle}>HR Admin (5 tiles)</div>
           <AuditStatCards stats={stats} showAccess={false} />
-          <div style={rowTitle}>Super Admin (7 tiles)</div>
+          <div style={rowTitle}>Super Admin (6 tiles)</div>
           <AuditStatCards stats={stats} showAccess />
+          <div style={rowTitle}>Category tabs + log table (Super Admin)</div>
+          <AuditPillsMock showAccess />
         </>
       );
     }

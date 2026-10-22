@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, CalendarCheck, Clock, Package, Shield, Tag, X } from 'lucide-react';
+import { Users, CalendarCheck, Clock, Package, Shield, Tag, X, ChevronRight, CalendarClock, UserCog, ArrowRightLeft } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ActionGroup, AuditLogEntry } from '../../api/audit';
 import { EmployeeAvatar } from '../EmployeeAvatar';
@@ -78,7 +78,7 @@ function fmtSnapshotValue(key: string, beforeVal: unknown, afterVal: unknown): s
 // --risk/--txt-mut) since custom properties can't be interpolated into an inline rgba() string —
 // same technique the previous two-variant badge already used, just extended to all 7 groups.
 const CATEGORY_STYLE: Record<ActionGroup, { label: string; icon: LucideIcon; color: string; rgb: string }> = {
-  EMPLOYEE:   { label: 'Employee Management', icon: Users,         color: 'var(--info)',    rgb: '76,141,214' },
+  EMPLOYEE:   { label: 'Employee', icon: Users,         color: 'var(--info)',    rgb: '76,141,214' },
   LEAVE:      { label: 'Leave',                icon: CalendarCheck, color: 'var(--ok)',      rgb: '47,182,124' },
   ATTENDANCE: { label: 'Attendance',           icon: Clock,         color: 'var(--warn)',    rgb: '224,169,59' },
   ASSET:      { label: 'Asset & Expense',      icon: Package,       color: 'var(--brand)',   rgb: '177,17,22' },
@@ -104,24 +104,11 @@ function ActionBadge({ group }: { group: ActionGroup }) {
   );
 }
 
-const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', background: 'var(--raised)' };
-const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 12.5, color: 'var(--txt)', borderBottom: '1px solid var(--line)', verticalAlign: 'top' };
 
 // ── Detail modal (read-only) — same overlay/modal/label shape as MyRequestsPage's
 // RequestDetailModal, so an audit event opens the same way a request detail does. ─────────
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
-const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
-const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div style={labelStyle}>{label}</div>
-      <div style={{ fontSize: 13, color: 'var(--txt)' }}>{value}</div>
-    </div>
-  );
-}
 
 // For actions where "affected user" is a whole set of employees (e.g. everyone governed by a
 // penalization policy whose rules just changed) rather than one — each name is clickable and
@@ -181,49 +168,69 @@ function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: (
 
   const affectedUsers = entry.affectedUsers ?? [];
 
+  const cat = CATEGORY_STYLE[entry.actionGroup] ?? CATEGORY_STYLE.OTHER;
+  const CatIcon = cat.icon;
+
   return (
     <div style={overlayStyle}>
-      <div style={modalStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div className="nf-audit-modal" style={{ ['--pc' as string]: cat.color }}>
+        <div className="nf-audit-modal-hd">
+          <span className="nf-audit-modal-ico"><CatIcon size={22} /></span>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className="nf-audit-modal-kicker">Audit Event Details</div>
+            <div className="nf-audit-modal-title">{humanizeAction(entry.action)}</div>
             <ActionBadge group={entry.actionGroup} />
-            <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
-              Audit Event Details
-            </span>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="nf-audit-modal-x"><X size={17} /></button>
         </div>
 
-        <div style={{ padding: 20 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: keys.length > 0 ? 16 : 0 }}>
-            <DetailRow label="Timestamp" value={fmtDateTime(entry.occurredAt)} />
-            <DetailRow label="Action" value={humanizeAction(entry.action)} />
-            <DetailRow label="Performed By" value={entry.actorName ? `${entry.actorName}${entry.actorEmail ? ` (${entry.actorEmail})` : ''}` : 'System'} />
-            {affectedUsers.length > 0 ? (
-              <div>
-                <div style={labelStyle}>{affectedUsers.length === 1 ? 'Affected User' : `Affected Users (${affectedUsers.length})`}</div>
-                <AffectedUsersList users={affectedUsers} onNavigate={onClose} />
-              </div>
-            ) : (
-              <DetailRow label="Affected User" value={entry.targetLabel} />
-            )}
+        <div className="nf-audit-modal-body">
+          <div className="nf-audit-grid">
+            <InfoCard icon={<CalendarClock size={14} />} label="Timestamp" value={fmtDateTime(entry.occurredAt)} />
+            <InfoCard icon={<UserCog size={14} />} label="Performed By" value={entry.actorName ? `${entry.actorName}${entry.actorEmail ? ` (${entry.actorEmail})` : ''}` : 'System'} />
           </div>
 
+          {affectedUsers.length > 0 ? (
+            <div className="nf-audit-card">
+              <div className="nf-audit-lbl"><Users size={14} />{affectedUsers.length === 1 ? 'Affected User' : `Affected Users (${affectedUsers.length})`}</div>
+              <AffectedUsersList users={affectedUsers} onNavigate={onClose} />
+            </div>
+          ) : (
+            <InfoCard icon={<Users size={14} />} label="Affected User" value={entry.targetLabel} />
+          )}
+
           {keys.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
-              {keys.map(key => {
-                const beforeVal = before ? before[key] : undefined;
-                const afterVal = after ? after[key] : undefined;
-                return <DetailRow key={key} label={humanizeKey(key)} value={fmtSnapshotValue(key, beforeVal, afterVal)} />;
-              })}
+            <div className="nf-audit-card">
+              <div className="nf-audit-lbl"><ArrowRightLeft size={14} />What changed</div>
+              <div className="nf-audit-changes">
+                {keys.map(key => {
+                  const beforeVal = before ? before[key] : undefined;
+                  const afterVal = after ? after[key] : undefined;
+                  return (
+                    <div key={key} className="nf-audit-change">
+                      <span className="nf-audit-change-k">{humanizeKey(key)}</span>
+                      <span className="nf-audit-change-v">{fmtSnapshotValue(key, beforeVal, afterVal)}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer' }}>Close</button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={onClose} className="nf-audit-modal-close">Close</button>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function InfoCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="nf-audit-card">
+      <div className="nf-audit-lbl">{icon}{label}</div>
+      <div className="nf-audit-val">{value}</div>
     </div>
   );
 }
@@ -239,27 +246,39 @@ export function AuditLogTable({ rows }: Props) {
 
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className="nf-audit-table">
         <thead>
           <tr>
-            <th style={thStyle}>Timestamp</th>
-            <th style={thStyle}>Affected User</th>
-            <th style={thStyle}>Action</th>
+            <th>Timestamp</th>
+            <th>Affected User</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map(r => (
-            <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setViewing(r)}>
-              <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 11.5, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
-                {fmtDateTime(r.occurredAt)}
-              </td>
-              <td style={{ ...tdStyle, color: 'var(--txt-mut)' }}>{r.targetLabel}</td>
-              <td style={tdStyle}>
-                <div style={{ marginBottom: 4 }}><ActionBadge group={r.actionGroup} /></div>
-                <div style={{ color: 'var(--txt-mut)' }}>{humanizeAction(r.action)}</div>
-              </td>
-            </tr>
-          ))}
+          {rows.map(r => {
+            const cat = CATEGORY_STYLE[r.actionGroup] ?? CATEGORY_STYLE.OTHER;
+            const CatIcon = cat.icon;
+            const d = new Date(r.occurredAt);
+            return (
+              <tr key={r.id} style={{ ['--pc' as string]: cat.color }} onClick={() => setViewing(r)}>
+                <td className="nf-audit-when">
+                  <span className="nf-audit-date">{d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' })}</span>
+                  <span className="nf-audit-time">{d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
+                </td>
+                <td className="nf-audit-user">{r.targetLabel}</td>
+                <td>
+                  <div className="nf-audit-act">
+                    <span className="nf-audit-ico"><CatIcon size={15} /></span>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="nf-audit-name">{humanizeAction(r.action)}</div>
+                      <ActionBadge group={r.actionGroup} />
+                    </div>
+                    <ChevronRight size={16} className="nf-audit-go" />
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 

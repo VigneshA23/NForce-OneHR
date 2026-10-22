@@ -1681,3 +1681,59 @@ select, input, textarea, button { touch-action: manipulation; }
 .nf-page-hdr--solo { align-items: center !important; }
 .nf-page-hdr--solo p { margin-bottom: 0 !important; }
 @media (max-width: 640px) { .nf-page-hdr { padding: 14px 14px !important; } }
+
+/* Audit & Security category pills: coloured, icon-led tabs; the active one fills with its colour. */
+.nf-audit-pills { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: 14px; background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 5%, var(--panel)), var(--panel)); }
+.nf-audit-pill { --pc: var(--brand); display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; color: var(--txt-mut); background: color-mix(in srgb, var(--pc) 8%, var(--raised)); border: 1px solid color-mix(in srgb, var(--pc) 22%, var(--line)); transition: transform .15s, box-shadow .15s, background .15s, color .15s; }
+.nf-audit-pill svg { color: var(--pc); transition: color .15s; }
+.nf-audit-pill:hover { transform: translateY(-2px); color: var(--txt); background: color-mix(in srgb, var(--pc) 16%, var(--raised)); box-shadow: 0 6px 14px color-mix(in srgb, var(--pc) 22%, transparent); }
+.nf-audit-pill.is-active { color: #fff; border-color: var(--pc); background: linear-gradient(135deg, var(--pc), color-mix(in srgb, var(--pc) 68%, #000)); box-shadow: 0 6px 16px color-mix(in srgb, var(--pc) 40%, transparent); }
+.nf-audit-pill.is-active svg { color: #fff; }
+.nf-audit-pill:focus-visible { outline: 2px solid var(--pc); outline-offset: 2px; }
+
+/* Audit log: record-count chip + dynamic table. Row tint/icon use the row's category colour (--pc). */
+.nf-audit-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.nf-audit-count { display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px; border-radius: 999px; font-size: 12.5px; color: var(--txt-mut); background: color-mix(in srgb, var(--brand) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line)); }
+.nf-audit-count svg { color: var(--brand); }
+.nf-audit-count b { color: var(--brand); font-weight: 800; font-size: 14px; }
+.nf-audit-note { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--risk); background: color-mix(in srgb, var(--risk) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--risk) 28%, var(--line)); }
+.nf-audit-table { width: 100%; border-collapse: separate; border-spacing: 0 6px; padding: 0 10px 6px; box-sizing: border-box; }
+.nf-audit-table thead th { padding: 11px 14px; text-align: left; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; color: var(--brand); background: color-mix(in srgb, var(--brand) 9%, var(--raised)); }
+.nf-audit-table thead th:first-child { border-radius: 10px 0 0 10px; }
+.nf-audit-table thead th:last-child { border-radius: 0 10px 10px 0; }
+.nf-audit-table tbody tr { cursor: pointer; transition: transform .15s, box-shadow .15s; }
+.nf-audit-table tbody td { padding: 11px 14px; vertical-align: middle; font-size: 12.5px; color: var(--txt); background: linear-gradient(180deg, var(--raised), var(--panel)); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); transition: background .15s, border-color .15s; }
+.nf-audit-table tbody td:first-child { border-left: 1px solid var(--line); border-radius: 10px 0 0 10px; }
+.nf-audit-table tbody td:last-child { border-right: 1px solid var(--line); border-radius: 0 10px 10px 0; }
+.nf-audit-table tbody tr:hover { transform: translateY(-1px); box-shadow: 0 6px 16px color-mix(in srgb, var(--pc, var(--brand)) 18%, transparent); }
+.nf-audit-table tbody tr:hover td { background: color-mix(in srgb, var(--pc, var(--brand)) 9%, var(--panel)); border-color: color-mix(in srgb, var(--pc, var(--brand)) 35%, var(--line)); }
+.nf-audit-when { white-space: nowrap; }
+.nf-audit-date { display: block; font-weight: 700; color: var(--txt); font-size: 12.5px; }
+.nf-audit-time { display: block; margin-top: 2px; font-size: 11px; color: var(--txt-mut); }
+.nf-audit-user { font-weight: 600; color: var(--txt); }
+.nf-audit-act { display: flex; align-items: center; gap: 12px; }
+.nf-audit-ico { flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--pc, var(--brand)); background: color-mix(in srgb, var(--pc, var(--brand)) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--pc, var(--brand)) 30%, transparent); }
+.nf-audit-name { font-weight: 700; color: var(--txt); margin-bottom: 4px; }
+.nf-audit-go { margin-left: auto; flex-shrink: 0; color: var(--txt-dim); transition: transform .15s, color .15s; }
+.nf-audit-table tbody tr:hover .nf-audit-go { transform: translateX(3px); color: var(--pc, var(--brand)); }
+
+/* Audit Event Details popup */
+.nf-audit-modal { --pc: var(--brand); width: 94vw; max-width: 560px; max-height: 90vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 28px 70px rgba(0,0,0,.5); font-family: Inter, "Segoe UI", sans-serif; animation: nf-audit-pop .18s ease-out; }
+@keyframes nf-audit-pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+.nf-audit-modal-hd { display: flex; align-items: flex-start; gap: 14px; padding: 20px 20px 18px; border-radius: 18px 18px 0 0; background: linear-gradient(135deg, color-mix(in srgb, var(--pc) 22%, var(--panel)) 0%, color-mix(in srgb, var(--pc) 6%, var(--panel)) 100%); border-bottom: 1px solid color-mix(in srgb, var(--pc) 25%, var(--line)); }
+.nf-audit-modal-ico { flex-shrink: 0; width: 48px; height: 48px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: linear-gradient(135deg, var(--pc), color-mix(in srgb, var(--pc) 65%, #000)); box-shadow: 0 8px 18px color-mix(in srgb, var(--pc) 38%, transparent); }
+.nf-audit-modal-kicker { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .1em; color: var(--pc); margin-bottom: 3px; }
+.nf-audit-modal-title { font-size: 19px; font-weight: 800; letter-spacing: -.015em; color: var(--txt); line-height: 1.2; margin-bottom: 8px; }
+.nf-audit-modal-x { flex-shrink: 0; width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; cursor: pointer; color: var(--txt-mut); background: color-mix(in srgb, var(--panel) 70%, transparent); border: 1px solid var(--line2); }
+.nf-audit-modal-x:hover { color: var(--txt); background: var(--raised2); }
+.nf-audit-modal-body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 12px; }
+.nf-audit-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.nf-audit-card { padding: 13px 15px; border-radius: 12px; background: linear-gradient(180deg, var(--raised), var(--panel)); border: 1px solid var(--line); }
+.nf-audit-lbl { display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--pc); margin-bottom: 7px; }
+.nf-audit-val { font-size: 14px; font-weight: 600; color: var(--txt); line-height: 1.4; word-break: break-word; }
+.nf-audit-changes { display: flex; flex-direction: column; gap: 8px; }
+.nf-audit-change { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; padding: 9px 12px; border-radius: 10px; background: color-mix(in srgb, var(--pc) 7%, var(--panel)); border: 1px solid color-mix(in srgb, var(--pc) 18%, var(--line)); }
+.nf-audit-change-k { font-size: 12.5px; font-weight: 700; color: var(--txt-mut); }
+.nf-audit-change-v { font-size: 13px; font-weight: 700; color: var(--txt); }
+.nf-audit-modal-close { padding: 9px 22px; border-radius: 10px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; color: #fff; border: none; background: linear-gradient(135deg, var(--pc), color-mix(in srgb, var(--pc) 68%, #000)); box-shadow: 0 6px 14px color-mix(in srgb, var(--pc) 30%, transparent); }
+.nf-audit-modal-close:hover { filter: brightness(1.08); }
