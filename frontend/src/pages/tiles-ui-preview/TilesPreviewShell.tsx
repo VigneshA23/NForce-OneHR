@@ -24,7 +24,7 @@ import { PersonCell } from '../../components/PersonCell';
 import { SidebarNav } from '../../components/SidebarNav';
 import type { Role } from '../../lib/nav.config';
 import { TabBar } from '../../components/TabBar';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/accentColor';
 import { KpiCard } from '../talent/DashboardTab';
 import { KpiTile } from '../LeavePage';
@@ -39,7 +39,8 @@ import { AuditCategoryChips } from '../../components/audit/AuditCategoryChips';
 import { AuditLogTable } from '../../components/audit/AuditLogTable';
 import type { AuditLogEntry } from '../../api/audit';
 import { KpiCard as ReportKpi, Section as ReportSection, HeadcountRows } from '../ReportsPage';
-import { KpiCard as ApiKpi } from '../ApiUsagePage';
+import ApiUsagePage, { KpiCard as ApiKpi } from '../ApiUsagePage';
+import { useAuthStore } from '../../store/authStore';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -58,6 +59,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'reports', label: 'Reports', title: 'Reports & Analytics', subtitle: 'Headcount, attendance and leave summaries.' },
   { key: 'api-usage', label: 'API Usage', title: 'API Usage', subtitle: 'Assistant request volume, tokens and latency.' },
   { key: 'holidays', label: 'Holidays calendar', title: 'Holidays', subtitle: 'Month calendar with holidays highlighted, today marked and a legend.' },
+  { key: 'api-page', label: 'API Usage (full page)', title: 'API Usage', subtitle: 'The whole page with sample data: billing, knowledge base, period switch and charts.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -193,6 +195,51 @@ function AuditPillsMock({ showAccess }: { showAccess: boolean }) {
       </div>
     </div>
   );
+}
+
+function ApiUsageMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: answer the page's three API calls with sample data, and act as a Super Admin,
+    // then put everything back when leaving. Nothing here ships into the real page.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const day = (i: number) => new Date(Date.now() - (13 - i) * 86400000).toISOString().slice(0, 10);
+    const daily = Array.from({ length: 14 }, (_, i) => ({
+      date: day(i), requestCount: 40 + ((i * 37) % 120), successCount: 0, errorCount: i % 4,
+      promptTokens: 120000 + ((i * 53000) % 260000), completionTokens: 4000 + ((i * 1700) % 9000), embeddingTokens: (i % 3) * 400,
+    }));
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/admin/usage-stats')) {
+        return json({
+          from: day(0), to: day(13), totalRequests: 2426, totalTurns: 1463, successCount: 1090, errorCount: 373,
+          totalPromptTokens: 8100000, totalCompletionTokens: 202100, totalEmbeddingTokens: 10900, totalTokens: 8347112, avgLatencyMs: 10753,
+          daily,
+          byErrorCode: [{ key: 'RATE_LIMITED', count: 241 }, { key: 'UPSTREAM_TIMEOUT', count: 96 }, { key: 'EMPTY_RESPONSE', count: 36 }],
+          byResponseType: [{ key: 'HOW_TO', count: 540 }, { key: 'EXPLANATION', count: 310 }, { key: 'NAVIGATION', count: 260 }, { key: 'TROUBLESHOOTING', count: 190 }, { key: 'PERMISSION', count: 120 }, { key: 'UNKNOWN', count: 43 }],
+        });
+      }
+      if (url.includes('/admin/billing-settings')) {
+        return json({ id: '1', monthlyBudgetUsd: 10, promptCostPerMillionUsd: 0.1, completionCostPerMillionUsd: 0.3, embeddingCostPerMillionUsd: 0.1 });
+      }
+      if (url.includes('/admin/billing')) {
+        return json({ monthStart: new Date().toISOString().slice(0, 8) + '01', today: day(13), promptTokens: 2991951, completionTokens: 55483, embeddingTokens: 3180, monthlyBudgetUsd: 10, estimatedCostUsd: 0.46, usedPercent: 4.6 });
+      }
+      if (url.includes('/api/ai-assistant/health')) {
+        return json({ enabled: true, indexReady: true, indexedChunks: 74, lastIndexedAt: '2026-10-09T19:27:00', knowledgeSources: ['help-content', 'yaml'], llmProvider: 'mistral', embeddingProvider: 'mistral', embeddingDimensions: 1024 });
+      }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <ApiUsagePage /> : null;
 }
 
 function Tiles({ page }: { page: string }) {
@@ -394,6 +441,8 @@ function Tiles({ page }: { page: string }) {
       const rows = [mk('1', '02', 'Gandhi Jayanti'), mk('2', '12', 'Dussehra'), mk('3', '12', 'Dussehra', 'Bengaluru'), mk('4', '20', 'Diwali Eve'), mk('5', '21', 'Diwali'), mk('6', '22', 'Govardhan Puja')];
       return <div style={{ maxWidth: 400 }}><HolidayMonthCalendar holidays={rows} /></div>;
     }
+    case 'api-page':
+      return <ApiUsageMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:

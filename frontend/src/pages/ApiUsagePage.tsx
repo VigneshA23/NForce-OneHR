@@ -2,15 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import {
-  Activity, ExternalLink, Gauge, MessageSquareText, RefreshCw, Settings2, ShieldAlert, Zap,
+  Activity, AlertTriangle, BarChart3, Database, ExternalLink, Gauge, Layers, MessageSquareText, MessagesSquare,
+  RefreshCw, Settings2, ShieldAlert, Wallet, Zap,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  PieChart, Pie, Cell, Legend, Label,
 } from 'recharts';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
-import { ChipGroup } from '../components/TabBar';
 import {
   fetchUsageStats, fetchBilling, fetchBillingSettings, updateBillingSettings,
   fetchHealth, reindexKnowledge,
@@ -20,7 +20,7 @@ import {
 // Same card/chart conventions as ReportsPage and My Team: theme tokens only, so light/dark and the
 // accent colour setting keep working.
 
-const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, boxShadow: '0 1px 2px rgba(16, 24, 40, .05)', overflow: 'hidden' };
+const card: React.CSSProperties = { background: 'linear-gradient(180deg, color-mix(in srgb, var(--brand) 5%, var(--panel)) 0%, var(--panel) 110px)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: '0 6px 22px rgba(16, 24, 40, .08)', overflow: 'hidden' };
 
 const MISTRAL_ADMIN_URL = 'https://admin.mistral.ai/';
 
@@ -35,14 +35,14 @@ const RESPONSE_TYPE_COLORS: Record<string, string> = {
 };
 
 // Recharts tooltip, same look as ReportsPage.
-const tooltipStyle: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' };
+const tooltipStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 10, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', boxShadow: '0 10px 28px rgba(0,0,0,.2)' };
 const axisTick = { fill: 'var(--txt-dim)', fontSize: 10.5 };
 
 // Shared small-button / label styles for the cards below.
-const ghostBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: 'var(--txt)', cursor: 'pointer' };
+const ghostBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 10, padding: '8px 14px', fontSize: 12, fontWeight: 600, color: 'var(--txt)', cursor: 'pointer' };
 const miniLabel: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' };
-const cardTitle: React.CSSProperties = { fontSize: 14, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', margin: 0 };
-const cardSub: React.CSSProperties = { fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 2 };
+const cardTitle: React.CSSProperties = { fontSize: 16, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)', fontFamily: 'Inter, sans-serif', margin: 0 };
+const cardSub: React.CSSProperties = { fontSize: 12, color: 'var(--txt-mut)', marginTop: 3, lineHeight: 1.45 };
 
 const PERIOD_OPTIONS = [
   { days: 7, label: '7 days' },
@@ -67,12 +67,24 @@ export function KpiCard({ icon, iconColor, label, value, note, danger }: { icon:
   return <DashTile icon={icon} label={label} value={String(value)} sub={note} accent={danger ? COLOR_ERROR : iconColor} />;
 }
 
-function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+/** Icon tile + title + subtitle: the one header every card on this page uses. */
+function CardHead({ icon, title, sub }: { icon: React.ReactNode; title: string; sub?: React.ReactNode }) {
   return (
-    <div style={{ ...card, padding: '16px 18px' }}>
-      <div style={cardTitle}>{title}</div>
-      {subtitle && <div style={cardSub}>{subtitle}</div>}
-      <div style={{ marginBottom: 14 }} />
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0 }}>
+      <span className="nf-api-ico">{icon}</span>
+      <div style={{ minWidth: 0 }}>
+        <div style={cardTitle}>{title}</div>
+        {sub && <div style={cardSub}>{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+function ChartCard({ title, subtitle, icon, children }: { title: string; subtitle?: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div style={{ ...card, padding: '18px 20px' }}>
+      <CardHead icon={icon} title={title} sub={subtitle} />
+      <div style={{ marginBottom: 16 }} />
       {children}
     </div>
   );
@@ -198,16 +210,13 @@ function BillingCard({ token }: { token: string }) {
   const barColor = overBudget ? COLOR_ERROR : (billing?.usedPercent ?? 0) >= 80 ? COLOR_WARN : COLOR_SUCCESS;
 
   return (
-    <div style={{ ...card, padding: '16px 18px' }}>
+    <div style={{ ...card, padding: '18px 20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 4 }}>
-        <div>
-          <div style={cardTitle}>Monthly billing estimate</div>
-          {billing && (
-            <div style={cardSub}>
-              {new Date(billing.monthStart + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} · based on OneHR's own token logs, not Mistral's invoice
-            </div>
-          )}
-        </div>
+        <CardHead
+          icon={<Wallet size={18} />}
+          title="Monthly billing estimate"
+          sub={billing ? `${new Date(billing.monthStart + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} · based on OneHR's own token logs, not Mistral's invoice` : undefined}
+        />
         <button onClick={() => (editing ? setEditing(false) : openEditor())} style={ghostBtn}>
           <Settings2 size={13} /> {editing ? 'Close' : 'Configure'}
         </button>
@@ -223,23 +232,26 @@ function BillingCard({ token }: { token: string }) {
       ) : billing && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 14, marginBottom: 6 }}>
-            <span style={{ fontSize: 22, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: overBudget ? COLOR_ERROR : 'var(--txt)' }}>
+            <span style={{ fontSize: 36, fontWeight: 800, letterSpacing: '-.02em', fontFamily: 'Inter, sans-serif', color: overBudget ? COLOR_ERROR : 'var(--txt)' }}>
               {usdFormatter.format(billing.estimatedCostUsd)}
             </span>
-            <span style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>
-              of {usdFormatter.format(billing.monthlyBudgetUsd)} budget · {Math.round(billing.usedPercent)}% used
+            <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
+              of {usdFormatter.format(billing.monthlyBudgetUsd)} budget · <b style={{ color: barColor }}>{Math.round(billing.usedPercent)}% used</b>
             </span>
           </div>
-          <div style={{ height: 8, borderRadius: 6, background: 'var(--raised2)', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: 6, transition: 'width .3s ease' }} />
+          <div style={{ height: 12, borderRadius: 8, background: 'var(--raised2)', overflow: 'hidden', boxShadow: 'inset 0 1px 2px rgba(0,0,0,.12)' }}>
+            <div style={{ height: '100%', width: `${pct}%`, minWidth: pct > 0 ? 10 : 0, background: `linear-gradient(90deg, color-mix(in srgb, ${barColor} 60%, #fff), ${barColor})`, borderRadius: 8, boxShadow: `0 0 10px color-mix(in srgb, ${barColor} 55%, transparent)`, transition: 'width .3s ease' }} />
           </div>
           {overBudget && (
             <div style={{ fontSize: 11.5, color: COLOR_ERROR, marginTop: 6 }}>
               Over the configured budget for this month.
             </div>
           )}
-          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 8 }}>
-            {formatNumber(billing.promptTokens)} prompt, {formatNumber(billing.completionTokens)} completion and {formatNumber(billing.embeddingTokens)} embedding tokens so far this month
+          <div className="nf-api-chips">
+            <span className="nf-api-chip"><i style={{ background: COLOR_PROMPT }} />{formatNumber(billing.promptTokens)} prompt</span>
+            <span className="nf-api-chip"><i style={{ background: COLOR_COMPLETION }} />{formatNumber(billing.completionTokens)} completion</span>
+            <span className="nf-api-chip"><i style={{ background: COLOR_SUCCESS }} />{formatNumber(billing.embeddingTokens)} embedding</span>
+            <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>tokens so far this month</span>
           </div>
         </>
       )}
@@ -345,13 +357,10 @@ function KnowledgeBaseCard({ token }: { token: string }) {
   }
 
   return (
-    <div style={{ ...card, padding: '16px 18px' }}>
+    <div style={{ ...card, padding: '18px 20px' }}>
       <style>{'@keyframes nf-spin { to { transform: rotate(360deg); } }'}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-        <div>
-          <div style={cardTitle}>Knowledge base</div>
-          <div style={cardSub}>What NORA answers from. Content changes only apply after a re-index.</div>
-        </div>
+        <CardHead icon={<Database size={18} />} title="Knowledge base" sub="What NORA answers from. Content changes only apply after a re-index." />
         <button
           onClick={runReindex}
           disabled={reindexing || loading}
@@ -370,24 +379,24 @@ function KnowledgeBaseCard({ token }: { token: string }) {
           <button onClick={load} style={{ color: 'var(--info)', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontSize: 12.5, padding: 0 }}>Retry</button>
         </div>
       ) : health && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '14px 20px', marginTop: 16 }}>
+        <div className="nf-api-kv" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '16px 20px', marginTop: 16 }}>
           <div>
             <div style={miniLabel}>Status</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: health.indexReady ? COLOR_SUCCESS : COLOR_ERROR, marginTop: 4 }}>
-              {health.indexReady ? 'Ready' : 'Not ready'}
+            <div style={{ marginTop: 6 }}>
+              <span className={`nf-api-status${health.indexReady ? '' : ' is-bad'}`}>{health.indexReady ? 'Ready' : 'Not ready'}</span>
             </div>
           </div>
           <div>
             <div style={miniLabel}>Indexed chunks</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 4 }}>{formatNumber(health.indexedChunks)}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginTop: 5 }}>{formatNumber(health.indexedChunks)}</div>
           </div>
           <div>
             <div style={miniLabel}>Last indexed</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 4 }}>{formatIndexedAt(health.lastIndexedAt)}</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginTop: 5 }}>{formatIndexedAt(health.lastIndexedAt)}</div>
           </div>
           <div>
             <div style={miniLabel}>Sources</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginTop: 4 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginTop: 5 }}>
               {health.knowledgeSources.length > 0 ? health.knowledgeSources.join(', ') : 'None'}
             </div>
           </div>
@@ -462,7 +471,7 @@ export default function ApiUsagePage() {
           href={MISTRAL_ADMIN_URL}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', textDecoration: 'none', flexShrink: 0 }}
+          className="nf-api-link" style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 10, fontSize: 12.5, fontWeight: 700, color: 'var(--txt)', textDecoration: 'none', flexShrink: 0 }}
         >
           Open Mistral Admin Console <ExternalLink size={13} />
         </a>
@@ -475,13 +484,13 @@ export default function ApiUsagePage() {
       </div>
 
       {/* Period selector */}
-      <ChipGroup
-        ariaLabel="Usage period"
-        style={{ marginBottom: 18 }}
-        value={String(days)}
-        onChange={k => setDays(Number(k))}
-        options={PERIOD_OPTIONS.map(opt => ({ key: String(opt.days), label: `Last ${opt.label}` }))}
-      />
+      <div role="group" aria-label="Usage period" className="nf-api-seg" style={{ marginBottom: 18 }}>
+        {PERIOD_OPTIONS.map(opt => (
+          <button key={opt.days} type="button" aria-pressed={days === opt.days} className={days === opt.days ? 'is-on' : ''} onClick={() => setDays(opt.days)}>
+            Last {opt.label}
+          </button>
+        ))}
+      </div>
 
       {loading ? (
         <div style={{ ...card, padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
@@ -502,36 +511,48 @@ export default function ApiUsagePage() {
 
           {/* Charts */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 12, marginBottom: 12 }} className="nf-grid-side-collapse">
-            <ChartCard title="Request volume" subtitle="Mistral API requests per day, including retries">
+            <ChartCard icon={<BarChart3 size={18} />} title="Request volume" subtitle="Mistral API requests per day, including retries">
               {requestsChartData.length === 0 ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No requests in this period.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={requestsChartData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+                    <defs>
+                      <linearGradient id="nfApiReq" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#E4373D" /><stop offset="100%" stopColor="#B11116" stopOpacity={0.85} /></linearGradient>
+                      <linearGradient id="nfApiPrompt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#6FA8E8" /><stop offset="100%" stopColor="#4C8DD6" /></linearGradient>
+                      <linearGradient id="nfApiCompletion" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#A5B0FA" /><stop offset="100%" stopColor="#818CF8" /></linearGradient>
+                      <linearGradient id="nfApiEmbed" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4FD39A" /><stop offset="100%" stopColor="#2FB67C" /></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="4 4" stroke="var(--line)" strokeOpacity={0.7} vertical={false} />
                     <XAxis dataKey="date" tick={axisTick} axisLine={false} tickLine={false} />
                     <YAxis allowDecimals={false} tick={axisTick} axisLine={false} tickLine={false} tickFormatter={formatCompact} width={42} />
                     <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(177,17,22,.08)' }} formatter={(value) => formatNumber(Number(value))} />
-                    <Bar dataKey="Requests" fill="var(--brand)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Requests" fill="url(#nfApiReq)" radius={[6, 6, 0, 0]} maxBarSize={34} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
             </ChartCard>
 
-            <ChartCard title="Token usage" subtitle="Prompt, completion and embedding tokens per day">
+            <ChartCard icon={<Layers size={18} />} title="Token usage" subtitle="Prompt, completion and embedding tokens per day">
               {tokensChartData.length === 0 ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No token usage in this period.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={tokensChartData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+                    <defs>
+                      <linearGradient id="nfApiReq" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#E4373D" /><stop offset="100%" stopColor="#B11116" stopOpacity={0.85} /></linearGradient>
+                      <linearGradient id="nfApiPrompt" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#6FA8E8" /><stop offset="100%" stopColor="#4C8DD6" /></linearGradient>
+                      <linearGradient id="nfApiCompletion" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#A5B0FA" /><stop offset="100%" stopColor="#818CF8" /></linearGradient>
+                      <linearGradient id="nfApiEmbed" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#4FD39A" /><stop offset="100%" stopColor="#2FB67C" /></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="4 4" stroke="var(--line)" strokeOpacity={0.7} vertical={false} />
                     <XAxis dataKey="date" tick={axisTick} axisLine={false} tickLine={false} />
                     <YAxis allowDecimals={false} tick={axisTick} axisLine={false} tickLine={false} tickFormatter={formatCompact} width={42} />
                     <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(177,17,22,.08)' }} formatter={(value) => formatNumber(Number(value))} />
                     <Legend verticalAlign="bottom" height={28} formatter={(value) => <span style={{ color: 'var(--txt-mut)', fontSize: 12 }}>{value}</span>} />
-                    <Bar dataKey="Prompt" stackId="tok" fill={COLOR_PROMPT} radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="Completion" stackId="tok" fill={COLOR_COMPLETION} radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="Embedding" stackId="tok" fill={COLOR_SUCCESS} radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Prompt" stackId="tok" fill="url(#nfApiPrompt)" radius={[0, 0, 0, 0]} maxBarSize={34} />
+                    <Bar dataKey="Completion" stackId="tok" fill="url(#nfApiCompletion)" radius={[0, 0, 0, 0]} maxBarSize={34} />
+                    <Bar dataKey="Embedding" stackId="tok" fill="url(#nfApiEmbed)" radius={[6, 6, 0, 0]} maxBarSize={34} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -539,14 +560,15 @@ export default function ApiUsagePage() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.4fr)', gap: 12, marginBottom: 20 }} className="nf-grid-side-collapse">
-            <ChartCard title="Answers by type" subtitle="What kind of question NORA is answering">
+            <ChartCard icon={<MessagesSquare size={18} />} title="Answers by type" subtitle="What kind of question NORA is answering">
               {responseTypeData.length === 0 ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No requests in this period.</div>
               ) : (
                 <ResponsiveContainer width="100%" height={220}>
                   <PieChart>
-                    <Pie data={responseTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="55%" outerRadius="85%" strokeWidth={0}>
+                    <Pie data={responseTypeData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="60%" outerRadius="88%" paddingAngle={3} cornerRadius={5} strokeWidth={0}>
                       {responseTypeData.map(d => <Cell key={d.key} fill={RESPONSE_TYPE_COLORS[d.key] ?? 'var(--txt-dim)'} />)}
+                      <Label value={formatNumber(responseTypeData.reduce((n, d) => n + d.value, 0))} position="center" style={{ fill: 'var(--txt)', fontSize: 24, fontWeight: 800 }} />
                     </Pie>
                     <Legend verticalAlign="bottom" height={28} formatter={(value) => <span style={{ color: 'var(--txt-mut)', fontSize: 12 }}>{value}</span>} />
                     <Tooltip contentStyle={tooltipStyle} />
@@ -557,7 +579,7 @@ export default function ApiUsagePage() {
 
             {/* Not a chart when there is nothing to show: an empty bar chart reads as broken, an
                 explicit all-clear message does not. */}
-            <ChartCard title="Failed requests by cause" subtitle="Where errors are coming from, if any">
+            <ChartCard icon={<AlertTriangle size={18} />} title="Failed requests by cause" subtitle="Where errors are coming from, if any">
               {(stats.byErrorCode.length === 0) ? (
                 <div style={{ padding: '30px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>
                   No failed requests in this period.
@@ -569,11 +591,11 @@ export default function ApiUsagePage() {
                     return (
                       <div key={b.key}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 5 }}>
-                          <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{humanizeCode(b.key)}</span>
-                          <span style={{ color: 'var(--txt-dim)' }}>{b.count}</span>
+                          <span style={{ color: 'var(--txt)', fontWeight: 700 }}>{humanizeCode(b.key)}</span>
+                          <span style={{ color: 'var(--risk)', fontWeight: 700 }}>{b.count}</span>
                         </div>
-                        <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: COLOR_ERROR, borderRadius: 4 }} />
+                        <div style={{ height: 9, borderRadius: 6, background: 'var(--raised2)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, #F0777B, #E4373D)', borderRadius: 6 }} />
                         </div>
                       </div>
                     );
@@ -583,8 +605,8 @@ export default function ApiUsagePage() {
             </ChartCard>
           </div>
 
-          <div style={{ ...card, padding: '14px 18px', display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 12, lineHeight: 1.5, color: 'var(--txt-dim)' }}>
-            <Zap size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ ...card, padding: '14px 18px', display: 'flex', alignItems: 'flex-start', gap: 12, fontSize: 12.5, lineHeight: 1.55, color: 'var(--txt-mut)' }}>
+            <span className="nf-api-ico" style={{ width: 30, height: 30, borderRadius: 9 }}><Zap size={14} /></span>
             <span>
               Counts come from OneHR's own request logs, including retries, not from Mistral's billing.
               They can run slightly under Mistral's own numbers because rebuilding the knowledge index
