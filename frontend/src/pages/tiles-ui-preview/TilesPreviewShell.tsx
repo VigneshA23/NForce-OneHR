@@ -38,7 +38,7 @@ import { AuditStatCards } from '../../components/audit/AuditStatCards';
 import { AuditCategoryChips } from '../../components/audit/AuditCategoryChips';
 import { AuditLogTable } from '../../components/audit/AuditLogTable';
 import type { AuditLogEntry } from '../../api/audit';
-import { KpiCard as ReportKpi } from '../ReportsPage';
+import { KpiCard as ReportKpi, Section as ReportSection, HeadcountRows } from '../ReportsPage';
 import { KpiCard as ApiKpi } from '../ApiUsagePage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
@@ -363,6 +363,17 @@ function Tiles({ page }: { page: string }) {
             <ReportKpi icon={<Clock size={20} />} label="Late / Absent" value="1 / 0" note="on the selected date" accent="var(--warn)" />
             <ReportKpi icon={<CalendarCheck size={20} />} label="Leave (period)" value={3} note="7d approved · 1 pending" accent="var(--om-purple)" />
           </div>
+          <div style={rowTitle}>Employees table</div>
+          <ReportSection title="Employees" count="6">
+            <HeadcountRows rows={[
+              ['u1', 'NF-20261004', 'Abuzar Siddiqui', 'Backend Developer', 'Finance', true],
+              ['u2', 'NF-20261096', 'Vandana', 'Senior QA Engineer', 'Engineering', true],
+              ['u3', 'NF-20261019', 'Venkat Narsimha Reddy', 'Software Developer', 'Sales', true],
+              ['u4', 'NF-20261011', 'Venkatesh', 'Finance Analyst', 'Finance', true],
+              ['u5', 'NF-20261009', 'Ramesh A', 'Engineering Manager', 'Quality Engineering', true],
+              ['u6', 'NF-20261131', 'lalith lalith-', null, null, false],
+            ].map(([userId, employeeCode, fullName, designationName, departmentName, active]) => ({ userId, employeeCode, fullName, designationName, departmentName, active } as never))} />
+          </ReportSection>
         </>
       );
     case 'api-usage':

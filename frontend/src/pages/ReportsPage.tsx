@@ -11,12 +11,13 @@ import { useAuthStore } from '../store/authStore';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import { attendanceApi, type AttendanceRecord } from '../api/attendance';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
+import { PersonAvatar } from '../components/PersonCell';
 
 // ── Shared styles (matches the rest of the app — plain style objects, no CSS framework) ──
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', background: 'var(--raised)' };
-const tdS: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const thS: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+const tdS: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 const inputStyle: React.CSSProperties = { padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)', fontSize: 12.5, fontFamily: 'inherit' };
 const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginRight: 6 };
 
@@ -274,7 +275,7 @@ function DetailsModal({ view, onClose, reports, attendance, attendanceDate, leav
           </button>
         </div>
         <div style={{ overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>{headers.map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.length === 0
@@ -498,31 +499,12 @@ export default function ReportsPage() {
 
           {/* Headcount table */}
           <Section title={isHr ? 'Employees' : 'Direct reports'} count={`${filteredReports.length}`}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['Name', 'Code', 'Department', 'Designation', 'Status'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
-              <tbody>
-                {filteredReports.length === 0 ? (
-                  <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 30 }}>No employees to show.</td></tr>
-                ) : filteredReports.map(r => (
-                  <tr key={r.userId}>
-                    <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
-                    <td style={{ ...tdS, fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</td>
-                    <td style={tdS}>{r.departmentName ?? '–'}</td>
-                    <td style={tdS}>{r.designationName ?? '–'}</td>
-                    <td style={tdS}>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, color: r.active ? '#2FB67C' : 'var(--txt-dim)', background: r.active ? 'rgba(47,182,124,.15)' : 'var(--raised2)' }}>
-                        {r.active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <HeadcountRows rows={filteredReports} />
           </Section>
 
           {/* Leave table */}
           <Section title="Approved leave in period" count={`${leaveSummary.approvedCount} · ${leaveSummary.pendingCount} pending`}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>{['Employee', 'Type', 'Dates', 'Days', 'Status'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
               <tbody>
                 {leaveRecords.length === 0 ? (
@@ -557,12 +539,40 @@ export default function ReportsPage() {
   );
 }
 
-function Section({ title, count, children }: { title: string; count?: string; children: React.ReactNode }) {
+export function HeadcountRows({ rows }: { rows: DirectReport[] }) {
   return (
-    <div style={{ ...card, marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '12px 18px', borderBottom: '1px solid var(--line)', background: 'var(--raised)' }}>
-        <h3 style={{ fontSize: 13, flex: 1, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>{title}</h3>
-        {count && <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{count}</span>}
+    <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <thead><tr>{['Name', 'Code', 'Department', 'Designation', 'Status'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
+      <tbody>
+        {rows.length === 0 ? (
+          <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 30, color: 'var(--txt-mut)' }}>No employees to show.</td></tr>
+        ) : rows.map(r => (
+          <tr key={r.userId}>
+            <td style={tdS}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <PersonAvatar userId={r.userId} name={r.fullName} size={34} />
+                <span style={{ fontWeight: 700, color: 'var(--txt)' }}>{r.fullName}</span>
+              </div>
+            </td>
+            <td style={tdS}><span className="nf-rep-code">{r.employeeCode}</span></td>
+            <td style={{ ...tdS, color: 'var(--txt-mut)' }}>{r.departmentName ?? '–'}</td>
+            <td style={{ ...tdS, color: 'var(--txt-mut)' }}>{r.designationName ?? '–'}</td>
+            <td style={tdS}>
+              <span className={`nf-rep-pill${r.active ? '' : ' is-off'}`}>{r.active ? 'Active' : 'Inactive'}</span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export function Section({ title, count, children }: { title: string; count?: string; children: React.ReactNode }) {
+  return (
+    <div style={{ ...card, marginBottom: 16, borderRadius: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(90deg, color-mix(in srgb, var(--brand) 9%, var(--panel)), var(--panel))' }}>
+        <h3 style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-.01em', flex: 1, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>{title}</h3>
+        {count && <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', padding: '3px 12px', borderRadius: 999, background: 'color-mix(in srgb, var(--brand) 11%, var(--panel))', border: '1px solid color-mix(in srgb, var(--brand) 28%, var(--line))' }}>{count}</span>}
       </div>
       <div style={{ overflowX: 'auto' }}>{children}</div>
     </div>
