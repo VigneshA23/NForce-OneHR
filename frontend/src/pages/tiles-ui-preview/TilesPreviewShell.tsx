@@ -44,6 +44,7 @@ import { useAuthStore } from '../../store/authStore';
 import { HRView } from '../AssetsExpensesPage';
 import BenchOpportunitiesPage from '../BenchOpportunitiesPage';
 import PoliciesPage from '../PoliciesPage';
+import DocumentsPage from '../DocumentsPage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -66,6 +67,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'assets-page', label: 'Assets (full page)', title: 'Assets & Expenses', subtitle: 'The HR view with sample data: pill tabs, filters, inventory table and inline row actions.' },
   { key: 'opps-page', label: 'Opportunities (full page)', title: 'Internal Opportunities', subtitle: 'HR view with sample data: post form with skill chips and opportunity cards.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
+  { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -354,6 +356,49 @@ function PoliciesMock() {
   return ready ? <PoliciesPage /> : null;
 }
 
+function DocumentsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample data and an Employee session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const req = (documentTypeId: number, documentTypeName: string, status: string | null, requiresVerification: boolean, expiringSoon = false) =>
+      ({ documentTypeId, documentTypeName, requiresVerification, requiresExpiryDate: false, uploaded: status != null, status, expiringSoon });
+    const doc = (id: string, documentTypeId: number, documentTypeName: string, status: string, expiryDate: string | null, rejectionReason: string | null) => ({
+      id, employeeUserId: 'me', employeeName: 'Me', documentTypeId, documentTypeName, requiresVerification: true, requiresExpiryDate: false, fileName: 'file.pdf', fileUrl: '',
+      issueDate: null, expiryDate, status, verifiedBy: null, verifiedAt: null, rejectionReason, uploadedAt: '2026-10-01T10:00:00', updatedAt: '2026-10-01T10:00:00', versionNumber: 1,
+    });
+    const pol = (id: number, title: string, version: string, required: boolean, acknowledged: boolean | null, description: string) => ({
+      id, title, version, description, audience: 'All', required, publishedAt: '2026-09-28T10:00:00', publishedBy: 'Admin', active: true,
+      acknowledged, acknowledgedAt: acknowledged ? '2026-10-02T10:00:00' : null, versionNumber: 1, previousVersionId: null, hasAttachment: false, attachmentFileName: null,
+    });
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/my/required')) {
+        return json([req(1, 'Employment Contract', 'PENDING_VERIFICATION', true), req(2, 'Identity Document', 'PENDING_VERIFICATION', true, true), req(3, 'Address Proof', 'VERIFIED', true), req(4, 'Bank Details', null, false), req(5, 'Degree Certificate', 'REJECTED', true)]);
+      }
+      if (url.endsWith('/api/documents/my')) {
+        return json([doc('d1', 1, 'Employment Contract', 'PENDING_VERIFICATION', null, null), doc('d2', 2, 'Identity Document', 'PENDING_VERIFICATION', '2028-05-31', null), doc('d3', 3, 'Address Proof', 'VERIFIED', null, null), doc('d5', 5, 'Degree Certificate', 'REJECTED', null, 'Image is blurry, please re-upload')]);
+      }
+      if (url.endsWith('/api/policies/my')) {
+        return json([pol(1, 'Code of Conduct', '2.0', true, false, 'How we work together and what we expect of each other.'), pol(2, 'Leave Policy', '1.0', true, true, 'Entitlements, approvals and carry-forward rules.'), pol(3, 'Travel Guidelines', '1.0', false, null, 'Booking, limits and reimbursement.')]);
+      }
+      if (url.endsWith('/api/announcements/published')) {
+        return json([{ id: 1, title: 'Office closed for Diwali', body: 'The office will be closed on 21 Oct for Diwali. Wishing everyone a safe and happy festival.', audience: 'All', scheduledFor: null, publishedAt: '2026-10-18T09:00:00', createdBy: 'HR', createdAt: '2026-10-17T09:00:00', published: true, active: true }]);
+      }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'employee@example.com', mustChangePassword: false, role: 'EMPLOYEE' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <DocumentsPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -561,6 +606,8 @@ function Tiles({ page }: { page: string }) {
       return <OppsMock />;
     case 'policies-page':
       return <PoliciesMock />;
+    case 'documents-page':
+      return <DocumentsMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:

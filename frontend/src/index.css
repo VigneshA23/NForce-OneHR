@@ -1821,3 +1821,16 @@ select, input, textarea, button { touch-action: manipulation; }
 .nf-dock:hover .nf-dock-trigger, .nf-dock.is-open .nf-dock-trigger { color: #fff; background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 68%, #000)); }
 .nf-dock-trigger svg { transition: transform .2s; }
 .nf-dock:hover .nf-dock-trigger svg, .nf-dock.is-open .nf-dock-trigger svg { transform: rotate(180deg); }
+
+/* My Documents & Policies: small tabs, primary row button, warning banner. */
+.nf-pilltabs.nf-tabs--sm { padding: 6px; }
+.nf-pilltabs.nf-tabs--sm .nf-tab { padding: 7px 14px; font-size: 12.5px; }
+.nf-act-btn--primary { color: #fff; border-color: var(--brand); background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 68%, #000)); box-shadow: 0 5px 12px color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-act-btn--primary:hover { color: #fff; background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 60%, #000)); filter: brightness(1.08); }
+.nf-act-btn--lg { padding: 9px 18px; font-size: 13px; border-radius: 10px; }
+.nf-act-btn:disabled { opacity: .6; cursor: default; transform: none; }
+.nf-rep-pill svg { flex-shrink: 0; }
+.nf-rep-pill.is-bad { color: var(--risk); background: color-mix(in srgb, var(--risk) 11%, var(--panel)); border-color: color-mix(in srgb, var(--risk) 30%, transparent); }
+.nf-doc-banner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 18px; border-radius: 14px; font-size: 13.5px; color: var(--txt); background: linear-gradient(90deg, color-mix(in srgb, var(--warn) 18%, var(--panel)), color-mix(in srgb, var(--warn) 6%, var(--panel))); border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent); }
+.nf-doc-banner strong { color: var(--warn); font-weight: 800; }
+.nf-doc-banner-ico { flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: linear-gradient(135deg, var(--warn), color-mix(in srgb, var(--warn) 65%, #000)); box-shadow: 0 6px 14px color-mix(in srgb, var(--warn) 30%, transparent); }
