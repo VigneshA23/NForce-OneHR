@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip, FileCheck2 } from 'lucide-react';
+import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip, FileCheck2, ClipboardCheck, CopyPlus, Pencil, Power, PowerOff, Send, Trash2 } from 'lucide-react';
 import DashTile from '../components/DashTile';
 import { KebabMenu } from '../components/KebabMenu';
+import { ActionDock } from '../components/ActionDock';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { TabBar } from '../components/TabBar';
@@ -16,9 +17,9 @@ import {
   type Policy, type PolicyAcknowledgment, type Announcement,
 } from '../api/policies';
 
-const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)' };
-const tdS: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' };
+const thS: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+const tdS: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 const inputS: React.CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box' };
 
 const AUDIENCE_OPTIONS = [
@@ -708,11 +709,11 @@ export default function PoliciesPage() {
         </PageTitleBlock>
         <div className="nf-policy-actions" style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => setShowAnnounce(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 10, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
             <Megaphone size={14} /> New Announcement
           </button>
           <button onClick={() => setShowPublish(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#A01418', border: 'none', borderRadius: 7, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 30%, transparent)', border: 'none', borderRadius: 10, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
             <Plus size={14} /> New Policy
           </button>
         </div>
@@ -722,6 +723,7 @@ export default function PoliciesPage() {
       <PolicyStatTiles activePolicies={activePolicies} pendingAck={pendingAckTotal} announcements={announcements.length} />
 
       <TabBar
+        className="nf-pilltabs"
         ariaLabel="Policies and announcements"
         style={{ marginBottom: 18 }}
         active={tab}
@@ -735,20 +737,17 @@ export default function PoliciesPage() {
       {/* ── Policies ── */}
       {tab === 'policies' && (
         <>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-              <input value={policySearch} onChange={e => setPolicySearch(e.target.value)} placeholder="Search policies…"
-                style={{ paddingLeft: 30, padding: '7px 12px 7px 30px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, width: 220, outline: 'none' }} />
-            </div>
-            <select value={policyFilter} onChange={e => setPolicyFilter(e.target.value as any)}
-              style={{ padding: '7px 12px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+          <div className="nf-filterbar">
+            <label className="nf-filter-search">
+              <Search size={15} />
+              <input value={policySearch} onChange={e => setPolicySearch(e.target.value)} placeholder="Search policies…" />
+            </label>
+            <select className="nf-filter-select" value={policyFilter} onChange={e => setPolicyFilter(e.target.value as any)}>
               <option value="all">All types</option>
               <option value="required">Required</option>
               <option value="optional">Optional</option>
             </select>
-            <select value={policyAudienceFilter} onChange={e => setPolicyAudienceFilter(e.target.value)}
-              style={{ padding: '7px 12px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+            <select className="nf-filter-select" value={policyAudienceFilter} onChange={e => setPolicyAudienceFilter(e.target.value)}>
               <option value="">All audiences</option>
               {AUDIENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
@@ -774,9 +773,9 @@ export default function PoliciesPage() {
                     </td></tr>
                   ) : filteredPolicies.map(p => (
                     <tr key={p.id}>
-                      <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>
+                      <td style={{ ...tdS, fontWeight: 700, color: 'var(--txt)' }}>
                         {p.title}
-                        {p.required && <span style={{ marginLeft: 8, fontSize: 10, background: 'rgba(239,68,68,.12)', color: '#ef4444', borderRadius: 3, padding: '1px 6px', fontWeight: 700 }}>Required</span>}
+                        {p.required && <span className="nf-req-tag">Required</span>}
                         {p.hasAttachment && (
                           <button onClick={() => openPolicyAttachment(token, p.id, showToast)} title={p.attachmentFileName ?? 'Attachment'}
                             style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'inline-flex', verticalAlign: 'middle' }}>
@@ -784,28 +783,25 @@ export default function PoliciesPage() {
                           </button>
                         )}
                       </td>
-                      <td style={tdS}>v{p.version}</td>
-                      <td style={tdS}><span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{audienceLabel(p.audience)}</span></td>
-                      <td style={tdS}>{new Date(p.publishedAt).toLocaleDateString()}</td>
+                      <td style={tdS}><span className="nf-rep-code">v{p.version}</span></td>
+                      <td style={tdS}><span className="nf-aud-chip">{audienceLabel(p.audience)}</span></td>
+                      <td style={{ ...tdS, color: 'var(--txt)', whiteSpace: 'nowrap' }}>{new Date(p.publishedAt).toLocaleDateString()}</td>
                       <td style={tdS}>
-                        {p.active
-                          ? <span style={{ color: '#22c55e', fontSize: 12, fontWeight: 600 }}>Active</span>
-                          : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Inactive</span>}
+                        <span className={`nf-rep-pill${p.active ? '' : ' is-off'}`}>{p.active ? 'Active' : 'Inactive'}</span>
                       </td>
                       <td style={tdS}>
                         {p.required && (
-                          <button onClick={() => setAckPolicy(p)}
-                            style={{ padding: '5px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 5, color: 'var(--txt)', cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}>
-                            View Acknowledgments
+                          <button type="button" className="nf-row-view" onClick={() => setAckPolicy(p)}>
+                            <ClipboardCheck size={14} />View Acknowledgments
                           </button>
                         )}
                       </td>
-                      <td style={{ ...tdS, width: 48 }}>
-                        <KebabMenu items={[
-                          { label: 'Edit', onClick: () => setEditPolicyTarget(p) },
-                          { label: 'Publish New Version', onClick: () => setPublishVersionTarget(p) },
-                          ...(p.active ? [{ label: 'Deactivate', onClick: () => doDeactivatePolicy(p.id) }] : [{ label: 'Reactivate', onClick: () => doReactivatePolicy(p.id) }]),
-                          { label: 'Delete', onClick: () => doDeletePolicy(p.id), danger: true },
+                      <td className="nf-dock-cell" style={tdS}>
+                        <ActionDock items={[
+                          { label: 'Edit', icon: Pencil, onClick: () => setEditPolicyTarget(p) },
+                          { label: 'Publish New Version', icon: CopyPlus, onClick: () => setPublishVersionTarget(p) },
+                          ...(p.active ? [{ label: 'Deactivate', icon: PowerOff, onClick: () => doDeactivatePolicy(p.id) }] : [{ label: 'Reactivate', icon: Power, onClick: () => doReactivatePolicy(p.id) }]),
+                          { label: 'Delete', icon: Trash2, onClick: () => doDeletePolicy(p.id), danger: true },
                         ]} />
                       </td>
                     </tr>
@@ -820,21 +816,18 @@ export default function PoliciesPage() {
       {/* ── Announcements ── */}
       {tab === 'announcements' && (
         <>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-              <input value={annSearch} onChange={e => setAnnSearch(e.target.value)} placeholder="Search announcements…"
-                style={{ paddingLeft: 30, padding: '7px 12px 7px 30px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, width: 220, outline: 'none' }} />
-            </div>
-            <select value={annStatusFilter} onChange={e => setAnnStatusFilter(e.target.value as any)}
-              style={{ padding: '7px 12px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+          <div className="nf-filterbar">
+            <label className="nf-filter-search">
+              <Search size={15} />
+              <input value={annSearch} onChange={e => setAnnSearch(e.target.value)} placeholder="Search announcements…" />
+            </label>
+            <select className="nf-filter-select" value={annStatusFilter} onChange={e => setAnnStatusFilter(e.target.value as any)}>
               <option value="all">All statuses</option>
               <option value="published">Published</option>
               <option value="draft">Draft</option>
             </select>
             {uniqueAudiences.length > 1 && (
-              <select value={annAudienceFilter} onChange={e => setAnnAudienceFilter(e.target.value)}
-                style={{ padding: '7px 12px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+              <select className="nf-filter-select" value={annAudienceFilter} onChange={e => setAnnAudienceFilter(e.target.value)}>
                 <option value="">All audiences</option>
                 {AUDIENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
@@ -863,24 +856,22 @@ export default function PoliciesPage() {
                       <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)', maxWidth: 220 }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</div>
                       </td>
-                      <td style={tdS}><span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{audienceLabel(a.audience)}</span></td>
-                      <td style={tdS}>{new Date(a.createdAt).toLocaleDateString()}</td>
+                      <td style={tdS}><span className="nf-aud-chip">{audienceLabel(a.audience)}</span></td>
+                      <td style={{ ...tdS, color: 'var(--txt)', whiteSpace: 'nowrap' }}>{new Date(a.createdAt).toLocaleDateString()}</td>
                       <td style={tdS}>
                         {a.publishedAt
-                          ? <span style={{ color: '#22c55e', fontSize: 12, fontWeight: 600 }}>{new Date(a.publishedAt).toLocaleDateString()}</span>
-                          : <span style={{ color: '#eab308', fontSize: 12, fontWeight: 600 }}>Draft</span>}
+                          ? <span className="nf-rep-pill">{new Date(a.publishedAt).toLocaleDateString()}</span>
+                          : <span className="nf-rep-pill is-warn">Draft</span>}
                       </td>
                       <td style={tdS}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: a.active ? '#22c55e' : 'var(--txt-dim)' }}>
-                          {a.active ? 'Visible' : 'Hidden'}
-                        </span>
+                        <span className={`nf-rep-pill${a.active ? '' : ' is-off'}`}>{a.active ? 'Visible' : 'Hidden'}</span>
                       </td>
-                      <td style={{ ...tdS, width: 48 }}>
-                        <KebabMenu items={[
-                          ...(!a.published ? [{ label: publishingAnn === a.id ? 'Publishing…' : 'Publish Now', onClick: () => doPublishAnn(a.id) }] : []),
-                          { label: 'Edit', onClick: () => setEditAnnouncement(a) },
-                          ...(a.active ? [{ label: 'Deactivate', onClick: () => doDeactivateAnn(a.id) }] : [{ label: 'Reactivate', onClick: () => doReactivateAnn(a.id) }]),
-                          { label: 'Delete', onClick: () => doDeleteAnn(a.id), danger: true },
+                      <td className="nf-dock-cell" style={tdS}>
+                        <ActionDock items={[
+                          ...(!a.published ? [{ label: publishingAnn === a.id ? 'Publishing…' : 'Publish Now', icon: Send, onClick: () => doPublishAnn(a.id) }] : []),
+                          { label: 'Edit', icon: Pencil, onClick: () => setEditAnnouncement(a) },
+                          ...(a.active ? [{ label: 'Deactivate', icon: PowerOff, onClick: () => doDeactivateAnn(a.id) }] : [{ label: 'Reactivate', icon: Power, onClick: () => doReactivateAnn(a.id) }]),
+                          { label: 'Delete', icon: Trash2, onClick: () => doDeleteAnn(a.id), danger: true },
                         ]} />
                       </td>
                     </tr>

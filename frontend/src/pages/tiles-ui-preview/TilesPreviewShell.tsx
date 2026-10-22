@@ -43,6 +43,7 @@ import ApiUsagePage, { KpiCard as ApiKpi } from '../ApiUsagePage';
 import { useAuthStore } from '../../store/authStore';
 import { HRView } from '../AssetsExpensesPage';
 import BenchOpportunitiesPage from '../BenchOpportunitiesPage';
+import PoliciesPage from '../PoliciesPage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -64,6 +65,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'api-page', label: 'API Usage (full page)', title: 'API Usage', subtitle: 'The whole page with sample data: billing, knowledge base, period switch and charts.' },
   { key: 'assets-page', label: 'Assets (full page)', title: 'Assets & Expenses', subtitle: 'The HR view with sample data: pill tabs, filters, inventory table and inline row actions.' },
   { key: 'opps-page', label: 'Opportunities (full page)', title: 'Internal Opportunities', subtitle: 'HR view with sample data: post form with skill chips and opportunity cards.' },
+  { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -311,6 +313,47 @@ function OppsMock() {
   return ready ? <BenchOpportunitiesPage /> : null;
 }
 
+function PoliciesMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample data and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const pol = (id: number, title: string, version: string, required: boolean, active: boolean, publishedAt: string, hasAttachment = false) => ({
+      id, title, version, description: '', audience: 'EMPLOYEE,MANAGER,HR_ADMIN,SUPER_ADMIN', required, publishedAt, publishedBy: 'Admin', active,
+      acknowledged: null, acknowledgedAt: null, versionNumber: 1, previousVersionId: null, hasAttachment, attachmentFileName: hasAttachment ? 'policy.pdf' : null,
+    });
+    const ann = (id: number, title: string, publishedAt: string | null, active: boolean) => ({
+      id, title, body: '', audience: 'EMPLOYEE,MANAGER,HR_ADMIN,SUPER_ADMIN', scheduledFor: null, publishedAt, createdBy: 'Admin', createdAt: '2026-09-20T10:00:00', published: !!publishedAt, active,
+    });
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/policies/pending-ack-count')) return json(547);
+      if (url.endsWith('/api/policies')) {
+        return json([
+          pol(1, 'Test_PolicyVeeraa', '1.0', true, true, '2026-10-22T10:00:00'),
+          pol(2, 'testetest-test', '1.0', true, true, '2026-09-29T10:00:00'),
+          pol(3, 'Test_PolicyVeera', '1.0', false, true, '2026-09-28T10:00:00'),
+          pol(4, 'Veera_NewPolicy for Test', '2.0', true, true, '2026-09-28T10:00:00', true),
+          pol(5, 'Veera_NewPolicy for Test2', '1.0', true, false, '2026-09-28T10:00:00', true),
+        ]);
+      }
+      if (url.endsWith('/api/announcements')) {
+        return json([ann(1, 'Office closed for Diwali', '2026-10-18T09:00:00', true), ann(2, 'Q4 town hall', null, true), ann(3, 'Holiday calendar update', '2026-09-10T09:00:00', false)]);
+      }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <PoliciesPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -516,6 +559,8 @@ function Tiles({ page }: { page: string }) {
       return <AssetsMock />;
     case 'opps-page':
       return <OppsMock />;
+    case 'policies-page':
+      return <PoliciesMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:
