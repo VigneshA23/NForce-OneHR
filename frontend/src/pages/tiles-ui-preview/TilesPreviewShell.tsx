@@ -46,6 +46,7 @@ import BenchOpportunitiesPage from '../BenchOpportunitiesPage';
 import PoliciesPage from '../PoliciesPage';
 import DocumentsPage from '../DocumentsPage';
 import HelpDeskPage from '../HelpDeskPage';
+import WorkflowStudioPage from '../WorkflowStudioPage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -70,6 +71,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
+  { key: 'workflows-page', label: 'Workflow Studio (full page)', title: 'Workflow Studio', subtitle: 'Sample rules: themed table, stage flow pills, condition chips and the action dock.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -438,6 +440,41 @@ function HelpMock() {
   return ready ? <HelpDeskPage /> : null;
 }
 
+function WorkflowMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample rules and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const rule = (id: string, ruleName: string, conditionField: string, operator: string, conditionValue: string, approvalStages: string[], active: boolean, updatedByName: string) =>
+      ({ id, ruleName, requestType: 'EXPENSE', conditionField, operator, conditionValue, approvalStages, active, createdByName: updatedByName, createdAt: '', updatedByName, updatedAt: '' });
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/metadata')) return json({ requestTypes: ['EXPENSE', 'LEAVE'], conditionFieldsByRequestType: { EXPENSE: ['AMOUNT'], LEAVE: ['DAYS'] }, operators: ['>', '>=', '<', '<=', '='], approverRoles: ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'] });
+      if (url.includes('approval-rules')) {
+        return json([
+          rule('1', 'Expense claims over 20k', 'AMOUNT', '>', '20000', ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'], false, 'MOHAN K'),
+          rule('2', 'expense above 1000', 'AMOUNT', '>=', '1000', ['MANAGER'], false, 'Naveen Kumar R'),
+          rule('3', 'expense above 2000', 'AMOUNT', '>=', '2000', ['MANAGER', 'HR_ADMIN'], true, 'MOHAN K'),
+          rule('4', 'expense claims over 10k', 'AMOUNT', '>=', '10000', ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'], false, 'Naveen Kumar R'),
+        ]);
+      }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({
+      token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' },
+      permissions: { primaryRole: 'SUPER_ADMIN', roles: ['SUPER_ADMIN'], permissions: { approval_rules: { VIEW: ['ALL'], CREATE: ['ALL'], UPDATE: ['ALL'], DELETE: ['ALL'] } } } as never,
+    });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions });
+    };
+  }, []);
+  return ready ? <WorkflowStudioPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -649,6 +686,8 @@ function Tiles({ page }: { page: string }) {
       return <DocumentsMock />;
     case 'help-page':
       return <HelpMock />;
+    case 'workflows-page':
+      return <WorkflowMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:
