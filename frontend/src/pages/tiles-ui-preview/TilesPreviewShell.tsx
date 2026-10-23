@@ -47,6 +47,7 @@ import PoliciesPage from '../PoliciesPage';
 import DocumentsPage from '../DocumentsPage';
 import HelpDeskPage from '../HelpDeskPage';
 import WorkflowStudioPage from '../WorkflowStudioPage';
+import TalentPerformancePage from '../talent/TalentPerformancePage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -72,6 +73,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
   { key: 'workflows-page', label: 'Workflow Studio (full page)', title: 'Workflow Studio', subtitle: 'Sample rules: themed table, stage flow pills, condition chips and the action dock.' },
+  { key: 'talent-page', label: 'Performance tabs (full page)', title: 'Performance', subtitle: 'Sample data. Add &tab=search, &tab=directory or &tab=settings to the URL to open that tab.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -475,6 +477,53 @@ function WorkflowMock() {
   return ready ? <WorkflowStudioPage /> : null;
 }
 
+function TalentMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample data and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const skillNames: Array<[string, string]> = [['Java', 'Backend'], ['React', 'Frontend'], ['SQL', 'Data'], ['Python', 'Backend'], ['AWS', 'Cloud']];
+    const skillOptions = skillNames.map(([name, category], i) => ({ id: `s${i}`, name, category, aliases: i === 1 ? ['ReactJS'] : [] }));
+    const levels = ['Beginner', 'Intermediate', 'Advanced', 'Expert'].map((name, i) => ({ id: `l${i}`, name, sortOrder: i + 1, description: null }));
+    const cert = (id: string, name: string) => ({ id, name, categoryId: null, categoryName: 'Cloud', issuingOrganization: 'AWS', credentialId: null, credentialUrl: null, issueDate: null, expiryDate: null });
+    const people: Array<[string, string, string, string, Array<[string, string]>, number]> = [
+      ['u1', 'Abuzar Siddiqui', 'NF-20261004', 'Finance', [['Java', 'Expert'], ['SQL', 'Advanced'], ['AWS', 'Intermediate']], 2],
+      ['u2', 'Vandana', 'NF-20261096', 'Engineering', [['React', 'Advanced'], ['Java', 'Intermediate']], 1],
+      ['u3', 'Venkat Narsimha Reddy', 'NF-20261019', 'Sales', [['Python', 'Beginner']], 0],
+      ['u4', 'Ramesh A', 'NF-20261009', 'Quality Engineering', [], 0],
+    ];
+    const summaries = people.map(([id, employeeName, employeeCode, departmentName, sk, certs]) => ({
+      employeeUserId: id, employeeName, employeeCode, departmentName, locationName: 'Hyderabad', designationName: null, managerName: 'Narendra Reddy',
+      skills: sk.map(([skillName, proficiencyLevel], i) => ({ id: `${id}-${i}`, skillId: null, skillName, proficiencyLevel })),
+      certificates: Array.from({ length: certs }, (_, i) => cert(`${id}-c${i}`, 'AWS Cloud Practitioner')), learningEntries: [],
+    }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/skills/active')) return json(skillOptions);
+      if (url.endsWith('/proficiency-levels/active')) return json(levels);
+      if (url.endsWith('/search/saved')) return json([{ id: 'sv1', name: 'Java experts', query: {}, createdAt: '' }, { id: 'sv2', name: 'React + SQL', query: {}, createdAt: '' }]);
+      if (url.endsWith('/org/talent/search')) {
+        return json({ items: summaries.filter(x => x.skills.length > 0).map(x => ({ employeeUserId: x.employeeUserId, employeeName: x.employeeName, employeeCode: x.employeeCode, departmentName: x.departmentName, managerName: x.managerName, matchingSkills: x.skills.map(k => ({ skillName: k.skillName, proficiencyLevel: k.proficiencyLevel })), certificates: x.certificates, currentLearningTrack: null, matchScore: 90 })), page: 0, size: 20, totalElements: 3, totalPages: 1 });
+      }
+      if (url.endsWith('/org/talent/directory')) return json(summaries);
+      if (url.endsWith('/org/talent/skills')) return json(skillOptions.map((x, i) => ({ ...x, active: i !== 4, usageCount: 12 - i * 2 })));
+      if (url.endsWith('/org/talent/proficiency-levels')) return json(levels.map((l, i) => ({ ...l, active: true, usageCount: 20 - i * 4 })));
+      if (url.endsWith('/org/talent/certificate-categories')) return json([{ id: 'c1', name: 'Cloud', hasExpiry: true, active: true, usageCount: 6 }, { id: 'c2', name: 'Security', hasExpiry: false, active: true, usageCount: 2 }]);
+      if (url.endsWith('/skill-requests/pending')) return json([{ id: 'r1', requestedByUserId: 'u2', requesterName: 'Vandana', name: 'Kubernetes', category: 'Cloud', note: 'Used on the payroll project', status: 'PENDING', mappedToSkillId: null, mappedSkillName: null, createdAt: '' }]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <TalentPerformancePage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -688,6 +737,8 @@ function Tiles({ page }: { page: string }) {
       return <HelpMock />;
     case 'workflows-page':
       return <WorkflowMock />;
+    case 'talent-page':
+      return <TalentMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:

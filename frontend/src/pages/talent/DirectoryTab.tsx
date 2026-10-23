@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Search, Download, Award } from 'lucide-react';
+import { PersonAvatar } from '../../components/PersonCell';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { talentDirectoryApi, type TalentEmployeeSummary } from '../../api/talentOrg';
@@ -45,13 +46,11 @@ export function DirectoryTab() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ maxWidth: 280, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
-            <Search size={13} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or code…"
-              style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
-          </div>
-          <select value={departmentFilter} onChange={e => setDepartmentFilter(e.target.value)}
-            style={{ background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', fontSize: 12.5, color: 'var(--txt)' }}>
+          <label className="nf-filter-search">
+            <Search size={15} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or code…" />
+          </label>
+          <select className="nf-filter-select" value={departmentFilter} onChange={e => setDepartmentFilter(e.target.value)}>
             <option value="">All Departments</option>
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
@@ -61,28 +60,25 @@ export function DirectoryTab() {
           try { await talentDirectoryApi.export(token); }
           catch (e) { showToast('error', e instanceof Error ? e.message : 'Export failed'); }
           finally { setExporting(false); }
-        }} disabled={exporting} style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'var(--raised)', border: '1px solid var(--line2)',
-          borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', cursor: exporting ? 'default' : 'pointer', opacity: exporting ? 0.6 : 1,
-        }}>
-          <Download size={13} /> {exporting ? 'Exporting…' : 'Export CSV'}
+        }} disabled={exporting} className="nf-act-btn nf-act-btn--lg">
+          <Download size={14} /> {exporting ? 'Exporting…' : 'Export CSV'}
         </button>
       </div>
 
-      <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{filtered.length} of {rows.length} employees</div>
+      <div><span className="nf-audit-count"><b>{filtered.length}</b> of {rows.length} employees</span></div>
 
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' }}>
         {filtered.length === 0 ? (
           <div style={{ padding: 20, color: 'var(--txt-dim)', fontSize: 13 }}>No employees match.</div>
         ) : (
           filtered.map((r, i) => (
-            <button key={r.employeeUserId} onClick={() => openDetail(r.employeeUserId)} style={{
-              display: 'flex', alignItems: 'center', gap: 14, width: '100%', textAlign: 'left',
-              padding: '12px 18px', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit',
+            <button key={r.employeeUserId} onClick={() => openDetail(r.employeeUserId)} className="nf-dir-row" style={{
+              width: '100%', textAlign: 'left', border: 'none', font: 'inherit',
               borderTop: i === 0 ? 'none' : '1px solid var(--line)',
             }}>
-              <div style={{ flex: '0 0 200px', minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.employeeName}</div>
+              <PersonAvatar userId={r.employeeUserId} name={r.employeeName} size={40} />
+              <div style={{ flex: '0 0 220px', minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.employeeName}</div>
                 <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeCode} · {r.departmentName ?? '–'}</div>
               </div>
               <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 5, minWidth: 0 }}>
@@ -93,7 +89,7 @@ export function DirectoryTab() {
                 {r.skills.length === 0 && <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', fontStyle: 'italic' }}>No skills logged</span>}
               </div>
               <div style={{ flex: '0 0 100px', fontSize: 11.5, color: 'var(--txt-mut)', textAlign: 'right' }}>
-                {r.certificates.length > 0 && <div><Award size={11} style={{ verticalAlign: -1 }} /> {r.certificates.length}</div>}
+                {r.certificates.length > 0 && <div className="nf-cert-badge"><Award size={12} /> {r.certificates.length}</div>}
               </div>
             </button>
           ))
