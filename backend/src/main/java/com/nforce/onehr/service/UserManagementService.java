@@ -150,6 +150,14 @@ public class UserManagementService {
                     || req.getEffectiveFrom().isBefore(LocalDate.now(ZoneId.of(attendanceProperties.getZone())))) {
                 throw new IllegalArgumentException("Effective From is required and cannot be in the past");
             }
+            // D2: scheduling starts on the LATER of employment start date and the Shift's own
+            // effective date — an effectiveFrom earlier than the employee's own joiningDate would
+            // otherwise let EmployeeShiftAssignmentResolver treat this Shift as already governing
+            // dates before employment even began.
+            if (emp.getJoiningDate() != null && req.getEffectiveFrom().isBefore(emp.getJoiningDate())) {
+                throw new IllegalArgumentException(
+                        "Effective From cannot be before this employee's joining date (" + emp.getJoiningDate() + ")");
+            }
             // Employee.shift is only a display/roster cache (see its own Javadoc) — set here for
             // that purpose only; it is never what makes this Shift effective for attendance. The
             // EmployeeShiftAssignment row below is the sole authoritative source
@@ -344,13 +352,70 @@ public class UserManagementService {
             }
         }
         if (req.getShiftId() != null) {
-            // TEMPORARY (ONEHR-336 follow-up): see the identical Location guard above — same
-            // reasoning, applied to Shift reassignment. Employee CREATION (createUser above) is
-            // unaffected.
-            UUID currentShiftId = emp.getShift() != null ? emp.getShift().getId() : null;
+            // Resolved against the AUTHORITATIVE current assignment (never Employee.shift, a
+            // best-effort display cache — see its own Javadoc), so a no-op resubmission of the
+            // employee's own already-effective shift is correctly treated as "no change," exactly
+            // like every other field here.
+            LocalDate shiftToday = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+            UUID currentShiftId = employeeShiftAssignmentResolver.resolveIfPresent(userId, shiftToday)
+                    .map(a -> a.getShift().getId())
+                    .orElse(null);
             if (!Objects.equals(currentShiftId, req.getShiftId())) {
-                throw new IllegalArgumentException(
-                        "Shift changes are currently unavailable when updating an employee. Contact an administrator.");
+                Shift newShift = shiftRepository.findById(req.getShiftId())
+                        .orElseThrow(() -> new IllegalArgumentException("Shift not found"));
+                if (!newShift.isActive()) {
+                    throw new IllegalArgumentException("This shift is inactive and cannot be assigned. Choose an active shift.");
+                }
+                // The admin's own explicit Effective From choice is the ONLY source of this date —
+                // required whenever the shift actually changes, never silently defaulted to an
+                // "immediately active" assignment. Today and any future date are valid, a past
+                // date is rejected — mirrors createUser/EmployeeAssignmentService#bulkUpdateShift's
+                // identical rule.
+                if (req.getShiftEffectiveFrom() == null || req.getShiftEffectiveFrom().isBefore(shiftToday)) {
+                    throw new IllegalArgumentException("Effective From is required and cannot be in the past");
+                }
+                // D2: scheduling starts on the LATER of employment start date and the Shift's own
+                // effective date — mirrors createUser/EmployeeAssignmentService#bulkUpdateShift's
+                // identical check.
+                if (emp.getJoiningDate() != null && req.getShiftEffectiveFrom().isBefore(emp.getJoiningDate())) {
+                    throw new IllegalArgumentException("Effective From cannot be before this employee's joining date ("
+                            + emp.getJoiningDate() + ")");
+                }
+                // Same pending/current-replacement semantics as
+                // EmployeeAssignmentService#assignShift: at most one PENDING (not-yet-effective)
+                // assignment ever exists for an employee, replaced (never stacked) regardless of
+                // whether it is earlier or later than the new one; re-choosing the
+                // currently-effective assignment's own exact effectiveFrom again replaces it in
+                // place too, rather than leaving two rows tied on the same date (an ambiguous tie
+                // in EmployeeShiftAssignmentResolver's own resolution order). An assignment already
+                // governing an earlier date is never touched — it keeps governing every date up to
+                // the new one, and no already-effective (let alone historical) Attendance is ever
+                // affected by this call: Attendance.shiftId is snapshotted once at check-in time
+                // (see AttendanceInterpretationService), never re-derived from the employee's
+                // current assignment, so this write cannot retroactively disturb an already-open
+                // or already-closed attendance session.
+                EmployeeShiftAssignment pendingAssignment = employeeShiftAssignmentRepository
+                        .findFirstByEmployeeUserIdAndEffectiveFromGreaterThanOrderByEffectiveFromAsc(userId, shiftToday)
+                        .orElse(null);
+                EmployeeShiftAssignment currentAssignment = employeeShiftAssignmentResolver
+                        .resolveIfPresent(userId, shiftToday).orElse(null);
+                if (pendingAssignment != null) {
+                    employeeShiftAssignmentRepository.delete(pendingAssignment);
+                }
+                if (currentAssignment != null && currentAssignment.getEffectiveFrom().equals(req.getShiftEffectiveFrom())) {
+                    employeeShiftAssignmentRepository.delete(currentAssignment);
+                }
+                employeeShiftAssignmentRepository.save(EmployeeShiftAssignment.builder()
+                        .employeeUserId(userId)
+                        .shift(newShift)
+                        .effectiveFrom(req.getShiftEffectiveFrom())
+                        .createdBy(actor.getId())
+                        .build());
+                // Employee.shift is only a display/roster cache (see its own Javadoc) — set here
+                // for that purpose only; the EmployeeShiftAssignment row above is the sole
+                // authoritative source EmployeeShiftAssignmentResolver reads.
+                emp.setShift(newShift);
+                forceLogoutRequired = true;
             }
         }
 

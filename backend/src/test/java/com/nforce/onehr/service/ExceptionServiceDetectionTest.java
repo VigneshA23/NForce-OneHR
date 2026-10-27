@@ -61,6 +61,8 @@ class ExceptionServiceDetectionTest {
     @Mock private AttendancePenaltyService attendancePenaltyService;
     @Mock private ShiftRepository shiftRepository;
     @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    @Mock private EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
+    @Mock private WeeklyOffPolicyVersionResolver weeklyOffPolicyVersionResolver;
 
     private ExceptionService exceptionService;
     // Tracks whatever Shift employee() most recently built — this file has only one test employee,
@@ -119,7 +121,8 @@ class ExceptionServiceDetectionTest {
         AttendancePenaltyEvaluationService penaltyEvaluationService =
                 new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService,
                         notificationService, employeeService, employeeRepository, emailService, auditService, snapshotSerializer);
-        WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository);
+        WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository,
+                employeeWeeklyOffPolicyAssignmentResolver, weeklyOffPolicyVersionResolver);
         PenalizationPolicyService penalizationPolicyService = new PenalizationPolicyService(versionRepository, tierRepository,
                 lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer,
                 attendanceProperties, employeeRepository, notificationService);
@@ -496,6 +499,7 @@ class ExceptionServiceDetectionTest {
 
         WeeklyOffPolicy fridaySaturdayOff = WeeklyOffPolicy.builder().id(UUID.randomUUID())
                 .name("Fri-Sat Off").offDays("FRIDAY,SATURDAY").build();
+        stubWeeklyOffPolicy(fridaySaturdayOff, friday.minusYears(1));
         Employee employeeWithCustomWeekOff = Employee.builder().userId(employeeId)
                 .user(User.builder().id(employeeId).email("employee@test.com").build())
                 .employeeCode("NF-1").fullName("Test Employee")
@@ -539,9 +543,29 @@ class ExceptionServiceDetectionTest {
         return d;
     }
 
+    /**
+     * Stubs {@code employeeWeeklyOffPolicyAssignmentResolver}/{@code weeklyOffPolicyVersionResolver}
+     * (Phase 3) so WorkingDayService's batch resolution agrees with {@code policy} — every fixture
+     * below that sets a custom WeeklyOffPolicy on the Employee object must call this too, since
+     * Employee.weeklyOffPolicy is now a non-authoritative display cache only (see its own Javadoc)
+     * and no longer drives any actual calculation on its own.
+     */
+    private void stubWeeklyOffPolicy(WeeklyOffPolicy policy, LocalDate effectiveFrom) {
+        com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment assignment =
+                com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment.builder()
+                        .employeeUserId(employeeId).weeklyOffPolicy(policy).effectiveFrom(effectiveFrom).build();
+        lenient().when(employeeWeeklyOffPolicyAssignmentResolver.resolveHistoryBatch(any()))
+                .thenReturn(java.util.Map.of(employeeId, List.of(assignment)));
+        com.nforce.onehr.entity.WeeklyOffPolicyVersion version = com.nforce.onehr.entity.WeeklyOffPolicyVersion.builder()
+                .weeklyOffPolicy(policy).offDays(policy.getOffDays()).effectiveFrom(effectiveFrom).build();
+        lenient().when(weeklyOffPolicyVersionResolver.resolveHistoryBatch(any()))
+                .thenReturn(java.util.Map.of(policy.getId(), List.of(version)));
+    }
+
     private Employee employeeWithFridayOff(LocalDate friday) {
         WeeklyOffPolicy fridayOff = WeeklyOffPolicy.builder().id(UUID.randomUUID())
                 .name("Friday Off").offDays("FRIDAY").build();
+        stubWeeklyOffPolicy(fridayOff, friday.minusYears(1));
         return Employee.builder().userId(employeeId)
                 .user(User.builder().id(employeeId).email("employee@test.com").build())
                 .employeeCode("NF-1").fullName("Test Employee")

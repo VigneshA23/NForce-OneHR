@@ -157,6 +157,15 @@ public class WebClockInService {
                 employee, new AttendanceContext(actor.getId(), now, zone));
         LocalDate today = interpretation.getWorkDate();
 
+        // D2: no attendance may be recorded before the employee's own employment start date —
+        // mirrors AttendanceService#checkIn's identical guard (itself mirroring
+        // RegularizationService#assertNotBeforeJoiningDate), closing the same gap for this
+        // self-service remote check-in entry point.
+        if (employee.getJoiningDate() != null && today.isBefore(employee.getJoiningDate())) {
+            throw new IllegalArgumentException(
+                    "You cannot check in before your joining date (" + employee.getJoiningDate() + ").");
+        }
+
         // Whether this is the employee's FIRST Web Clock-In cycle of the resolved work day —
         // keyed on employee + workDate (the shift's own resolved workday, same key
         // findOpenByEmployeeUserId/collectPunches already use for "same shift"), not on the
