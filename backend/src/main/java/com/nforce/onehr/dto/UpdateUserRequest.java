@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 // Super Admin scope — all fields editable including manager (triggers history) and role.
@@ -26,6 +27,13 @@ public class UpdateUserRequest {
     private UUID designationId;
     private UUID locationId;
     private UUID shiftId;
+    // Required whenever shiftId represents an actual CHANGE from the employee's currently
+    // (authoritatively) effective shift — see UserManagementService#updateUser, which resolves
+    // "current" via EmployeeShiftAssignmentResolver, never the Employee.shift display cache.
+    // Mirrors CreateUserRequest/EmployeeAssignmentService#bulkUpdateShift's identical field: the
+    // admin's own explicit choice, today or any future date, never derived from joiningDate or
+    // "next working day."
+    private LocalDate shiftEffectiveFrom;
     private String employmentType;
     private String workMode;
     private UUID managerId;

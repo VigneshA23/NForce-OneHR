@@ -5,10 +5,11 @@ import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
+import com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment;
 import com.nforce.onehr.entity.Holiday;
 import com.nforce.onehr.entity.Location;
-import com.nforce.onehr.entity.EmployeeShiftAssignment;
-import com.nforce.onehr.entity.Shift;
+import com.nforce.onehr.entity.WeeklyOffPolicy;
+import com.nforce.onehr.entity.WeeklyOffPolicyVersion;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveDurationType;
 import com.nforce.onehr.entity.LeaveHalfDaySession;
@@ -39,6 +40,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -75,8 +77,13 @@ class LeaveServiceTest {
     @Mock private NotificationService notificationService;
     @Mock private AttendanceProperties attendanceProperties;
     @Mock private ExceptionService exceptionService;
-    // Unstubbed by default → Optional.empty() (no shift) → every date counts, the pre-shift rule.
-    @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    // Phase 4: weekly-off (not Shift.workingDays) is the sole source of truth here. workingDayService
+    // is wired in setUp() to delegate to a real WorkingDayService backed by these two resolvers, so
+    // leaving them unstubbed (no assignment history) falls back to Saturday/Sunday off, exactly
+    // mirroring WorkingDayService's own no-assignment behavior — never "every date counts".
+    @Mock private EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
+    @Mock private WeeklyOffPolicyVersionResolver weeklyOffPolicyVersionResolver;
+    @Mock private WorkingDayService workingDayService;
     @Mock private HolidayRepository holidayRepository;
 
     @InjectMocks private LeaveService leaveService;
@@ -141,6 +148,14 @@ class LeaveServiceTest {
         // "Asia/Kolkata") so LeaveService's zone-aware "today" always matches this test's own
         // LocalDate.now() calls, regardless of which machine/CI runner executes the suite.
         lenient().when(attendanceProperties.getZone()).thenReturn(ZoneId.systemDefault().getId());
+        // workingDayService.weeklyOffDaysResolver delegates to a real WorkingDayService backed by
+        // this test's own mocked resolvers (same pattern as ExceptionServiceDetectionTest's
+        // stubWeeklyOffPolicy) — thenAnswer rather than a one-time thenReturn so each call picks up
+        // whatever resolver stubs an individual test has set by the time it submits/updates a request.
+        WorkingDayService delegate = new WorkingDayService(holidayRepository, leaveRequestRepository,
+                employeeWeeklyOffPolicyAssignmentResolver, weeklyOffPolicyVersionResolver);
+        lenient().when(workingDayService.weeklyOffDaysResolver(any()))
+                .thenAnswer(inv -> delegate.weeklyOffDaysResolver(inv.getArgument(0)));
     }
 
     /** Stubs the PENDING-days-reserved sum for the fixture's employee/year (any group of type IDs). */
@@ -187,7 +202,11 @@ class LeaveServiceTest {
             return r;
         });
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         LeaveRequestResponse resp = leaveService.submitRequest(request(start, start.plusDays(2), false, "Vacation"), employeeEmail);
 
         assertEquals("PENDING", resp.getStatus());
@@ -196,10 +215,16 @@ class LeaveServiceTest {
         verify(auditService).log(employeeId, "LEAVE_REQUEST_SUBMITTED", resp.getId());
     }
 
-    private void stubShiftWorkingDays(String workingDays) {
-        Shift shift = Shift.builder().name("Test Shift").workingDays(workingDays).build();
-        when(employeeShiftAssignmentResolver.resolveIfPresent(eq(employeeId), any()))
-                .thenReturn(Optional.of(EmployeeShiftAssignment.builder().employeeUserId(employeeId).shift(shift).build()));
+    /** Stubs a Weekly Off Policy (comma-separated DayOfWeek names, e.g. "SATURDAY,SUNDAY") as effective for this test's employee from a year ago, mirroring ExceptionServiceDetectionTest's identical helper. */
+    private void stubWeeklyOffPolicy(String offDays) {
+        WeeklyOffPolicy policy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Test Policy").offDays(offDays).build();
+        LocalDate longAgo = LocalDate.now().minusYears(1);
+        when(employeeWeeklyOffPolicyAssignmentResolver.resolveHistoryBatch(any()))
+                .thenReturn(Map.of(employeeId, List.of(EmployeeWeeklyOffPolicyAssignment.builder()
+                        .employeeUserId(employeeId).weeklyOffPolicy(policy).effectiveFrom(longAgo).build())));
+        when(weeklyOffPolicyVersionResolver.resolveHistoryBatch(any()))
+                .thenReturn(Map.of(policy.getId(), List.of(WeeklyOffPolicyVersion.builder()
+                        .weeklyOffPolicy(policy).offDays(offDays).effectiveFrom(longAgo).build())));
     }
 
     private LeaveRequestResponse submitAnnual(LocalDate start, LocalDate end) {
@@ -218,22 +243,105 @@ class LeaveServiceTest {
     }
 
     @Test
-    void submitRequest_rangeIncludingShiftOffDay_isRejectedNamingTheDate() {
-        stubShiftWorkingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY");
+    void submitRequest_rangeIncludingWeeklyOffDay_isRejectedNamingTheDate() {
+        stubWeeklyOffPolicy("SATURDAY,SUNDAY");
         LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
 
         assertRejected(friday, friday.plusDays(3), "Saturday, " + friday.plusDays(1).getDayOfMonth() + " ");
     }
 
     @Test
-    void submitRequest_weekendAllowedWhenShiftWorksIt() {
-        stubShiftWorkingDays("TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY");
+    void submitRequest_weekendAllowedWhenPolicyDoesNotMarkItOff() {
+        stubWeeklyOffPolicy("MONDAY");
         LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
 
         assertEquals(new BigDecimal("3"), submitAnnual(friday, friday.plusDays(2)).getTotalDays());
-        // ...but Monday is this shift's off day.
+        // ...but Monday is this policy's off day.
         clearInvocations(leaveRequestRepository);
-        assertRejected(friday, friday.plusDays(3), "non-working day for your shift");
+        assertRejected(friday, friday.plusDays(3), "weekly-off day under your Weekly Off Policy");
+    }
+
+    /**
+     * {@code employeeWeeklyOffPolicyAssignmentResolver}/{@code weeklyOffPolicyVersionResolver} are
+     * left completely unstubbed (empty history, the Mockito default for a collection-returning
+     * method) — the D1 no-silently-assigned-policy fallback to Saturday/Sunday, the same one
+     * WorkingDayService itself falls back to, must still gate this leave request.
+     */
+    @Test
+    void submitRequest_employeeWithNoWeeklyOffPolicyAssignment_fallsBackToSaturdaySunday() {
+        LocalDate saturday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.SATURDAY));
+
+        assertRejected(saturday.minusDays(1), saturday, "Saturday");
+    }
+
+    /**
+     * A policy REASSIGNMENT landing inside the requested range must only affect dates from its own
+     * effective date onward — resolved per date, never once for the whole range. If this
+     * incorrectly used only the latest/"current" assignment for every date, the Monday at the start
+     * of this range would be wrongly rejected (it's the NEW policy's off day), even though on that
+     * actual date the OLD policy (which doesn't mark Monday off) was still the one in effect.
+     */
+    @Test
+    void submitRequest_policyReassignmentWithinRange_eachDateUsesItsOwnGoverningPolicy() {
+        LocalDate monday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+        LocalDate wednesday = monday.plusDays(2);
+        WeeklyOffPolicy oldPolicy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Old Policy").offDays("FRIDAY").build();
+        WeeklyOffPolicy newPolicy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("New Policy").offDays("MONDAY").build();
+        when(employeeWeeklyOffPolicyAssignmentResolver.resolveHistoryBatch(any())).thenReturn(Map.of(employeeId, List.of(
+                EmployeeWeeklyOffPolicyAssignment.builder().employeeUserId(employeeId).weeklyOffPolicy(oldPolicy).effectiveFrom(monday.minusYears(1)).build(),
+                EmployeeWeeklyOffPolicyAssignment.builder().employeeUserId(employeeId).weeklyOffPolicy(newPolicy).effectiveFrom(wednesday).build())));
+        when(weeklyOffPolicyVersionResolver.resolveHistoryBatch(any())).thenReturn(Map.of(
+                oldPolicy.getId(), List.of(WeeklyOffPolicyVersion.builder().weeklyOffPolicy(oldPolicy).offDays("FRIDAY").effectiveFrom(monday.minusYears(1)).build()),
+                newPolicy.getId(), List.of(WeeklyOffPolicyVersion.builder().weeklyOffPolicy(newPolicy).offDays("MONDAY").effectiveFrom(monday.minusYears(1)).build())));
+
+        // Monday-Thursday: Monday/Tuesday are still governed by oldPolicy (Friday off, irrelevant
+        // here); the reassignment to newPolicy (Monday off) only takes effect Wednesday — so every
+        // date in this range is a working day.
+        assertEquals(new BigDecimal("4"), submitAnnual(monday, monday.plusDays(3)).getTotalDays());
+
+        // The following Monday, however, is fully governed by newPolicy and is rejected.
+        clearInvocations(leaveRequestRepository);
+        LocalDate nextMonday = monday.plusWeeks(1);
+        assertRejected(nextMonday, nextMonday, "it is a weekly-off day");
+    }
+
+    /**
+     * A policy-DEFINITION edit (same policy identity, new WeeklyOffPolicyVersion) landing inside
+     * the requested range — the same per-date resolution guarantee one level deeper than the
+     * reassignment test above.
+     */
+    @Test
+    void submitRequest_policyVersionChangeWithinRange_eachDateUsesItsOwnGoverningVersion() {
+        LocalDate monday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+        LocalDate wednesday = monday.plusDays(2);
+        WeeklyOffPolicy policy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Policy").offDays("MONDAY").build();
+        when(employeeWeeklyOffPolicyAssignmentResolver.resolveHistoryBatch(any())).thenReturn(Map.of(employeeId, List.of(
+                EmployeeWeeklyOffPolicyAssignment.builder().employeeUserId(employeeId).weeklyOffPolicy(policy).effectiveFrom(monday.minusYears(1)).build())));
+        when(weeklyOffPolicyVersionResolver.resolveHistoryBatch(any())).thenReturn(Map.of(policy.getId(), List.of(
+                WeeklyOffPolicyVersion.builder().weeklyOffPolicy(policy).offDays("FRIDAY").effectiveFrom(monday.minusYears(1)).build(),
+                WeeklyOffPolicyVersion.builder().weeklyOffPolicy(policy).offDays("MONDAY").effectiveFrom(wednesday).build())));
+
+        // Monday is still governed by the OLD version (Friday off) — the edit to "Monday off"
+        // doesn't take effect until Wednesday.
+        assertEquals(new BigDecimal("4"), submitAnnual(monday, monday.plusDays(3)).getTotalDays());
+
+        clearInvocations(leaveRequestRepository);
+        LocalDate nextMonday = monday.plusWeeks(1);
+        assertRejected(nextMonday, nextMonday, "it is a weekly-off day");
+    }
+
+    /** Boundary: a date exactly ON the new version's effectiveFrom already uses the NEW version, not the old one — mirrors WeeklyOffPolicyVersionResolver's own inclusive "<=" boundary test. */
+    @Test
+    void submitRequest_dateExactlyOnPolicyVersionChange_usesTheNewVersionOnThatBoundaryDate() {
+        LocalDate changeDate = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.WEDNESDAY));
+        WeeklyOffPolicy policy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Policy").offDays("WEDNESDAY").build();
+        when(employeeWeeklyOffPolicyAssignmentResolver.resolveHistoryBatch(any())).thenReturn(Map.of(employeeId, List.of(
+                EmployeeWeeklyOffPolicyAssignment.builder().employeeUserId(employeeId).weeklyOffPolicy(policy).effectiveFrom(changeDate.minusYears(1)).build())));
+        when(weeklyOffPolicyVersionResolver.resolveHistoryBatch(any())).thenReturn(Map.of(policy.getId(), List.of(
+                WeeklyOffPolicyVersion.builder().weeklyOffPolicy(policy).offDays("FRIDAY").effectiveFrom(changeDate.minusYears(1)).build(),
+                WeeklyOffPolicyVersion.builder().weeklyOffPolicy(policy).offDays("WEDNESDAY").effectiveFrom(changeDate).build())));
+
+        assertRejected(changeDate, changeDate, "it is a weekly-off day");
     }
 
     private void stubLocationHoliday(LocalDate date) {
@@ -282,7 +390,11 @@ class LeaveServiceTest {
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
         ArgumentCaptor<LeaveRequest> captor = ArgumentCaptor.forClass(LeaveRequest.class);
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         leaveService.submitRequest(request(start, start.plusDays(1), false, "Full day"), employeeEmail);
         LocalDate day = LocalDate.now().plusDays(10);
         leaveService.submitRequest(request(day, day, true, "Half day"), employeeEmail);
@@ -312,9 +424,13 @@ class LeaveServiceTest {
         when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("2"), BigDecimal.ZERO)));
 
-        LocalDate start = LocalDate.now();
+        // A 5-day span used to be fine here since only the day count mattered; a 4-day Mon-Fri
+        // span (anchored to the next Monday-or-today, never a raw "today") still exceeds the
+        // 2-day balance just as well, without risking the Saturday/Sunday the Weekly Off Policy
+        // default fallback now gates (Phase 4).
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> leaveService.submitRequest(request(start, start.plusDays(5), false, "Too long"), employeeEmail));
+                () -> leaveService.submitRequest(request(start, start.plusDays(4), false, "Too long"), employeeEmail));
         assertEquals("Leave request exceeds your available Annual Leave balance of 2 days.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
     }
@@ -329,7 +445,11 @@ class LeaveServiceTest {
         when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
                 .thenReturn(List.of(balanceOf(new BigDecimal("15"), new BigDecimal("5"))));
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail));
         assertEquals("You cannot apply for unpaid leave while you have an available paid leave balance.", ex.getMessage());
@@ -345,7 +465,11 @@ class LeaveServiceTest {
                 .thenReturn(List.of(balanceOf(new BigDecimal("15"), new BigDecimal("15"))));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         LeaveRequestResponse resp = leaveService.submitRequest(
                 request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
 
@@ -368,7 +492,11 @@ class LeaveServiceTest {
         when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any())).thenReturn(List.of());
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         LeaveRequestResponse resp = leaveService.submitRequest(
                 request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
 
@@ -411,7 +539,11 @@ class LeaveServiceTest {
         when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
                 .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), BigDecimal.ZERO)));
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail));
         assertEquals("You cannot apply for unpaid leave while you have an available paid leave balance.", ex.getMessage());
@@ -426,7 +558,11 @@ class LeaveServiceTest {
         when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
                 .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), BigDecimal.ZERO)));
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request("SABBATICAL", start, start.plusDays(1), false, "Career break"), employeeEmail));
         assertEquals("You cannot apply for unpaid leave while you have an available paid leave balance.", ex.getMessage());
@@ -443,7 +579,11 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         LeaveRequestResponse resp = leaveService.submitRequest(request(start, start.plusDays(2), false, "Vacation"), employeeEmail);
 
         assertEquals("PENDING", resp.getStatus());
@@ -458,7 +598,11 @@ class LeaveServiceTest {
                 .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), new BigDecimal("15")))); // fully consumed
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         LeaveRequestResponse resp = leaveService.submitRequest(
                 request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
 
@@ -474,7 +618,11 @@ class LeaveServiceTest {
         when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any())).thenReturn(List.of());
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         LeaveRequestResponse resp = leaveService.submitRequest(
                 request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
 
@@ -511,7 +659,7 @@ class LeaveServiceTest {
         when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), new BigDecimal("11"))));
 
-        LocalDate start = LocalDate.now();
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         // 4 available; requesting 5 (one day over) must be rejected.
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(start, start.plusDays(4), false, "One day too many"), employeeEmail));
@@ -594,7 +742,7 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), new BigDecimal("5"))));
         stubPendingReserved(new BigDecimal("6"));
 
-        LocalDate start = LocalDate.now();
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         // Available = 4; requesting 5 days (one over) must be rejected — the real-request
         // equivalent of the spec's "4.5 days -> REJECT" (a single request's duration is always a
         // whole-day range or exactly 0.5, per the existing duration calculation; any amount over
@@ -608,20 +756,24 @@ class LeaveServiceTest {
     void submitRequest_rejectedRequestsDoNotReserveBalance() {
         // A REJECTED request's days were never added to the PENDING-reserved sum in the first
         // place (the repository query filters status = 'PENDING'), so a full-quota request must
-        // still succeed even though a same-size request was previously rejected.
+        // still succeed even though a same-size request was previously rejected. The quota is
+        // scaled down to 5 (Mon-Fri) rather than the original 15: a 15-day CONSECUTIVE calendar
+        // span is no longer something any Weekly Off Policy allows (Phase 4) — it would always
+        // include multiple real weekly-off days — so this proves the same "no prior reservation"
+        // code path with a span that's actually achievable.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
         when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
-                .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), BigDecimal.ZERO)));
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("5"), BigDecimal.ZERO)));
         stubPendingReserved(BigDecimal.ZERO); // the earlier REJECTED request contributes nothing here
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now();
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
         LeaveRequestResponse resp = leaveService.submitRequest(
-                request(start, start.plusDays(14), false, "Full quota, previous request was rejected"), employeeEmail);
+                request(start, start.plusDays(4), false, "Full quota, previous request was rejected"), employeeEmail);
 
         assertEquals("PENDING", resp.getStatus());
-        assertEquals(new BigDecimal("15"), resp.getTotalDays());
+        assertEquals(new BigDecimal("5"), resp.getTotalDays());
     }
 
     @Test
@@ -728,7 +880,7 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now().plusDays(10);
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(2);
         LocalDate end = start.plusDays(1);
         LeaveRequestResponse resp = leaveService.submitRequest(request(start, end, false, "Future trip"), employeeEmail);
 
@@ -795,7 +947,9 @@ class LeaveServiceTest {
         // Existing: day0 -> day2 | PENDING. New: day1 -> day3 (partial overlap, both future).
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day1 = LocalDate.now().plusDays(31);
+        // Anchored to a Monday (plusWeeks) so this 3-day range never lands on the Saturday/Sunday
+        // the Weekly Off Policy default fallback now gates (Phase 4).
+        LocalDate day1 = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(4);
         LocalDate day3 = day1.plusDays(2);
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day3), eq(day1)))
@@ -817,7 +971,9 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate day1 = LocalDate.now().plusDays(31);
+        // Anchored to a Monday (plusWeeks) so this 3-day range never lands on the Saturday/Sunday
+        // the Weekly Off Policy default fallback now gates (Phase 4).
+        LocalDate day1 = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(4);
         LocalDate day3 = day1.plusDays(2);
         LeaveRequestResponse resp = leaveService.submitRequest(
                 request(day1, day3, false, "Prior overlapping request was rejected"), employeeEmail);
@@ -836,7 +992,9 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate day3 = LocalDate.now().plusDays(33);
+        // Anchored to a Monday (plusWeeks) so this 3-day range never lands on the Saturday/Sunday
+        // the Weekly Off Policy default fallback now gates (Phase 4).
+        LocalDate day3 = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(5);
         LocalDate day5 = day3.plusDays(2);
         LeaveRequestResponse resp = leaveService.submitRequest(
                 request(day3, day5, false, "Starts right after the existing request ends"), employeeEmail);
@@ -875,20 +1033,22 @@ class LeaveServiceTest {
 
     @Test
     void submitRequest_multiDayRequest_overlapsExistingOnlyOnALaterDay_isRejected() {
-        // Existing: day3 -> day3 | PENDING (a single day that falls in the MIDDLE of the new
-        // request's range, not on its start date). New: day0 -> day5. The new request's start
+        // Existing: day2 -> day2 | PENDING (a single day that falls in the MIDDLE of the new
+        // request's range, not on its start date). New: day0 -> day4. The new request's start
         // date (day0) doesn't itself collide with anything, so this only passes if the guard
-        // checks the new request's FULL range rather than just its start date.
+        // checks the new request's FULL range rather than just its start date. day0 is anchored to
+        // a Monday (plusWeeks, not an arbitrary plusDays) so this 5-day Mon-Fri range never lands
+        // on the Saturday/Sunday the Weekly Off Policy default fallback now gates (Phase 4).
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day0 = LocalDate.now().plusDays(30);
-        LocalDate day5 = day0.plusDays(5);
+        LocalDate day0 = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(11);
+        LocalDate day4 = day0.plusDays(4);
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day5), eq(day0)))
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day4), eq(day0)))
                 .thenReturn(true);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> leaveService.submitRequest(request(day0, day5, false, "Long trip"), employeeEmail));
+                () -> leaveService.submitRequest(request(day0, day4, false, "Long trip"), employeeEmail));
         assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
     }
@@ -904,7 +1064,9 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate newStart = LocalDate.now().plusDays(40);
+        // Anchored to a Monday (plusWeeks) so this 5-day Mon-Fri range never lands on the Saturday/
+        // Sunday the Weekly Off Policy default fallback now gates (Phase 4).
+        LocalDate newStart = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(7);
         LocalDate newEnd = newStart.plusDays(4);
         leaveService.submitRequest(request(newStart, newEnd, false, "Check exact overlap params"), employeeEmail);
 
@@ -941,7 +1103,9 @@ class LeaveServiceTest {
         // and overlaps into it (new.end falls inside [existing.start, existing.end]).
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day0 = LocalDate.now().plusDays(51);
+        // Anchored to a Monday (plusWeeks) so this 4-day range never lands on the Saturday/Sunday
+        // the Weekly Off Policy default fallback now gates (Phase 4).
+        LocalDate day0 = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(8);
         LocalDate day3 = day0.plusDays(3);
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day3), eq(day0)))
@@ -955,18 +1119,20 @@ class LeaveServiceTest {
 
     @Test
     void submitRequest_newRequestCompletelyContainsExistingRange_isRejected() {
-        // Existing: day2 -> day4 | PENDING (smaller). New: day0 -> day6 — larger, fully
-        // containing the existing range on both ends.
+        // Existing: day1 -> day3 | PENDING (smaller). New: day0 -> day4 — larger, fully
+        // containing the existing range on both ends. day0 is anchored to a Monday (plusWeeks) so
+        // this 5-day Mon-Fri range never lands on the Saturday/Sunday the Weekly Off Policy default
+        // fallback now gates (Phase 4) — shrunk from the original day0->day6 span accordingly.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day0 = LocalDate.now().plusDays(52);
-        LocalDate day6 = day0.plusDays(6);
+        LocalDate day0 = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(9);
+        LocalDate day4 = day0.plusDays(4);
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
-                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day6), eq(day0)))
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day4), eq(day0)))
                 .thenReturn(true);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> leaveService.submitRequest(request(day0, day6, false, "Fully contains an existing pending range"), employeeEmail));
+                () -> leaveService.submitRequest(request(day0, day4, false, "Fully contains an existing pending range"), employeeEmail));
         assertEquals("You already have a pending or approved leave request that overlaps these dates.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
     }
@@ -977,7 +1143,9 @@ class LeaveServiceTest {
         // the existing range on both ends (the reverse of the "contains" case above).
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day2 = LocalDate.now().plusDays(54);
+        // Anchored to a Monday (plusWeeks) so this 3-day range never lands on the Saturday/Sunday
+        // the Weekly Off Policy default fallback now gates (Phase 4).
+        LocalDate day2 = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(10);
         LocalDate day4 = day2.plusDays(2);
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day4), eq(day2)))
@@ -1004,7 +1172,9 @@ class LeaveServiceTest {
     void submitRequest_existingHalfDayPending_newFullDaySameDate_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day = LocalDate.now().plusDays(60);
+        // Snapped to the next Monday (not a raw plusDays offset) so this single-day request is
+        // always a weekday, regardless of which day the suite runs on (Phase 4 weekly-off gating).
+        LocalDate day = LocalDate.now().plusDays(60).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day), eq(day)))
                 .thenReturn(true);
@@ -1019,7 +1189,9 @@ class LeaveServiceTest {
     void submitRequest_existingHalfDayApproved_newFullDaySameDate_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day = LocalDate.now().plusDays(61);
+        // Snapped to the next Monday (not a raw plusDays offset) so this single-day request is
+        // always a weekday, regardless of which day the suite runs on (Phase 4 weekly-off gating).
+        LocalDate day = LocalDate.now().plusDays(61).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day), eq(day)))
                 .thenReturn(true);
@@ -1034,7 +1206,9 @@ class LeaveServiceTest {
     void submitRequest_existingFullDayPending_newHalfDaySameDate_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day = LocalDate.now().plusDays(62);
+        // Snapped to the next Monday (not a raw plusDays offset) so this single-day request is
+        // always a weekday, regardless of which day the suite runs on (Phase 4 weekly-off gating).
+        LocalDate day = LocalDate.now().plusDays(62).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day), eq(day)))
                 .thenReturn(true);
@@ -1128,49 +1302,58 @@ class LeaveServiceTest {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
         when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
-                .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), BigDecimal.ZERO)));
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("5"), BigDecimal.ZERO)));
         // The earlier request is now REJECTED, so the reserved-sum query (which only ever sums
-        // status='PENDING') correctly reports zero — simulating the post-rejection state.
+        // status='PENDING') correctly reports zero — simulating the post-rejection state. Quota
+        // scaled down to 5 (Mon-Fri) — see submitRequest_rejectedRequestsDoNotReserveBalance's
+        // identical reasoning (Phase 4: a long consecutive span can no longer be all working days).
         stubPendingReserved(BigDecimal.ZERO);
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now();
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
         LeaveRequestResponse resp = leaveService.submitRequest(
-                request(start, start.plusDays(14), false, "Now fits, prior request was rejected"), employeeEmail);
+                request(start, start.plusDays(4), false, "Now fits, prior request was rejected"), employeeEmail);
 
         assertEquals("PENDING", resp.getStatus());
     }
 
     @Test
     void submitRequest_multipleApprovedRequests_cannotExceedQuota() {
-        // Two prior APPROVED requests already accumulated in usedDays (10) leave only 5 — a
-        // third request for 6 must be rejected.
+        // One prior APPROVED request already accumulated in usedDays (11) leaves only 4 — a
+        // second request for 5 (Mon-Fri) must be rejected. Scaled down from the original
+        // 10-used/5-available/6-requested numbers so the requested span (5 days) fits within a
+        // single working week — see submitRequest_rejectedRequestsDoNotReserveBalance's identical
+        // Phase 4 reasoning.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
         when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
-                .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), new BigDecimal("10"))));
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), new BigDecimal("11"))));
 
-        LocalDate start = LocalDate.now();
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> leaveService.submitRequest(request(start, start.plusDays(5), false, "Sixth day over"), employeeEmail));
-        assertEquals("Leave request exceeds your available Annual Leave balance of 5 days.", ex.getMessage());
+                () -> leaveService.submitRequest(request(start, start.plusDays(4), false, "Fifth day over"), employeeEmail));
+        assertEquals("Leave request exceeds your available Annual Leave balance of 4 days.", ex.getMessage());
     }
 
     @Test
     void submitRequest_noExistingLeaveRequests_usesFullQuotaAsAvailable() {
-        // Employee with no APPROVED/PENDING history — available balance is the full quota.
+        // Employee with no APPROVED/PENDING history — available balance is the full quota. Quota
+        // scaled down to 5 (Mon-Fri), not the original 24: a 24-day CONSECUTIVE calendar span is
+        // no longer achievable under any Weekly Off Policy (Phase 4) — it would always include
+        // several real weekly-off days — so this proves the same "full quota available" code path
+        // with a span that's actually submittable.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
         when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
-                .thenReturn(Optional.of(balanceOf(new BigDecimal("24"), BigDecimal.ZERO)));
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("5"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now();
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
         LeaveRequestResponse resp = leaveService.submitRequest(
-                request(start, start.plusDays(23), false, "Full 24-day quota"), employeeEmail);
+                request(start, start.plusDays(4), false, "Full 5-day quota"), employeeEmail);
 
         assertEquals("PENDING", resp.getStatus());
-        assertEquals(new BigDecimal("24"), resp.getTotalDays());
+        assertEquals(new BigDecimal("5"), resp.getTotalDays());
     }
 
     // ── update() — edit a still-pending request ──────────────────────────────────────────────
@@ -1191,8 +1374,10 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate newStart = LocalDate.now().plusDays(10);
-        LocalDate newEnd = LocalDate.now().plusDays(12);
+        // Anchored to the next Monday (not raw plusDays offsets) so this 3-day range never lands
+        // on the Saturday/Sunday the Weekly Off Policy default fallback now gates (Phase 4).
+        LocalDate newStart = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(1);
+        LocalDate newEnd = newStart.plusDays(2);
         LeaveRequestResponse resp = leaveService.update(existing.getId(), request(newStart, newEnd, false, "Updated reason"), employeeEmail);
 
         assertEquals(newStart, resp.getStartDate());
@@ -1232,7 +1417,11 @@ class LeaveServiceTest {
         // the exact same 5 days) must not be rejected as "exceeds balance" by double-counting its
         // own pre-edit reservation — the AndIdNot sum (stubbed to ZERO as if only this request's
         // own days were pending) reflects that exclusion.
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         LocalDate end = start.plusDays(4);
         LeaveRequest existing = pendingRequest(start, end, new BigDecimal("5"));
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
@@ -1254,8 +1443,10 @@ class LeaveServiceTest {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveRequestRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate newStart = LocalDate.now().plusDays(20);
-        LocalDate newEnd = LocalDate.now().plusDays(21);
+        // Anchored to the next Monday (not raw plusDays offsets) so this 2-day range never lands
+        // on the Saturday/Sunday the Weekly Off Policy default fallback now gates (Phase 4).
+        LocalDate newStart = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY)).plusWeeks(2);
+        LocalDate newEnd = newStart.plusDays(1);
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(newEnd), eq(newStart), eq(existing.getId())))
                 .thenReturn(true);
@@ -1419,7 +1610,11 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         leaveService.submitRequest(request(start, start.plusDays(2), false, "Vacation"), employeeEmail);
 
         // employeeRepository has no Employee row for this fixture (see setUp's lenient stub), so
@@ -1442,7 +1637,11 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now().plusDays(5);
+        // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
+        // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
+        // Policy default fallback now gates (Phase 4) — this test isn't about weekly-off at all,
+        // it just needs "a few days in the future".
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         LeaveRequestResponse resp = leaveService.submitRequest(request(start, start.plusDays(2), false, "Vacation"), employeeEmail);
 
         assertEquals("PENDING", resp.getStatus());
@@ -1456,9 +1655,13 @@ class LeaveServiceTest {
         when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("2"), BigDecimal.ZERO)));
 
-        LocalDate start = LocalDate.now();
+        // Anchored to the next Monday-or-today (not a raw "today") so this 4-day span stays within
+        // a Mon-Fri working week rather than risking the Saturday/Sunday the Weekly Off Policy
+        // default fallback now gates (Phase 4) — the balance check this test actually exercises
+        // only needs "exceeds a 2-day balance", not any specific day count.
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
         assertThrows(IllegalArgumentException.class,
-                () -> leaveService.submitRequest(request(start, start.plusDays(5), false, "Too long"), employeeEmail));
+                () -> leaveService.submitRequest(request(start, start.plusDays(4), false, "Too long"), employeeEmail));
 
         verify(notificationService, never()).send(any(), any(), any(), any(), any());
     }
@@ -1727,7 +1930,7 @@ class LeaveServiceTest {
                         .year(LocalDate.now().getYear()).totalDays(new BigDecimal("15")).usedDays(BigDecimal.ZERO).build()));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now().plusDays(3);
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         leaveService.submitRequest(request(start, start.plusDays(1), false, "Vacation"), superAdminEmail);
 
         verify(notificationService).send(eq(managerId), eq("LEAVE_REQUEST_SUBMITTED"), any(), any(), eq("/approvals?type=LEAVE"));
@@ -1752,7 +1955,7 @@ class LeaveServiceTest {
                         .year(LocalDate.now().getYear()).totalDays(new BigDecimal("15")).usedDays(BigDecimal.ZERO).build()));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now().plusDays(3);
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         leaveService.submitRequest(request(start, start.plusDays(1), false, "Vacation"), superAdminEmail);
 
         verify(notificationService, times(1)).send(eq(superAdminId), eq("LEAVE_REQUEST_SUBMITTED"), any(), any(), eq("/approvals?type=LEAVE"));

@@ -232,39 +232,94 @@ class UserManagementServiceTest {
         verifyNoInteractions(forceLogoutBroadcaster);
     }
 
+    // Phase 2 (ONEHR-336 follow-up resolved): individual shift reassignment restored, reusing the
+    // same EmployeeShiftAssignment infrastructure/validation as createUser and
+    // EmployeeAssignmentService#bulkUpdateShift. "Current" is resolved via
+    // EmployeeShiftAssignmentResolver (never the Employee.shift display cache), so these tests
+    // stub that resolver rather than Employee.shift directly.
+
+    private void stubCurrentAssignment(Shift shift, LocalDate effectiveFrom) {
+        lenient().when(employeeShiftAssignmentResolver.resolveIfPresent(eq(targetUserId), any()))
+                .thenReturn(Optional.of(EmployeeShiftAssignment.builder()
+                        .employeeUserId(targetUserId).shift(shift).effectiveFrom(effectiveFrom).build()));
+    }
+
     @Test
-    void updateUser_shiftChange_isRejected() {
+    void updateUser_shiftChange_succeeds_withExplicitEffectiveFrom() {
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+        LocalDate effectiveFrom = today.plusDays(1);
+        UpdateUserRequest req = new UpdateUserRequest();
+        req.setShiftId(activeShiftId);
+        req.setShiftEffectiveFrom(effectiveFrom);
+
+        userManagementService.updateUser(targetUserId, req, actorEmail);
+
+        // Employee.shift is only a display/roster cache — set for that purpose, never what
+        // actually governs attendance (the saved EmployeeShiftAssignment row is).
+        assertEquals(activeShift, targetEmployee.getShift());
+        assertEquals(4, targetUser.getTokenVersion());
+        verify(forceLogoutBroadcaster).forceLogout(targetUserId);
+        org.mockito.ArgumentCaptor<EmployeeShiftAssignment> captor =
+                org.mockito.ArgumentCaptor.forClass(EmployeeShiftAssignment.class);
+        verify(employeeShiftAssignmentRepository).save(captor.capture());
+        assertEquals(targetUserId, captor.getValue().getEmployeeUserId());
+        assertEquals(activeShift, captor.getValue().getShift());
+        assertEquals(effectiveFrom, captor.getValue().getEffectiveFrom());
+    }
+
+    @Test
+    void updateUser_shiftChange_rejectsMissingEffectiveFrom() {
         UpdateUserRequest req = new UpdateUserRequest();
         req.setShiftId(activeShiftId);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> userManagementService.updateUser(targetUserId, req, actorEmail));
 
-        assertTrue(ex.getMessage().contains("Shift"));
-        assertNull(targetEmployee.getShift());
-        verify(userRepository, never()).save(any());
+        assertTrue(ex.getMessage().contains("Effective From"));
+        verifyNoInteractions(employeeShiftAssignmentRepository);
         verifyNoInteractions(forceLogoutBroadcaster);
     }
 
-    // Employee no longer carries a timezone field at all — the finalized Location/Timezone model
-    // (see Employee's own class Javadoc) makes Location the sole source of an employee's
-    // effective attendance timezone, so there is nothing left here to admin-set/reject/clear.
-    // See LocationValidationTest for the create/update rejection of an invalid/inactive/
-    // timezone-less Location, and AttendanceRulesServiceTest for the resolution chain itself.
-
-    // The temporary blanket restriction above rejects EVERY actual shift change, including one
-    // that targets an inactive shift — the active/inactive distinction this test originally
-    // exercised is now moot (unreachable: the restriction throws before any active/inactive check
-    // would even run), but the outcome (throws, no modification, no force logout) is unchanged, so
-    // this is kept as regression coverage for that outcome specifically.
     @Test
-    void updateUser_changingToInactiveShift_throwsAndDoesNotModifyEmployeeOrForceLogout() {
+    void updateUser_shiftChange_rejectsPastEffectiveFrom() {
         UpdateUserRequest req = new UpdateUserRequest();
-        req.setShiftId(inactiveShiftId);
+        req.setShiftId(activeShiftId);
+        req.setShiftEffectiveFrom(LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).minusDays(1));
 
         assertThrows(IllegalArgumentException.class,
                 () -> userManagementService.updateUser(targetUserId, req, actorEmail));
 
+        verifyNoInteractions(employeeShiftAssignmentRepository);
+        verifyNoInteractions(forceLogoutBroadcaster);
+    }
+
+    // D2: scheduling starts on the LATER of employment start date and the Shift's own effective
+    // date — same floor createUser/EmployeeAssignmentService#bulkUpdateShift enforce.
+    @Test
+    void updateUser_shiftChange_rejectsEffectiveFromBeforeJoiningDate() {
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+        targetEmployee.setJoiningDate(today.plusDays(30));
+        UpdateUserRequest req = new UpdateUserRequest();
+        req.setShiftId(activeShiftId);
+        req.setShiftEffectiveFrom(today.plusDays(1));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> userManagementService.updateUser(targetUserId, req, actorEmail));
+
+        assertTrue(ex.getMessage().contains("joining date"));
+        verifyNoInteractions(employeeShiftAssignmentRepository);
+    }
+
+    @Test
+    void updateUser_changingToInactiveShift_throwsAndDoesNotModifyEmployeeOrForceLogout() {
+        UpdateUserRequest req = new UpdateUserRequest();
+        req.setShiftId(inactiveShiftId);
+        req.setShiftEffectiveFrom(LocalDate.now(java.time.ZoneId.of("Asia/Kolkata")).plusDays(1));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> userManagementService.updateUser(targetUserId, req, actorEmail));
+
+        assertTrue(ex.getMessage().contains("inactive"));
         assertNull(targetEmployee.getShift());
         verify(userRepository, never()).save(any());
         verifyNoInteractions(forceLogoutBroadcaster);
@@ -272,10 +327,13 @@ class UserManagementServiceTest {
 
     // The employee already being on a shift that's since been deactivated (shiftId unchanged in
     // this request) must keep working — this is a no-op re-save, not a new assignment, and must
-    // never be blocked by the inactive-shift guard above.
+    // never be blocked by the inactive-shift guard above. "Unchanged" is now resolved against the
+    // AUTHORITATIVE assignment (stubbed below), not the stale Employee.shift cache the old,
+    // disabled implementation compared against.
     @Test
     void updateUser_unchangedShift_evenIfNowInactive_doesNotThrowOrForceLogout() {
         targetEmployee.setShift(inactiveShift);
+        stubCurrentAssignment(inactiveShift, LocalDate.now().minusDays(10));
         UpdateUserRequest req = new UpdateUserRequest();
         req.setShiftId(inactiveShiftId);
 
@@ -283,7 +341,28 @@ class UserManagementServiceTest {
 
         assertEquals(inactiveShift, targetEmployee.getShift());
         assertEquals(3, targetUser.getTokenVersion());
+        verifyNoInteractions(employeeShiftAssignmentRepository);
         verifyNoInteractions(forceLogoutBroadcaster);
+    }
+
+    // Mirrors EmployeeAssignmentService#assignShift's exact pending-replacement semantics: at
+    // most one PENDING (not-yet-effective) assignment ever exists, replaced rather than stacked.
+    @Test
+    void updateUser_shiftChange_replacesAnyExistingPendingAssignment() {
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+        EmployeeShiftAssignment existingPending = EmployeeShiftAssignment.builder()
+                .id(UUID.randomUUID()).employeeUserId(targetUserId).effectiveFrom(today.plusDays(5)).build();
+        when(employeeShiftAssignmentRepository
+                .findFirstByEmployeeUserIdAndEffectiveFromGreaterThanOrderByEffectiveFromAsc(targetUserId, today))
+                .thenReturn(Optional.of(existingPending));
+        UpdateUserRequest req = new UpdateUserRequest();
+        req.setShiftId(activeShiftId);
+        req.setShiftEffectiveFrom(today.plusDays(10));
+
+        userManagementService.updateUser(targetUserId, req, actorEmail);
+
+        verify(employeeShiftAssignmentRepository).delete(existingPending);
+        verify(employeeShiftAssignmentRepository).save(argThat(a -> today.plusDays(10).equals(a.getEffectiveFrom())));
     }
 
     @Test

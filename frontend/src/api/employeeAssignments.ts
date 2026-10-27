@@ -35,6 +35,16 @@ export interface EmployeeAssignmentRow {
   pendingShiftEffectiveFrom: string | null;
   weeklyOffPolicyId: string | null;
   weeklyOffPolicyName: string | null;
+  // The currently-effective Weekly Off Policy assignment's own effectiveFrom (resolved
+  // server-side; never Employee.weeklyOffPolicy, a best-effort display cache) — null when the
+  // employee has no effective assignment at all. Mirrors shiftEffectiveSince's identical
+  // convention.
+  weeklyOffPolicyEffectiveSince: string | null;
+  // A SCHEDULED future Weekly Off Policy assignment, if one exists — mirrors pendingShiftId's
+  // identical convention.
+  pendingWeeklyOffPolicyId: string | null;
+  pendingWeeklyOffPolicyName: string | null;
+  pendingWeeklyOffPolicyEffectiveFrom: string | null;
   penalisationPolicyId: string | null;
   penalisationPolicyName: string | null;
 }
@@ -98,18 +108,19 @@ export const employeeAssignmentsApi = {
     fetch(`${BASE}/employee-assignments/lookups`, { headers: authHeaders(token) })
       .then(r => handle<AssignmentLookups>(r)),
 
-  // effectiveFrom: required by the backend for this endpoint only (today or any future date,
-  // never a past one) — ignored by bulkUpdateWeeklyOff/bulkUpdatePenalisationPolicy below, which
-  // remain effective-today, open-ended. Kept as a shared trailing param across all three so
-  // MyTeamPage's single applyBulk() call site can invoke whichever one uniformly.
+  // effectiveFrom: required by the backend for shift and (as of Phase 3) weekly-off assignment
+  // (today or any future date, never a past one) — still ignored by
+  // bulkUpdatePenalisationPolicy below, which remains effective-today, open-ended (penalisation
+  // allocation has its own separate effective-dating). Kept as a shared trailing param across all
+  // three so MyTeamPage's single applyBulk() call site can invoke whichever one uniformly.
   bulkUpdateShift: (employeeUserIds: string[], policyId: string, effectiveFrom: string | undefined, token: string) =>
     fetch(`${BASE}/employee-assignments/bulk-update-shift`, {
       method: 'POST', headers: authHeaders(token), body: JSON.stringify({ employeeUserIds, policyId, effectiveFrom }),
     }).then(r => handle<AssignmentBulkResult>(r)),
 
-  bulkUpdateWeeklyOff: (employeeUserIds: string[], policyId: string, _effectiveFrom: string | undefined, token: string) =>
+  bulkUpdateWeeklyOff: (employeeUserIds: string[], policyId: string, effectiveFrom: string | undefined, token: string) =>
     fetch(`${BASE}/employee-assignments/bulk-update-weekly-off`, {
-      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ employeeUserIds, policyId }),
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify({ employeeUserIds, policyId, effectiveFrom }),
     }).then(r => handle<AssignmentBulkResult>(r)),
 
   bulkUpdatePenalisationPolicy: (employeeUserIds: string[], policyId: string, _effectiveFrom: string | undefined, token: string) =>

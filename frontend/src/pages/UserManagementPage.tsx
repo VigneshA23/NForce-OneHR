@@ -795,6 +795,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
     designationId: user.designationId ?? undefined,
     locationId: user.locationId ?? undefined,
     shiftId: user.shiftId ?? undefined,
+    shiftEffectiveFrom: todayIso(),
     employmentType: user.employmentType,
     workMode: user.workMode ?? 'ONSITE',
     managerId: user.currentManager?.userId ?? undefined,
@@ -814,6 +815,10 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
   const [joiningDateNote, setJoiningDateNote] = useState('');
 
   const emailChanged = (form.email ?? '') !== user.email;
+  // Only an actual CHANGE from the employee's current shift requires an Effective From — a no-op
+  // resubmission of the same value (e.g. an edit that never touched this field) needs no date,
+  // exactly matching UserManagementService#updateUser's own "no-op means no-op" change detection.
+  const shiftChanged = form.shiftId !== (user.shiftId ?? undefined);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -824,6 +829,14 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
     if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
     if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
+    // Defense-in-depth: the date input's own `required`/`min` already keep this from happening
+    // through normal use — the backend independently rejects it too regardless. Only enforced
+    // when the shift is an actual CHANGE from the employee's current one (see shiftChanged below)
+    // — resubmitting the same value needs no effective date.
+    if (shiftChanged && (!form.shiftEffectiveFrom || form.shiftEffectiveFrom < todayIso())) {
+      setError('Effective From is required and cannot be in the past.');
+      return;
+    }
     setSubmitting(true); setError(null);
     try {
       let updated = await usersApi.update(user.userId, { ...form, confirmInactiveEdit }, token);
@@ -959,12 +972,27 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
                 onChange={id => setForm(f => ({ ...f, shiftId: id }))}
                 onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
                 token={token}
-                disabled
               />
-              <div style={{ fontSize: 11, color: 'var(--txt-mut)', marginTop: 4 }}>
-                Shift changes are currently unavailable when updating an employee. Contact an administrator.
-              </div>
             </Field>
+            {shiftChanged && form.shiftId && (
+              <div style={{ marginTop: 10 }}>
+                <Field label="Effective From *">
+                  <input
+                    type="date"
+                    style={inputStyle}
+                    value={form.shiftEffectiveFrom ?? todayIso()}
+                    min={todayIso()}
+                    required
+                    onChange={e => setForm(f => ({ ...f, shiftEffectiveFrom: e.target.value }))}
+                  />
+                </Field>
+                {form.shiftEffectiveFrom && (
+                  <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 5 }}>
+                    This shift will become active for the employee from {fmtEffectiveDate(form.shiftEffectiveFrom)}.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           {isInactive && (
             <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Role, Reporting Manager, Department, Designation, or Employment Type" />
