@@ -13,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -135,8 +137,35 @@ public class AttendancePenaltyEvaluationService {
      * and why — an in-app notification (always) plus an email (whenever the employee's account
      * has a resolvable address). Both fire exactly once per persisted penalty, guarded by the same
      * "only called from evaluate() on a genuinely new row" contract as this class's own Javadoc.
+     *
+     * <p>Deferred to run only {@link TransactionSynchronization#afterCommit() afterCommit} —
+     * mirrors {@code UserManagementService#forceLogoutAfterCommit}'s identical guard. The email is
+     * an irreversible external side effect (a fire-and-forget async HTTP call — see
+     * EmailService#sendAsync), but it used to fire from inside evaluate()'s still-open
+     * transaction: if anything later in that same transaction (e.g. {@link
+     * #auditPenaltyCreated}) had thrown and rolled back the just-flushed {@link AttendancePenalty}
+     * row, the email would already be gone while the row it described never actually persisted —
+     * the next re-evaluation (a later dashboard load, or the nightly {@code
+     * PenaltyEvaluationScheduler} run) would then see no existing row, treat the discrepancy as
+     * genuinely new again, and send a second "Attendance Penalty Applied" email for what the
+     * employee experiences as the same penalty. Waiting for the transaction to actually commit
+     * before notifying closes that window entirely: the email only ever fires for a penalty row
+     * that is guaranteed to still be on disk.
      */
     private void notifyPenaltyApplied(AttendancePenalty penalty) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    doNotifyPenaltyApplied(penalty);
+                }
+            });
+            return;
+        }
+        doNotifyPenaltyApplied(penalty);
+    }
+
+    private void doNotifyPenaltyApplied(AttendancePenalty penalty) {
         String reason = humanizeDiscrepancyType(penalty.getDiscrepancyType());
         StringBuilder message = new StringBuilder("A ")
                 .append(reason.toLowerCase())

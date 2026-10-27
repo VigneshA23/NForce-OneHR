@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
   Archive, ArchiveRestore, ArrowUp, BookOpen, CheckCircle2, ChevronDown, Eye, EyeOff, FileText,
-  FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Trash2, Undo2, X,
+  FolderOpen, HelpCircle, Paperclip, Pencil, Plus, Search, Send, Star, Trash2, Undo2, X, LifeBuoy
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -27,6 +28,7 @@ import {
 import { ContentFormModal, StatusChip, ConfirmModal } from '../components/helpContent/ContentFormModal';
 import { ReviewPublishModal } from '../components/helpContent/ReviewPublishModal';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
+import { ChipGroup } from '../components/TabBar';
 
 // Same overlay/modal/input/label/table constants used across LeavePage, MyRequestsPage,
 // EmployeeMasterPage etc. — this codebase has no shared component library, every page
@@ -35,8 +37,8 @@ const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, backgro
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' };
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
-const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+const tdStyle: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   return (
@@ -68,7 +70,7 @@ function StatusBadge({ status }: { status: TicketStatus }) {
 }
 
 function fmtDateTime(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -197,6 +199,132 @@ function ReplyBubble({ reply, token }: { reply: ReplyItem; token: string }) {
   );
 }
 
+// "How well was this resolved?" — shown once a ticket is CLOSED and hasn't been rated yet.
+// Reopening (see ReopenSection below) clears any existing rating server-side, so this
+// reappears for a ticket closed a second time.
+function SatisfactionPrompt({ ticketId, token, onSubmitted }: { ticketId: string; token: string; onSubmitted: () => void }) {
+  const { showToast } = useToast();
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    if (!rating) return;
+    setSubmitting(true);
+    try {
+      await helpdeskApi.submitSatisfaction(ticketId, rating, comment.trim() || undefined, token);
+      showToast('success', 'Thanks for the feedback!');
+      onSubmitted();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to submit rating');
+      setSubmitting(false);
+    }
+  }
+
+  const shown = hoverRating || rating;
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 10 }}>How well was this resolved?</div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+        {[1, 2, 3, 4, 5].map(n => (
+          <button
+            key={n}
+            type="button"
+            aria-label={`${n} out of 5`}
+            onClick={() => setRating(n)}
+            onMouseEnter={() => setHoverRating(n)}
+            onMouseLeave={() => setHoverRating(0)}
+            disabled={submitting}
+            style={{ background: 'none', border: 'none', padding: 2, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex' }}
+          >
+            <Star size={22} fill={n <= shown ? '#F59E0B' : 'none'} color={n <= shown ? '#F59E0B' : 'var(--txt-dim)'} />
+          </button>
+        ))}
+      </div>
+      {rating > 0 && (
+        <>
+          <textarea
+            style={{ ...inputStyle, minHeight: 50, resize: 'vertical', fontFamily: 'inherit', marginBottom: 10 }}
+            placeholder="Anything else you'd like to add? (optional)"
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            disabled={submitting}
+          />
+          <button onClick={submit} disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+            {submitting ? 'Submitting…' : 'Submit Rating'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Shown once a rating has already been submitted — just a quiet confirmation, not editable
+// (matches the backend's "once per closure" rule; reopening is the only way to rate again).
+function SatisfactionSummary({ rating, comment }: { rating: number; comment: string | null }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+        {[1, 2, 3, 4, 5].map(n => <Star key={n} size={15} fill={n <= rating ? '#F59E0B' : 'none'} color={n <= rating ? '#F59E0B' : 'var(--txt-dim)'} />)}
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
+        Thanks for rating this ticket.{comment && <div style={{ marginTop: 4, fontStyle: 'italic' }}>"{comment}"</div>}
+      </div>
+    </div>
+  );
+}
+
+// CLOSED + still within the backend's reopen window (see TicketDetail.reopenable) — the one
+// exception to "closed tickets can't be reopened" the employee can act on themselves.
+function ReopenSection({ ticketId, token, onReopened }: { ticketId: string; token: string; onReopened: () => void }) {
+  const { showToast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    setSubmitting(true);
+    try {
+      await helpdeskApi.reopen(ticketId, reason.trim() || undefined, token);
+      showToast('success', 'Ticket reopened');
+      onReopened();
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to reopen ticket');
+      setSubmitting(false);
+    }
+  }
+
+  if (!expanded) {
+    return (
+      <button onClick={() => setExpanded(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: '1px solid var(--line2)', color: 'var(--txt-mut)', borderRadius: 7, padding: '7px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginBottom: 16 }}>
+        <Undo2 size={13} /> Not fixed? Reopen this ticket
+      </button>
+    );
+  }
+  return (
+    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', marginBottom: 10 }}>Reopen this ticket</div>
+      <textarea
+        style={{ ...inputStyle, minHeight: 60, resize: 'vertical', fontFamily: 'inherit', marginBottom: 10 }}
+        placeholder="What's still wrong? (optional)"
+        value={reason}
+        onChange={e => setReason(e.target.value)}
+        disabled={submitting}
+        autoFocus
+      />
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button onClick={() => setExpanded(false)} disabled={submitting} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, cursor: submitting ? 'not-allowed' : 'pointer' }}>
+          Cancel
+        </button>
+        <button onClick={submit} disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+          {submitting ? 'Reopening…' : 'Reopen Ticket'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TicketDetailView({ ticketId, token, onBack, onChanged }: {
   ticketId: string; token: string; onBack: () => void; onChanged: () => void;
 }) {
@@ -281,13 +409,23 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <CheckCircle2 size={16} style={{ color: 'var(--ok)', flexShrink: 0 }} />
             <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
-              HR marked this resolved. If everything looks good, close it — closed tickets can't be reopened.
+              HR marked this resolved. If everything looks good, close it — you can still reopen it for a week after closing if it turns out it's not actually fixed.
             </span>
           </div>
           <button onClick={handleClose} disabled={closing} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, fontWeight: 600, cursor: closing ? 'not-allowed' : 'pointer', opacity: closing ? 0.7 : 1, whiteSpace: 'nowrap' }}>
             {closing ? 'Closing…' : 'Close Ticket'}
           </button>
         </div>
+      )}
+
+      {ticket.status === 'CLOSED' && (
+        ticket.satisfactionSubmittedAt
+          ? <SatisfactionSummary rating={ticket.satisfactionRating ?? 0} comment={ticket.satisfactionComment} />
+          : <SatisfactionPrompt ticketId={ticketId} token={token} onSubmitted={() => { load(); onChanged(); }} />
+      )}
+
+      {ticket.status === 'CLOSED' && ticket.reopenable && (
+        <ReopenSection ticketId={ticketId} token={token} onReopened={() => { load(); onChanged(); }} />
       )}
 
       {ticket.status !== 'CLOSED' ? (
@@ -309,9 +447,9 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
             </button>
           </div>
         </form>
-      ) : (
-        <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', textAlign: 'center' }}>This ticket is closed and cannot be reopened.</div>
-      )}
+      ) : !ticket.reopenable ? (
+        <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', textAlign: 'center' }}>This ticket is closed and can no longer be reopened.</div>
+      ) : null}
     </div>
   );
 }
@@ -339,7 +477,7 @@ const CONTENT_TYPE_LABEL: Record<HelpContentType, string> = {
 // extra actions rather than turning into a separate admin dashboard. Which links appear is
 // driven entirely by `item.status` — see HelpContentService for the six-state lifecycle these
 // mirror (DRAFT/PENDING_APPROVAL/APPROVED/PUBLISHED/UNPUBLISHED/ARCHIVED).
-const addContentBtnStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--line2)', color: 'var(--brand)', fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' };
+const addContentBtnStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, background: 'color-mix(in srgb, var(--brand) 8%, var(--panel))', border: '1px solid color-mix(in srgb, var(--brand) 32%, transparent)', color: 'var(--brand)', fontSize: 12.5, fontWeight: 700, padding: '8px 14px', borderRadius: 10, cursor: 'pointer' };
 
 const STATUS_LABEL: Record<HelpContentStatus, string> = {
   DRAFT: 'Draft', PENDING_APPROVAL: 'Pending Approval', APPROVED: 'Approved',
@@ -431,23 +569,8 @@ function actionsForStatus(item: HelpContentSummary, actions: ContentAdminActions
  * same convention already used for the Publish button itself.
  */
 function ActionIconButton({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean }) {
-  const [hovered, setHovered] = useState(false);
   return (
-    <button
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        width: 30, height: 30, borderRadius: 6, cursor: 'pointer',
-        background: hovered ? (danger ? 'rgba(228,55,61,.08)' : 'var(--raised2)') : 'transparent',
-        border: `1px solid ${hovered ? (danger ? 'rgba(228,55,61,.2)' : 'var(--line2)') : 'transparent'}`,
-        color: danger ? '#E4373D' : (hovered ? 'var(--txt)' : 'var(--txt-mut)'),
-        transition: 'background .15s, border-color .15s, color .15s',
-      }}
-    >
+    <button type="button" onClick={onClick} title={label} aria-label={label} className={`nf-dock-btn${danger ? ' is-danger' : ''}`}>
       <Icon size={14} />
     </button>
   );
@@ -477,14 +600,14 @@ function AdminItemControls({ item, actions, busy }: { item: HelpContentSummary; 
               onClick={() => actions.onPublish(item)}
               title="Publish"
               aria-label="Publish"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+              className="nf-dock-btn nf-dock-btn--publish"
             >
               <ArrowUp size={14} />
             </button>
           )}
           {buttons.map(b => (
             <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              {b.dividerBefore && <span style={{ width: 1, height: 16, background: 'var(--line)', margin: '0 2px' }} />}
+              {b.dividerBefore && <span style={{ width: 1, height: 18, background: 'var(--line2)', margin: '0 4px' }} />}
               <ActionIconButton icon={b.icon} label={b.label} onClick={b.onClick} danger={b.danger} />
             </div>
           ))}
@@ -534,12 +657,15 @@ function ReasonPromptModal({ title, label, onConfirm, onClose }: {
   );
 }
 
-function SectionHeader({ title, description, action }: { title: string; description?: string; action?: React.ReactNode }) {
+function SectionHeader({ title, description, action, icon: Icon }: { title: string; description?: string; action?: React.ReactNode; icon?: LucideIcon }) {
   return (
-    <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-      <div>
-        <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 16, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{title}</h2>
-        {description && <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 4, marginBottom: 0 }}>{description}</p>}
+    <div style={{ marginBottom: 16, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        {Icon && <span className="nf-opp-ico"><Icon size={18} /></span>}
+        <div>
+          <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 19, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)', margin: 0 }}>{title}</h2>
+          {description && <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 4, marginBottom: 0 }}>{description}</p>}
+        </div>
       </div>
       {action}
     </div>
@@ -568,8 +694,8 @@ function AttachmentIndicator({ contentId, count, token, kind }: { contentId: str
         <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
           📎 This {kind} has {count} attachment{count === 1 ? '' : 's'}. Would you like to take a look?
         </span>
-        <button onClick={open} style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '3px 10px', color: 'var(--brand)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          View Attachments
+        <button type="button" className="nf-act-btn" onClick={open}>
+          <Paperclip size={13} />View Attachments
         </button>
       </div>
       {viewing && attachments && (
@@ -597,10 +723,10 @@ function GuideListItem({ item, onOpen, token, isAdmin, actions, busy }: {
   // either 404 or spin forever on employee-facing endpoints that only ever resolve PUBLISHED ids.
   const canOpen = item.status !== 'DRAFT';
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 18px', minHeight: 56 }}>
-      <Icon size={16} style={{ color: 'var(--brand)', flexShrink: 0, marginTop: 2 }} />
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', minHeight: 56 }}>
+      <span className="nf-faq-ico"><Icon size={16} /></span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{item.title}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{item.title}</div>
         {item.description && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>{item.description}</div>}
         {item.attachmentCount > 0 && (
           <div style={{ marginTop: 5 }}><AttachmentIndicator contentId={item.id} count={item.attachmentCount} token={token} kind={CONTENT_TYPE_LABEL[item.type]} /></div>
@@ -612,7 +738,7 @@ function GuideListItem({ item, onOpen, token, isAdmin, actions, busy }: {
       {canOpen && (
         <button
           onClick={onOpen}
-          style={{ alignSelf: 'center', background: 'none', border: '1px solid var(--line2)', color: 'var(--brand)', fontSize: 12, fontWeight: 600, padding: '5px 11px', borderRadius: 6, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}
+          className="nf-act-btn nf-act-btn--primary" style={{ alignSelf: 'center', flexShrink: 0 }}
         >
           Open
         </button>
@@ -629,9 +755,9 @@ function GuideList({ items, onOpen, token, isAdmin, actions, busyIds }: {
     return <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)' }}>No guides published yet.</div>;
   }
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-      {items.map((item, i) => (
-        <div key={item.id} style={{ borderBottom: i < items.length - 1 ? '1px solid var(--line)' : 'none' }}>
+    <div className="nf-faq-list">
+      {items.map(item => (
+        <div key={item.id} className="nf-faq-item">
           <GuideListItem item={item} onOpen={() => onOpen(item.id)} token={token} isAdmin={isAdmin} actions={actions} busy={busyIds?.has(item.id)} />
         </div>
       ))}
@@ -697,7 +823,7 @@ function ContentModal({ id, token, isAdmin, viewedRef, onClose, onContactHR }: {
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
-            <button onClick={() => onContactHR(item.title)} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+            <button onClick={() => onContactHR(item.title)} className="nf-link-btn">
               Still need help? Contact HR Support →
             </button>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>
@@ -740,25 +866,22 @@ function FAQAccordion({ items, token, isAdmin, actions, busyIds }: {
   }
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-      {items.map((faq, i) => {
+    <div className="nf-faq-list">
+      {items.map(faq => {
         const isOpen = openId === faq.id;
         return (
-          <div key={faq.id} style={{ borderBottom: i < items.length - 1 ? '1px solid var(--line)' : 'none' }}>
+          <div key={faq.id} className={`nf-faq-item${isOpen ? ' is-open' : ''}`}>
             <button
               onClick={() => toggle(faq)}
               aria-expanded={isOpen}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-                padding: '14px 18px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
-                fontSize: 13.5, fontWeight: 600, color: 'var(--txt)', fontFamily: 'inherit',
-              }}
+              className="nf-faq-q"
             >
-              {faq.title}
-              <ChevronDown size={16} style={{ color: 'var(--txt-dim)', flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+              <span className="nf-faq-ico"><HelpCircle size={16} /></span>
+              <span style={{ flex: 1 }}>{faq.title}</span>
+              <ChevronDown size={16} className="nf-faq-chev" />
             </button>
             {isOpen && (
-              <div style={{ padding: '0 18px 16px', fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.6 }}>
+              <div className="nf-faq-a">
                 {faq.description || 'No further detail available.'}
                 {faq.attachmentCount > 0 && (
                   <div style={{ marginTop: 8 }}><AttachmentIndicator contentId={faq.id} count={faq.attachmentCount} token={token} kind="FAQ" /></div>
@@ -766,7 +889,7 @@ function FAQAccordion({ items, token, isAdmin, actions, busyIds }: {
               </div>
             )}
             {isAdmin && actions && (
-              <div style={{ padding: '0 18px 12px' }}><AdminItemControls item={faq} actions={actions} busy={busyIds?.has(faq.id)} /></div>
+              <div style={{ padding: '0 18px 14px' }}><AdminItemControls item={faq} actions={actions} busy={busyIds?.has(faq.id)} /></div>
             )}
           </div>
         );
@@ -786,17 +909,13 @@ const STATUS_FILTER_OPTIONS: Array<HelpContentStatus | 'ALL'> = ['ALL', 'DRAFT',
  */
 function StatusFilterBar({ value, onChange, counts }: { value: HelpContentStatus | 'ALL'; onChange: (v: HelpContentStatus | 'ALL') => void; counts: Record<string, number> }) {
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-      {STATUS_FILTER_OPTIONS.map(s => (
-        <button key={s} onClick={() => onChange(s)} style={{
-          padding: '5px 12px', borderRadius: 20, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', border: 'none',
-          background: value === s ? 'var(--brand)' : 'var(--raised)',
-          color: value === s ? '#fff' : 'var(--txt-mut)',
-        }}>
-          {s === 'ALL' ? 'All' : STATUS_LABEL[s]} {(counts[s] ?? 0) > 0 && <span style={{ marginLeft: 4, opacity: 0.8 }}>{counts[s]}</span>}
-        </button>
-      ))}
-    </div>
+    <ChipGroup
+      ariaLabel="Status filter"
+      style={{ marginBottom: 14 }}
+      value={value}
+      onChange={onChange}
+      options={STATUS_FILTER_OPTIONS.map(s => ({ key: s, label: s === 'ALL' ? 'All' : STATUS_LABEL[s], count: counts[s] }))}
+    />
   );
 }
 
@@ -1059,7 +1178,7 @@ export default function HelpDeskPage() {
       const updated = await hrHelpContentApi.withdraw(item.id, reason, token);
       applyContentUpdate(updated);
     });
-    showToast('success', 'Withdrawn — back to Draft');
+    showToast('success', 'Withdrawn - back to Draft');
     setWithdrawing(null);
   }
 
@@ -1092,7 +1211,7 @@ export default function HelpDeskPage() {
   function handleArchive(item: HelpContentSummary) {
     setConfirmAction({
       title: 'Archive',
-      body: `Archive "${item.title}"? It will be hidden from employees and moved to Archived — you can restore it later.`,
+      body: `Archive "${item.title}"? It will be hidden from employees and moved to Archived - you can restore it later.`,
       confirmLabel: 'Archive',
       run: () => runAction(item.id, async () => {
         const updated = await hrHelpContentApi.archive(item.id, token);
@@ -1110,7 +1229,7 @@ export default function HelpDeskPage() {
       run: () => runAction(item.id, async () => {
         const updated = await hrHelpContentApi.restore(item.id, token);
         applyContentUpdate(updated);
-        showToast('success', 'Restored to Draft — submit for approval again when ready');
+        showToast('success', 'Restored to Draft - submit for approval again when ready');
       }),
     });
   }
@@ -1174,9 +1293,9 @@ export default function HelpDeskPage() {
   if (selectedId) {
     return (
       <div>
-        <div style={{ marginBottom: 18 }}>
+        <PageTitleBlock card icon={LifeBuoy} style={{ marginBottom: 18 }}>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
-        </div>
+        </PageTitleBlock>
         <TicketDetailView ticketId={selectedId} token={token} onBack={() => { setSelectedId(null); loadTickets(); }} onChanged={loadTickets} />
       </div>
     );
@@ -1187,25 +1306,24 @@ export default function HelpDeskPage() {
   return (
     <div>
       {/* 1. Header */}
-      <div style={{ marginBottom: 20 }}>
+      <PageTitleBlock card icon={LifeBuoy} style={{ marginBottom: 20 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4, maxWidth: 640 }}>
-          Find an answer yourself, or reach HR directly — all from one place.
+          Find an answer yourself, or reach HR directly - all from one place.
         </p>
-      </div>
+      </PageTitleBlock>
 
       {/* 2. Hero row: search + Contact HR Support — both visible without scrolling */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 32 }}>
-        <div style={{ position: 'relative', flex: '1 1 320px', minWidth: 220 }}>
-          <Search size={14} style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+        <label className="nf-hero-search" style={{ flex: '1 1 320px', minWidth: 220 }}>
+          <Search size={16} />
           <input
             placeholder="Search FAQs, guides, and quick help…"
             value={contentSearch}
             onChange={e => setContentSearch(e.target.value)}
-            style={{ width: '100%', boxSizing: 'border-box', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '11px 14px 11px 34px', color: 'var(--txt)', fontSize: 13.5, outline: 'none' }}
           />
-        </div>
-        <button onClick={() => { setContactPrefill(''); setShowContactModal(true); }} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '0 20px', fontSize: 13.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+        </label>
+        <button onClick={() => { setContactPrefill(''); setShowContactModal(true); }} className="nf-hero-cta">
           <HelpCircle size={15} /> Contact HR Support
         </button>
       </div>
@@ -1246,6 +1364,7 @@ export default function HelpDeskPage() {
         <div className="nf-autofit-mobile-safe" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 24, marginBottom: 32, alignItems: 'start' }}>
           <div>
             <SectionHeader
+              icon={HelpCircle}
               title="Frequently Asked Questions"
               description="Quick answers to the questions HR hears most."
               action={
@@ -1254,7 +1373,7 @@ export default function HelpDeskPage() {
                     <button onClick={() => openCreateContent('FAQ')} style={addContentBtnStyle}><Plus size={12} /> Add FAQ</button>
                   )}
                   {faqs.length > 0 && (
-                    <button onClick={() => setShowAllFaqs(true)} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+                    <button onClick={() => setShowAllFaqs(true)} className="nf-link-btn">
                       View all →
                     </button>
                   )}
@@ -1266,6 +1385,7 @@ export default function HelpDeskPage() {
 
           <div>
             <SectionHeader
+              icon={BookOpen}
               title="Quick Help & Guides"
               description="Guides, policies, and documents curated by HR."
               action={
@@ -1274,7 +1394,7 @@ export default function HelpDeskPage() {
                     <button onClick={() => openCreateContent('GUIDE')} style={addContentBtnStyle}><Plus size={12} /> Add Guide</button>
                   )}
                   {guides.length > 0 && (
-                    <button onClick={() => setShowAllGuides(true)} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+                    <button onClick={() => setShowAllGuides(true)} className="nf-link-btn">
                       View all →
                     </button>
                   )}
@@ -1291,7 +1411,7 @@ export default function HelpDeskPage() {
         <SectionHeader
           title="My Requests"
           action={!showAllRequests && tickets.length > 0 && (
-            <button onClick={() => setShowAllRequests(true)} style={{ background: 'none', border: 'none', color: 'var(--brand)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+            <button onClick={() => setShowAllRequests(true)} className="nf-link-btn">
               View all requests →
             </button>
           )}
@@ -1307,17 +1427,13 @@ export default function HelpDeskPage() {
                 style={{ flex: '1 1 240px', minWidth: 200, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 12px', color: 'var(--txt)', fontSize: 13, outline: 'none' }}
               />
             </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-              {STATUS_FILTERS.map(s => (
-                <button key={s} onClick={() => setStatusFilter(s)} style={{
-                  padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
-                  background: statusFilter === s ? 'var(--brand)' : 'var(--raised)',
-                  color: statusFilter === s ? '#fff' : 'var(--txt-mut)',
-                }}>
-                  {s === 'ALL' ? 'All' : s.replace(/_/g, ' ')}
-                </button>
-              ))}
-            </div>
+            <ChipGroup
+              ariaLabel="Status filter"
+              style={{ marginBottom: 16 }}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={STATUS_FILTERS.map(s => ({ key: s, label: s === 'ALL' ? 'All' : s.replace(/_/g, ' ') }))}
+            />
           </>
         )}
 

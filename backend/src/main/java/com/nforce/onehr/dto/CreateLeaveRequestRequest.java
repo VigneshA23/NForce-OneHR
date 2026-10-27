@@ -19,6 +19,9 @@ public class CreateLeaveRequestRequest {
 
     private boolean halfDay = false;
 
+    /** Required when halfDay is true — FIRST_HALF or SECOND_HALF (see LeaveHalfDaySession). Null otherwise. */
+    private String halfDaySession;
+
     @NotBlank
     private String reason;
 }

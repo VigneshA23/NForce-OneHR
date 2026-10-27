@@ -45,6 +45,7 @@ class UserManagementServiceTest {
     @Mock private RoleRepository roleRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private EmployeeManagerHistoryRepository historyRepository;
+    @Mock private ManagerRoleSyncService managerRoleSyncService;
     @Mock private DepartmentRepository departmentRepository;
     @Mock private DesignationRepository designationRepository;
     @Mock private LocationRepository locationRepository;
@@ -474,6 +475,28 @@ class UserManagementServiceTest {
         void assigningInactiveShift_throwsWithoutPersistingEmployee() {
             req.setShiftId(inactiveShiftId);
             when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> userManagementService.createUser(req, actorEmail));
+
+            verify(employeeRepository, never()).save(any());
+        }
+
+        // Regression: the Designation dropdown used to hand out every org-wide designation
+        // regardless of the selected Department (e.g. "QA Engineer III" selectable under
+        // Finance) — this is the backend backstop for that same invalid combination.
+        @Test
+        void designationFromAnotherDepartment_throwsWithoutPersistingEmployee() {
+            UUID financeId = UUID.randomUUID();
+            Department finance = Department.builder().id(financeId).name("Finance").active(true).build();
+            UUID engineeringId = UUID.randomUUID();
+            UUID qaEngineerId = UUID.randomUUID();
+            Designation qaEngineer = Designation.builder().id(qaEngineerId).title("QA Engineer III").active(true).departmentId(engineeringId).build();
+            req.setDepartmentId(financeId);
+            req.setDesignationId(qaEngineerId);
+            when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+            when(departmentRepository.findById(financeId)).thenReturn(Optional.of(finance));
+            when(designationRepository.findById(qaEngineerId)).thenReturn(Optional.of(qaEngineer));
 
             assertThrows(IllegalArgumentException.class,
                     () -> userManagementService.createUser(req, actorEmail));

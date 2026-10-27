@@ -1,14 +1,17 @@
+import { useRef, type KeyboardEvent } from 'react';
+import { LayoutGrid, Users, Clock, CalendarCheck, Receipt, Package, Shield, MoreHorizontal } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ActionGroup } from '../../api/audit';
 
-const GROUPS: { key: ActionGroup | 'ALL'; label: string }[] = [
-  { key: 'ALL', label: 'All' },
-  { key: 'EMPLOYEE', label: 'Employee' },
-  { key: 'ATTENDANCE', label: 'Attendance' },
-  { key: 'LEAVE', label: 'Leave' },
-  { key: 'EXPENSE', label: 'Expense' },
-  { key: 'ASSET', label: 'Asset' },
-  { key: 'ACCESS', label: 'Access' },
-  { key: 'OTHER', label: 'Other' },
+const GROUPS: { key: ActionGroup | 'ALL'; label: string; icon: LucideIcon; color: string }[] = [
+  { key: 'ALL', label: 'All', icon: LayoutGrid, color: 'var(--brand)' },
+  { key: 'EMPLOYEE', label: 'Employee', icon: Users, color: 'var(--info)' },
+  { key: 'ATTENDANCE', label: 'Attendance', icon: Clock, color: 'var(--warn)' },
+  { key: 'LEAVE', label: 'Leave', icon: CalendarCheck, color: 'var(--ok)' },
+  { key: 'EXPENSE', label: 'Expense', icon: Receipt, color: 'var(--brand)' },
+  { key: 'ASSET', label: 'Asset', icon: Package, color: 'var(--info)' },
+  { key: 'ACCESS', label: 'Access', icon: Shield, color: 'var(--risk)' },
+  { key: 'OTHER', label: 'Other', icon: MoreHorizontal, color: 'var(--txt-mut)' },
 ];
 
 interface Props {
@@ -18,25 +21,46 @@ interface Props {
   showAccess: boolean;
 }
 
+// Each category swaps the whole log below it, so it stays a tablist (arrow keys move between tabs),
+// drawn as coloured pills with a category icon; the active one fills with its colour.
+// No per-category counts: the API only returns the active group's total.
 export function AuditCategoryChips({ active, onChange, showAccess }: Props) {
-  const chips = GROUPS.filter(g => g.key !== 'ACCESS' || showAccess);
+  const ref = useRef<HTMLDivElement>(null);
+  const tabs = GROUPS.filter(g => g.key !== 'ACCESS' || showAccess);
+
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if ((e.target as HTMLElement).getAttribute('role') !== 'tab') return;
+    const i = tabs.findIndex(t => t.key === active);
+    let next: number | null = null;
+    if (e.key === 'ArrowRight') next = (i + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = tabs.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    const key = tabs[next].key;
+    onChange(key);
+    ref.current?.querySelector<HTMLButtonElement>(`[data-tab-key="${key}"]`)?.focus();
+  }
+
   return (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      {chips.map(c => {
-        const isActive = active === c.key;
+    <div ref={ref} role="tablist" aria-label="Audit category" className="nf-audit-pills" onKeyDown={onKeyDown}>
+      {tabs.map(t => {
+        const on = t.key === active;
         return (
           <button
-            key={c.key}
-            onClick={() => onChange(c.key)}
-            style={{
-              padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-              border: `1px solid ${isActive ? 'var(--brand)' : 'var(--line2)'}`,
-              background: isActive ? 'var(--brand)' : 'var(--raised)',
-              color: isActive ? '#fff' : 'var(--txt-mut)',
-              cursor: 'pointer',
-            }}
+            key={t.key}
+            type="button"
+            role="tab"
+            data-tab-key={t.key}
+            aria-selected={on}
+            tabIndex={on ? 0 : -1}
+            className={`nf-audit-pill${on ? ' is-active' : ''}`}
+            style={{ ['--pc' as string]: t.color }}
+            onClick={() => onChange(t.key)}
           >
-            {c.label}
+            <t.icon size={15} />
+            <span>{t.label}</span>
           </button>
         );
       })}

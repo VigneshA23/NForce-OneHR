@@ -24,7 +24,9 @@ public final class ExceptionType {
     // Reserved — a worked day short of the expected hours is not detected as an exception yet.
     public static final String WORK_HOURS_SHORTAGE = "WORK_HOURS_SHORTAGE";
 
-    // Reserved — an early checkout is not detected as an exception yet.
+    // A past working day checked out before the snapshotted shift's scheduled end. Detected and
+    // listed on Regularize & Cancel Penalties; no Penalization Policy section penalizes it yet
+    // (ConfiguredAttendancePolicyEngine returns NO_MATCH for it).
     public static final String EARLY_DEPARTURE = "EARLY_DEPARTURE";
 
     // A leave request still awaiting approval. Synthesized directly from LeaveRequest at

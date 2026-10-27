@@ -290,7 +290,9 @@ export interface TeamPunctualityResponse {
   summary: PunctualitySummary;
 }
 
-export type AttendancePenaltyStatus = 'PENDING_REVIEW' | 'APPLIED' | 'CANCELLED' | 'REVERSED';
+// NOT_PENALIZED: a detected late arrival / early departure / missing punch with no penalty behind
+// it (list/filter value only, never cancellable).
+export type AttendancePenaltyStatus = 'PENDING_REVIEW' | 'APPLIED' | 'CANCELLED' | 'REVERSED' | 'NOT_PENALIZED';
 
 /** One row of the Regularize & Cancel Penalties table. */
 export interface PenaltyRow {
@@ -299,7 +301,7 @@ export interface PenaltyRow {
   fullName: string;
   employeeCode: string;
   incidentDate: string;
-  penalizedOn: string;
+  penalizedOn: string | null;
   status: AttendancePenaltyStatus;
   locationName: string | null;
   departmentName: string | null;
@@ -442,7 +444,7 @@ export const attendanceApi = {
 };
 
 export const penaltiesApi = {
-  // Because there is no active attendance penalty policy today, an empty list is expected.
+  // Penalties plus detected-but-not-penalized late arrivals, early departures and missing punches.
   list: (filters: PenaltyFilters, token: string) => {
     const params = new URLSearchParams({ from: filters.from, to: filters.to });
     if (filters.status) params.set('status', filters.status);

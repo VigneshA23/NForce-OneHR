@@ -3,9 +3,15 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveRequestResponse;
+import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
+import com.nforce.onehr.entity.Holiday;
+import com.nforce.onehr.entity.Location;
+import com.nforce.onehr.entity.EmployeeShiftAssignment;
+import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveDurationType;
+import com.nforce.onehr.entity.LeaveHalfDaySession;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.LeaveTypeClassification;
@@ -13,6 +19,7 @@ import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LeaveBalanceRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
@@ -27,8 +34,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -66,6 +75,9 @@ class LeaveServiceTest {
     @Mock private NotificationService notificationService;
     @Mock private AttendanceProperties attendanceProperties;
     @Mock private ExceptionService exceptionService;
+    // Unstubbed by default → Optional.empty() (no shift) → every date counts, the pre-shift rule.
+    @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    @Mock private HolidayRepository holidayRepository;
 
     @InjectMocks private LeaveService leaveService;
 
@@ -83,6 +95,7 @@ class LeaveServiceTest {
     private LeaveType sick;
     private LeaveType casual;
     private LeaveType lossOfPay;
+    private LeaveType sabbatical;
 
     @BeforeEach
     void setUp() {
@@ -93,6 +106,10 @@ class LeaveServiceTest {
         sick = LeaveType.builder().id(UUID.randomUUID()).code("SICK").name("Sick Leave").build();
         casual = LeaveType.builder().id(UUID.randomUUID()).code("CASUAL").name("Casual Leave").build();
         lossOfPay = LeaveType.builder().id(UUID.randomUUID()).code("LOP").name("Loss of Pay")
+                .classification(LeaveTypeClassification.UNPAID).build();
+        // A second, independently-named Unpaid type — used to prove the new balance-vs-unpaid
+        // rule (see below) is driven by classification, not by "LOP"/"Loss of Pay" specifically.
+        sabbatical = LeaveType.builder().id(UUID.randomUUID()).code("SABBATICAL").name("Sabbatical")
                 .classification(LeaveTypeClassification.UNPAID).build();
 
         // employeeName() falls back to userRepository when there's no Employee row —
@@ -112,6 +129,14 @@ class LeaveServiceTest {
         lenient().when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
                         any(), any(), eq("PENDING"), any(), any()))
                 .thenReturn(BigDecimal.ZERO);
+        // update()'s exclude-self variants of the same two guards — same zero/false defaults,
+        // overridden explicitly by tests that care about them.
+        lenient().when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetweenAndIdNot(
+                        any(), any(), eq("PENDING"), any(), any(), any()))
+                .thenReturn(BigDecimal.ZERO);
+        lenient().when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
+                        any(), any(), any(), any(), any()))
+                .thenReturn(false);
         // Pinned to the JVM's own default zone (not a hardcoded business zone like
         // "Asia/Kolkata") so LeaveService's zone-aware "today" always matches this test's own
         // LocalDate.now() calls, regardless of which machine/CI runner executes the suite.
@@ -135,12 +160,17 @@ class LeaveServiceTest {
         req.setStartDate(start);
         req.setEndDate(end);
         req.setHalfDay(halfDay);
+        if (halfDay) req.setHalfDaySession(LeaveHalfDaySession.FIRST_HALF);
         req.setReason(reason);
         return req;
     }
 
     private LeaveBalance balanceOf(BigDecimal total, BigDecimal used) {
-        return LeaveBalance.builder().employeeUserId(employeeId).leaveType(annual)
+        return balanceOf(annual, total, used);
+    }
+
+    private LeaveBalance balanceOf(LeaveType type, BigDecimal total, BigDecimal used) {
+        return LeaveBalance.builder().employeeUserId(employeeId).leaveType(type)
                 .year(LocalDate.now().getYear()).totalDays(total).usedDays(used).build();
     }
 
@@ -164,6 +194,62 @@ class LeaveServiceTest {
         assertEquals(new BigDecimal("3"), resp.getTotalDays()); // inclusive day count
         verify(leaveBalanceRepository, never()).save(any());
         verify(auditService).log(employeeId, "LEAVE_REQUEST_SUBMITTED", resp.getId());
+    }
+
+    private void stubShiftWorkingDays(String workingDays) {
+        Shift shift = Shift.builder().name("Test Shift").workingDays(workingDays).build();
+        when(employeeShiftAssignmentResolver.resolveIfPresent(eq(employeeId), any()))
+                .thenReturn(Optional.of(EmployeeShiftAssignment.builder().employeeUserId(employeeId).shift(shift).build()));
+    }
+
+    private LeaveRequestResponse submitAnnual(LocalDate start, LocalDate end) {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        lenient().when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        lenient().when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+        return leaveService.submitRequest(request(start, end, false, "Trip"), employeeEmail);
+    }
+
+    private void assertRejected(LocalDate start, LocalDate end, String expectedMessagePart) {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> submitAnnual(start, end));
+        assertTrue(ex.getMessage().contains(expectedMessagePart), ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_rangeIncludingShiftOffDay_isRejectedNamingTheDate() {
+        stubShiftWorkingDays("MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY");
+        LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
+
+        assertRejected(friday, friday.plusDays(3), "Saturday, " + friday.plusDays(1).getDayOfMonth() + " ");
+    }
+
+    @Test
+    void submitRequest_weekendAllowedWhenShiftWorksIt() {
+        stubShiftWorkingDays("TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY");
+        LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
+
+        assertEquals(new BigDecimal("3"), submitAnnual(friday, friday.plusDays(2)).getTotalDays());
+        // ...but Monday is this shift's off day.
+        clearInvocations(leaveRequestRepository);
+        assertRejected(friday, friday.plusDays(3), "non-working day for your shift");
+    }
+
+    private void stubLocationHoliday(LocalDate date) {
+        Location location = Location.builder().id(UUID.randomUUID()).build();
+        when(employeeRepository.findById(employeeId))
+                .thenReturn(Optional.of(Employee.builder().userId(employeeId).location(location).build()));
+        when(holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(location.getId()))
+                .thenReturn(List.of(Holiday.builder().holidayName("Diwali").holidayDate(date).location(location).build()));
+    }
+
+    @Test
+    void submitRequest_rangeIncludingHoliday_isRejectedNamingTheHoliday() {
+        LocalDate monday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+        stubLocationHoliday(monday.plusDays(2));
+
+        assertRejected(monday, monday.plusDays(4), "it is a holiday (Diwali)");
     }
 
     @Test
@@ -236,13 +322,29 @@ class LeaveServiceTest {
     // ── Leave Type Paid/Unpaid classification ───────────────────────────────────────────────
 
     @Test
-    void submitRequest_unpaidLeaveType_neverChecksOrRequiresABalance() {
+    void submitRequest_unpaidLeaveType_isRejected_whenPaidBalanceIsAvailable() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        // 10 days still available on the (paid) Annual balance.
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
+                .thenReturn(List.of(balanceOf(new BigDecimal("15"), new BigDecimal("5"))));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail));
+        assertEquals("You cannot apply for unpaid leave while you have an available paid leave balance.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_unpaidLeaveType_isAllowed_whenNoPaidBalanceRemains() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        // Fully exhausted — nothing left to use before going unpaid.
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
+                .thenReturn(List.of(balanceOf(new BigDecimal("15"), new BigDecimal("15"))));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        // No leaveBalanceRepository stub configured at all — an Unpaid type must never look one up,
-        // so its 10-day Paid balance (from any other type) is left completely untouched.
         LocalDate start = LocalDate.now().plusDays(5);
         LeaveRequestResponse resp = leaveService.submitRequest(
                 request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
@@ -250,7 +352,27 @@ class LeaveServiceTest {
         assertEquals("PENDING", resp.getStatus());
         assertEquals(new BigDecimal("3"), resp.getTotalDays());
         assertEquals(LeaveTypeClassification.UNPAID, resp.getLeaveTypeClassification());
+        // Confirms an Unpaid submission itself still never deducts from or writes to any balance
+        // row — it only reads the paid balances to confirm none remain available.
         verify(leaveBalanceRepository, never()).findByEmployeeUserIdAndLeaveTypeIdAndYear(any(), any(), any());
+        verify(leaveBalanceRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_unpaidLeaveType_isAllowed_whenEmployeeHasNoBalanceRowsAtAll() {
+        // No LeaveBalance rows at all (e.g. opening balances not yet seeded) must not be read as
+        // "balance available" — Unpaid still has to be reachable, not blocked by treating an empty
+        // list as a positive balance.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any())).thenReturn(List.of());
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
     }
 
     @Test
@@ -275,6 +397,88 @@ class LeaveServiceTest {
         assertEquals(LeaveTypeClassification.UNPAID, approved.getLeaveTypeClassification());
         verify(leaveBalanceRepository, never()).findByEmployeeUserIdAndLeaveTypeIdAndYear(any(), any(), any());
         verify(leaveBalanceRepository, never()).save(any());
+    }
+
+    // ── Unpaid leave blocked while an applicable paid balance is available ──────────────────
+    //
+    // Driven purely by LeaveType#classification (see LeaveService#hasAnyPositivePaidBalance) —
+    // no leave-type name/code is hardcoded, so this must hold for every Unpaid-classified type.
+
+    @Test
+    void submitRequest_unpaidLeaveType_rejectedWhenPaidBalanceAvailable() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
+                .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), BigDecimal.ZERO)));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail));
+        assertEquals("You cannot apply for unpaid leave while you have an available paid leave balance.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_anotherUnpaidLeaveType_alsoRejectedWhenPaidBalanceAvailable() {
+        // Same rule, a different Unpaid-classified type — proves the check isn't tied to "LOP".
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("SABBATICAL")).thenReturn(Optional.of(sabbatical));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
+                .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), BigDecimal.ZERO)));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request("SABBATICAL", start, start.plusDays(1), false, "Career break"), employeeEmail));
+        assertEquals("You cannot apply for unpaid leave while you have an available paid leave balance.", ex.getMessage());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void submitRequest_paidLeaveType_unaffectedByTheUnpaidBlockingRule() {
+        // Existing Paid-type behavior preserved: the new rule only ever evaluates for Unpaid
+        // types, so a Paid submission never even calls the new balance-scan repository method.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        LeaveRequestResponse resp = leaveService.submitRequest(request(start, start.plusDays(2), false, "Vacation"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+        verify(leaveBalanceRepository, never()).findByEmployeeUserIdAndYear(any(), any());
+    }
+
+    @Test
+    void submitRequest_unpaidLeaveType_allowedWhenPaidBalanceIsZero() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
+                .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), new BigDecimal("15")))); // fully consumed
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
+    }
+
+    @Test
+    void submitRequest_unpaidLeaveType_allowedWhenNoPaidBalanceRowExists() {
+        // No LeaveBalance rows configured at all for this employee/year — "no applicable paid
+        // balance" must be treated as zero (existing Unpaid behavior), not as an error.
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any())).thenReturn(List.of());
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate start = LocalDate.now().plusDays(5);
+        LeaveRequestResponse resp = leaveService.submitRequest(
+                request("LOP", start, start.plusDays(2), false, "Unpaid trip"), employeeEmail);
+
+        assertEquals("PENDING", resp.getStatus());
     }
 
     // ── Status-aware annual-leave-limit enforcement ─────────────────────────────────────────
@@ -969,6 +1173,99 @@ class LeaveServiceTest {
         assertEquals(new BigDecimal("24"), resp.getTotalDays());
     }
 
+    // ── update() — edit a still-pending request ──────────────────────────────────────────────
+
+    private LeaveRequest pendingRequest(LocalDate start, LocalDate end, BigDecimal totalDays) {
+        return LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(start).endDate(end).totalDays(totalDays)
+                .status("PENDING").employeeReason("Original reason").build();
+    }
+
+    @Test
+    void update_pendingRequest_byOwner_appliesChangesAndLogsAudit() {
+        LeaveRequest existing = pendingRequest(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), BigDecimal.ONE);
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveRequestRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDate newStart = LocalDate.now().plusDays(10);
+        LocalDate newEnd = LocalDate.now().plusDays(12);
+        LeaveRequestResponse resp = leaveService.update(existing.getId(), request(newStart, newEnd, false, "Updated reason"), employeeEmail);
+
+        assertEquals(newStart, resp.getStartDate());
+        assertEquals(newEnd, resp.getEndDate());
+        assertEquals("Updated reason", resp.getEmployeeReason());
+        assertEquals(new BigDecimal("3"), resp.getTotalDays());
+        assertEquals("PENDING", resp.getStatus());
+        verify(auditService).log(eq(employeeId), eq("LEAVE_REQUEST_UPDATED"), eq(existing.getId()), any(), any());
+    }
+
+    @Test
+    void update_byNonOwner_isDenied() {
+        LeaveRequest existing = pendingRequest(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), BigDecimal.ONE);
+        when(userRepository.findByEmail(strangerEmail)).thenReturn(Optional.of(strangerUser));
+        when(leaveRequestRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+
+        assertThrows(AccessDeniedException.class,
+                () -> leaveService.update(existing.getId(), request(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), false, "x"), strangerEmail));
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void update_nonPendingRequest_isRejected() {
+        LeaveRequest decided = pendingRequest(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), BigDecimal.ONE);
+        decided.setStatus("APPROVED");
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveRequestRepository.findById(decided.getId())).thenReturn(Optional.of(decided));
+
+        assertThrows(IllegalStateException.class,
+                () -> leaveService.update(decided.getId(), request(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), false, "x"), employeeEmail));
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void update_doesNotCountOwnPriorReservationAgainstItself() {
+        // Existing request already reserves 5 days of a 5-day Annual quota; editing it (even to
+        // the exact same 5 days) must not be rejected as "exceeds balance" by double-counting its
+        // own pre-edit reservation — the AndIdNot sum (stubbed to ZERO as if only this request's
+        // own days were pending) reflects that exclusion.
+        LocalDate start = LocalDate.now().plusDays(5);
+        LocalDate end = start.plusDays(4);
+        LeaveRequest existing = pendingRequest(start, end, new BigDecimal("5"));
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveRequestRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("5"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LeaveRequestResponse resp = leaveService.update(existing.getId(), request(start, end, false, "Same dates, edited reason"), employeeEmail);
+
+        assertEquals(new BigDecimal("5"), resp.getTotalDays());
+        verify(leaveRequestRepository).save(any(LeaveRequest.class));
+    }
+
+    @Test
+    void update_overlapsAnotherRequest_isRejected() {
+        LeaveRequest existing = pendingRequest(LocalDate.now().plusDays(5), LocalDate.now().plusDays(5), BigDecimal.ONE);
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveRequestRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate newStart = LocalDate.now().plusDays(20);
+        LocalDate newEnd = LocalDate.now().plusDays(21);
+        when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
+                        eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(newEnd), eq(newStart), eq(existing.getId())))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.update(existing.getId(), request(newStart, newEnd, false, "Moved dates"), employeeEmail));
+        assertTrue(ex.getMessage().contains("overlap"));
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
     @Test
     void approve_byCurrentManager_decrementsBalanceAndRecordsDecision() {
         LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
@@ -1473,7 +1770,12 @@ class LeaveServiceTest {
                 .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
                 .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
 
-        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(userWithRole(superAdminId, "sa@test.com", "SUPER_ADMIN")));
+        User superAdminRequester = userWithRole(superAdminId, "sa@test.com", "SUPER_ADMIN");
+        // The override-queue branch (see listPendingApprovals) resolves this via the batched
+        // superAdminApproverByEmployeeId, which calls findAllById, not findById — stubbing only
+        // findById (as this test previously did) leaves it resolving to an empty map, so the
+        // exclusion below silently never applies.
+        when(userRepository.findAllById(Set.of(superAdminId))).thenReturn(List.of(superAdminRequester));
         when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(superAdminId))
                 .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(superAdminId).managerUserId(managerId).build()));
 
@@ -1510,7 +1812,9 @@ class LeaveServiceTest {
                 .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
                 .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
 
-        when(userRepository.findById(superAdminId)).thenReturn(Optional.of(superAdminUser));
+        // See the sibling test's identical comment: the override-queue branch resolves this via
+        // findAllById, not findById.
+        when(userRepository.findAllById(Set.of(superAdminId))).thenReturn(List.of(superAdminUser));
         // No manager on file -> fallback approver is the requester themselves.
         when(leaveRequestRepository.findByStatusOrderByCreatedAtAsc("PENDING")).thenReturn(List.of(saRequest));
 
@@ -1681,5 +1985,35 @@ class LeaveServiceTest {
         assertThrows(AccessDeniedException.class, () -> leaveService.approve(pending.getId(), strangerEmail));
         verify(leaveBalanceRepository, never()).save(any());
         verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void listTeamBalances_returnsDirectReportsAnnualBalance_taggedByEmployee_hidingVestigialAndUnpaidRows() {
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(historyRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(employeeId));
+        int year = LocalDate.now().getYear();
+        LeaveBalance annualRow = balanceOf(new BigDecimal("15"), new BigDecimal("3"));
+        LeaveBalance sickRow = LeaveBalance.builder().employeeUserId(employeeId).leaveType(sick)
+                .year(year).totalDays(new BigDecimal("20")).usedDays(BigDecimal.ZERO).build();
+        LeaveBalance lopRow = LeaveBalance.builder().employeeUserId(employeeId).leaveType(lossOfPay)
+                .year(year).totalDays(BigDecimal.ZERO).usedDays(BigDecimal.ZERO).build();
+        when(leaveBalanceRepository.findByEmployeeUserIdInAndYear(List.of(employeeId), year))
+                .thenReturn(List.of(annualRow, sickRow, lopRow));
+
+        var result = leaveService.listTeamBalances(managerEmail);
+
+        assertEquals(1, result.size());
+        assertEquals(employeeId, result.get(0).getEmployeeUserId());
+        assertEquals("ANNUAL", result.get(0).getLeaveTypeCode());
+        assertEquals(0, new BigDecimal("12").compareTo(result.get(0).getRemainingDays()));
+    }
+
+    @Test
+    void listTeamBalances_managerWithNoDirectReports_returnsEmptyWithoutQueryingBalances() {
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(historyRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of());
+
+        assertTrue(leaveService.listTeamBalances(managerEmail).isEmpty());
+        verify(leaveBalanceRepository, never()).findByEmployeeUserIdInAndYear(any(), any());
     }
 }

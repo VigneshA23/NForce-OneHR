@@ -24,7 +24,7 @@ public class ReportsController {
     private final ReportsService reportsService;
 
     @GetMapping("/attendance-requests")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('reports:VIEW:TEAM')")
     public List<AttendanceRequestReportRow> attendanceRequests(
             @RequestParam ReportsService.ReportType type,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
@@ -34,7 +34,7 @@ public class ReportsController {
     }
 
     @GetMapping("/attendance-requests/export")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('reports:EXPORT:TEAM')")
     public ResponseEntity<byte[]> exportAttendanceRequests(
             @RequestParam ReportsService.ReportType type,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,

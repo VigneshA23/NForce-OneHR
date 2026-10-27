@@ -1,17 +1,23 @@
 package com.nforce.onehr.ai.controller;
 
 import com.nforce.onehr.ai.contract.AssistantResponse;
+import com.nforce.onehr.ai.dto.AiBillingResponse;
+import com.nforce.onehr.ai.dto.AiBillingSettingsResponse;
 import com.nforce.onehr.ai.dto.AiRateLimitSettingsResponse;
+import com.nforce.onehr.ai.dto.AiUsageStatsResponse;
 import com.nforce.onehr.ai.dto.AssistantChatRequest;
 import com.nforce.onehr.ai.dto.AssistantFeedbackRequest;
 import com.nforce.onehr.ai.dto.AssistantHealthResponse;
 import com.nforce.onehr.ai.dto.AssistantMessageDto;
+import com.nforce.onehr.ai.dto.UpdateAiBillingSettingsRequest;
 import com.nforce.onehr.ai.dto.UpdateAiRateLimitSettingsRequest;
 import com.nforce.onehr.ai.config.AiProperties;
 import com.nforce.onehr.ai.knowledge.KnowledgeIndexingService;
 import com.nforce.onehr.ai.observability.AiInteractionLogger;
 import com.nforce.onehr.ai.service.AiAssistantService;
+import com.nforce.onehr.ai.service.AiBillingSettingsService;
 import com.nforce.onehr.ai.service.AiRateLimitSettingsService;
+import com.nforce.onehr.ai.service.AiUsageStatsService;
 import com.nforce.onehr.ai.service.ConversationService;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
@@ -26,6 +32,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -61,6 +68,8 @@ public class AiAssistantController {
     private final UserRepository userRepository;
     private final AiProperties properties;
     private final AiRateLimitSettingsService rateLimitSettingsService;
+    private final AiUsageStatsService usageStatsService;
+    private final AiBillingSettingsService billingSettingsService;
 
     /** Ask a question. Always returns 200 with a valid response, including for controlled declines. */
     @PostMapping("/chat")
@@ -146,11 +155,10 @@ public class AiAssistantController {
      *
      * <p>Super Admin only, and the tightest guard in this controller: it is the one operation that
      * writes, it costs real embedding calls, and a full rebuild briefly leaves the index
-     * inconsistent. {@code hasRole('SUPER_ADMIN')} matches how {@code UserManagementController}
-     * guards the other genuinely administrative surface.
+     * inconsistent.
      */
     @PostMapping("/admin/reindex")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:CONFIGURE:ALL')")
     public KnowledgeIndexingService.IndexingReport reindex(Principal principal) {
         log.info("Knowledge re-index requested by {}", principal.getName());
         return indexingService.reindex();
@@ -162,16 +170,52 @@ public class AiAssistantController {
      * rate-limiting brief's AC7 is explicit that this configuration is Super-Admin-only end to end.
      */
     @GetMapping("/admin/rate-limit-settings")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:VIEW:ALL')")
     public AiRateLimitSettingsResponse rateLimitSettings() {
         return rateLimitSettingsService.getForAdmin();
     }
 
     @PutMapping("/admin/rate-limit-settings")
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('ai_assistant:CONFIGURE:ALL')")
     public AiRateLimitSettingsResponse updateRateLimitSettings(
             @Valid @RequestBody UpdateAiRateLimitSettingsRequest request, Principal principal) {
         return rateLimitSettingsService.update(request, currentUserId(principal));
+    }
+
+    /**
+     * Backs the "API Usage" page under Insights — Super Admin only, same reasoning as the
+     * rate-limit settings above: this is cost/operational visibility, not something every role
+     * needs, and the rest of {@code ai_interaction_log} (audience buckets, retrieved knowledge ids)
+     * is otherwise never exposed at all.
+     */
+    @GetMapping("/admin/usage-stats")
+    @PreAuthorize("hasAuthority('ai_assistant:VIEW:ALL')")
+    public AiUsageStatsResponse usageStats(@RequestParam(required = false) Integer days) {
+        return usageStatsService.stats(days);
+    }
+
+    /**
+     * This calendar month's estimated spend against the configured budget — the progress bar on
+     * the API Usage page. See {@code AiBillingSettings}/V198 for why this is an estimate computed
+     * from OneHR's own token logs, not real Mistral billing.
+     */
+    @GetMapping("/admin/billing")
+    @PreAuthorize("hasAuthority('ai_assistant:VIEW:ALL')")
+    public AiBillingResponse billing() {
+        return billingSettingsService.currentMonthBilling();
+    }
+
+    @GetMapping("/admin/billing-settings")
+    @PreAuthorize("hasAuthority('ai_assistant:VIEW:ALL')")
+    public AiBillingSettingsResponse billingSettings() {
+        return billingSettingsService.getForAdmin();
+    }
+
+    @PutMapping("/admin/billing-settings")
+    @PreAuthorize("hasAuthority('ai_assistant:CONFIGURE:ALL')")
+    public AiBillingSettingsResponse updateBillingSettings(
+            @Valid @RequestBody UpdateAiBillingSettingsRequest request, Principal principal) {
+        return billingSettingsService.update(request, currentUserId(principal));
     }
 
     private UUID currentUserId(Principal principal) {

@@ -13,4 +13,7 @@ public class LoginRequest {
 
     @NotBlank(message = "Password is required")
     private String password;
+
+    // "Remember me": mints a long-lived token instead of the default 8h one (see JwtTokenProvider).
+    private boolean rememberMe;
 }

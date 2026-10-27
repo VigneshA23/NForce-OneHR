@@ -36,6 +36,36 @@ export interface PageTarget {
 const NON_NAV_TARGETS: Record<string, PageTarget> = {
   profile: { route: '/profile', label: 'My Profile' },
   notifications: { route: '/notifications', label: 'Notifications' },
+
+  // My Team's own tabs and report categories (ONEHR - My Team AI access). My Team itself is one
+  // NAV item with client-side tab/category state (see MyTeamPage.tsx's `tab` and `category`), not
+  // separate routes, so these piggyback on its `/my-team` path with the same query params the page
+  // already reads — never a route that does not exist. Server-side, `NavigationValidator` only
+  // ever hands a pageId like this to a Manager or HR Admin (the registry variants for these ids
+  // list no other role — Super Admin has no My Team nav item at all, see registry.yaml's own
+  // comment there), so no extra role check is needed here — the same "server authorises, this is
+  // defence in depth only" reasoning the rest of this file already documents.
+  'my-team-efforts': { route: '/my-team?tab=effort', label: 'My Team → Efforts' },
+  'my-team-negligence': { route: '/my-team?tab=negligence', label: 'My Team → Negligence' },
+  'my-team-penalties': { route: '/my-team?tab=penalties', label: 'My Team → Penalties' },
+  'my-team-assignments': { route: '/my-team?tab=assignments', label: 'My Team → Time Assignments' },
+  'my-team-reports': { route: '/my-team?tab=reports', label: 'My Team → Reports' },
+  'my-team-reports-attendance': {
+    route: '/my-team?tab=reports&category=' + encodeURIComponent('Attendance Reports'),
+    label: 'My Team → Reports → Attendance Reports',
+  },
+  'my-team-reports-punctuality': {
+    route: '/my-team?tab=reports&category=' + encodeURIComponent('Punctuality Reports'),
+    label: 'My Team → Reports → Punctuality Reports',
+  },
+  'my-team-reports-negligence': {
+    route: '/my-team?tab=reports&category=' + encodeURIComponent('Negligence Reports'),
+    label: 'My Team → Reports → Negligence Reports',
+  },
+  'my-team-reports-requests': {
+    route: '/my-team?tab=reports&category=' + encodeURIComponent('Attendance Request Reports'),
+    label: 'My Team → Reports → Attendance Request Reports',
+  },
 };
 
 /**

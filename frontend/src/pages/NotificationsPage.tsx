@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, CheckCheck, Search, RefreshCw, Inbox, ArrowUpRight, Check,
   ChevronLeft, ChevronRight, AlertCircle,
   CalendarDays, Wallet, FileText, HelpCircle, Star, Shield, UserPlus, KeyRound,
-  ClipboardCheck, XCircle, Clock, Loader2, Users,
+  ClipboardCheck, XCircle, Clock, Loader2, Users, Cake,
 } from 'lucide-react';
 import { notificationsApi, type NotificationItem } from '../api/notifications';
 import { useAuthStore } from '../store/authStore';
@@ -62,6 +63,9 @@ const META_BY_TYPE: Record<string, NotifMeta> = {
   HELPDESK_TICKET_RESOLVED:          { icon: <HelpCircle size={15} />,    color: 'var(--ok)',     bg: 'rgba(47,182,124,.12)' },
   HELPDESK_TICKET_CLOSED:            { icon: <HelpCircle size={15} />,    color: 'var(--info)',   bg: 'rgba(76,141,214,.12)' },
   KUDOS:                             { icon: <Star size={15} />,          color: '#f59e0b',       bg: 'rgba(245,158,11,.12)' },
+  BIRTHDAY:                          { icon: <Cake size={15} />,          color: '#f59e0b',       bg: 'rgba(245,158,11,.12)' },
+  BIRTHDAY_WISH:                     { icon: <Cake size={15} />,          color: '#f59e0b',       bg: 'rgba(245,158,11,.12)' },
+  BIRTHDAY_TODAY_HR:                 { icon: <Cake size={15} />,          color: '#f59e0b',       bg: 'rgba(245,158,11,.12)' },
   ACCOUNT:                           { icon: <UserPlus size={15} />,      color: 'var(--ok)',     bg: 'rgba(47,182,124,.12)' },
   SECURITY:                          { icon: <KeyRound size={15} />,      color: 'var(--warn)',   bg: 'rgba(224,169,59,.12)' },
   ORG_UPDATE:                        { icon: <Shield size={15} />,        color: 'var(--info)',   bg: 'rgba(76,141,214,.12)' },
@@ -480,8 +484,8 @@ export default function NotificationsPage() {
     <div style={{ display: 'flex', flexDirection: 'column' }} className="nf-notif-page">
 
       {/* Header */}
-      <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div>
+      <div className="nf-page-hdr" style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={Bell}>
           <h1 style={{
             fontFamily: 'Inter, sans-serif',
             fontSize: 22, fontWeight: 700, color: 'var(--txt)',
@@ -505,7 +509,7 @@ export default function NotificationsPage() {
           <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', margin: 0 }}>
             {total > 0 ? `${total} total notification${total !== 1 ? 's' : ''}` : 'All caught up'}
           </p>
-        </div>
+        </PageTitleBlock>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <button

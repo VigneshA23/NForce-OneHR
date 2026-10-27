@@ -17,4 +17,11 @@ public interface LlmProvider {
 
     /** @throws com.nforce.onehr.ai.exception.AiProviderException on any failure */
     LlmCompletion complete(LlmRequest request);
+
+    /**
+     * Real Mistral HTTP attempts for the most recent {@link #complete} call on this thread, success
+     * or failure — read on the failure path (where no {@link LlmCompletion} exists to carry it) so
+     * {@code AiAssistantService} can still count the real requests a failed completion cost.
+     */
+    int lastAttemptCount();
 }

@@ -39,6 +39,21 @@ export function invalidateEmployeePhoto(userId: string) {
   photoCache.delete(userId);
 }
 
+/**
+ * Waits out any photo fetch still in flight for these userIds. A DOM-to-image export (org chart
+ * PNG/PDF) can fire while an EmployeeAvatar mounted moments earlier is still waiting on its photo
+ * — html2canvas then snapshots the pre-photo initials fallback and the export shows a blank
+ * avatar for someone who does have a photo on file. Call this (then let one paint happen) right
+ * before capturing.
+ */
+export function waitForAvatarPhotos(userIds: (string | null | undefined)[]): Promise<void> {
+  const pending = userIds
+    .filter((id): id is string => !!id && !photoCache.has(id))
+    .map((id) => inFlight.get(id))
+    .filter((p): p is Promise<string | null> => !!p);
+  return Promise.all(pending).then(() => undefined);
+}
+
 export function getInitials(nameOrEmail?: string | null): string {
   if (!nameOrEmail) return 'U';
   if (nameOrEmail.includes('@')) return nameOrEmail.slice(0, 2).toUpperCase();

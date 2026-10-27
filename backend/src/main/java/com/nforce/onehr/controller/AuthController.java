@@ -1,6 +1,7 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.*;
+import com.nforce.onehr.security.JwtTokenProvider;
 import com.nforce.onehr.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
+    private final JwtTokenProvider jwtTokenProvider;
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request,
@@ -32,9 +34,14 @@ public class AuthController {
             @Valid @RequestBody ChangePasswordRequest request,
             HttpServletRequest httpRequest,
             Authentication authentication) {
+        // The filter already validated this bearer token, so it's safe to read its claim here.
+        String header = httpRequest.getHeader("Authorization");
+        boolean rememberMe = header != null && header.startsWith("Bearer ")
+                && jwtTokenProvider.extractRememberMe(header.substring(7));
         ChangePasswordResponse response = authService.changePassword(
                 request,
-                authentication.getName()
+                authentication.getName(),
+                rememberMe
         );
         return ResponseEntity.ok(response);
     }

@@ -45,7 +45,7 @@ public class ShiftWeeklyOffRulesService {
         return loadSingleton().getMaximumShiftDayDurationHours().doubleValue();
     }
 
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('organization_shifts:CONFIGURE:ALL')")
     @Transactional
     public ShiftWeeklyOffRulesResponse updateMaximumShiftDayDurationHours(UpdateShiftWeeklyOffRulesRequest req) {
         BigDecimal hours = req.getMaximumShiftDayDurationHours();

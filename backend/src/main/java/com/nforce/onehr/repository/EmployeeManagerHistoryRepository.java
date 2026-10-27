@@ -18,6 +18,10 @@ public interface EmployeeManagerHistoryRepository extends JpaRepository<Employee
 
     Optional<EmployeeManagerHistory> findByEmployeeUserIdAndEffectiveToIsNull(UUID employeeUserId);
 
+    // Full manager-change history for one employee, oldest first — backs the My Profile Timeline
+    // sub-tab. The other queries below only ever look at the current (effectiveTo IS NULL) row.
+    List<EmployeeManagerHistory> findByEmployeeUserIdOrderByEffectiveFromAsc(UUID employeeUserId);
+
     // Excludes soft-deleted employees: this backs org-chart/manager-map lookups keyed by
     // employeeUserId, so a deleted user's now-orphaned open history row would otherwise still
     // surface them as "someone's report" in those maps.

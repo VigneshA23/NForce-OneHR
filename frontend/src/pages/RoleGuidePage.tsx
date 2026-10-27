@@ -25,15 +25,15 @@ const ROLE_CONFIG: Record<Role, { icon: LucideIcon; color: string; bg: string }>
 
 // ── Per-key feature descriptions (all real nav item keys from nav.config.ts) ──
 const FEATURE_DESCRIPTIONS: Record<string, string> = {
-  dashboard:    'Your personal HR dashboard — see your attendance status, upcoming leaves, pending requests, and team activity at a glance.',
+  dashboard:    'Your personal HR dashboard - see your attendance status, upcoming leaves, pending requests, and team activity at a glance.',
   'my-team':    'View your direct teammates and reports, their current attendance status, and key HR details in one place.',
-  employees:    'Manage the full employee lifecycle — add, update, and deactivate employee records across all departments.',
-  directory:    'Browse and search the full employee directory — find anyone by name, role, department, or location instantly.',
-  hierarchy:    'Navigate the company\'s reporting structure visually — see who reports to whom across every level, and export the chart as a PDF.',
+  employees:    'Manage the full employee lifecycle - add, update, and deactivate employee records across all departments.',
+  directory:    'Browse and search the full employee directory - find anyone by name, role, department, or location instantly.',
+  hierarchy:    'Navigate the company\'s reporting structure visually - see who reports to whom across every level, and export the chart as a PDF.',
   onboarding:   'Prepare new joiners with structured onboarding checklists, document collection, and access provisioning before day one.',
   attendance:   'Clock in and out, track hours automatically, manage shifts, process regularizations, and view your full attendance history.',
   leave:        'Apply for leave, check balances by type, browse the company holiday calendar, and track the status of every request.',
-  approvals:    'A single queue for every pending decision — leave, expenses, and asset requests — so nothing gets lost in email.',
+  approvals:    'A single queue for every pending decision - leave, expenses, and asset requests - so nothing gets lost in email.',
   exceptions:   'Surface attendance anomalies, irregular patterns, and policy violations across your team for quick review and resolution.',
   documents:    'Access your personal HR documents, track required submissions, and read company policies shared with your role.',
   'my-documents': 'Access your personal HR documents, track required submissions, and read company policies shared with your role.',
@@ -41,9 +41,9 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
   organization: 'Set up and maintain departments, designations, reporting structures, and locations for the entire organization.',
   performance:  'Track goals, log progress updates, and review growth milestones for individuals and teams.',
   assets:       'View company assets assigned to you, submit expense claims with supporting documents, and track reimbursement status.',
-  requests:     'Track all your submitted requests — leave, regularizations, web clock-ins — and monitor their approval status in real time.',
+  requests:     'Track all your submitted requests - leave, regularizations, web clock-ins - and monitor their approval status in real time.',
   reports:      'Generate detailed reports on attendance, leave utilization, headcount, and team performance across the organization.',
-  audit:        'A full, searchable log of every sensitive system action — role changes, approvals, account modifications, and security events.',
+  audit:        'A full, searchable log of every sensitive system action - role changes, approvals, account modifications, and security events.',
   access:       'Create and manage user accounts, assign roles, reset credentials, and control who has access to what across the platform.',
   masters:      'Configure the master data that powers the whole system: departments, designations, locations, and shift definitions.',
   workflows:    'Design and configure automated approval routing rules and process flows for your organization.',
@@ -89,7 +89,7 @@ function NavItemRow({ item }: { item: NavItem }) {
 // ── PDF export ─────────────────────────────────────────────────────────────────
 async function exportRoleGuidePdf(contentRef: React.RefObject<HTMLDivElement | null>, role: Role) {
   if (!contentRef.current) return;
-  const { default: html2canvas } = await import('html2canvas');
+  const { default: html2canvas } = await import('html2canvas-pro');
   const { jsPDF } = await import('jspdf');
 
   const canvas = await html2canvas(contentRef.current, {
@@ -237,7 +237,7 @@ export default function RoleGuidePage() {
             <BrandMark size="sm" />
             <div>
               <p style={{ margin: 0, fontSize: 12, color: 'var(--txt-mut)' }}>
-                NForce OneHR — {role} Role Guide. Generated {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}.
+                NForce OneHR - {role} Role Guide. Generated {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}.
                 Feature list sourced from the live navigation configuration.
               </p>
             </div>

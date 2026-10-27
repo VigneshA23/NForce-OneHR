@@ -12,7 +12,7 @@ const inputStyle: React.CSSProperties = {
 const labelText: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
 
 function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
+  if (!iso) return '–';
   return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
@@ -98,7 +98,7 @@ function ConfirmDeleteModal({ policy, onClose, onConfirm }: { policy: Penalisati
         <h2 style={{ margin: '0 0 10px', fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>Delete "{policy.name}"?</h2>
         <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--txt-mut)' }}>
           {policy.employeeCount > 0
-            ? `${policy.employeeCount} employee(s) are still assigned to this policy — reassign them first.`
+            ? `${policy.employeeCount} employee(s) are still assigned to this policy - reassign them first.`
             : 'This removes the policy and all of its saved rule versions. This cannot be undone.'}
         </p>
         {error && <div role="alert" style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 6, padding: '8px 12px', marginBottom: 14, color: 'var(--risk)', fontSize: 12.5 }}>{error}</div>}
@@ -231,7 +231,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
     try {
       await penalisationPoliciesApi.toggleActive(token, policy.id);
       showToast('success', policy.status === 'ACTIVE'
-        ? `"${policy.name}" deactivated — it no longer appears in the active allocation dropdown`
+        ? `"${policy.name}" deactivated - it no longer appears in the active allocation dropdown`
         : `"${policy.name}" activated`);
       await load();
     } catch (e) {
@@ -276,7 +276,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
         <div style={{ fontSize: 12, color: 'var(--txt-mut)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 12px', whiteSpace: 'nowrap', overflowX: 'auto' }}>
           {fallbackStrategy === 'DEFAULT_POLICY'
             ? <>An employee with no allocation and no legacy assignment resolves to the <strong>Org Default</strong> policy below (marked with <Star size={11} style={{ display: 'inline', verticalAlign: -1 }} />).</>
-            : <>REQUIRE_ALLOCATION is active — an employee with no allocation and no legacy assignment resolves to <strong>no policy at all</strong> until one is explicitly allocated (see "Needs Allocation" on the Allocation screen).</>}
+            : <>REQUIRE_ALLOCATION is active - an employee with no allocation and no legacy assignment resolves to <strong>no policy at all</strong> until one is explicitly allocated (see "Needs Allocation" on the Allocation screen).</>}
         </div>
       )}
 
@@ -309,7 +309,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
                     color: p.status === 'ACTIVE' ? 'var(--ok)' : 'var(--txt-dim)',
                   }}>{p.status}</span>
                   {p.orgDefault && (
-                    <span title="Organization default — governs any employee with no allocation and no legacy assignment"
+                    <span title="Organization default - governs any employee with no allocation and no legacy assignment"
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6, padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: 'rgba(224,169,59,.15)', color: '#E0A93B' }}>
                       <Star size={10} fill="currentColor" /> Org Default
                     </span>
@@ -355,7 +355,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
                     <button aria-label={`Clone ${p.name}`} onClick={() => setCloning(p)} title="Clone" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Copy size={13} /></button>
                     <button aria-label={p.status === 'ACTIVE' ? `Deactivate ${p.name}` : `Activate ${p.name}`}
                       onClick={() => handleToggleActive(p)} disabled={togglingId === p.id}
-                      title={p.status === 'ACTIVE' ? 'Deactivate — hides it from new allocations, keeps existing history' : 'Activate'}
+                      title={p.status === 'ACTIVE' ? 'Deactivate - hides it from new allocations, keeps existing history' : 'Activate'}
                       style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: p.status === 'ACTIVE' ? 'var(--txt-mut)' : 'var(--ok)', cursor: togglingId === p.id ? 'not-allowed' : 'pointer', opacity: togglingId === p.id ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <Power size={13} />
                     </button>

@@ -8,6 +8,8 @@ export interface DirectReport {
   designationName: string | null;
   departmentName: string | null;
   active: boolean;
+  /** ISO date (yyyy-MM-dd) — used to hide the employee from calendar days before they joined. */
+  joiningDate?: string | null;
   /** Only populated on the HR (organization-wide) dashboard — null for the Manager view. */
   roleCode?: string | null;
 }

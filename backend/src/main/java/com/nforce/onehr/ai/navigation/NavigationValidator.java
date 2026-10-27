@@ -80,6 +80,16 @@ public class NavigationValidator {
     }
 
     /**
+     * The name this caller's sidebar gives a page, for rewriting a page id the model wrote into
+     * its text. Silent on a miss, unlike {@link #validate}: most words it is asked about are not
+     * page ids at all, and that is not the model inventing a destination.
+     */
+    public Optional<String> labelFor(String pageId, AssistantRequestContext context) {
+        if (pageId == null || context == null || context.getShellRole() == null) return Optional.empty();
+        return pageRegistry.find(pageId, context.getShellRole()).map(PageReference::getLabel);
+    }
+
+    /**
      * Validates the client-supplied current page, used only as a retrieval hint.
      *
      * <p>Unlike {@link #validate}, a placeholder is acceptable here: a user genuinely can be

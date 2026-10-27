@@ -62,6 +62,17 @@ public class ApprovalRuleEvaluationService {
     }
 
     private Decision evaluate(ApprovalRule rule, BigDecimal amount) {
+        // A rule whose own stages name no HR_ADMIN/SUPER_ADMIN stage routes BOTH branches of its
+        // condition to Manager-only, so activating it silently removed the HR final-clearance
+        // stage from every expense claim (Manager-approved claims went straight to
+        // CLEARED_FOR_PAYROLL and never reached HR's Approval Center queue). ApprovalRuleService
+        // now rejects such rules on save; any saved before that is ignored here in favor of the
+        // legacy default rather than stripping HR out of the workflow.
+        if (parseStages(rule.getApprovalStages()).stream().noneMatch(FINAL_STAGE_ROLES::contains)) {
+            log.warn("Approval rule {} has no second-approval stage ({}); ignoring it and applying the legacy default",
+                    rule.getId(), rule.getApprovalStages());
+            return legacyDefault();
+        }
         boolean matches = evaluateCondition(amount, rule.getOperator(), new BigDecimal(rule.getConditionValue()));
         List<String> stages = matches ? parseStages(rule.getApprovalStages()) : List.of(ROLE_MANAGER);
         boolean secondApprovalRequired = stages.stream().anyMatch(FINAL_STAGE_ROLES::contains);

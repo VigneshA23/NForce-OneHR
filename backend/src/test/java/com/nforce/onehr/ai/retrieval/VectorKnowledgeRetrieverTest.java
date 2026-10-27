@@ -22,6 +22,8 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -209,5 +211,73 @@ class VectorKnowledgeRetrieverTest {
 
         // Returning nothing here would produce an UNKNOWN for a question we had a strong match for.
         assertThat(retriever.retrieve(query("q"))).hasSize(1);
+    }
+
+    // ── Deterministic inclusion of the named-person-lookup unit (ONEHR - AI chatbot fails to ──
+    // handle duplicate employee names). Semantic search cannot be trusted to clear the score floor
+    // for an arbitrary real name it has never seen, so this is guaranteed by shape, not by score.
+
+    @Test
+    @DisplayName("a \"tell me about X\" question is guaranteed the named-lookup unit even when semantic search missed it entirely")
+    void namedPersonQuestionIsGuaranteedWhenSemanticSearchFoundNothing() {
+        when(embeddingProvider.embed(any())).thenReturn(new float[]{0.1f});
+        when(index.search(any())).thenReturn(List.of());
+        when(index.findByIds(eq(Set.of("data.people.named-lookup")), any(), anyDouble()))
+                .thenReturn(List.of(result("data.people.named-lookup", "people", "directory", 0.65, "lookup")));
+
+        List<RetrievalResult> results = retriever.retrieve(query("tell me about aanuj"));
+
+        assertThat(results).extracting(RetrievalResult::getKnowledgeId).containsExactly("data.people.named-lookup");
+    }
+
+    @Test
+    @DisplayName("\"who is X\" is recognised too, case-insensitively")
+    void whoIsIsAlsoRecognised() {
+        when(embeddingProvider.embed(any())).thenReturn(new float[]{0.1f});
+        when(index.search(any())).thenReturn(List.of());
+        when(index.findByIds(any(), any(), anyDouble()))
+                .thenReturn(List.of(result("data.people.named-lookup", "people", "directory", 0.65, "lookup")));
+
+        assertThat(retriever.retrieve(query("WHO IS rakesh"))).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("a question of a different shape never triggers the deterministic lookup")
+    void unrelatedQuestionNeverTriggersIt() {
+        when(embeddingProvider.embed(any())).thenReturn(new float[]{0.1f});
+        when(index.search(any())).thenReturn(List.of());
+
+        retriever.retrieve(query("how do I apply for leave"));
+
+        verify(index, never()).findByIds(any(), any(), anyDouble());
+    }
+
+    @Test
+    @DisplayName("already having it from semantic search on its own merit means no duplicate, no extra query")
+    void doesNotDuplicateWhenSemanticSearchAlreadyFoundIt() {
+        when(embeddingProvider.embed(any())).thenReturn(new float[]{0.1f});
+        when(index.search(any())).thenReturn(
+                List.of(result("data.people.named-lookup", "people", "directory", 0.82, "lookup")));
+
+        List<RetrievalResult> results = retriever.retrieve(query("tell me about Aanuj"));
+
+        assertThat(results).extracting(RetrievalResult::getKnowledgeId).containsExactly("data.people.named-lookup");
+        verify(index, never()).findByIds(any(), any(), anyDouble());
+    }
+
+    @Test
+    @DisplayName("the caller's own audiences are what the deterministic lookup is filtered by, same as ordinary search")
+    void deterministicLookupUsesTheCallersAudiences() {
+        when(embeddingProvider.embed(any())).thenReturn(new float[]{0.1f});
+        when(index.search(any())).thenReturn(List.of());
+        when(index.findByIds(any(), any(), anyDouble())).thenReturn(List.of());
+
+        RetrievalQuery managerQuery = RetrievalQuery.builder()
+                .rawQuery("who is anil").audiences(Set.of(AudienceBucket.MANAGER)).build();
+        retriever.retrieve(managerQuery);
+
+        ArgumentCaptor<Set<AudienceBucket>> audiences = ArgumentCaptor.forClass(Set.class);
+        verify(index).findByIds(any(), audiences.capture(), anyDouble());
+        assertThat(audiences.getValue()).containsExactly(AudienceBucket.MANAGER);
     }
 }

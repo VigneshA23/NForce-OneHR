@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -22,4 +23,7 @@ public interface HelpContentRepository extends JpaRepository<HelpContent, UUID>,
     @Modifying
     @Query("UPDATE HelpContent h SET h.viewCount = h.viewCount + 1 WHERE h.id = :id")
     void incrementViewCount(@Param("id") UUID id);
+
+    /** Published content, most-viewed first — HelpdeskAnalyticsService slices this into "top" (head) and "zero-view" (tail) rather than running two separate queries. */
+    List<HelpContent> findByStatusOrderByViewCountDesc(String status);
 }

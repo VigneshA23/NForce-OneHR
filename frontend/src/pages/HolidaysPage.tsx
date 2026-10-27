@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { orgApi, type LocationRow } from '../api/org';
@@ -68,7 +69,30 @@ function toISODate(year: number, month: number, day: number) {
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
+// Purely presentational — computed from the same `holidays` array already loaded by the page
+// below via the existing holidaysApi calls; no new data/API is introduced.
+function UpcomingHolidayCard({ holiday, daysAway }: { holiday: HolidayRow; daysAway: number }) {
+  const d = new Date(holiday.holidayDate + 'T00:00:00');
+  return (
+    <div className="nf-section-enter nf-leave-balance-card" style={{
+      background: 'linear-gradient(160deg, var(--panel) 0%, color-mix(in srgb, var(--brand) 5%, var(--panel)) 100%)',
+      border: '1px solid var(--line)', borderTop: '2px solid var(--brand)', borderRadius: 10, padding: '14px 16px',
+      display: 'flex', alignItems: 'center', gap: 14,
+    }}>
+      <div style={{ width: 52, height: 52, borderRadius: 10, flexShrink: 0, background: 'color-mix(in srgb, var(--brand) 14%, var(--raised))', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--brand)', textTransform: 'uppercase' }}>{d.toLocaleDateString(undefined, { month: 'short' })}</span>
+        <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{d.getDate()}</span>
+      </div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={holiday.holidayName}>{holiday.holidayName}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 2 }}>{d.toLocaleDateString(undefined, { weekday: 'long' })}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3 }}>{daysAway === 0 ? 'Today' : daysAway === 1 ? 'Tomorrow' : `In ${daysAway} days`}</div>
+      </div>
+    </div>
+  );
+}
+
+export function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
   const today = new Date();
   const [viewDate, setViewDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
 
@@ -77,10 +101,8 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
   const totalDays = daysInMonth(year, month);
   const firstWeekday = new Date(year, month, 1).getDay();
   const todayIso = toISODate(today.getFullYear(), today.getMonth(), today.getDate());
-  // Group by date rather than keying a single holiday per date — two or more
-  // holidays can legitimately fall on the same date (e.g. an admin viewing
-  // "All Locations", or duplicate entries), and a single-value Map would
-  // silently drop every holiday but the last one for that date.
+  // Group by date: two or more holidays can fall on the same date (e.g. "All Locations"),
+  // and a single-value Map would silently drop all but the last.
   const holidaysByDate = new Map<string, HolidayRow[]>();
   for (const h of holidays) {
     const list = holidaysByDate.get(h.holidayDate);
@@ -93,43 +115,46 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
   for (let d = 1; d <= totalDays; d++) cells.push({ day: d, iso: toISODate(year, month, d) });
   while (cells.length % 7 !== 0) cells.push(null);
 
+  const navBtn: React.CSSProperties = {
+    background: 'color-mix(in srgb, var(--brand) 10%, var(--panel))', border: '1px solid color-mix(in srgb, var(--brand) 30%, var(--line2))',
+    borderRadius: 8, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    cursor: 'pointer', color: 'var(--brand)',
+  };
+
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-        <button
-          onClick={() => setViewDate(new Date(year, month - 1, 1))}
-          aria-label="Previous month"
-          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
-        >
-          <ChevronLeft size={12} />
+    <div className="nf-section-enter" style={{
+      background: 'linear-gradient(180deg, color-mix(in srgb, var(--brand) 6%, var(--panel)) 0%, var(--panel) 120px)',
+      border: '1px solid var(--line)', borderRadius: 14, padding: 14, boxShadow: '0 6px 22px rgba(0,0,0,.14)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 12 }}>
+        <button onClick={() => setViewDate(new Date(year, month - 1, 1))} aria-label="Previous month" style={navBtn}>
+          <ChevronLeft size={15} />
         </button>
-        <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 12, color: 'var(--txt)' }}>
-          {viewDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
-        </span>
-        <button
-          onClick={() => setViewDate(new Date(year, month + 1, 1))}
-          aria-label="Next month"
-          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
-        >
-          <ChevronRight size={12} />
+        <div style={{ textAlign: 'center', minWidth: 0 }}>
+          <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 800, fontSize: 17, color: 'var(--txt)', letterSpacing: '-.01em', lineHeight: 1.1 }}>
+            {viewDate.toLocaleDateString(undefined, { month: 'long' })}
+            <span style={{ color: 'var(--brand)', marginLeft: 6 }}>{year}</span>
+          </div>
+        </div>
+        <button onClick={() => setViewDate(new Date(year, month + 1, 1))} aria-label="Next month" style={navBtn}>
+          <ChevronRight size={15} />
         </button>
       </div>
 
-      {/* minmax(0, 1fr), not plain 1fr — a plain 1fr column will still grow past its
-          fair share to fit unbroken (nowrap) content, e.g. a long holiday name,
-          which is what was making columns uneven / pushing the last column off
-          the edge. minmax(0, 1fr) hard-caps every track at 1fr regardless of
-          content, which is also what makes the ellipsis truncation below actually
-          take effect (it needs a fixed-width box to truncate against). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 3, marginBottom: 4 }}>
-        {WEEKDAY_LABELS.map(d => (
-          <div key={d} style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em', padding: '2px 0' }}>
-            {d[0]}
+      {/* minmax(0, 1fr) hard-caps every track so long names truncate instead of widening columns. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4, marginBottom: 5 }}>
+        {WEEKDAY_LABELS.map((d, i) => (
+          <div key={d} style={{
+            textAlign: 'center', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.05em', padding: '5px 0',
+            borderRadius: 6, color: i === 0 || i === 6 ? 'var(--brand)' : 'var(--txt-mut)',
+            background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))',
+          }}>
+            {d}
           </div>
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 3 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 4 }}>
         {cells.map((c, i) => {
           if (!c) return <div key={i} />;
           const dayHolidays = holidaysByDate.get(c.iso) ?? [];
@@ -137,35 +162,38 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
           const visible = dayHolidays.slice(0, 2);
           const extraCount = dayHolidays.length - visible.length;
           const isToday = c.iso === todayIso;
+          const wd = (firstWeekday + c.day - 1) % 7;
+          const weekend = wd === 0 || wd === 6;
           return (
             <div
               key={i}
               title={dayHolidays.map(h => h.holidayName).join(', ') || undefined}
               style={{
-                // Fixed height, not minHeight — the cell must never resize based on
-                // content; anything beyond what fits is summarized as "+N more"
-                // and overflow:hidden is a hard backstop against the rest.
-                height: 74,
-                minWidth: 0,
-                width: '100%',
-                overflow: 'hidden',
-                boxSizing: 'border-box',
-                borderRadius: 8,
-                padding: '6px 5px',
-                background: hasHoliday ? 'color-mix(in srgb, var(--warn) 16%, transparent)' : 'var(--raised)',
-                border: isToday ? '2px solid var(--brand)' : hasHoliday ? '1.5px solid var(--warn)' : '1px solid var(--line)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                gap: 3,
+                // Fixed height: the cell never resizes with content; extras are summarised as "+N more".
+                height: 74, minWidth: 0, width: '100%', overflow: 'hidden', boxSizing: 'border-box',
+                borderRadius: 10, padding: '5px 5px 4px', position: 'relative',
+                background: hasHoliday
+                  ? 'linear-gradient(160deg, color-mix(in srgb, var(--brand) 30%, var(--panel)) 0%, color-mix(in srgb, var(--brand) 10%, var(--panel)) 100%)'
+                  : weekend
+                    ? 'color-mix(in srgb, var(--brand) 4%, var(--raised))'
+                    : 'linear-gradient(160deg, var(--raised) 0%, var(--panel) 100%)',
+                border: isToday ? '2px solid var(--brand)' : hasHoliday ? '1px solid color-mix(in srgb, var(--brand) 65%, transparent)' : '1px solid var(--line)',
+                boxShadow: isToday ? '0 0 0 3px color-mix(in srgb, var(--brand) 20%, transparent)' : hasHoliday ? '0 2px 8px color-mix(in srgb, var(--brand) 22%, transparent)' : 'none',
+                display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3,
               }}
             >
-              <span style={{ fontSize: 12, fontWeight: isToday ? 700 : 500, color: hasHoliday ? 'var(--warn)' : 'var(--txt)' }}>
+              <span style={{
+                fontSize: 11.5, fontWeight: isToday || hasHoliday ? 800 : 600, lineHeight: 1,
+                color: isToday ? '#fff' : hasHoliday ? 'var(--brand)' : weekend ? 'var(--txt-mut)' : 'var(--txt)',
+                background: isToday ? 'var(--brand)' : 'transparent',
+                borderRadius: 999, minWidth: 18, height: 18, padding: '0 4px', boxSizing: 'border-box',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
                 {c.day}
               </span>
               {visible.map(h => (
                 <span key={h.id} style={{
-                  fontSize: 9, fontWeight: 700, color: '#fff', background: 'var(--warn)',
+                  fontSize: 9, fontWeight: 700, color: '#fff', background: 'var(--brand)',
                   borderRadius: 5, padding: '2px 5px', lineHeight: 1.4,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   maxWidth: '100%', width: '100%', boxSizing: 'border-box', flexShrink: 0,
@@ -174,16 +202,25 @@ function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
                 </span>
               ))}
               {extraCount > 0 && (
-                <span style={{
-                  fontSize: 8.5, fontWeight: 700, color: 'var(--warn)',
-                  lineHeight: 1.3, flexShrink: 0,
-                }}>
+                <span style={{ fontSize: 8.5, fontWeight: 800, color: 'var(--brand)', lineHeight: 1.2, flexShrink: 0 }}>
                   +{extraCount} more
                 </span>
               )}
             </div>
           );
         })}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--line2)', fontSize: 10.5, fontWeight: 600, color: 'var(--txt-mut)' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: 'var(--brand)' }} /> Holiday
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 999, background: 'var(--brand)' }} /> Today
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 3, background: 'color-mix(in srgb, var(--brand) 14%, var(--raised))', border: '1px solid var(--line2)' }} /> Weekend
+        </span>
       </div>
     </div>
   );
@@ -334,17 +371,34 @@ export default function HolidaysPage() {
     ? (locationFilter ? adminLocations.find(l => l.id === locationFilter)?.name : 'All Locations')
     : holidays[0]?.locationName;
 
+  // Upcoming Holidays — purely presentational, derived from `holidays` (already loaded above
+  // via the existing fetchHolidays()/holidaysApi calls); no new API request.
+  const upcomingHolidays = useMemo(() => {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayMs = new Date(todayIso + 'T00:00:00').getTime();
+    return holidays
+      .filter(h => h.active && h.holidayDate >= todayIso)
+      .sort((a, b) => a.holidayDate.localeCompare(b.holidayDate))
+      .slice(0, 4)
+      .map(h => ({ holiday: h, daysAway: Math.round((new Date(h.holidayDate + 'T00:00:00').getTime() - todayMs) / 86400000) }));
+  }, [holidays]);
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
-        <div>
-          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
-            Company Holidays{holidayScopeLabel ? ` — ${holidayScopeLabel}` : ''}
-          </h1>
-          <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
-            {isAdmin ? 'Holidays across the company, by location.' : 'Holidays for your work location.'}
-          </p>
-        </div>
+      <div className="nf-section-enter nf-leave-header nf-page-hdr" style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 22,
+        background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: '18px 22px',
+        backgroundImage: 'linear-gradient(120deg, color-mix(in srgb, var(--brand) 6%, var(--panel)) 0%, var(--panel) 55%)',
+        flexWrap: 'wrap',
+      }}>
+        <PageTitleBlock icon={CalendarHeart}>
+            <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
+              Company Holidays{holidayScopeLabel ? ` - ${holidayScopeLabel}` : ''}
+            </h1>
+            <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 3 }}>
+              {isAdmin ? 'Holidays across the company, by location.' : 'Holidays for your work location.'}
+            </p>
+        </PageTitleBlock>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {isAdmin && (
             <select
@@ -357,7 +411,7 @@ export default function HolidaysPage() {
             </select>
           )}
           {isAdmin && (
-            <button onClick={() => setShowAddHoliday(true)} style={primaryButtonStyle}>
+            <button onClick={() => setShowAddHoliday(true)} style={{ ...primaryButtonStyle, boxShadow: '0 2px 10px rgba(177,17,22,.25)' }}>
               <Plus size={14} /> Add Holiday
             </button>
           )}
@@ -370,10 +424,19 @@ export default function HolidaysPage() {
         </div>
       )}
 
+      {upcomingHolidays.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Upcoming Holidays</div>
+          <div className="nf-autofit-mobile-safe" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+            {upcomingHolidays.map(u => <UpcomingHolidayCard key={u.holiday.id} holiday={u.holiday} daysAway={u.daysAway} />)}
+          </div>
+        </div>
+      )}
+
       <div className={holidays.length > 0 ? 'nf-grid-side-collapse' : undefined} style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(310px, 380px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
         {holidays.length > 0 && <HolidayMonthCalendar holidays={holidays} />}
 
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+        <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
           {holidays.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center' }}>
               <CalendarDays size={28} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
@@ -408,7 +471,7 @@ export default function HolidaysPage() {
                 </thead>
                 <tbody>
                   {holidays.map(h => (
-                    <tr key={h.id}>
+                    <tr key={h.id} className="nf-leave-row">
                       <td style={{ ...holidayTdStyle, color: 'var(--txt)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.holidayName}>{h.holidayName}</td>
                       <td style={holidayTdStyle}>{formatHolidayDate(h.holidayDate)}</td>
                       {isAdmin && <td style={{ ...holidayTdStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.locationName}>{h.locationName}</td>}

@@ -29,7 +29,7 @@ public class EmployeeController {
     private final EmployeeService employeeService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employees:VIEW:ALL')")
     public List<EmployeeResponse> listEmployees() {
         return employeeService.listEmployees();
     }
@@ -37,13 +37,13 @@ public class EmployeeController {
     /** Creating new employee accounts is a Super Admin action, done from User Management. */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employees:CREATE:ALL')")
     public EmployeeResponse createEmployee(@Valid @RequestBody CreateEmployeeRequest req, Principal principal) {
         return employeeService.createEmployee(req, principal.getName());
     }
 
     @PatchMapping("/{userId}")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employees:EDIT:ALL')")
     public EmployeeResponse updateEmployee(@PathVariable UUID userId,
                                            @Valid @RequestBody UpdateEmployeeRequest req,
                                            Principal principal) {
@@ -51,7 +51,7 @@ public class EmployeeController {
     }
 
     @GetMapping("/potential-managers")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employees:VIEW:ALL')")
     public List<EmployeeResponse> potentialManagers() {
         return employeeService.listPotentialManagers();
     }
@@ -62,7 +62,7 @@ public class EmployeeController {
      * legitimately see the same preview; the actual ID is only claimed at creation time.
      */
     @GetMapping("/next-code")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employees:VIEW:ALL')")
     public EmployeeCodePreviewResponse nextCode() {
         return new EmployeeCodePreviewResponse(employeeService.previewNextEmployeeCode());
     }
@@ -87,7 +87,7 @@ public class EmployeeController {
 
     /** HR dashboard — organization-wide equivalent of {@link #myReports}; every user in the org. */
     @GetMapping("/org-dashboard")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('employees:VIEW:ALL')")
     public ManagerDashboardDto orgDashboard() {
         return employeeService.getOrgDashboard();
     }
@@ -118,7 +118,16 @@ public class EmployeeController {
         byte[] photo = employeeService.getPhoto(userId);
         if (photo != null) return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(photo);
         String avatarUrl = employeeService.getAvatarUrl(userId);
-        if (avatarUrl != null) return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(avatarUrl)).build();
+        if (avatarUrl != null) return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(withExplicitSize(avatarUrl))).build();
         return ResponseEntity.notFound().build();
+    }
+
+    // DiceBear's SVG omits width/height (only viewBox) unless a size is requested, which is fine
+    // for a plain <img>/background-image but leaves the org chart's PNG/PDF export (html2canvas)
+    // unable to size the image at all — it silently rasterizes nothing. Force an explicit size on
+    // every redirect (old avatarUrls stored before this existed included) rather than relying on
+    // callers to have generated the URL correctly.
+    private static String withExplicitSize(String dicebearUrl) {
+        return dicebearUrl.contains("size=") ? dicebearUrl : dicebearUrl + "&size=200";
     }
 }

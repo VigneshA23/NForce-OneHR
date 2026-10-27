@@ -283,7 +283,7 @@ export default function UserPreferencesPage() {
               <ToggleRow label="Approval updates" sub="Items in your Approval Center changing status" checked={approvalUpdates} onChange={setApprovalUpdates} />
               <ToggleRow label="Document reminders" sub="Pending document uploads or verifications" checked={docReminders} onChange={setDocReminders} last />
               <PlaceholderNote>
-                These switches are saved but not yet enforced — every notification type above still
+                These switches are saved but not yet enforced - every notification type above still
                 arrives today regardless of what's toggled off here. Muting a category would need a
                 matching preference on the backend's notification pipeline.
               </PlaceholderNote>
@@ -304,7 +304,7 @@ export default function UserPreferencesPage() {
               />
               <ToggleRow
                 label="Reduce animations"
-                sub="Turn off pulsing/sliding effects — everything appears instantly instead"
+                sub="Turn off pulsing/sliding effects - everything appears instantly instead"
                 checked={reduceAnimations}
                 onChange={setReduceAnimations}
               />
@@ -315,9 +315,6 @@ export default function UserPreferencesPage() {
                 onChange={setKeyboardNavFocus}
                 last
               />
-              <PlaceholderNote>
-                All four of these are live app-wide — try them now.
-              </PlaceholderNote>
             </div>
           )}
         </div>

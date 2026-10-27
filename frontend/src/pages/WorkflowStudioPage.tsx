@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react';
-import { Plus, Check, X, ShieldAlert } from 'lucide-react';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { Plus, X, ShieldAlert, Workflow, ChevronRight, GitBranch, Pencil, Power, PowerOff, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
+import { ActionDock } from '../components/ActionDock';
+import { AccessDenied } from '../components/AccessDenied';
 import {
   workflowRulesApi, type ApprovalRule, type ApprovalRuleMetadata, type ApprovalRulePreview,
 } from '../api/workflowRules';
 
-const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', background: 'var(--raised)' };
-const tdS: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' };
+const thS: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+const tdS: React.CSSProperties = { padding: '14px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 10px', borderRadius: 6, border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.04em' };
 const btnStyle: React.CSSProperties = { padding: '8px 16px', background: 'var(--raised2)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, cursor: 'pointer' };
-const btnPrimaryStyle: React.CSSProperties = { ...btnStyle, background: 'var(--brand)', borderColor: 'var(--brand)', color: '#fff', fontWeight: 600 };
+const btnPrimaryStyle: React.CSSProperties = { ...btnStyle, background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', borderColor: 'transparent', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 28%, transparent)', borderRadius: 10, color: '#fff', fontWeight: 700 };
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: '40px 16px' };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' };
 
@@ -47,8 +51,14 @@ export const EMPTY_FORM: RuleFormValues = {
 
 /** MANAGER is always stage one (structural, not configurable — see backend's own validation)
  *  followed by whichever roles the admin picked for the "second approval" branch. */
+// Stages run in this order (see ExpenseService#finalApprove), so they're saved in hierarchy
+// order rather than the order the checkboxes happened to be ticked — ticking Super Admin before
+// HR Admin must still mean Manager → HR Admin → Super Admin.
+const SECOND_APPROVAL_ORDER = ['HR_ADMIN', 'SUPER_ADMIN'];
+
 export function stagesFromForm(values: RuleFormValues): string[] {
-  return ['MANAGER', ...values.secondApprovalRoles.filter(r => r !== 'MANAGER')];
+  const rank = (r: string) => { const i = SECOND_APPROVAL_ORDER.indexOf(r); return i === -1 ? SECOND_APPROVAL_ORDER.length : i; };
+  return ['MANAGER', ...values.secondApprovalRoles.filter(r => r !== 'MANAGER').sort((a, b) => rank(a) - rank(b))];
 }
 
 /** Client-side validation mirroring the backend's ApprovalRuleService#validateCore — backend
@@ -84,19 +94,14 @@ export function validateRuleForm(values: RuleFormValues, metadata: ApprovalRuleM
   }
   if (values.secondApprovalRoles.some(r => r === 'MANAGER')) {
     errors.push('MANAGER is always included automatically and cannot be selected as a second-approval role');
+  } else if (values.secondApprovalRoles.length === 0) {
+    errors.push('At least one second-approval role (HR Admin or Super Admin) is required');
   }
   return errors;
 }
 
 function StatusPill({ active }: { active: boolean }) {
-  return (
-    <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 20, whiteSpace: 'nowrap',
-      color: active ? '#2FB67C' : 'var(--txt-dim)', background: active ? 'rgba(47,182,124,.15)' : 'var(--raised2)',
-    }}>
-      {active ? 'Active' : 'Inactive'}
-    </span>
-  );
+  return <span className={`nf-rep-pill${active ? '' : ' is-off'}`}>{active ? 'Active' : 'Inactive'}</span>;
 }
 
 function ConfirmModal({ title, message, confirmLabel, danger, onConfirm, onCancel, busy }: {
@@ -194,7 +199,7 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
         showToast('success', 'Rule updated');
       } else {
         await workflowRulesApi.create(payload, token);
-        showToast('success', 'Rule saved as draft — activate it when you\'re ready');
+        showToast('success', 'Rule saved as draft - activate it when you\'re ready');
       }
       onSaved();
       onClose();
@@ -282,7 +287,7 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
               <span style={{
                 fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 20,
                 background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px dashed var(--line2)',
-              }} title="Manager approval always applies — this cannot be turned off">
+              }} title="Manager approval always applies - this cannot be turned off">
                 Manager Approval (always required)
               </span>
               {secondApprovalOptions.map(role => {
@@ -343,19 +348,9 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
   );
 }
 
-function AccessDenied() {
-  return (
-    <div style={{ ...card, padding: 40, textAlign: 'center' }}>
-      <ShieldAlert size={28} style={{ color: 'var(--txt-dim)', marginBottom: 10 }} />
-      <div style={{ fontSize: 15, color: 'var(--txt)', marginBottom: 6 }}>Super Admin access required</div>
-      <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>Workflow Studio rules can only be viewed or changed by a Super Admin.</div>
-    </div>
-  );
-}
-
 export default function WorkflowStudioPage() {
   const token = useAuthStore(s => s.token)!;
-  const role = useAuthStore(s => s.user?.role);
+  const permissions = useAuthStore(s => s.permissions);
   const { showToast } = useToast();
   const [rules, setRules] = useState<ApprovalRule[]>([]);
   const [metadata, setMetadata] = useState<ApprovalRuleMetadata | null>(null);
@@ -365,9 +360,10 @@ export default function WorkflowStudioPage() {
   const [confirmTarget, setConfirmTarget] = useState<{ rule: ApprovalRule; action: 'activate' | 'deactivate' | 'delete' } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
-  // Defensive, matching backend enforcement — the nav item is already SUPER_ADMIN-only, but a
-  // direct URL visit by another role must not silently render live rule data.
-  const authorized = role === 'SUPER_ADMIN';
+  // Defensive, matching backend enforcement — Shell's own route-level check (see its
+  // deniedByPermission) already blocks a direct URL visit from reaching this component at all,
+  // but this stays as a second line of defense rather than relying solely on that.
+  const authorized = hasPermission(permissions, 'approval_rules', 'VIEW', 'ALL');
 
   function load() {
     setLoading(true);
@@ -421,13 +417,13 @@ export default function WorkflowStudioPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
-        <div>
+      <div className="nf-page-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
+        <PageTitleBlock icon={Workflow}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Workflow Studio</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
-            Configure data-driven approval rules — the Approval Center routes new requests according to whichever rule is active.
+            Configure data-driven approval rules - the Approval Center routes new requests according to whichever rule is active.
           </p>
-        </div>
+        </PageTitleBlock>
         {metadata && (
           <button onClick={() => setFormTarget('new')} style={{ ...btnPrimaryStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Plus size={14} /> Create Rule
@@ -435,9 +431,27 @@ export default function WorkflowStudioPage() {
         )}
       </div>
 
+      {/* Approval Center's own routing never goes unconfigured — ApprovalRuleEvaluationService
+       * falls back to Manager -> HR Admin, unconditionally, whenever a request type has no active
+       * rule (see its legacyDefault()). That fallback is otherwise invisible here: this page only
+       * ever showed configured rules, never the routing new requests actually get without one. */}
+      {metadata && !loading && !loadError && metadata.requestTypes
+        .filter(rt => !rules.some(r => r.requestType === rt && r.active))
+        .map(rt => (
+          <div key={rt} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 16px', marginBottom: 14,
+            borderRadius: 14, background: 'linear-gradient(90deg, color-mix(in srgb, var(--info) 14%, var(--panel)), color-mix(in srgb, var(--info) 4%, var(--panel)))', border: '1px solid color-mix(in srgb, var(--info) 32%, transparent)',
+          }}>
+            <ShieldAlert size={16} style={{ color: 'var(--info)', flexShrink: 0, marginTop: 1 }} />
+            <span style={{ fontSize: 12.5, color: 'var(--txt)', lineHeight: 1.5 }}>
+              No active rule for <b>{rt}</b> – new {rt.toLowerCase()} requests default to <b>Manager → HR Admin</b> approval until a rule is activated.
+            </span>
+          </div>
+        ))}
+
       <div style={card}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+          <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
             <thead>
               <tr>
                 {['Rule', 'Request Type', 'Condition', 'Approval Stages', 'Status', 'Updated', ''].map(h => (
@@ -457,30 +471,38 @@ export default function WorkflowStudioPage() {
                 <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 40 }}>No rules configured yet. Create one to start routing requests dynamically.</td></tr>
               ) : rules.map(rule => (
                 <tr key={rule.id}>
-                  <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{rule.ruleName}</td>
-                  <td style={tdS}>{rule.requestType}</td>
-                  <td style={{ ...tdS, whiteSpace: 'nowrap' }}>
-                    <span style={{ fontFamily: 'Inter, sans-serif' }}>{rule.conditionField} {rule.operator} {rule.conditionValue}</span>
-                  </td>
-                  <td style={tdS}>{rule.approvalStages.join(' → ')}</td>
-                  <td style={tdS}><StatusPill active={rule.active} /></td>
-                  <td style={{ ...tdS, whiteSpace: 'nowrap' }}>{rule.updatedByName ?? rule.createdByName}</td>
-                  <td style={{ ...tdS, whiteSpace: 'nowrap' }}>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => openEdit(rule)} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12 }}>Edit</button>
-                      {rule.active ? (
-                        <button onClick={() => setConfirmTarget({ rule, action: 'deactivate' })} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12 }}>Deactivate</button>
-                      ) : (
-                        <>
-                          <button onClick={() => setConfirmTarget({ rule, action: 'activate' })} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12, background: 'rgba(47,182,124,.15)', borderColor: 'rgba(47,182,124,.3)', color: '#2FB67C' }}>
-                            <Check size={12} style={{ verticalAlign: -1 }} /> Activate
-                          </button>
-                          <button onClick={() => setConfirmTarget({ rule, action: 'delete' })} style={{ ...btnStyle, padding: '5px 10px', fontSize: 12, background: 'rgba(228,55,61,.1)', borderColor: 'rgba(228,55,61,.28)', color: '#E4373D' }}>
-                            Delete
-                          </button>
-                        </>
-                      )}
+                  <td style={tdS}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span className="nf-opp-ico"><GitBranch size={17} /></span>
+                      <span style={{ color: 'var(--txt)', fontWeight: 700, fontSize: 14 }}>{rule.ruleName}</span>
                     </div>
+                  </td>
+                  <td style={tdS}><span className="nf-aud-chip">{rule.requestType}</span></td>
+                  <td style={{ ...tdS, whiteSpace: 'nowrap' }}>
+                    <span className="nf-rep-code">{rule.conditionField} {rule.operator} {rule.conditionValue}</span>
+                  </td>
+                  <td style={tdS}>
+                    <div className="nf-stage-flow">
+                      {rule.approvalStages.map((st, i) => (
+                        <span key={`${st}-${i}`} className="nf-stage-step">
+                          {i > 0 && <ChevronRight size={13} className="nf-stage-arrow" />}
+                          <span className="nf-stage-pill">{st}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td style={tdS}><StatusPill active={rule.active} /></td>
+                  <td style={{ ...tdS, whiteSpace: 'nowrap', color: 'var(--txt)', fontWeight: 600 }}>{rule.updatedByName ?? rule.createdByName}</td>
+                  <td className="nf-dock-cell" style={tdS}>
+                    <ActionDock items={[
+                      { label: 'Edit', icon: Pencil, onClick: () => openEdit(rule) },
+                      ...(rule.active
+                        ? [{ label: 'Deactivate', icon: PowerOff, onClick: () => setConfirmTarget({ rule, action: 'deactivate' as const }) }]
+                        : [
+                            { label: 'Activate', icon: Power, onClick: () => setConfirmTarget({ rule, action: 'activate' as const }) },
+                            { label: 'Delete', icon: Trash2, onClick: () => setConfirmTarget({ rule, action: 'delete' as const }), danger: true },
+                          ]),
+                    ]} />
                   </td>
                 </tr>
               ))}
