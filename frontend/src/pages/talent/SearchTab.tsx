@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, X, Award, Bookmark, Trash2 } from 'lucide-react';
+import { Search, X, Award, Bookmark, Trash2, Sparkles } from 'lucide-react';
+import { PersonAvatar } from '../../components/PersonCell';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { skillMasterApi, proficiencyLevelApi, type SkillMasterOption, type ProficiencyLevelOption } from '../../api/talentMasterData';
@@ -7,14 +8,14 @@ import {
   talentSearchApi, type TalentSearchRequest, type TalentSearchResultItem, type SavedTalentSearch,
 } from '../../api/talentOrg';
 
-const inputStyle: React.CSSProperties = { padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)', fontSize: 12.5, fontFamily: 'inherit' };
-const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10 };
+const inputStyle: React.CSSProperties = { padding: '10px 14px', borderRadius: 12, border: '1px solid var(--line2)', background: 'var(--panel)', color: 'var(--txt)', fontSize: 13.5, fontFamily: 'inherit', outline: 'none' };
+const card: React.CSSProperties = { background: 'linear-gradient(180deg, color-mix(in srgb, var(--brand) 4%, var(--panel)) 0%, var(--panel) 110px)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)' };
 
 function SkillPill({ name, onRemove }: { name: string; onRemove: () => void }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, padding: '3px 6px 3px 10px', borderRadius: 20, background: 'rgba(177,17,22,.1)', color: '#B11116' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, fontWeight: 700, padding: '5px 8px 5px 12px', borderRadius: 999, background: 'color-mix(in srgb, var(--brand) 11%, var(--panel))', border: '1px solid color-mix(in srgb, var(--brand) 28%, transparent)', color: 'var(--brand)' }}>
       {name}
-      <button onClick={onRemove} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B11116', display: 'flex', padding: 2 }}><X size={11} /></button>
+      <button onClick={onRemove} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--brand)', display: 'flex', padding: 2 }}><X size={12} /></button>
     </span>
   );
 }
@@ -118,19 +119,26 @@ export function SearchTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ ...card, padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ ...card, padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="nf-opp-head" style={{ marginBottom: 0 }}>
+          <span className="nf-opp-ico"><Sparkles size={18} /></span>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Find talent</div>
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>Search by skill, proficiency, certification and more.</div>
+          </div>
+        </div>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Skills</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>Skills</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
             {selectedSkillIds.map(id => {
               const s = skills.find(x => x.id === id);
               return s ? <SkillPill key={id} name={s.name} onRemove={() => setSelectedSkillIds(prev => prev.filter(x => x !== id))} /> : null;
             })}
           </div>
-          <div style={{ position: 'relative', maxWidth: 320 }}>
+          <div style={{ position: 'relative', maxWidth: 380 }}>
             <input value={skillQuery} onChange={e => setSkillQuery(e.target.value)} placeholder="Search skills to add…" style={{ ...inputStyle, width: '100%' }} />
             {skillQuery.trim() && skillOptions.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, zIndex: 10, overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 12, zIndex: 10, overflow: 'hidden', boxShadow: '0 12px 28px rgba(16,24,40,.16)' }}>
                 {skillOptions.map(s => (
                   <button key={s.id} onClick={() => { setSelectedSkillIds(prev => [...prev, s.id]); setSkillQuery(''); }}
                     style={{ display: 'block', width: '100%', textAlign: 'left', padding: '7px 10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: 'var(--txt)' }}>
@@ -181,16 +189,17 @@ export function SearchTab() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button onClick={() => runSearch()} disabled={searching || hasUnresolvedSkillText}
             title={hasUnresolvedSkillText ? 'Clear the unmatched skill text first' : undefined} style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', background: '#B11116', border: 'none',
-            borderRadius: 7, color: '#fff', fontSize: 12.5, fontWeight: 700,
+            display: 'flex', alignItems: 'center', gap: 7, padding: '10px 22px', background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 68%, #000))', border: 'none',
+            boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 28%, transparent)',
+            borderRadius: 12, color: '#fff', fontSize: 13.5, fontWeight: 700,
             cursor: searching || hasUnresolvedSkillText ? 'default' : 'pointer', opacity: searching || hasUnresolvedSkillText ? 0.6 : 1,
           }}>
             <Search size={13} /> {searching ? 'Searching…' : 'Search'}
           </button>
-          <input value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="Name this search…" style={{ ...inputStyle, width: 180 }} />
+          <input value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="Name this search…" style={{ ...inputStyle, width: 210 }} />
           <button onClick={saveCurrentSearch} disabled={!saveName.trim() || hasUnresolvedSkillText} style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'var(--raised)', border: '1px solid var(--line2)',
-            borderRadius: 7, color: 'var(--txt)', fontSize: 12.5, fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', background: 'var(--raised)', border: '1px solid var(--line2)',
+            borderRadius: 12, color: 'var(--txt)', fontSize: 13.5, fontWeight: 700,
             cursor: saveName.trim() && !hasUnresolvedSkillText ? 'pointer' : 'default', opacity: saveName.trim() && !hasUnresolvedSkillText ? 1 : 0.5,
           }}>
             <Bookmark size={13} /> Save
@@ -200,7 +209,7 @@ export function SearchTab() {
         {saved.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
             {saved.map(s => (
-              <span key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '4px 6px 4px 10px', borderRadius: 20, background: 'var(--raised)', border: '1px solid var(--line2)' }}>
+              <span key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, padding: '5px 8px 5px 12px', borderRadius: 999, background: 'color-mix(in srgb, var(--brand) 6%, var(--raised))', border: '1px solid var(--line2)' }}>
                 <button onClick={() => loadSaved(s)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt)', fontWeight: 600 }}>{s.name}</button>
                 <button onClick={() => deleteSaved(s.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'flex', padding: 2 }}><Trash2 size={11} /></button>
               </span>
@@ -211,27 +220,28 @@ export function SearchTab() {
 
       {results !== null && (
         <div style={{ ...card, overflow: 'hidden' }}>
-          <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', background: 'var(--raised)', fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(90deg, color-mix(in srgb, var(--brand) 9%, var(--panel)), var(--panel))', fontSize: 15, fontWeight: 800, color: 'var(--txt)' }}>
             {results.length} matching employee{results.length === 1 ? '' : 's'}
           </div>
           {results.length === 0 ? (
             <div style={{ padding: 30, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No employees match these filters.</div>
           ) : (
             results.map((r, i) => (
-              <div key={r.employeeUserId} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', borderTop: i === 0 ? 'none' : '1px solid var(--line)' }}>
-                <div style={{ flex: '0 0 200px', minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{r.employeeName}</div>
+              <div key={r.employeeUserId} className="nf-dir-row" style={{ cursor: 'default', borderTop: i === 0 ? 'none' : '1px solid var(--line)' }}>
+                <PersonAvatar userId={r.employeeUserId} name={r.employeeName} size={40} />
+                <div style={{ flex: '0 0 220px', minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{r.employeeName}</div>
                   <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeCode} · {r.departmentName ?? '–'}{r.managerName ? ` · reports to ${r.managerName}` : ''}</div>
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                   {r.matchingSkills.map((s, j) => (
-                    <span key={j} style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'rgba(177,17,22,.1)', color: '#B11116' }}>
+                    <span key={j} style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999, background: 'color-mix(in srgb, var(--brand) 10%, var(--panel))', border: '1px solid color-mix(in srgb, var(--brand) 26%, transparent)', color: 'var(--brand)' }}>
                       {s.skillName} · {s.proficiencyLevel}
                     </span>
                   ))}
                 </div>
                 <div style={{ flex: '0 0 70px', textAlign: 'right', fontSize: 11.5, color: 'var(--txt-mut)' }}>
-                  {r.certificates.length > 0 && <div><Award size={11} style={{ verticalAlign: -1 }} /> {r.certificates.length}</div>}
+                  {r.certificates.length > 0 && <div className="nf-cert-badge"><Award size={12} /> {r.certificates.length}</div>}
                 </div>
               </div>
             ))

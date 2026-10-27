@@ -64,7 +64,12 @@
 
 /* Table */
 .apv-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-.apv-table { width: 100%; border-collapse: collapse; }
+/* Fixed layout with every column given a percentage width via <colgroup> (ApprovalsPage.tsx),
+   summing to exactly 100% — so width: 100% here can never overflow the card (no horizontal
+   scrollbar hiding Actions off-screen) while still giving each column a deliberate,
+   content-proportional share instead of auto-layout's unpredictable one, or a fixed-px column set
+   that doesn't account for actual available width varying with zoom/sidebar state. */
+.apv-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .apv-table th {
   padding: 11px 14px; text-align: left; font-size: 11px; font-weight: 700; color: var(--txt-mut);
   text-transform: uppercase; letter-spacing: .07em; border-bottom: 1px solid var(--line);
@@ -82,16 +87,20 @@
 .apv-check { width: 40px; }
 .apv-check input { cursor: pointer; accent-color: var(--brand); width: 15px; height: 15px; }
 
-.apv-type { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.apv-type { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .apv-type-icon { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex-shrink: 0; }
-.apv-type-label { font-weight: 600; color: var(--txt); white-space: nowrap; }
+/* overflow/ellipsis, not just nowrap — with the column's width now fixed (see .apv-table), an
+   unusually long label (e.g. "Work From Home" at a narrower zoom) truncates instead of forcing
+   the row taller or spilling into the next column; the title attribute (see ApprovalsPage.tsx)
+   covers the full text on hover. */
+.apv-type-label { font-weight: 600; color: var(--txt); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
-.apv-emp { display: flex; align-items: center; gap: 10px; min-width: 150px; }
-.apv-emp-name { color: var(--txt); font-weight: 600; }
+.apv-emp { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.apv-emp-name { color: var(--txt); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
-.apv-dates { white-space: nowrap; color: var(--txt); }
-.apv-reason { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.apv-submitted { white-space: nowrap; }
+.apv-dates { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--txt); }
+.apv-reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-submitted { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .apv-status {
   display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700;
@@ -138,15 +147,13 @@
    they respond correctly whether or not the app sidebar is taking up space beside the page. */
 .apv-card { container: apv-card / inline-size; }
 
-/* Laptop / tablet landscape: tighten spacing and the free-text column first. */
+/* Laptop / tablet landscape: tighten spacing. Column widths themselves stay fixed (see
+   .apv-table/<colgroup>) rather than shrinking further — below this the table's own
+   overflow-x: auto (ApprovalsPage.tsx) scrolls horizontally instead of squeezing columns, which
+   is what used to reintroduce the uneven-gap problem this whole fix is for. */
 @container apv-card (max-width: 1300px) {
   .apv-table th, .apv-table td { padding-left: 10px; padding-right: 10px; }
-  .apv-reason { max-width: 170px; }
-  .apv-type, .apv-emp { min-width: 0; }
   .apv-type-icon { width: 28px; height: 28px; }
-}
-@container apv-card (max-width: 1060px) {
-  .apv-reason { max-width: 120px; }
 }
 
 @media (max-width: 760px) {

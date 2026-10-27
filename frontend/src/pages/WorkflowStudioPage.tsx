@@ -1,22 +1,22 @@
 import { useEffect, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { Plus, X, ShieldAlert, Workflow } from 'lucide-react';
+import { Plus, X, ShieldAlert, Workflow, ChevronRight, GitBranch, Pencil, Power, PowerOff, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
-import { KebabMenu } from '../components/KebabMenu';
+import { ActionDock } from '../components/ActionDock';
 import { AccessDenied } from '../components/AccessDenied';
 import {
   workflowRulesApi, type ApprovalRule, type ApprovalRuleMetadata, type ApprovalRulePreview,
 } from '../api/workflowRules';
 
-const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', background: 'var(--raised)' };
-const tdS: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' };
+const thS: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+const tdS: React.CSSProperties = { padding: '14px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 10px', borderRadius: 6, border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.04em' };
 const btnStyle: React.CSSProperties = { padding: '8px 16px', background: 'var(--raised2)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, cursor: 'pointer' };
-const btnPrimaryStyle: React.CSSProperties = { ...btnStyle, background: 'var(--brand)', borderColor: 'var(--brand)', color: '#fff', fontWeight: 600 };
+const btnPrimaryStyle: React.CSSProperties = { ...btnStyle, background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', borderColor: 'transparent', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 28%, transparent)', borderRadius: 10, color: '#fff', fontWeight: 700 };
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: '40px 16px' };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' };
 
@@ -101,14 +101,7 @@ export function validateRuleForm(values: RuleFormValues, metadata: ApprovalRuleM
 }
 
 function StatusPill({ active }: { active: boolean }) {
-  return (
-    <span style={{
-      fontSize: 11.5, fontWeight: 600, padding: '3px 9px', borderRadius: 20, whiteSpace: 'nowrap',
-      color: active ? '#2FB67C' : 'var(--txt-dim)', background: active ? 'rgba(47,182,124,.15)' : 'var(--raised2)',
-    }}>
-      {active ? 'Active' : 'Inactive'}
-    </span>
-  );
+  return <span className={`nf-rep-pill${active ? '' : ' is-off'}`}>{active ? 'Active' : 'Inactive'}</span>;
 }
 
 function ConfirmModal({ title, message, confirmLabel, danger, onConfirm, onCancel, busy }: {
@@ -447,7 +440,7 @@ export default function WorkflowStudioPage() {
         .map(rt => (
           <div key={rt} style={{
             display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 16px', marginBottom: 14,
-            borderRadius: 8, background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.28)',
+            borderRadius: 14, background: 'linear-gradient(90deg, color-mix(in srgb, var(--info) 14%, var(--panel)), color-mix(in srgb, var(--info) 4%, var(--panel)))', border: '1px solid color-mix(in srgb, var(--info) 32%, transparent)',
           }}>
             <ShieldAlert size={16} style={{ color: 'var(--info)', flexShrink: 0, marginTop: 1 }} />
             <span style={{ fontSize: 12.5, color: 'var(--txt)', lineHeight: 1.5 }}>
@@ -458,7 +451,7 @@ export default function WorkflowStudioPage() {
 
       <div style={card}>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
+          <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
             <thead>
               <tr>
                 {['Rule', 'Request Type', 'Condition', 'Approval Stages', 'Status', 'Updated', ''].map(h => (
@@ -478,25 +471,36 @@ export default function WorkflowStudioPage() {
                 <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 40 }}>No rules configured yet. Create one to start routing requests dynamically.</td></tr>
               ) : rules.map(rule => (
                 <tr key={rule.id}>
-                  <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{rule.ruleName}</td>
-                  <td style={tdS}>{rule.requestType}</td>
-                  <td style={{ ...tdS, whiteSpace: 'nowrap' }}>
-                    <span style={{ fontFamily: 'Inter, sans-serif' }}>{rule.conditionField} {rule.operator} {rule.conditionValue}</span>
+                  <td style={tdS}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span className="nf-opp-ico"><GitBranch size={17} /></span>
+                      <span style={{ color: 'var(--txt)', fontWeight: 700, fontSize: 14 }}>{rule.ruleName}</span>
+                    </div>
                   </td>
-                  <td style={tdS}>{rule.approvalStages.join(' → ')}</td>
-                  <td style={tdS}><StatusPill active={rule.active} /></td>
-                  <td style={{ ...tdS, whiteSpace: 'nowrap' }}>{rule.updatedByName ?? rule.createdByName}</td>
+                  <td style={tdS}><span className="nf-aud-chip">{rule.requestType}</span></td>
                   <td style={{ ...tdS, whiteSpace: 'nowrap' }}>
-                    {/* Kebab menu, matching the row-actions pattern used across the other admin
-                        tables (User Management, Policies & Announcements) — see hr-ux-audit
-                        finding UI-004 — rather than this table's own always-visible text links. */}
-                    <KebabMenu items={[
-                      { label: 'Edit', onClick: () => openEdit(rule) },
+                    <span className="nf-rep-code">{rule.conditionField} {rule.operator} {rule.conditionValue}</span>
+                  </td>
+                  <td style={tdS}>
+                    <div className="nf-stage-flow">
+                      {rule.approvalStages.map((st, i) => (
+                        <span key={`${st}-${i}`} className="nf-stage-step">
+                          {i > 0 && <ChevronRight size={13} className="nf-stage-arrow" />}
+                          <span className="nf-stage-pill">{st}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td style={tdS}><StatusPill active={rule.active} /></td>
+                  <td style={{ ...tdS, whiteSpace: 'nowrap', color: 'var(--txt)', fontWeight: 600 }}>{rule.updatedByName ?? rule.createdByName}</td>
+                  <td className="nf-dock-cell" style={tdS}>
+                    <ActionDock items={[
+                      { label: 'Edit', icon: Pencil, onClick: () => openEdit(rule) },
                       ...(rule.active
-                        ? [{ label: 'Deactivate', onClick: () => setConfirmTarget({ rule, action: 'deactivate' as const }) }]
+                        ? [{ label: 'Deactivate', icon: PowerOff, onClick: () => setConfirmTarget({ rule, action: 'deactivate' as const }) }]
                         : [
-                            { label: 'Activate', onClick: () => setConfirmTarget({ rule, action: 'activate' as const }) },
-                            { label: 'Delete', onClick: () => setConfirmTarget({ rule, action: 'delete' as const }), danger: true },
+                            { label: 'Activate', icon: Power, onClick: () => setConfirmTarget({ rule, action: 'activate' as const }) },
+                            { label: 'Delete', icon: Trash2, onClick: () => setConfirmTarget({ rule, action: 'delete' as const }), danger: true },
                           ]),
                     ]} />
                   </td>

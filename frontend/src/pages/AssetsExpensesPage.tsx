@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useNavigate } from 'react-router-dom';
-import { Check, ExternalLink, Paperclip, Plus, Package } from 'lucide-react';
-import { KebabMenu } from '../components/KebabMenu';
+import { Archive, Check, ExternalLink, Paperclip, Plus, Package, Repeat, Search, Undo2, UserPlus } from 'lucide-react';
+import { PersonAvatar } from '../components/PersonCell';
 import { TabBar } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
@@ -125,7 +125,7 @@ function EmployeeView({ token }: { token: string }) {
       </div>
 
       {/* Tab bar */}
-      <TabBar tabs={tabDef} active={activeTab} onChange={setActiveTab} ariaLabel="My assets and expenses" />
+      <TabBar className="nf-pilltabs" tabs={tabDef} active={activeTab} onChange={setActiveTab} ariaLabel="My assets and expenses" />
 
       {/* My Assets tab */}
       {activeTab === 'assets' && (
@@ -514,7 +514,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
       )}
 
       {/* Tab bar */}
-      <TabBar tabs={managerTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Team assets and expenses" trailing={
+      <TabBar className="nf-pilltabs" tabs={managerTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Team assets and expenses" trailing={
         <button onClick={() => navigate('/approvals?type=EXPENSE')} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--brand)', borderRadius: 7, padding: '5px 12px', fontSize: 12, color: 'var(--brand)', cursor: 'pointer' }}>
           <ExternalLink size={12} /> Approval Center
         </button>
@@ -741,25 +741,28 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
       )}
 
       {/* Tab bar */}
-      <TabBar tabs={hrTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Asset and expense administration" />
+      <TabBar className="nf-pilltabs" tabs={hrTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Asset and expense administration" />
 
       {/* Asset Inventory tab */}
       {activeTab === 'inventory' && (<div>
         <SectionHead
           title="Company Asset Inventory"
           action={
-            <button onClick={() => setShowAddAsset(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            <button onClick={() => setShowAddAsset(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 30%, transparent)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               <Plus size={13} /> Add Asset
             </button>
           }
         />
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-          <input value={inventorySearch} onChange={e => setInventorySearch(e.target.value)} placeholder="Search tag / serial / brand…" style={{ ...inputStyle, width: 210, fontSize: 12, padding: '6px 10px' }} />
-          <select value={inventoryCatFilter} onChange={e => setInventoryCatFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
+        <div className="nf-filterbar">
+          <label className="nf-filter-search">
+            <Search size={15} />
+            <input value={inventorySearch} onChange={e => setInventorySearch(e.target.value)} placeholder="Search tag / serial / brand…" />
+          </label>
+          <select className="nf-filter-select" value={inventoryCatFilter} onChange={e => setInventoryCatFilter(e.target.value)}>
             <option value="">All Categories</option>
             {inventoryCategoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <select value={inventoryStatusFilter} onChange={e => setInventoryStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
+          <select className="nf-filter-select" value={inventoryStatusFilter} onChange={e => setInventoryStatusFilter(e.target.value)}>
             <option value="">All Statuses</option>
             {inventoryStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
           </select>
@@ -773,21 +776,36 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
               <tbody>
                 {filteredInventory.length === 0 ? <EmptyRow cols={7} msg="No assets in inventory." /> : filteredInventory.map(a => (
                   <tr key={a.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.assetTag}</td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName}</td>
+                    <td style={tdStyle}><span className="nf-asset-tag">{a.assetTag}</span></td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{a.categoryName}</td>
                     <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '–'}</td>
                     <td style={tdStyle}><StatusBadge status={a.status} /></td>
                     <td style={tdStyle}><StatusBadge status={a.condition} /></td>
-                    <td style={{ ...tdStyle, color: a.currentCustodianName ? 'var(--txt)' : 'var(--txt-dim)' }}>{a.currentCustodianName ?? 'Unassigned'}</td>
-                    <td style={{ ...tdStyle, padding: '8px 10px' }}>
-                      <KebabMenu items={[
-                        ...(a.status === 'AVAILABLE' ? [{ label: 'Assign', onClick: () => setShowAssignModal(a) }] : []),
-                        ...(a.status === 'ASSIGNED' ? [
-                          { label: 'Reassign', onClick: () => setShowReassignModal(a) },
-                          { label: 'Mark Returned', onClick: () => setShowReturnModal(a) },
-                        ] : []),
-                        ...(a.status !== 'RETIRED' ? [{ label: 'Retire', onClick: () => handleRetire(a.id), danger: true }] : []),
-                      ]} />
+                    <td style={tdStyle}>
+                      {a.currentCustodianName ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <PersonAvatar userId={a.currentCustodianUserId ?? a.currentCustodianName} name={a.currentCustodianName} size={30} />
+                          <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{a.currentCustodianName}</span>
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--txt-dim)' }}>Unassigned</span>
+                      )}
+                    </td>
+                    <td style={{ ...tdStyle, padding: '8px 12px' }}>
+                      <div className="nf-act-group">
+                        {a.status === 'AVAILABLE' && (
+                          <button type="button" className="nf-act-btn" onClick={() => setShowAssignModal(a)}><UserPlus size={13} />Assign</button>
+                        )}
+                        {a.status === 'ASSIGNED' && (
+                          <>
+                            <button type="button" className="nf-act-btn" onClick={() => setShowReassignModal(a)}><Repeat size={13} />Reassign</button>
+                            <button type="button" className="nf-act-btn" title="Mark Returned" onClick={() => setShowReturnModal(a)}><Undo2 size={13} />Return</button>
+                          </>
+                        )}
+                        {a.status !== 'RETIRED' && (
+                          <button type="button" className="nf-act-btn nf-act-btn--danger" onClick={() => handleRetire(a.id)}><Archive size={13} />Retire</button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

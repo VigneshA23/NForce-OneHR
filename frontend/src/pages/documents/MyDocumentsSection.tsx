@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Upload, AlertTriangle, Search } from 'lucide-react';
+import { Upload, AlertTriangle, Search, FileText } from 'lucide-react';
 import { type EmployeeDocument, type RequiredDocument } from '../../api/documents';
 import { card, thS, tdS, StatusBadge, UploadModal, ViewButton, WithdrawButton, bucketRequiredDocuments } from './shared';
 import { TabBar } from '../../components/TabBar';
@@ -53,6 +53,7 @@ export function MyDocumentsSection({
   return (
     <>
       <TabBar
+        className="nf-pilltabs"
         size="sm"
         ariaLabel="Document status"
         style={{ marginBottom: 14 }}
@@ -66,11 +67,11 @@ export function MyDocumentsSection({
         ]}
       />
 
-      <div className="nf-search-full-mobile" style={{ position: 'relative', marginBottom: 14 }}>
-        <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search documents…"
-          className="nf-search-full-mobile-input"
-          style={{ paddingLeft: 28, padding: '6px 10px 6px 28px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 12, width: 200, outline: 'none' }} />
+      <div className="nf-filterbar nf-search-full-mobile">
+        <label className="nf-filter-search nf-search-full-mobile-input">
+          <Search size={15} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search documents…" />
+        </label>
       </div>
 
       <div style={card}>
@@ -95,8 +96,13 @@ export function MyDocumentsSection({
                 return (
                   <tr key={r.documentTypeId}>
                     <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{r.documentTypeName}</div>
-                      {r.requiresVerification && <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Requires HR verification</div>}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span className="nf-opp-ico"><FileText size={17} /></span>
+                        <div>
+                          <div style={{ fontWeight: 700, color: 'var(--txt)', fontSize: 14 }}>{r.documentTypeName}</div>
+                          {r.requiresVerification && <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 2 }}>Requires HR verification</div>}
+                        </div>
+                      </div>
                     </td>
                     <td style={tdS}><StatusBadge status={r.status} /></td>
                     <td style={tdS}>
@@ -117,9 +123,8 @@ export function MyDocumentsSection({
                         {r.status === 'PENDING_VERIFICATION' ? (
                           doc && <WithdrawButton doc={doc} onWithdrawn={handleWithdrawn} />
                         ) : (
-                          <button onClick={() => setUploadTarget({ type: r, existing: doc })}
-                            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: 'var(--brand)', border: 'none', borderRadius: 5, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-                            <Upload size={12} /> {doc ? 'Update' : 'Upload'}
+                          <button type="button" className="nf-act-btn nf-act-btn--primary" onClick={() => setUploadTarget({ type: r, existing: doc })}>
+                            <Upload size={13} /> {doc ? 'Update' : 'Upload'}
                           </button>
                         )}
                         {doc && <ViewButton docId={doc.id} />}

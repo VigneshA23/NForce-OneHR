@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, AlertTriangle, Search, Eye, Paperclip, FileText, ShieldCheck, Hourglass, XCircle, FileX2 } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Search, Eye, Paperclip, FileText, ShieldCheck, Hourglass, XCircle, FileX2, Megaphone, ScrollText } from 'lucide-react';
 import DashTile from '../components/DashTile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -221,13 +221,14 @@ export default function DocumentsPage() {
       <DocumentStatTiles required={required.length} verified={verified.length} pending={pending.length} rejected={rejected.length} missing={missing.length} />
 
       {pendingPolicies.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(234,179,8,.12)', border: '1px solid rgba(234,179,8,.3)', borderRadius: 8, padding: '9px 14px', marginBottom: 18, fontSize: 13 }}>
-          <AlertTriangle size={14} color="#eab308" />
-          <span><strong style={{ color: '#eab308' }}>{pendingPolicies.length} required polic{pendingPolicies.length > 1 ? 'ies' : 'y'}</strong> need acknowledgment.</span>
+        <div className="nf-doc-banner">
+          <span className="nf-doc-banner-ico"><AlertTriangle size={16} /></span>
+          <span><strong>{pendingPolicies.length} required polic{pendingPolicies.length > 1 ? 'ies' : 'y'}</strong> need acknowledgment.</span>
         </div>
       )}
 
       <TabBar
+        className="nf-pilltabs"
         ariaLabel="Documents and policies"
         style={{ marginBottom: 20 }}
         active={tab}
@@ -254,13 +255,14 @@ export default function DocumentsPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {policies.length === 0 && <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>No active policies.</p>}
           {policies.map(p => (
-            <div key={p.id} style={{ ...card, padding: 20 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                    <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{p.title}</span>
-                    <span style={{ fontSize: 11, background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 8px', color: 'var(--txt-dim)' }}>v{p.version}</span>
-                    {p.required && <span style={{ fontSize: 11, background: 'rgba(239,68,68,.12)', color: '#ef4444', borderRadius: 4, padding: '2px 8px', fontWeight: 600 }}>Required</span>}
+            <div key={p.id} style={{ ...card, padding: 20 }} className="nf-opp-card">
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
+                <span className="nf-opp-ico nf-opp-ico--lg"><ScrollText size={20} /></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
+                    <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-.01em', color: 'var(--txt)' }}>{p.title}</span>
+                    <span className="nf-rep-code">v{p.version}</span>
+                    {p.required && <span className="nf-req-tag" style={{ marginLeft: 0 }}>Required</span>}
                   </div>
                   <p style={{ fontSize: 12, color: 'var(--txt-dim)', margin: '0 0 10px', lineHeight: 1.6 }}>{p.description}</p>
                   <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
@@ -277,25 +279,20 @@ export default function DocumentsPage() {
                       p.required gating on pendingPolicies above and the backend's countPendingRequired* queries). */}
                   {p.required ? (
                     p.acknowledged === false ? (
-                      <button onClick={() => setAckTarget(p)}
-                        style={{ padding: '7px 16px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                        Review & Acknowledge
+                      <button type="button" className="nf-act-btn nf-act-btn--primary nf-act-btn--lg" onClick={() => setAckTarget(p)}>
+                        <CheckCircle size={14} /> Review & Acknowledge
                       </button>
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#22c55e', fontSize: 13, fontWeight: 600 }}>
-                          <CheckCircle size={14} /> Acknowledged
-                        </span>
+                        <span className="nf-rep-pill"><CheckCircle size={13} /> Acknowledged</span>
                         <button onClick={() => setViewTarget(p)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 16px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                          <Eye size={14} /> View
+                          className="nf-act-btn nf-act-btn--lg"><Eye size={14} /> View
                         </button>
                       </div>
                     )
                   ) : (
                     <button onClick={() => setViewTarget(p)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 16px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                      <Eye size={14} /> View
+                      className="nf-act-btn nf-act-btn--lg"><Eye size={14} /> View
                     </button>
                   )}
                 </div>
@@ -308,19 +305,20 @@ export default function DocumentsPage() {
       {/* ── Announcements Tab ── */}
       {tab === 'announcements' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="nf-search-full-mobile" style={{ position: 'relative', marginBottom: 2 }}>
-            <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search announcements…"
-              className="nf-search-full-mobile-input"
-              style={{ paddingLeft: 28, padding: '6px 10px 6px 28px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 12, width: 200, outline: 'none' }} />
+          <div className="nf-filterbar nf-search-full-mobile" style={{ marginBottom: 2 }}>
+            <label className="nf-filter-search nf-search-full-mobile-input">
+              <Search size={15} />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search announcements…" />
+            </label>
           </div>
           {filteredAnnouncements.length === 0 && (
             <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>{q ? 'No announcements match your search.' : 'No announcements yet.'}</p>
           )}
           {filteredAnnouncements.map(a => (
-            <div key={a.id} style={{ ...card, padding: 20, display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+            <div key={a.id} style={{ ...card, padding: 20, display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }} className="nf-opp-card">
+              <span className="nf-opp-ico nf-opp-ico--lg"><Megaphone size={20} /></span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--txt)', marginBottom: 6 }}>{a.title}</div>
+                <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-.01em', color: 'var(--txt)', marginBottom: 6 }}>{a.title}</div>
                 {/* Preview only — the full announcement opens via View. */}
                 <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '0 0 10px', lineHeight: 1.6, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>{a.body}</p>
                 <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
@@ -329,8 +327,7 @@ export default function DocumentsPage() {
               </div>
               <div style={{ flexShrink: 0 }}>
                 <button onClick={() => setViewAnnouncement(a)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 16px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                  <Eye size={14} /> View
+                  className="nf-act-btn nf-act-btn--lg"><Eye size={14} /> View
                 </button>
               </div>
             </div>

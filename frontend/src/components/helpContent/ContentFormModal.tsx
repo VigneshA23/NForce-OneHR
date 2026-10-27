@@ -17,12 +17,8 @@ const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shel
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
 
 export function StatusChip({ label, tone }: { label: string; tone: 'ok' | 'warn' | 'dim' }) {
-  const colors = {
-    ok: { bg: 'rgba(16,185,129,.15)', color: '#10B981' },
-    warn: { bg: 'rgba(245,158,11,.15)', color: '#F59E0B' },
-    dim: { bg: 'rgba(107,114,128,.15)', color: '#9CA3AF' },
-  }[tone];
-  return <span style={{ fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20, background: colors.bg, color: colors.color, whiteSpace: 'nowrap' }}>{label}</span>;
+  const cls = tone === 'ok' ? '' : tone === 'warn' ? ' is-warn' : ' is-off';
+  return <span className={`nf-rep-pill${cls}`}>{label}</span>;
 }
 
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
