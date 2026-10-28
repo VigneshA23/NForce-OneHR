@@ -25,7 +25,7 @@ export function LoginArtwork() {
         aria-hidden="true"
         className="nf-la-bg"
         style={{
-          position: 'absolute', top: 0, bottom: 0, left: 0, width: '65%', zIndex: 0, overflow: 'hidden', pointerEvents: 'none',
+          position: 'absolute', top: 0, bottom: 0, left: 0, width: '62%', zIndex: 0, overflow: 'hidden', pointerEvents: 'none',
           background: '#000',
         }}
       />
@@ -47,7 +47,7 @@ export function LoginArtwork() {
       <div
         className="nf-login-art"
         style={{
-          position: 'absolute', top: 0, bottom: 0, left: 0, zIndex: 2, width: '65%', overflow: 'hidden', background: '#000',
+          position: 'absolute', top: 0, bottom: 0, left: 0, zIndex: 2, width: '62%', overflow: 'hidden', background: '#000',
           fontFamily: 'Inter, "Segoe UI", sans-serif',
         }}
       >
@@ -59,10 +59,10 @@ export function LoginArtwork() {
           className="nf-la-wave"
           draggable={false}
           style={{
-            position: 'absolute', left: 0, right: 0, bottom: 0, width: '100%', height: '60%',
+            position: 'absolute', left: 0, right: 0, bottom: 0, width: '100%', height: '74%',
             objectFit: 'fill', display: 'block',
-            WebkitMaskImage: 'linear-gradient(180deg, transparent 0, #000 38%)',
-            maskImage: 'linear-gradient(180deg, transparent 0, #000 38%)',
+            WebkitMaskImage: 'linear-gradient(180deg, transparent 0, #000 28%)',
+            maskImage: 'linear-gradient(180deg, transparent 0, #000 28%)',
           }}
         />
 

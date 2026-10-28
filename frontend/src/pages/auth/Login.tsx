@@ -181,7 +181,7 @@ export default function Login() {
 
       <div
         className="nf-login-grid"
-        style={{ position: 'relative', zIndex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 65fr) minmax(0, 35fr)', minHeight: '100dvh' }}
+        style={{ position: 'relative', zIndex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 62fr) minmax(0, 38fr)', minHeight: '100dvh' }}
       >
         {/* Empty grid cell; the artwork above is decorative and non-interactive. */}
         <div className="nf-login-spacer" style={{ pointerEvents: 'none' }} />

@@ -31,13 +31,13 @@ export function SyncLoginPanel({ children }: SyncLoginPanelProps) {
         // --u: 1px on roomy windows; shrinks smoothly so card + margins always fit the panel
         //      (panel = 35vw wide on desktop, card design size = 420 x 560).
         ['--m' as string]: 'max(16px, 5dvh)',
-        ['--mx' as string]: 'max(32px, 6vw)',
+        ['--mx' as string]: 'max(32px, 3.6vw)',
         // The artwork frame width, exactly as LoginArtwork computes it (also overridden there for wide windows).
         ['--nf-art-w' as string]: 'min(100vw, calc(100dvh * 1671 / 941))',
         // --u follows the artwork's scale (1px at the 1440x900 design point) and is only reduced when the card
         // + margins would not fit the panel. It has a lower floor (readability) but NO upper limit, so the card
         // keeps scaling with the artwork at every zoom level / viewport size.
-        ['--u' as string]: 'max(0.78px, min(calc(var(--nf-art-w) / 1440), calc((100dvh - 2 * var(--m)) / 560), calc((35vw - 2 * var(--mx)) / 420)))',
+        ['--u' as string]: 'max(0.78px, min(1.3px, calc((100dvh - 2 * var(--m)) / 560), calc((38vw - 2 * var(--mx)) / 420)))',
         padding: 'var(--m) var(--mx)',
         minWidth: 0,
         boxSizing: 'border-box',
