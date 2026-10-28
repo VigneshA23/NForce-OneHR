@@ -197,41 +197,28 @@ function ActionIconButton({
   label,
   title,
   color,
-  background,
-  border,
   onClick,
   children,
 }: {
   label: string;
   title: string;
   color: string;
-  background: string;
-  border: string;
+  background?: string;
+  border?: string;
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
   children: React.ReactNode;
 }) {
+  // Same labelled row-action buttons as the rest of the app: icon + the word, tinted by outcome.
+  const word = title.replace(/ request$/i, '');
   return (
     <button
       type="button"
       aria-label={label}
       title={title}
       onClick={onClick}
-      style={{
-        width: 30,
-        height: 30,
-        borderRadius: '50%',
-        border,
-        background,
-        color,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        padding: 0,
-        flexShrink: 0,
-      }}
+      className={`nf-act-btn ${color === '#2FB67C' ? 'nf-act-btn--ok' : 'nf-act-btn--danger'}`}
     >
-      {children}
+      {children}{word}
     </button>
   );
 }

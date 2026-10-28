@@ -3,7 +3,8 @@ import { PersonCell } from '../components/PersonCell';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
-import { Plus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, MoreVertical } from 'lucide-react';
+import { Plus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon } from 'lucide-react';
+import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
 import { orgApi, type ShiftRow } from '../api/org';
@@ -93,96 +94,13 @@ function StatusBadge({ active }: { active: boolean }) {
 // the caller's items array, not here.
 interface RowActionItem { label: string; onClick: () => void; danger?: boolean; dividerBefore?: boolean; }
 
-function RowActionsMenu({ open, onToggle, onClose, items }: {
-  open: boolean;
-  onToggle: () => void;
-  onClose: () => void;
+function RowActionsMenu({ items }: {
+  open?: boolean;
+  onToggle?: () => void;
+  onClose?: () => void;
   items: RowActionItem[];
 }) {
-  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number }>({ top: 0, right: 0 });
-  const [hovered, setHovered] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const minWidth = 180;
-
-  if (items.length === 0) return null;
-
-  function handleClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (!open && btnRef.current) {
-      const rect = btnRef.current.getBoundingClientRect();
-      const menuHeight = items.length * 36 + 8;
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const viewportMargin = 8;
-      const maxRight = Math.max(viewportMargin, window.innerWidth - minWidth - viewportMargin);
-      const right = Math.min(window.innerWidth - rect.right, maxRight);
-      if (spaceBelow < menuHeight) setPos({ bottom: window.innerHeight - rect.top + 4, right });
-      else setPos({ top: rect.bottom + 4, right });
-    }
-    onToggle();
-  }
-
-  const lit = open || hovered;
-
-  return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={handleClick}
-        aria-label="Row actions"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          background: lit ? 'var(--raised2)' : 'transparent',
-          border: `1px solid ${lit ? 'var(--line2)' : 'transparent'}`,
-          borderRadius: 8, width: 30, height: 30, cursor: 'pointer',
-          color: lit ? 'var(--txt)' : 'var(--txt-mut)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'background .15s, border-color .15s, color .15s',
-        }}
-      >
-        <MoreVertical size={15} />
-      </button>
-
-      {open && createPortal(
-        <>
-          {/* Full-viewport scrim, above the table's overflow context — clicking it (or
-              any row's own trigger) closes the menu, which is how exclusivity + outside-click-to-close both work. */}
-          <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
-          <div
-            role="menu"
-            style={{
-              position: 'fixed', top: pos.top, bottom: pos.bottom, right: pos.right,
-              background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10,
-              boxShadow: '0 16px 40px rgba(16,24,40,.18)', zIndex: 1000,
-              minWidth, maxWidth: 'calc(100vw - 16px)', boxSizing: 'border-box', overflow: 'hidden',
-            }}
-          >
-            {items.map((item, i) => (
-              <button
-                key={i}
-                role="menuitem"
-                onClick={e => { e.stopPropagation(); item.onClick(); onClose(); }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
-                  fontSize: 12.5, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer',
-                  color: item.danger ? 'var(--risk)' : 'var(--txt)',
-                  borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
-                  transition: 'background .1s',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = item.danger ? 'rgba(228,55,61,.08)' : 'var(--raised)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </>,
-        document.body
-      )}
-    </>
-  );
+  return <KebabMenu items={items} />;
 }
 
 interface OrgOptions { businessUnits: any[]; departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; shifts: ShiftRow[]; }

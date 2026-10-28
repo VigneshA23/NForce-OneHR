@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActionDock } from '../components/ActionDock';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -478,23 +479,10 @@ export default function HolidaysPage() {
                       <td style={holidayTdStyle}>{HOLIDAY_STATUS_BADGE(h.active)}</td>
                       {isAdmin && (
                         <td style={holidayTdStyle}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                            <button
-                              onClick={() => setEditingHoliday(h)}
-                              aria-label={`Edit ${h.holidayName}`}
-                              style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
-                            >
-                              <Pencil size={12} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteHoliday(h)}
-                              disabled={deletingId === h.id}
-                              aria-label={`Delete ${h.holidayName}`}
-                              style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: deletingId === h.id ? 'not-allowed' : 'pointer', color: 'var(--risk)', opacity: deletingId === h.id ? 0.5 : 1 }}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
+                          <ActionDock items={[
+                            { label: 'Edit', icon: Pencil, onClick: () => setEditingHoliday(h) },
+                            { label: 'Delete', icon: Trash2, onClick: () => handleDeleteHoliday(h), danger: true, disabled: deletingId === h.id },
+                          ]} />
                         </td>
                       )}
                     </tr>

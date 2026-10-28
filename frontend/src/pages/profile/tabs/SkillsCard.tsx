@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActionDock } from '../../../components/ActionDock';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Sparkles, Search, Handshake, Info } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
@@ -12,10 +13,6 @@ const ADD_BTN_STYLE: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px',
   background: 'var(--brand)', border: 'none', borderRadius: 6,
   fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer',
-};
-const ICON_BTN_STYLE: React.CSSProperties = {
-  background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: 5,
-  cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex',
 };
 
 const LEVEL_TONE: Record<string, string> = {
@@ -256,8 +253,10 @@ export function SkillsCard({ token }: { token: string }) {
               }}>
                 {s.proficiencyLevel}
               </span>
-              <button onClick={() => setModalTarget(s)} aria-label="Edit skill" style={ICON_BTN_STYLE}><Pencil size={11} /></button>
-              <button onClick={() => handleDelete(s.id)} aria-label="Delete skill" style={{ ...ICON_BTN_STYLE, color: 'var(--risk)' }}><Trash2 size={11} /></button>
+              <ActionDock items={[
+                { label: 'Edit', icon: Pencil, onClick: () => setModalTarget(s) },
+                { label: 'Delete', icon: Trash2, onClick: () => handleDelete(s.id), danger: true },
+              ]} />
             </div>
           ))}
         </div>
