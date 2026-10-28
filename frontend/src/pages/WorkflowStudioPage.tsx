@@ -11,8 +11,9 @@ import {
 } from '../api/workflowRules';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' };
-// Fixed column widths (% of table) so header and cells stay aligned at any zoom / viewport width.
-const COL_WIDTHS = ['19%', '10%', '15%', '33%', '8%', '10%', '6%'];
+// Fixed pixel widths for every column except Rule (which takes the remaining space) so headers and cells stay
+// aligned at any browser zoom; when the viewport is too narrow the table scrolls sideways instead of squeezing.
+const COL_WIDTHS: (number | undefined)[] = [undefined, 130, 200, 340, 130, 160, 132];
 const thS: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
 const tdS: React.CSSProperties = { padding: '14px 16px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 10px', borderRadius: 6, border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' };
@@ -453,8 +454,8 @@ export default function WorkflowStudioPage() {
 
       <div style={card}>
         <div style={{ overflowX: 'auto' }}>
-          <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1080 }}>
-            <colgroup>{COL_WIDTHS.map((w, i) => <col key={i} style={{ width: i === 6 ? 132 : w }} />)}</colgroup>
+          <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1280 }}>
+            <colgroup>{COL_WIDTHS.map((w, i) => <col key={i} style={w ? { width: w } : undefined} />)}</colgroup>
             <thead>
               <tr>
                 {['Rule', 'Request Type', 'Condition', 'Approval Stages', 'Status', 'Updated', ''].map(h => (
@@ -496,7 +497,7 @@ export default function WorkflowStudioPage() {
                     </div>
                   </td>
                   <td style={tdS}><StatusPill active={rule.active} /></td>
-                  <td style={{ ...tdS, color: 'var(--txt-mut)', fontWeight: 500, overflowWrap: 'anywhere' }}>{rule.updatedByName ?? rule.createdByName}</td>
+                  <td style={{ ...tdS, color: 'var(--txt-mut)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={rule.updatedByName ?? rule.createdByName}>{rule.updatedByName ?? rule.createdByName}</td>
                   <td className="nf-dock-cell" style={tdS}>
                     <ActionDock items={[
                       { label: 'Edit', icon: Pencil, onClick: () => openEdit(rule) },
