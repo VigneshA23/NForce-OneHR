@@ -1154,9 +1154,9 @@ function AssignmentsTab({ token }: { token: string }) {
             {lookups?.locations.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
         </div>
-        <div style={{ flex: 1, minWidth: 160, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
+        <div className="nf-filter-search" style={{ flex: '1 1 260px', maxWidth: 360 }}>
           <Search size={13} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee…"  />
         </div>
       </div>
 
@@ -1925,9 +1925,9 @@ function ReportsTab({ token }: { token: string }) {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
             <span style={panelTitleStyle}>{category}</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
+            <div className="nf-filter-search">
               <Search size={13} />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search reports…" style={{ background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search reports…" />
             </div>
           </div>
           <div style={{ padding: 18 }}>
@@ -2570,9 +2570,9 @@ function PenaltiesTab({ token }: { token: string }) {
             {locations.filter(l => l.active).map(l => <option key={l.id} value={l.name}>{l.name}</option>)}
           </select>
         </div>
-        <div style={{ flex: 1, minWidth: 160, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
+        <div className="nf-filter-search" style={{ flex: '1 1 260px', maxWidth: 360 }}>
           <Search size={13} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee…"  />
         </div>
       </div>
 
@@ -2981,9 +2981,9 @@ function SkillsGrowthTab({ token }: { token: string }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ maxWidth: 320, display: 'flex', alignItems: 'center', gap: 8, background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 7, padding: '7px 10px', color: 'var(--txt-dim)' }}>
+      <div className="nf-filter-search" style={{ maxWidth: 360 }}>
         <Search size={13} />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee by name or code…" style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12.5 }} />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee by name or code…"  />
       </div>
       {filtered.length === 0 ? (
         <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>No employee matches "{search}".</div>

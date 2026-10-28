@@ -559,10 +559,7 @@ export default function NotificationsPage() {
         padding: '10px 12px', background: 'var(--panel)',
         border: '1px solid var(--line)', borderRadius: 10,
       }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 180px', maxWidth: 300,
-          background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 10px',
-        }}>
+        <div className="nf-filter-search" style={{ flex: '1 1 260px', maxWidth: 360 }}>
           <Search size={13} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} aria-hidden="true" />
           <input
             type="text"
@@ -570,7 +567,7 @@ export default function NotificationsPage() {
             onChange={e => setSearch(e.target.value)}
             placeholder="Search notifications…"
             aria-label="Search notifications"
-            style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12, fontFamily: 'Inter, sans-serif' }}
+            
           />
         </div>
 

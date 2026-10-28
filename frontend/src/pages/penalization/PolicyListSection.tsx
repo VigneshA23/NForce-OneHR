@@ -3,6 +3,8 @@ import { ActionDock } from '../../components/ActionDock';
 import { Copy, Pencil, Power, Trash2, Plus, X, Star, PowerOff } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { penalisationPoliciesApi, type PenalisationPolicySummary, type PenalizationFallbackStrategy } from '../../api/penalisationPolicies';
+import { usePaged } from '../../components/usePaged';
+import { TablePagination } from '../../components/TablePagination';
 import PenalizationPolicySection, { ConfirmDiscardModal } from './PenalizationPolicySection';
 
 const inputStyle: React.CSSProperties = {
@@ -204,6 +206,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
 }) {
   const { showToast } = useToast();
   const [policies, setPolicies] = useState<PenalisationPolicySummary[]>([]);
+  const policiesPaged = usePaged(policies);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -300,7 +303,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
             </tr>
           </thead>
           <tbody>
-            {policies.map(p => (
+            {policiesPaged.pageRows.map(p => (
               <tr key={p.id} style={{ borderBottom: '1px solid var(--line)' }}>
                 <td style={{ padding: '10px 14px', color: 'var(--txt)', fontWeight: 500 }}>{p.name}</td>
                 <td style={{ padding: '10px 14px' }}>
@@ -368,6 +371,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
           </tbody>
         </table>
       </div>
+      <TablePagination {...policiesPaged.pagerProps} noun="policies" />
 
       {creating && (
         <NamePromptModal title="New Penalization Policy" initialName="" initialDescription="" confirmLabel="Create"

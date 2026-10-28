@@ -1,4 +1,5 @@
 import { EmployeeAvatar } from './EmployeeAvatar';
+import { useEmployeeCodes } from '../lib/useEmployeeCodes';
 
 /**
  * One way to show an employee in a table row, used by People Directory, User Management and Employee Master:
@@ -60,4 +61,11 @@ export function PersonCell({ userId, name, code, extra, photoDataUrl }: {
       </div>
     </div>
   );
+}
+
+/** PersonCell for records that carry only a user id (requests, tickets, claims…): the Employee ID is looked up
+ *  the same way EmpCode does it, so those tables show the same avatar / name / ID cell as the directories. */
+export function PersonCellById({ userId, name, code, extra }: { userId: string; name: string; code?: string | null; extra?: string | null }) {
+  const codeFor = useEmployeeCodes();
+  return <PersonCell userId={userId} name={name} code={code ?? codeFor(userId)} extra={extra} />;
 }
