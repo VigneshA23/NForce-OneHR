@@ -48,6 +48,7 @@ import DocumentsPage from '../DocumentsPage';
 import HelpDeskPage from '../HelpDeskPage';
 import WorkflowStudioPage from '../WorkflowStudioPage';
 import TalentPerformancePage from '../talent/TalentPerformancePage';
+import LeavePage from '../LeavePage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -74,6 +75,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
   { key: 'workflows-page', label: 'Workflow Studio (full page)', title: 'Workflow Studio', subtitle: 'Sample rules: themed table, stage flow pills, condition chips and the action dock.' },
   { key: 'talent-page', label: 'Performance tabs (full page)', title: 'Performance', subtitle: 'Sample data. Add &tab=search, &tab=directory or &tab=settings to the URL to open that tab.' },
+  { key: 'leave-page', label: 'Leave (full page)', title: 'Leave', subtitle: 'Employee view with sample data: KPIs, balance cards, filters, history table and the Manage dock on pending requests.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -524,6 +526,43 @@ function TalentMock() {
   return ready ? <TalentPerformancePage /> : null;
 }
 
+function LeaveMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample leave data and an Employee session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const req = (id: string, code: string, name: string, classification: string, start: string, end: string, days: number, status: string, reason: string, decidedByName: string | null, decisionReason: string | null) => ({
+      id, employeeUserId: 'me', employeeName: 'Me', employeeCode: 'NF-1', leaveTypeCode: code, leaveTypeName: name, leaveTypeClassification: classification,
+      startDate: start, endDate: end, halfDay: days === 0.5, halfDaySession: days === 0.5 ? 'FIRST_HALF' : null, totalDays: days, status,
+      employeeReason: reason, decisionReason, decidedByName, decidedAt: decidedByName ? '2026-09-20T10:30:00' : null, createdAt: '2026-09-10T10:00:00',
+    });
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/leave/types')) return json([{ id: 't1', code: 'ANNUAL', name: 'Annual Leave', classification: 'PAID' }, { id: 't2', code: 'CASUAL', name: 'Casual Leave', classification: 'PAID' }, { id: 't3', code: 'LOP', name: 'Loss Of Pay', classification: 'UNPAID' }]);
+      if (url.endsWith('/api/leave/balances')) return json([{ leaveTypeCode: 'ANNUAL', leaveTypeName: 'Annual Leave', year: 2026, totalDays: 15, usedDays: 5, remainingDays: 10 }, { leaveTypeCode: 'CASUAL', leaveTypeName: 'Casual Leave', year: 2026, totalDays: 6, usedDays: 5, remainingDays: 1 }]);
+      if (url.endsWith('/api/leave/requests/mine')) {
+        return json([
+          req('r1', 'ANNUAL', 'Annual Leave', 'PAID', '2026-09-30', '2026-09-30', 0.5, 'PENDING', 'ONEHR-562 fix verification', null, null),
+          req('r2', 'CASUAL', 'Casual Leave', 'PAID', '2026-09-18', '2026-09-18', 1, 'PENDING', 'q', null, null),
+          req('r3', 'LOP', 'Loss Of Pay', 'UNPAID', '2026-09-17', '2026-09-17', 1, 'APPROVED', 'Family function', 'Narendra Reddy', 'Approved, enjoy'),
+          req('r4', 'ANNUAL', 'Annual Leave', 'PAID', '2026-08-04', '2026-08-06', 3, 'REJECTED', 'Trip', 'Narendra Reddy', 'Release week, please reschedule'),
+        ]);
+      }
+      if (url.includes('/api/holidays')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'employee@example.com', mustChangePassword: false, role: 'EMPLOYEE' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <LeavePage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -739,6 +778,8 @@ function Tiles({ page }: { page: string }) {
       return <WorkflowMock />;
     case 'talent-page':
       return <TalentMock />;
+    case 'leave-page':
+      return <LeaveMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:
