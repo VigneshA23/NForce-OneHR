@@ -7,7 +7,6 @@ import { useAuthStore } from '../../store/authStore';
 import { consumeSessionMessage } from '../../lib/authFetch';
 import { SyncLoginPanel } from './AuthLayoutSync';
 import { LoginArtwork } from './LoginArtwork';
-import nf1Logo from '../../assets/nforce-logo.png';
 
 // Persists only the lock expiry the server already returned, so a page refresh keeps
 // showing the locked state without sending another login request. Not a client-side
@@ -174,7 +173,7 @@ export default function Login() {
     <div
       data-theme="dark"
       className="nf-login-root"
-      style={{ position: 'relative', minHeight: '100dvh', background: '#141416', overflow: 'hidden' }}
+      style={{ position: 'relative', minHeight: '100dvh', background: '#e7eaf0', overflow: 'hidden', fontFamily: 'Inter, "Segoe UI", sans-serif' }}
     >
       {/* Deployed OneHR visual (left ~65%): decorative artwork + real DOM text. Only its right
           edge eases into the page background so both areas read as one continuous screen. */}
@@ -182,7 +181,7 @@ export default function Login() {
 
       <div
         className="nf-login-grid"
-        style={{ position: 'relative', zIndex: 1, display: 'grid', gridTemplateColumns: '65fr 35fr', minHeight: '100dvh' }}
+        style={{ position: 'relative', zIndex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 65fr) minmax(0, 35fr)', minHeight: '100dvh' }}
       >
         {/* Empty grid cell; the artwork above is decorative and non-interactive. */}
         <div className="nf-login-spacer" style={{ pointerEvents: 'none' }} />
@@ -197,15 +196,8 @@ export default function Login() {
       >
         {/* Header */}
         <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: u(32), position: 'relative' }}>
-          {/* NF1 logo (existing nforce-logo.png asset) replaces the old red accent line. It is absolutely
-              positioned, so it takes no space in the card's flow: the 22px spacer below is exactly the old
-              line's height (2px line + 20px gap), which keeps the card height and all spacing unchanged. */}
-          <span role="img" aria-label="NForce One logo" style={logoBadgeStyle}>
-            <img src={nf1Logo} alt="" aria-hidden="true" width={60} height={60} style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }} />
-          </span>
-          <div aria-hidden="true" style={{ height: u(22) }} />
           <h1 style={headingStyle}>Welcome back</h1>
-          <p style={{ fontSize: u(13), color: 'rgba(255,255,255,0.42)', lineHeight: 1.58, margin: 0 }}>
+          <p style={{ fontSize: u(13), color: '#5b6270', lineHeight: 1.58, margin: 0 }}>
             Sign in to manage your workforce
           </p>
         </motion.div>
@@ -346,14 +338,14 @@ export default function Login() {
                 disabled={locked}
                 style={{ accentColor: '#E4373D', width: u(14), height: u(14), cursor: 'inherit' }}
               />
-              <span style={{ fontSize: u(12), color: 'rgba(255,255,255,0.42)', userSelect: 'none' }}>Remember me</span>
+              <span style={{ fontSize: u(12), color: '#5b6270', userSelect: 'none' }}>Remember me</span>
             </label>
             {!locked && (
               <Link
                 to="/forgot-password"
                 style={mutedLinkStyle}
-                onMouseEnter={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.72)')}
-                onMouseLeave={(e) => (e.currentTarget.style.color = 'rgba(255,255,255,0.38)')}
+                onMouseEnter={(e) => (e.currentTarget.style.color = '#8f0f14')}
+                onMouseLeave={(e) => (e.currentTarget.style.color = '#c8141b')}
               >
                 Forgot password?
               </Link>
@@ -413,7 +405,8 @@ export default function Login() {
         /* Phones: sign-in card only — hide the stacked artwork and keep the card centred. */
         @media (max-width: 768px) {
           .nf-login-art { display: none !important; }
-          .nf-login-grid, .nfs-auth-panel { min-height: 100dvh !important; }
+          .nf-login-grid { min-height: auto !important; }
+          .nfs-auth-panel { min-height: auto !important; justify-content: flex-start !important; margin-top: -40px; padding-bottom: 32px !important; }
         }
       `}</style>
     </div>
@@ -437,28 +430,12 @@ const itemVariants = {
   show:   { opacity: 1, y: 0, transition: { duration: 0.28, ease: [0.23, 1, 0.32, 1] as const } },
 };
 
-const logoBadgeStyle: React.CSSProperties = {
-  // Absolutely positioned in the header slot (takes no flow space), horizontally centred above the heading.
-  position: 'absolute',
-  top: u(-36),
-  left: '50%',
-  marginLeft: u(-30),
-  display: 'block',
-  width: u(60),
-  height: u(60),
-  borderRadius: '50%',
-  overflow: 'hidden',
-  flexShrink: 0,
-  border: '1px solid rgba(255,255,255,0.16)',
-  boxShadow: '0 0 16px rgba(228,55,61,0.30)',
-};
-
 const headingStyle: React.CSSProperties = {
   fontFamily: '"Inter", "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif',
   fontSize: u(26),
   fontWeight: 700,
   letterSpacing: '-0.03em',
-  color: '#fff',
+  color: '#0f1014',
   margin: `0 0 ${u(6)}`,
 };
 
@@ -466,7 +443,7 @@ const labelStyle: React.CSSProperties = {
   display: 'block',
   fontSize: u(11),
   fontWeight: 600,
-  color: 'rgba(255,255,255,0.45)',
+  color: '#3d4350',
   marginBottom: u(8),
   letterSpacing: '0.07em',
   textTransform: 'uppercase',
@@ -480,7 +457,7 @@ const eyeButtonStyle: React.CSSProperties = {
   background: 'none',
   border: 'none',
   cursor: 'pointer',
-  color: 'rgba(255,255,255,0.35)',
+  color: '#6b7280',
   display: 'flex',
   alignItems: 'center',
   padding: u(4),
@@ -489,7 +466,7 @@ const eyeButtonStyle: React.CSSProperties = {
 
 const mutedLinkStyle: React.CSSProperties = {
   fontSize: u(12),
-  color: 'rgba(255,255,255,0.38)',
+  color: '#c8141b',
   textDecoration: 'none',
   cursor: 'pointer',
   transition: 'color 0.14s',
@@ -502,7 +479,8 @@ const submitButtonStyle: React.CSSProperties = {
   justifyContent: 'center',
   gap: u(8),
   padding: `${u(13)} ${u(16)}`,
-  background: '#E4373D',
+  background: 'linear-gradient(180deg, #d4181f 0%, #b01016 100%)',
+  boxShadow: '0 6px 14px rgba(200,20,27,0.28)',
   border: 'none',
   borderRadius: u(8),
   color: '#fff',
@@ -516,7 +494,7 @@ const submitButtonStyle: React.CSSProperties = {
 
 const submitButtonHoverStyle: React.CSSProperties = {
   ...submitButtonStyle,
-  background: '#C82026',
+  background: 'linear-gradient(180deg, #c8141b 0%, #9c0d12 100%)',
   transform: 'translateY(-1px)',
 };
 
@@ -527,9 +505,9 @@ const ssoButtonStyle: React.CSSProperties = {
   justifyContent: 'center',
   gap: u(10),
   padding: `${u(13)} ${u(16)}`,
-  background: '#8B1A1A',
-  color: 'rgba(255,255,255,0.65)',
-  border: '1px solid rgba(228,55,61,0.3)',
+  background: '#fdeeee',
+  color: '#8f0f14',
+  border: '1px solid rgba(200,20,27,0.28)',
   borderRadius: u(8),
   fontSize: u(14),
   fontWeight: 600,
@@ -548,13 +526,13 @@ const dividerStyle: React.CSSProperties = {
 const dividerLineStyle: React.CSSProperties = {
   flex: 1,
   height: 1,
-  background: 'rgba(255,255,255,0.07)',
+  background: 'rgba(20,24,40,0.12)',
   display: 'block',
 };
 
 const dividerTextStyle: React.CSSProperties = {
   fontSize: u(11),
-  color: 'rgba(255,255,255,0.22)',
+  color: '#8a909c',
   letterSpacing: '0.1em',
   textTransform: 'uppercase',
 };
