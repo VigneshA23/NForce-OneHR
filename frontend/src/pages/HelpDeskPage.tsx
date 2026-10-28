@@ -570,9 +570,15 @@ function actionsForStatus(item: HelpContentSummary, actions: ContentAdminActions
  */
 function ActionIconButton({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean }) {
   return (
-    <button type="button" onClick={onClick} title={label} aria-label={label} className={`nf-dock-btn${danger ? ' is-danger' : ''}`}>
-      <Icon size={14} />
-    </button>
+    label === 'View' ? (
+      <button type="button" onClick={onClick} title={label} aria-label={label} className="nf-row-view">
+        <Icon size={14} />View
+      </button>
+    ) : (
+      <button type="button" onClick={onClick} title={label} aria-label={label} className={`nf-dock-btn${danger ? ' is-danger' : ''}`}>
+        <Icon size={14} />
+      </button>
+    )
   );
 }
 

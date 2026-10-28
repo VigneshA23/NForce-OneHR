@@ -716,7 +716,7 @@ export default function MyRequestsPage() {
                           className="nf-rq-btn nf-rq-btn--outline nf-rq-btn--sm nf-rq-view-btn"
                           onClick={() => setViewing(item)}
                         >
-                          <Eye size={14} /> <span className="nf-rq-view-btn-label">View Details</span>
+                          <Eye size={14} /> <span className="nf-rq-view-btn-label">View Details</span><span className="nf-rq-view-btn-short">View</span>
                         </button>
                       </td>
                     </tr>
