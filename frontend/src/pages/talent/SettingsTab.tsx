@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { usePaged } from '../../components/usePaged';
+import { TablePagination } from '../../components/TablePagination';
 import { ActionDock } from '../../components/ActionDock';
 import { Plus, Check, X, Pencil, Power, PowerOff } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -38,6 +40,7 @@ function SubSection({ title, action, children }: { title: string; action?: React
 function SkillsSection({ token }: { token: string }) {
   const { showToast } = useToast();
   const [skills, setSkills] = useState<SkillMasterSettingsEntry[]>([]);
+  const skillPaged = usePaged(skills);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -77,7 +80,7 @@ function SkillsSection({ token }: { token: string }) {
             <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center' }}>Loading…</td></tr>
           ) : skills.length === 0 ? (
             <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center' }}>No skills yet.</td></tr>
-          ) : skills.map(s => (
+          ) : skillPaged.pageRows.map(s => (
             <tr key={s.id}>
               <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{s.name}</td>
               <td style={tdS}>{s.category ?? '–'}</td>
@@ -91,6 +94,7 @@ function SkillsSection({ token }: { token: string }) {
           ))}
         </tbody>
       </table>
+      <TablePagination {...skillPaged.pagerProps} noun="skills" />
     </SubSection>
   );
 }

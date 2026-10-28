@@ -49,6 +49,7 @@ import HelpDeskPage from '../HelpDeskPage';
 import WorkflowStudioPage from '../WorkflowStudioPage';
 import TalentPerformancePage from '../talent/TalentPerformancePage';
 import LeavePage from '../LeavePage';
+import ApprovalsPage from '../ApprovalsPage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -76,6 +77,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'workflows-page', label: 'Workflow Studio (full page)', title: 'Workflow Studio', subtitle: 'Sample rules: themed table, stage flow pills, condition chips and the action dock.' },
   { key: 'talent-page', label: 'Performance tabs (full page)', title: 'Performance', subtitle: 'Sample data. Add &tab=search, &tab=directory or &tab=settings to the URL to open that tab.' },
   { key: 'leave-page', label: 'Leave (full page)', title: 'Leave', subtitle: 'Employee view with sample data: KPIs, balance cards, filters, history table and the Manage dock on pending requests.' },
+  { key: 'approvals-page', label: 'Approval Center (full page)', title: 'Approval Center', subtitle: 'Sample queue: Employee ID under each name, a table that fits without sideways scrolling, and the shared pagination.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -563,6 +565,45 @@ function LeaveMock() {
   return ready ? <LeavePage /> : null;
 }
 
+function ApprovalsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample queue and an HR session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const people: Array<[string, string, string]> = [
+      ['u1', 'Naveen Kumar R', 'NF-20261001'], ['u2', 'Ramesh A', 'NF-20261009'], ['u3', 'Lalith Kumar Ratnala', 'NF-20261131'],
+      ['u4', 'Vandana', 'NF-20261096'], ['u5', 'Abuzar Siddiqui', 'NF-20261004'],
+    ];
+    const kinds = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST', 'WFH'];
+    const items = Array.from({ length: 27 }, (_, i) => {
+      const [employeeUserId, employeeName] = people[i % people.length];
+      const requestType = kinds[i % kinds.length];
+      return {
+        id: `a${i}`, requestType, employeeUserId, employeeName, createdAt: `2026-09-${String(10 + (i % 18)).padStart(2, '0')}T10:00:00`,
+        leaveTypeName: 'Annual Leave', leaveStartDate: `2026-09-${String(16 + (i % 9)).padStart(2, '0')}`, leaveEndDate: `2026-09-${String(16 + (i % 9)).padStart(2, '0')}`, leaveTotalDays: 1, leaveReason: i % 3 === 0 ? 'q' : 'ONEHR-562 fix verification',
+        attendanceDate: `2026-09-${String(10 + (i % 15)).padStart(2, '0')}`, regularizationReason: 'Forgot to punch out',
+        expenseCategoryName: 'Travel', expenseAmount: 1200 + i * 50, expenseDate: '2026-09-12', businessPurpose: 'Client visit', approvalStage: 'FINAL',
+        requestedCategoryName: 'Laptop', assetRequestReason: 'Replacement', assetRequestStatus: 'PENDING',
+      };
+    });
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/approvals')) return json(items);
+      if (url.endsWith('/org-dashboard')) return json({ directReportCount: people.length, teamJoiners: [], directReports: people.map(([userId, fullName, employeeCode]) => ({ userId, fullName, employeeCode, designationName: null, departmentName: null, active: true })) });
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <ApprovalsPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -780,6 +821,8 @@ function Tiles({ page }: { page: string }) {
       return <TalentMock />;
     case 'leave-page':
       return <LeaveMock />;
+    case 'approvals-page':
+      return <ApprovalsMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:

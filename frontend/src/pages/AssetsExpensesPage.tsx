@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { EmpCode } from '../components/EmpCode';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useNavigate } from 'react-router-dom';
 import { Archive, Check, ExternalLink, Paperclip, Plus, Package, Repeat, Search, Undo2, UserPlus } from 'lucide-react';
@@ -540,7 +543,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
               <tbody>
                 {filteredAssignments.length === 0 ? <EmptyRow cols={6} msg="No team assets found." /> : filteredAssignments.map(a => (
                   <tr key={a.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.employeeName}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{a.employeeName}</div><EmpCode userId={a.employeeUserId} /></td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{a.assetTag ?? '–'}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName ?? '–'}</td>
                     <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '–'}</td>
@@ -581,7 +584,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
                 <tbody>
                   {filteredRequests.length === 0 ? <EmptyRow cols={6} msg="No asset requests from your team." /> : filteredRequests.map(r => (
                     <tr key={r.id}>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{r.employeeName}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{r.employeeName}</div><EmpCode userId={r.employeeUserId} /></td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{r.categoryName}</td>
                       <td style={tdStyle}>
                         <StatusBadge status={r.status} />
@@ -633,7 +636,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
                 <tbody>
                   {filteredClaims.length === 0 ? <EmptyRow cols={6} msg="No expense claims for your team." /> : filteredClaims.map(c => (
                     <tr key={c.id}>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.employeeName}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{c.employeeName}</div><EmpCode userId={c.employeeUserId} /></td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{c.categoryName}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
                       <td style={tdStyle}>{fmtDate(c.expenseDate)}</td>
@@ -698,6 +701,12 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
     .filter(a => !inventorySearch || a.assetTag.toLowerCase().includes(inventorySearch.toLowerCase()) || (a.serialNumber ?? '').toLowerCase().includes(inventorySearch.toLowerCase()) || (a.brand ?? '').toLowerCase().includes(inventorySearch.toLowerCase()) || (a.model ?? '').toLowerCase().includes(inventorySearch.toLowerCase()))
     .filter(a => !inventoryCatFilter || a.categoryName === inventoryCatFilter)
     .filter(a => !inventoryStatusFilter || a.status === inventoryStatusFilter);
+  const invPaged = usePaged(filteredInventory, [inventorySearch, inventoryCatFilter, inventoryStatusFilter]);
+  const filteredAssetRequests = assetRequests.filter(r => !reqStatusFilter || r.status === reqStatusFilter);
+  const reqPaged = usePaged(filteredAssetRequests, [reqStatusFilter]);
+  const catPaged = usePaged(expCategories);
+  const filteredPayroll = payrollClaims.filter(c => !payrollSearch || c.employeeName.toLowerCase().includes(payrollSearch.toLowerCase()));
+  const payPaged = usePaged(filteredPayroll, [payrollSearch]);
 
   async function handleRetire(assetId: number) {
     try {
@@ -775,7 +784,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Tag', 'Category', 'Brand / Model', 'Status', 'Condition', 'Custodian', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {filteredInventory.length === 0 ? <EmptyRow cols={7} msg="No assets in inventory." /> : filteredInventory.map(a => (
+                {filteredInventory.length === 0 ? <EmptyRow cols={7} msg="No assets in inventory." /> : invPaged.pageRows.map(a => (
                   <tr key={a.id}>
                     <td style={tdStyle}><span className="nf-asset-tag">{a.assetTag}</span></td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{a.categoryName}</td>
@@ -807,6 +816,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
               </tbody>
             </table>
           </div>
+          <TablePagination {...invPaged.pagerProps} noun="assets" />
         </div>
       </div>)}
 
@@ -828,9 +838,9 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Employee', 'Category', 'Reason', 'Status', 'Submitted', 'Fulfill'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {assetRequests.filter(r => !reqStatusFilter || r.status === reqStatusFilter).length === 0 ? <EmptyRow cols={6} msg="No asset requests." /> : assetRequests.filter(r => !reqStatusFilter || r.status === reqStatusFilter).map(r => (
+                {filteredAssetRequests.length === 0 ? <EmptyRow cols={6} msg="No asset requests." /> : reqPaged.pageRows.map(r => (
                   <tr key={r.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{r.employeeName}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{r.employeeName}</div><EmpCode userId={r.employeeUserId} /></td>
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{r.categoryName}</td>
                     <td style={{ ...tdStyle, maxWidth: 200 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }} title={r.reason}>{r.reason}</div></td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
@@ -847,6 +857,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
               </tbody>
             </table>
           </div>
+          <TablePagination {...reqPaged.pagerProps} noun="requests" />
         </div>
       </div>)}
 
@@ -862,7 +873,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Category', 'Receipt Required Above', 'Daily Limit', 'Second Approval Above', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {expCategories.length === 0 ? <EmptyRow cols={5} msg="No expense categories configured." /> : expCategories.map(c => (
+                {expCategories.length === 0 ? <EmptyRow cols={5} msg="No expense categories configured." /> : catPaged.pageRows.map(c => (
                   <tr key={c.id}>
                     <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.name}</td>
                     <td style={tdStyle}>{c.requiresReceiptAbove > 0 ? fmtCurrency(c.requiresReceiptAbove) : 'Not required'}</td>
@@ -876,6 +887,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
               </tbody>
             </table>
           </div>
+          <TablePagination {...catPaged.pagerProps} noun="categories" />
         </div>
       </div>)}
 
@@ -899,9 +911,9 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Employee', 'Category', 'Amount', 'Expense Date', 'Approved By', 'Action'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {payrollClaims.filter(c => !payrollSearch || c.employeeName.toLowerCase().includes(payrollSearch.toLowerCase())).length === 0 ? <EmptyRow cols={6} msg="No claims cleared for payroll." /> : payrollClaims.filter(c => !payrollSearch || c.employeeName.toLowerCase().includes(payrollSearch.toLowerCase())).map(c => (
+                {filteredPayroll.length === 0 ? <EmptyRow cols={6} msg="No claims cleared for payroll." /> : payPaged.pageRows.map(c => (
                   <tr key={c.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.employeeName}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{c.employeeName}</div><EmpCode userId={c.employeeUserId} /></td>
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{c.categoryName}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
                     <td style={tdStyle}>{fmtDate(c.expenseDate)}</td>
@@ -933,6 +945,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
               </tbody>
             </table>
           </div>
+          <TablePagination {...payPaged.pagerProps} noun="claims" />
         </div>
       </div>)}
 

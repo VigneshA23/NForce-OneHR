@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { TablePagination } from '../components/TablePagination';
+import { usePaged } from '../components/usePaged';
+import { EmpCode } from '../components/EmpCode';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { Users, CalendarCheck, Clock, Download, ShieldAlert, BarChart3, X } from 'lucide-react';
@@ -371,6 +374,8 @@ export default function ReportsPage() {
   );
 
   const headcountSummary = useMemo(() => computeHeadcountSummary(filteredReports), [filteredReports]);
+  const empPaged = usePaged(filteredReports);
+  const leavePaged = usePaged(leaveRecords);
   const attendanceSummary = useMemo(
     () => computeAttendanceSummary(attendanceRecords, headcountSummary.total),
     [attendanceRecords, headcountSummary.total]
@@ -499,7 +504,8 @@ export default function ReportsPage() {
 
           {/* Headcount table */}
           <Section title={isHr ? 'Employees' : 'Direct reports'} count={`${filteredReports.length}`}>
-            <HeadcountRows rows={filteredReports} />
+            <HeadcountRows rows={empPaged.pageRows} />
+            <TablePagination {...empPaged.pagerProps} noun="employees" />
           </Section>
 
           {/* Leave table */}
@@ -509,9 +515,9 @@ export default function ReportsPage() {
               <tbody>
                 {leaveRecords.length === 0 ? (
                   <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 30 }}>No approved leave in this period.</td></tr>
-                ) : leaveRecords.map(r => (
+                ) : leavePaged.pageRows.map(r => (
                   <tr key={r.id}>
-                    <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>
+                    <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}><div>{r.employeeName}</div><EmpCode userId={r.employeeUserId} /></td>
                     <td style={tdS}>{r.leaveTypeName}</td>
                     <td style={tdS}>{r.startDate}{r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ' (half day)' : ''}</td>
                     <td style={tdS}>{r.totalDays}</td>
@@ -520,6 +526,7 @@ export default function ReportsPage() {
                 ))}
               </tbody>
             </table>
+            <TablePagination {...leavePaged.pagerProps} noun="requests" />
           </Section>
         </>
       )}

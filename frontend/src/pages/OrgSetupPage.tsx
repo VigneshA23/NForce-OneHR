@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
@@ -1505,6 +1507,18 @@ export default function OrgSetupPage() {
   );
   const visibleDocTypes = docTypes.filter(d => d.name.toLowerCase().includes(q));
   const visibleLeaveTypes = leaveTypes.filter(t => t.name.toLowerCase().includes(q));
+  const buPaged = usePaged(visibleBusinessUnits, [q, activeTab]);
+  const deptPaged = usePaged(visibleDepts, [q, activeTab]);
+  const desigPaged = usePaged(visibleDesigs, [q, activeTab]);
+  const locPaged = usePaged(visibleLocs, [q, activeTab]);
+  const docPaged = usePaged(visibleDocTypes, [q, activeTab]);
+  const leavePaged = usePaged(visibleLeaveTypes, [q, activeTab]);
+  const orgPagerProps = activeTab === 'businessunits' ? buPaged.pagerProps
+    : activeTab === 'departments' ? deptPaged.pagerProps
+    : activeTab === 'designations' ? desigPaged.pagerProps
+    : activeTab === 'locations' ? locPaged.pagerProps
+    : activeTab === 'doctypes' ? docPaged.pagerProps
+    : leavePaged.pagerProps;
   // Shifts no longer participates in the shared search/generic-table plumbing above — its master-
   // detail layout (ShiftsMasterDetail) filters the full, unfiltered `shifts` list with its own
   // internal search state instead (see the reference design's dedicated left-panel search box).
@@ -2000,7 +2014,7 @@ export default function OrgSetupPage() {
                   </td>
                 </tr>
               ) : activeTab === 'businessunits' ? (
-                visibleBusinessUnits.map(b => (
+                buPaged.pageRows.map(b => (
                   <tr key={b.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2016,7 +2030,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'departments' ? (
-                visibleDepts.map(d => (
+                deptPaged.pageRows.map(d => (
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2032,7 +2046,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'designations' ? (
-                visibleDesigs.map(d => (
+                desigPaged.pageRows.map(d => (
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2051,7 +2065,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'locations' ? (
-                visibleLocs.map(l => (
+                locPaged.pageRows.map(l => (
                   <tr key={l.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2071,7 +2085,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'doctypes' ? (
-                visibleDocTypes.map(dt => (
+                docPaged.pageRows.map(dt => (
                   <tr key={dt.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2095,7 +2109,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : (
-                visibleLeaveTypes.map(lt => (
+                leavePaged.pageRows.map(lt => (
                   <tr key={lt.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2115,6 +2129,7 @@ export default function OrgSetupPage() {
               )}
             </tbody>
           </table>
+          <TablePagination {...orgPagerProps} noun="records" />
         </div>
         )}
       </div>

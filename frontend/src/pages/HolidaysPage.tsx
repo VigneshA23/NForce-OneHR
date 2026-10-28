@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import { ActionDock } from '../components/ActionDock';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart } from 'lucide-react';
@@ -308,6 +310,7 @@ export default function HolidaysPage() {
   const role = useAuthStore(s => s.user?.role);
   const isAdmin = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+  const holPaged = usePaged(holidays);
   const [holidayError, setHolidayError] = useState('');
   const [showAddHoliday, setShowAddHoliday] = useState(false);
   const [editingHoliday, setEditingHoliday] = useState<HolidayRow | null>(null);
@@ -471,7 +474,7 @@ export default function HolidaysPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {holidays.map(h => (
+                  {holPaged.pageRows.map(h => (
                     <tr key={h.id} className="nf-leave-row">
                       <td style={{ ...holidayTdStyle, color: 'var(--txt)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.holidayName}>{h.holidayName}</td>
                       <td style={holidayTdStyle}>{formatHolidayDate(h.holidayDate)}</td>
@@ -489,6 +492,7 @@ export default function HolidaysPage() {
                   ))}
                 </tbody>
               </table>
+              <TablePagination {...holPaged.pagerProps} noun="holidays" />
             </div>
           )}
         </div>

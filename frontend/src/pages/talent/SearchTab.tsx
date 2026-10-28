@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { usePaged } from '../../components/usePaged';
+import { TablePagination } from '../../components/TablePagination';
 import { Search, X, Award, Bookmark, Trash2, Sparkles } from 'lucide-react';
 import { PersonAvatar } from '../../components/PersonCell';
 import { useAuthStore } from '../../store/authStore';
@@ -39,6 +41,7 @@ export function SearchTab() {
   const [learningStatus, setLearningStatus] = useState('');
 
   const [results, setResults] = useState<TalentSearchResultItem[] | null>(null);
+  const resPaged = usePaged(results ?? []);
   const [searching, setSearching] = useState(false);
   const [saveName, setSaveName] = useState('');
 
@@ -226,7 +229,7 @@ export function SearchTab() {
           {results.length === 0 ? (
             <div style={{ padding: 30, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>No employees match these filters.</div>
           ) : (
-            results.map((r, i) => (
+            resPaged.pageRows.map((r, i) => (
               <div key={r.employeeUserId} className="nf-dir-row" style={{ cursor: 'default', borderTop: i === 0 ? 'none' : '1px solid var(--line)' }}>
                 <PersonAvatar userId={r.employeeUserId} name={r.employeeName} size={40} />
                 <div style={{ flex: '0 0 220px', minWidth: 0 }}>
@@ -246,6 +249,7 @@ export function SearchTab() {
               </div>
             ))
           )}
+          <TablePagination {...resPaged.pagerProps} noun="employees" />
         </div>
       )}
     </div>
