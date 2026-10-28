@@ -123,6 +123,12 @@ public class AssetController {
         return assetService.retireAsset(id, principal.getName());
     }
 
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAsset(@PathVariable Long id, Principal principal) {
+        assetService.deleteAsset(id, principal.getName());
+    }
+
     @GetMapping("/available-by-category/{categoryId}")
     public List<AssetResponse> availableByCategory(@PathVariable Integer categoryId, Principal principal) {
         return assetService.availableByCategory(categoryId, principal.getName());

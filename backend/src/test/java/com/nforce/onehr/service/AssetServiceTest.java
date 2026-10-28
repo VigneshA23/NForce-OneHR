@@ -97,4 +97,31 @@ class AssetServiceTest {
         assertEquals("RETIRED", res.getStatus());
         verify(assignmentRepo, never()).save(any());
     }
+
+    // ── Delete: only assets that were never assigned ──
+
+    @Test
+    void deleteAsset_neverAssigned_deletesAndAudits() {
+        Asset asset = assetWithStatus("AVAILABLE");
+        when(assetRepo.findById(1L)).thenReturn(Optional.of(asset));
+        when(assignmentRepo.existsByAssetId(1L)).thenReturn(false);
+
+        assetService.deleteAsset(1L, adminEmail);
+
+        verify(assetRepo).delete(asset);
+        verify(auditService).log(eq(adminUser.getId()), eq("ASSET_DELETED"), eq(adminUser.getId()), any(), isNull());
+    }
+
+    @Test
+    void deleteAsset_withAssignmentHistory_isRefusedAndNothingIsDeleted() {
+        Asset asset = assetWithStatus("RETIRED");
+        when(assetRepo.findById(1L)).thenReturn(Optional.of(asset));
+        when(assignmentRepo.existsByAssetId(1L)).thenReturn(true);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> assetService.deleteAsset(1L, adminEmail));
+
+        assertTrue(ex.getMessage().contains("Retire it instead"));
+        verify(assetRepo, never()).delete(any(Asset.class));
+        verify(auditService, never()).log(any(), eq("ASSET_DELETED"), any(), any(), any());
+    }
 }

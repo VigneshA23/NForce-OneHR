@@ -4,7 +4,7 @@ import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useNavigate } from 'react-router-dom';
-import { Archive, Check, ExternalLink, Paperclip, Plus, Package, Repeat, Search, Undo2, UserPlus } from 'lucide-react';
+import { Archive, Check, ExternalLink, Paperclip, Plus, Package, Repeat, Search, Trash2, Undo2, UserPlus } from 'lucide-react';
 import { PersonAvatar } from '../components/PersonCell';
 import { ActionDock } from '../components/ActionDock';
 import { TabBar } from '../components/TabBar';
@@ -717,6 +717,18 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
     } catch (e) { showToast('error', e instanceof Error ? e.message : 'Failed'); }
   }
 
+  async function handleDeleteAsset(asset: AssetResponse) {
+    if (!window.confirm(`Delete asset ${asset.assetTag} permanently?
+
+This can only be done for an asset that was never assigned. An asset with assignment history can only be retired.`)) return;
+    try {
+      await assetsApi.deleteAsset(asset.id, token);
+      setInventory(prev => prev.filter(a => a.id !== asset.id));
+      reload();
+      showToast('success', 'Asset deleted');
+    } catch (e) { showToast('error', e instanceof Error ? e.message : 'Failed'); }
+  }
+
   async function handleMarkPaid(claimId: string) {
     try {
       const updated = await expensesApi.markPaid(claimId, token);
@@ -809,6 +821,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                           { label: 'Mark Returned', icon: Undo2, onClick: () => setShowReturnModal(a) },
                         ] : []),
                         ...(a.status !== 'RETIRED' ? [{ label: 'Retire', icon: Archive, onClick: () => handleRetire(a.id), danger: true }] : []),
+                        { label: 'Delete', icon: Trash2, onClick: () => handleDeleteAsset(a), danger: true },
                       ]} />
                     </td>
                   </tr>
