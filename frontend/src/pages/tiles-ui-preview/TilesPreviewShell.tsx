@@ -50,6 +50,7 @@ import WorkflowStudioPage from '../WorkflowStudioPage';
 import TalentPerformancePage from '../talent/TalentPerformancePage';
 import LeavePage from '../LeavePage';
 import ApprovalsPage from '../ApprovalsPage';
+import DashboardPage from '../DashboardPage';
 import { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -78,6 +79,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'talent-page', label: 'Performance tabs (full page)', title: 'Performance', subtitle: 'Sample data. Add &tab=search, &tab=directory or &tab=settings to the URL to open that tab.' },
   { key: 'leave-page', label: 'Leave (full page)', title: 'Leave', subtitle: 'Employee view with sample data: KPIs, balance cards, filters, history table and the Manage dock on pending requests.' },
   { key: 'approvals-page', label: 'Approval Center (full page)', title: 'Approval Center', subtitle: 'Sample queue: Employee ID under each name, a table that fits without sideways scrolling, and the shared pagination.' },
+  { key: 'dashboard-page', label: 'Super Admin dashboard (full page)', title: 'Dashboard', subtitle: 'Sample data: approvals donut, account health, users by role, birthdays, notifications and recent audit events.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -604,6 +606,67 @@ function ApprovalsMock() {
   return ready ? <ApprovalsPage /> : null;
 }
 
+function DashboardMock() {
+  const [params] = useSearchParams();
+  const roleParam = (params.get('role') ?? 'superadmin').toUpperCase();
+  const mockRole = roleParam === 'MANAGER' ? 'MANAGER' : roleParam === 'HR' ? 'HR_ADMIN' : 'SUPER_ADMIN';
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample data and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const roles = ['EMPLOYEE', 'EMPLOYEE', 'EMPLOYEE', 'EMPLOYEE', 'EMPLOYEE', 'EMPLOYEE', 'MANAGER', 'MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'];
+    const users = Array.from({ length: 40 }, (_, i) => ({
+      userId: `u${i}`, employeeCode: `NF-2026${1000 + i}`, fullName: `Employee ${i + 1}`, email: `e${i}@example.com`, role: roles[i % roles.length],
+      businessUnitId: null, businessUnitName: null, departmentId: null, departmentName: 'Engineering', designationId: null, designationName: null, locationId: null, locationName: null,
+      shiftId: null, shiftName: null, employmentType: 'FULL_TIME', workMode: 'OFFICE', joiningDate: '2026-10-05', active: i % 9 !== 0, currentManager: i % 7 === 0 ? null : { userId: 'u1', fullName: 'Manager' },
+    }));
+    const audit = ([
+      ['USER_CREATED', 'ACCESS', 'Testo', '2026-10-29T16:27:00'], ['USER_CREATED', 'ACCESS', 'Testo', '2026-10-29T16:25:00'], ['USER_CREATED', 'ACCESS', 'Testo', '2026-10-29T16:23:00'],
+      ['USER_SOFT_DELETED', 'ACCESS', 'Test', '2026-10-29T16:08:00'], ['LEAVE_APPROVED', 'LEAVE', 'Arun Kumar', '2026-10-28T11:02:00'], ['ASSET_ASSIGNED', 'ASSET', 'LPT-4567', '2026-10-28T10:40:00'],
+    ] as Array<[string, string, string, string]>).map(([action, actionGroup, targetLabel, occurredAt], i) => ({
+      id: i + 1, occurredAt, actorId: null, actorName: 'Naveen Kumar R', actorEmail: null, action, actionCategory: action, actionGroup, targetId: null, targetLabel,
+      targetEmployeeCode: null, affectedUsers: null, beforeState: null, afterState: null,
+    }));
+    const kinds = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST', 'OVERTIME', 'WFH'];
+    const approvals = Array.from({ length: 24 }, (_, i) => ({ id: `a${i}`, requestType: kinds[i % kinds.length], employeeUserId: `u${i}`, employeeName: `Employee ${i + 1}`, createdAt: '2026-10-20T10:00:00' }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/users')) return json(users);
+      if (url.endsWith('/api/audit-logs/stats')) return json({ totalCount: 1697, todayCount: 12, byGroup: { EMPLOYEE: 249, LEAVE: 61, ATTENDANCE: 39, ASSET: 68, EXPENSE: 20, ACCESS: 1144 } });
+      if (url.endsWith('/api/audit-logs/export')) return json([audit[0], audit[1], audit[2], audit[3], audit[0], audit[1]]);
+      if (url.endsWith('/api/audit-logs')) return json({ content: audit, totalElements: audit.length, totalPages: 1, number: 0, size: 8 });
+      if (url.endsWith('/api/approvals')) return json(approvals);
+      if (url.endsWith('/kpis')) return json({ pendingVerification: 5, employeesWithPending: 3, expiringWithin30Days: 2, totalDocuments: 120 });
+      if (url.endsWith('/api/assets/count')) return json({ count: 35 });
+      if (url.endsWith('/my-reports') || url.endsWith('/org-dashboard')) {
+        return json({
+          directReportCount: 8,
+          directReports: users.slice(0, 8).map(u => ({ userId: u.userId, employeeCode: u.employeeCode, fullName: u.fullName, designationName: 'Software Engineer', departmentName: 'Engineering', active: u.active, joiningDate: u.joiningDate, roleCode: u.role })),
+          teamJoiners: [{ userId: 'u3', employeeCode: 'NF-20261003', fullName: 'Employee 4', designationName: null, departmentName: null, active: true, joinedTeamOn: '2026-09-12' }, { userId: 'u5', employeeCode: 'NF-20261005', fullName: 'Employee 6', designationName: null, departmentName: null, active: true, joinedTeamOn: '2026-10-05' }, { userId: 'u6', employeeCode: 'NF-20261006', fullName: 'Employee 7', designationName: null, departmentName: null, active: true, joinedTeamOn: '2026-07-20' }],
+        });
+      }
+      if (url.endsWith('/api/employees/birthdays')) return json([]);
+      if (url.endsWith('/api/notifications/unread')) {
+        return json({ content: [
+          { id: 1, type: 'LEAVE_REQUEST', title: 'New leave request', message: 'Arun Kumar requested 2 days of Annual Leave', linkPath: '/approvals', read: false, priority: 'NORMAL', createdAt: new Date(Date.now() - 600000).toISOString() },
+          { id: 2, type: 'ASSET', title: 'Asset request approved', message: 'A laptop request is ready for fulfilment', linkPath: '/assets', read: false, priority: 'HIGH', createdAt: new Date(Date.now() - 7200000).toISOString() },
+        ], totalElements: 2, totalPages: 1, number: 0, size: 8 });
+      }
+      if (url.includes('/api/')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: mockRole } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, [mockRole]);
+  return ready ? <DashboardPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -823,6 +886,8 @@ function Tiles({ page }: { page: string }) {
       return <LeaveMock />;
     case 'approvals-page':
       return <ApprovalsMock />;
+    case 'dashboard-page':
+      return <DashboardMock />;
     case 'documents':
       return <DocumentStatTiles required={6} verified={3} pending={1} rejected={1} missing={1} />;
     default:

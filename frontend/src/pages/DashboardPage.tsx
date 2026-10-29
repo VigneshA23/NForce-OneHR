@@ -11,6 +11,7 @@ import {
   PieChart, Pie, Cell,
 } from 'recharts';
 import DashTile from '../components/DashTile';
+import './dashboardPolish.css';
 import { usePreviewMode } from '../lib/previewMode';
 import { previewMonthHistory, PREVIEW_CONFIG, PREVIEW_STATS, PREVIEW_BALANCES, previewRequests, previewHolidays } from './dashboard-ui-preview/dashboardPreviewData';
 import { useAuthStore } from '../store/authStore';
@@ -45,6 +46,16 @@ import { roundDays } from '../utils/leaveDays';
 // this appended '+05:30' (assumed IST) and let toLocaleTimeString re-project into the viewer's
 // local zone — for any employee whose resolved zone isn't IST, or any viewer whose browser isn't
 // IST either, that mislabeled the digits and then shifted them again.
+/** Shared dashboard card heading: icon tile + bold title (the same heading every dashboard card uses). */
+function DashTitle({ icon: Icon, children, tight }: { icon: React.ComponentType<{ size?: number }>; children: React.ReactNode; tight?: boolean }) {
+  return (
+    <div className="nf-dash-title" style={tight ? { marginBottom: 4 } : undefined}>
+      <span className="nf-dash-ico"><Icon size={18} /></span>
+      <h3>{children}</h3>
+    </div>
+  );
+}
+
 function formatClockTime(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso + 'Z');
@@ -177,12 +188,12 @@ function PendingCard({ icon: Icon, title, note }: {
 }) {
   return (
     <div style={{
-      background: 'var(--panel)', border: '1px dashed var(--line2)', borderRadius: 10,
-      padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8,
+      background: 'var(--panel)', border: '1px dashed var(--line2)', borderRadius: 16,
+      padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 8,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-        <Icon size={14} style={{ color: 'var(--txt-dim)' }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{title}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span className="nf-dash-ico" style={{ color: 'var(--txt-dim)', background: 'var(--raised)', borderColor: 'var(--line2)' }}><Icon size={18} /></span>
+        <span style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>{title}</span>
         <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 20, background: 'rgba(107,114,128,.12)', color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap' }}>
           Not yet built
         </span>
@@ -229,12 +240,11 @@ function JoinersChart({ joiners, title = 'Team Joiners per Month', description =
         role="button"
         tabIndex={0}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setShowModal(true); }}
+        className="nf-dash-card"
         style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', cursor: 'pointer' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
-            {title}
-          </span>
+          <DashTitle icon={TrendingUp} tight>{title}</DashTitle>
           <span style={{ fontSize: 11, color: 'var(--txt-dim)', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 5, padding: '2px 8px' }}>
             Last 12 months
           </span>
@@ -641,11 +651,9 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
       </div>
 
       <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
-              {isHr ? 'All Employees' : 'Your Team'}
-            </span>
+        <div className="nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: '18px 22px 6px' }}>
+            <DashTitle icon={Users}>{isHr ? 'All Employees' : 'Your Team'}</DashTitle>
           </div>
           {loading ? (
             <div style={{ padding: '32px 20px', fontSize: 13, color: 'var(--txt-mut)' }}>Loading…</div>
@@ -728,11 +736,8 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
       <RecentNotificationsWidget />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <Clock size={14} style={{ color: 'var(--brand)' }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>Attendance Summary</span>
-          </div>
+        <div className="nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <DashTitle icon={Clock}>Attendance Summary</DashTitle>
           <p style={{ margin: 0, fontSize: 12, color: 'var(--txt-mut)', lineHeight: 1.55 }}>
             {teamLoading
               ? `Loading ${isHr ? 'organization' : 'team'} check-in status…`
@@ -740,16 +745,13 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
           </p>
           <button
             onClick={() => navigate('/attendance')}
-            style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+            className="nf-dash-link" style={{ alignSelf: 'flex-start', marginLeft: 0 }}
           >
             {isHr ? 'View organization attendance →' : 'View team attendance →'}
           </button>
         </div>
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <Calendar size={14} style={{ color: 'var(--brand)' }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>Pending Leave Requests</span>
-          </div>
+        <div className="nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <DashTitle icon={Calendar}>Pending Leave Requests</DashTitle>
           <p style={{ margin: 0, fontSize: 12, color: 'var(--txt-mut)', lineHeight: 1.55 }}>
             {pendingLeaveCount === null
               ? 'Loading…'
@@ -759,7 +761,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
           </p>
           <button
             onClick={() => navigate('/approvals?type=LEAVE')}
-            style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+            className="nf-dash-link" style={{ alignSelf: 'flex-start', marginLeft: 0 }}
           >
             Review in Approval Center →
           </button>
@@ -974,10 +976,8 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
   ];
 
   return (
-    <div className="nf-atn-cal-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 18 }}>
-        Attendance Calendar
-      </div>
+    <div className="nf-atn-cal-panel nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
+      <DashTitle icon={Clock}>Attendance Calendar</DashTitle>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         {/* Nav */}
         <div className="nf-atn-cal-row" style={{ display: 'flex', alignItems: 'center', width: gridWidth, marginBottom: 14 }}>
@@ -1090,10 +1090,8 @@ function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
   const donutRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="nf-leave-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
-        Leave Balance
-      </div>
+    <div className="nf-leave-panel nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <DashTitle icon={CalendarCheck}>Leave Balance</DashTitle>
 
       {isEmptyQuota ? (
         <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0', textAlign: 'center' }}>No leave balances configured.</div>
@@ -1193,10 +1191,8 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
 
   if (actionItems.length === 0) {
     return (
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
-          Action Needed
-        </div>
+      <div className="nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
+        <DashTitle icon={AlertTriangle}>Action Needed</DashTitle>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '16px 0' }}>
           <CheckCircle2 size={22} style={{ color: 'var(--ok)' }} />
           <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>Nothing needs your attention</span>
@@ -1206,10 +1202,10 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
   }
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
+    <div className="nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <AlertTriangle size={14} style={{ color: 'var(--risk)', flexShrink: 0 }} />
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
+        <span className="nf-dash-ico" style={{ color: 'var(--risk)', background: 'color-mix(in srgb, var(--risk) 12%, var(--panel))', borderColor: 'color-mix(in srgb, var(--risk) 28%, transparent)' }}><AlertTriangle size={18} /></span>
+        <span style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
           Action Needed
         </span>
         <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: 'color-mix(in srgb, var(--risk) 12%, transparent)', color: 'var(--risk)' }}>
@@ -1285,10 +1281,8 @@ function RecentRequests({ requests }: { requests: MyRequestItem[] }) {
   };
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
-        My Recent Requests
-      </div>
+    <div className="nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
+      <DashTitle icon={FileText}>My Recent Requests</DashTitle>
       {recent.length === 0 ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>No requests submitted yet.</div>
       ) : (
@@ -1354,10 +1348,8 @@ function UpcomingHolidays({ holidays }: { holidays: HolidayRow[] }) {
   };
 
   return (
-    <div className="nf-holiday-panel" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-      <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
-        Upcoming Holidays
-      </div>
+    <div className="nf-holiday-panel nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
+      <DashTitle icon={Calendar}>Upcoming Holidays</DashTitle>
       {upcoming.length === 0 ? (
         <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '8px 0' }}>No upcoming holidays in your location.</div>
       ) : (
@@ -1786,16 +1778,21 @@ function SuperAdminDashboardView() {
 
   const cardStyle: React.CSSProperties = {
     background: 'var(--panel)', border: '1px solid var(--line)',
-    borderRadius: 10, padding: '20px 22px',
+    borderRadius: 16, padding: '22px 24px',
     display: 'flex', flexDirection: 'column',
   };
-  const cardTitle = (text: string) => (
-    <div style={{ marginBottom: 14 }}>
-      <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
-        {text}
-      </span>
-    </div>
-  );
+  const TITLE_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
+    'Pending Approvals by Type': CheckSquare, 'Account Health': ShieldCheck, 'Users by Role': Users,
+  };
+  const cardTitle = (text: string) => {
+    const Ico = TITLE_ICONS[text] ?? Layers;
+    return (
+      <div className="nf-dash-title">
+        <span className="nf-dash-ico"><Ico size={18} /></span>
+        <h3>{text}</h3>
+      </div>
+    );
+  };
   const accountHealthSectionLabel: React.CSSProperties = {
     fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)',
     textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8,
@@ -1825,7 +1822,7 @@ function SuperAdminDashboardView() {
       <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, alignItems: 'stretch' }}>
 
         {/* Pending Approvals by Type — donut, clickable segments */}
-        <div style={cardStyle}>
+        <div className="nf-dash-card" style={cardStyle}>
           {cardTitle('Pending Approvals by Type')}
           {approvalsLoading ? (
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>Loading…</div>
@@ -1895,7 +1892,7 @@ function SuperAdminDashboardView() {
         {/* Account Health — split into "needs a decision" vs. "just a count", instead of one flat
             list where a data-quality issue (no manager, unverified docs) reads with the same
             visual weight as an FYI stat (role changes, password resets this month). */}
-        <div style={cardStyle}>
+        <div className="nf-dash-card" style={cardStyle}>
           {cardTitle('Account Health')}
           {/* Each row is fed by its own independent fetch (see loadSuperAdminData), so it shows
               its own '–' placeholder only while ITS source is still loading, instead of the
@@ -1922,6 +1919,7 @@ function SuperAdminDashboardView() {
                   <button
                     key={row.label}
                     type="button"
+                    className="nf-ah-row"
                     onClick={row.onClick}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 12, width: '100%',
@@ -1982,6 +1980,7 @@ function SuperAdminDashboardView() {
                   <button
                     key={row.label}
                     type="button"
+                    className="nf-ah-row"
                     onClick={row.onClick}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 12, width: '100%',
@@ -2008,10 +2007,8 @@ function SuperAdminDashboardView() {
         </div>
 
         {/* Users by Role — UNCHANGED */}
-        <div className="nf-leave-panel" style={{ ...cardStyle, gap: 16 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
-            Users by Role
-          </div>
+        <div className="nf-leave-panel nf-dash-card" style={{ ...cardStyle, gap: 16 }}>
+          {cardTitle('Users by Role')}
           {usersLoading || roleData.length === 0 ? (
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '20px 0', textAlign: 'center' }}>
               {usersLoading ? 'Loading…' : 'No users found.'}
@@ -2064,8 +2061,8 @@ function SuperAdminDashboardView() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {roleData.map((item) => (
-                  <div key={item.name} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: item.color, flexShrink: 0 }} />
+                  <div key={item.name} className="nf-role-row">
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: item.color, flexShrink: 0 }} />
                     <span style={{ flex: 1, fontSize: 12, color: 'var(--txt-mut)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.name}
                     </span>
@@ -2085,46 +2082,40 @@ function SuperAdminDashboardView() {
       <BirthdayWidget />
       <RecentNotificationsWidget />
 
-      {/* Recent Audit Events — UNCHANGED */}
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 14 }}>
-          Recent Audit Events
+      {/* Recent Audit Events */}
+      <div className="nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, padding: '22px 24px' }}>
+        <div className="nf-dash-title">
+          <span className="nf-dash-ico"><Shield size={18} /></span>
+          <h3>Recent Audit Events</h3>
+          <button type="button" className="nf-dash-link" onClick={() => navigate('/audit')}>View all in Audit &amp; Security →</button>
         </div>
         {recentAuditLoading ? (
           <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>Loading…</div>
         ) : recentAudit.length === 0 ? (
-          <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>No audit events recorded yet.</div>
+          <div className="nf-dash-empty">
+            <span className="nf-dash-empty-ico" style={{ background: 'color-mix(in srgb, var(--info) 14%, var(--panel))', color: 'var(--info)' }}><Shield size={18} /></span>
+            <div><b>No audit events yet</b><span>Actions taken in the system will appear here.</span></div>
+          </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {recentAudit.map((entry, i) => {
+          <div className="nf-aud-list">
+            {recentAudit.map(entry => {
               const groupColor = AUDIT_GROUP_COLOR[entry.actionGroup] ?? '#6B7280';
               return (
-                <div
-                  key={entry.id}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '10px 0',
-                    borderTop: i === 0 ? 'none' : '1px solid var(--line)',
-                  }}
-                >
-                  <span style={{
-                    fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 8,
-                    background: `color-mix(in srgb, ${groupColor} 12%, transparent)`,
-                    color: groupColor, textTransform: 'uppercase' as const, letterSpacing: '.04em',
-                    whiteSpace: 'nowrap', flexShrink: 0,
-                  }}>
+                <div key={entry.id} className="nf-aud-row">
+                  <span
+                    className="nf-aud-pill"
+                    style={{ background: `color-mix(in srgb, ${groupColor} 13%, transparent)`, color: groupColor, border: `1px solid color-mix(in srgb, ${groupColor} 28%, transparent)` }}
+                  >
                     {entry.actionGroup}
                   </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div className="nf-aud-main">
+                    <div className="nf-aud-title">
                       {entry.action.replace(/_/g, ' ')}
-                      {entry.targetLabel ? <span style={{ fontWeight: 400, color: 'var(--txt-mut)' }}> · {entry.targetLabel}</span> : null}
+                      {entry.targetLabel ? <span> · {entry.targetLabel}</span> : null}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
-                      {entry.actorName ?? entry.actorEmail ?? 'System'}
-                    </div>
+                    <div className="nf-aud-by">{entry.actorName ?? entry.actorEmail ?? 'System'}</div>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--txt-dim)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  <div className="nf-aud-time">
                     {new Date(entry.occurredAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}{' '}
                     {new Date(entry.occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
                   </div>
@@ -2133,12 +2124,6 @@ function SuperAdminDashboardView() {
             })}
           </div>
         )}
-        <button
-          onClick={() => navigate('/audit')}
-          style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-        >
-          View all in Audit & Security →
-        </button>
       </div>
 
       {showPresentModal && (

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import '../pages/dashboardPolish.css';
 import { Cake, PartyPopper, Sparkles } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -143,19 +144,18 @@ export function BirthdayWidget() {
   const { today, thisWeek } = groupBirthdaysBySection(entries);
 
   return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <Cake size={15} style={{ color: 'var(--brand)' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
-          Birthdays
-        </span>
+    <div className="nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, padding: '22px 24px' }}>
+      <div className="nf-dash-title">
+        <span className="nf-dash-ico"><Cake size={18} /></span>
+        <h3>Birthdays</h3>
       </div>
 
       {loading ? (
         <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '8px 0' }}>Loading…</div>
       ) : entries.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '8px 0' }}>
-          No birthdays today or in the next 7 days.
+        <div className="nf-dash-empty">
+          <span className="nf-dash-empty-ico" style={{ background: 'color-mix(in srgb, var(--brand) 12%, var(--panel))', color: 'var(--brand)' }}><Cake size={18} /></span>
+          <div><b>No birthdays coming up</b><span>No birthdays today or in the next 7 days.</span></div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column' }}>

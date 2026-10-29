@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import '../pages/dashboardPolish.css';
 import { useNavigate } from 'react-router-dom';
 import { Bell, CheckCircle2 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -54,43 +55,28 @@ export function RecentNotificationsWidget({ className }: { className?: string })
   }
 
   return (
-    <div className={className} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 22px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Bell size={15} style={{ color: 'var(--brand)' }} />
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>
-            Recent Notifications
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={() => navigate('/notifications')}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--brand)' }}
-        >
-          View all →
-        </button>
+    <div className={`nf-dash-card${className ? ' ' + className : ''}`} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, padding: '22px 24px' }}>
+      <div className="nf-dash-title">
+        <span className="nf-dash-ico"><Bell size={18} /></span>
+        <h3>Recent Notifications</h3>
+        <button type="button" className="nf-dash-link" onClick={() => navigate('/notifications')}>View all →</button>
       </div>
 
       {loading ? (
         <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '8px 0' }}>Loading…</div>
       ) : items.length === 0 ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0' }}>
-          <CheckCircle2 size={16} style={{ color: 'var(--ok)' }} />
-          <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>You're all caught up.</span>
+        <div className="nf-dash-empty">
+          <span className="nf-dash-empty-ico" style={{ background: 'color-mix(in srgb, var(--ok) 14%, var(--panel))', color: 'var(--ok)' }}><CheckCircle2 size={18} /></span>
+          <div><b>You're all caught up</b><span>No unread notifications right now.</span></div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {items.map((n, i) => (
+        <div className="nf-notif-list">
+          {items.map(n => (
             <button
               key={n.id}
               type="button"
               onClick={() => open(n)}
-              style={{
-                display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%',
-                padding: '9px 0', textAlign: 'left', font: 'inherit',
-                background: 'none', border: 'none', cursor: 'pointer',
-                borderTop: i === 0 ? 'none' : '1px solid var(--line)',
-              }}
+              className="nf-notif-row"
             >
               <span style={{
                 width: 7, height: 7, borderRadius: '50%', marginTop: 5, flexShrink: 0,
