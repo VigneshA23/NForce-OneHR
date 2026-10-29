@@ -1593,4 +1593,21 @@ class AttendanceServiceTest {
                 "break-used minutes must never be negative, was " + response.getBreakUsedMinutes());
         assertEquals(0, response.getBreakUsedMinutes());
     }
+
+    @Test
+    void myHistory_penaltyOnDayWithNoRecord_returnsPenalizedPlaceholder_ONEHR645() {
+        LocalDate from = LocalDate.of(2026, 10, 1), to = LocalDate.of(2026, 10, 7), incident = LocalDate.of(2026, 10, 2);
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDateBetweenOrderByWorkDateDesc(employeeId, from, to))
+                .thenReturn(List.of());
+        when(attendancePenaltyRepository.findByEmployeeUserIdAndIncidentDateBetweenAndStatus(employeeId, from, to, "PENDING_REVIEW"))
+                .thenReturn(List.of(com.nforce.onehr.entity.AttendancePenalty.builder()
+                        .employeeUserId(employeeId).incidentDate(incident).build()));
+
+        List<AttendanceResponse> rows = service.getMyHistory(employeeEmail, from, to);
+
+        assertEquals(1, rows.size());
+        assertEquals(incident, rows.get(0).getWorkDate());
+        assertTrue(rows.get(0).isPenalized());
+        assertNull(rows.get(0).getStatus());
+    }
 }

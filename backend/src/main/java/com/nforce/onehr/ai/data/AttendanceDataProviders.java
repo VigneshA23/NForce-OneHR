@@ -192,7 +192,9 @@ public final class AttendanceDataProviders {
                 from = truncated ? to.minusDays(MAX_NAMED_DAYS - 1) : named.get().from();
             }
             LocalDate penaltiesFrom = today.minusDays(PENALTY_LOOKBACK_DAYS - 1);
-            List<AttendanceResponse> rows = Objects.requireNonNullElse(attendanceService.getMyHistory(email, from, to), List.of());
+            // Drops historyFor's record-less penalized placeholders (no status, no punch) — penalties are listed below on their own.
+            List<AttendanceResponse> rows = Objects.requireNonNullElse(attendanceService.getMyHistory(email, from, to), List.<AttendanceResponse>of())
+                    .stream().filter(r -> r.getStatus() != null || r.getCheckInAt() != null).toList();
             List<AttendanceExceptionResponse> exceptions =
                     Objects.requireNonNullElse(attendanceService.getMyExceptions(email, from, to), List.of());
             AttendanceConfigResponse config = attendanceService.getConfig(email);

@@ -78,6 +78,7 @@ class LeaveServiceTest {
     // Unstubbed by default → Optional.empty() (no shift) → every date counts, the pre-shift rule.
     @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
     @Mock private HolidayRepository holidayRepository;
+    @Mock private com.nforce.onehr.repository.AttendancePenaltyRepository attendancePenaltyRepository;
 
     @InjectMocks private LeaveService leaveService;
 
@@ -2015,5 +2016,28 @@ class LeaveServiceTest {
 
         assertTrue(leaveService.listTeamBalances(managerEmail).isEmpty());
         verify(leaveBalanceRepository, never()).findByEmployeeUserIdInAndYear(any(), any());
+    }
+
+    @Test
+    void listMyRequests_includesActivePenaltyLeaveDeduction_ONEHR645() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveRequestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(employeeId)).thenReturn(List.of());
+        LocalDate incident = LocalDate.of(2026, 10, 2);
+        com.nforce.onehr.entity.AttendancePenalty penalty = com.nforce.onehr.entity.AttendancePenalty.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).incidentDate(incident)
+                .discrepancyType("NO_ATTENDANCE").leaveDeductionDays(BigDecimal.ONE)
+                .leaveBreakdown("{\"ANNUAL\":1.00}").build();
+        when(attendancePenaltyRepository.findByEmployeeUserIdAndStatusAndLeaveDeductionDaysGreaterThan(
+                employeeId, "PENDING_REVIEW", BigDecimal.ZERO)).thenReturn(List.of(penalty));
+
+        List<LeaveRequestResponse> rows = leaveService.listMyRequests(employeeEmail);
+
+        assertEquals(1, rows.size());
+        LeaveRequestResponse row = rows.get(0);
+        assertEquals("APPROVED", row.getStatus());
+        assertEquals("Annual Leave", row.getLeaveTypeName());
+        assertEquals(incident, row.getStartDate());
+        assertEquals(0, new BigDecimal("1.00").compareTo(row.getTotalDays()));
+        assertEquals("Attendance penalty: No attendance", row.getEmployeeReason());
     }
 }
