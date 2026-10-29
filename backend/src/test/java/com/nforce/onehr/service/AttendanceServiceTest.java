@@ -66,6 +66,8 @@ class AttendanceServiceTest {
     @Mock private com.nforce.onehr.repository.AttendanceRulesRepository attendanceRulesRepository;
     @Mock private com.nforce.onehr.repository.ShiftRepository shiftRepository;
     @Mock private com.nforce.onehr.repository.AttendancePenaltyRepository attendancePenaltyRepository;
+    @Mock private EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
+    @Mock private WeeklyOffPolicyVersionResolver weeklyOffPolicyVersionResolver;
 
     private AttendanceService service;
 
@@ -166,7 +168,7 @@ class AttendanceServiceTest {
                 attendanceExceptionRepository, employeeRepository, managerHistoryRepository,
                 auditService, auditSnapshot, latePenaltyService, workingDayService, expectedWorkHoursService,
                 shiftDayPolicy, attendanceRulesService, attendanceInterpretationService, employeeShiftAssignmentResolver,
-                attendancePenaltyRepository);
+                attendancePenaltyRepository, employeeWeeklyOffPolicyAssignmentResolver, weeklyOffPolicyVersionResolver);
 
         defaultShift = shift("Regular", LocalTime.of(15, 30), LocalTime.of(0, 30));
         currentEmployeeShift = defaultShift;

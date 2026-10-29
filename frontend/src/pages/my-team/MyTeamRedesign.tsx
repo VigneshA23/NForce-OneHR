@@ -231,7 +231,7 @@ export function MyTeamHero({ userName, subtitle, metrics, memberLabel }: {
       </div>
       <div className="mt-strip" role="list">
         {items.map(it => (
-          <div className="mt-metric" role="listitem" key={it.label} tabIndex={0}>
+          <div className="mt-metric" role="listitem" key={it.label} tabIndex={0} style={{ ['--mc' as string]: it.color }}>
             <span className="mt-metric-ico" style={{ color: it.color, background: `color-mix(in srgb, ${it.color} 14%, transparent)` }}>{it.icon}</span>
             <div>
               <div className="mt-metric-val">{it.value}</div>

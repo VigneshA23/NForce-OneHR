@@ -8,18 +8,22 @@ import com.nforce.onehr.dto.assignments.ImportResultResponse;
 import com.nforce.onehr.dto.penalization.BulkAllocationRequest;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeShiftAssignment;
+import com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment;
 import com.nforce.onehr.entity.PenalisationPolicy;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.WeeklyOffPolicy;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.EmployeeShiftAssignmentRepository;
+import com.nforce.onehr.repository.EmployeeWeeklyOffPolicyAssignmentRepository;
 import com.nforce.onehr.repository.PenalisationPolicyRepository;
 import com.nforce.onehr.repository.ShiftRepository;
 import com.nforce.onehr.repository.WeeklyOffPolicyRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -38,7 +42,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Consumer;
 
 /**
  * Manager: Bulk-Edit Team Shift, Weekly Off & Penalisation Policy Assignments (ONEHR-108).
@@ -65,13 +68,19 @@ public class EmployeeAssignmentService {
     // cache) — used by assignShift to find the same-date row a new assignment replaces in place,
     // and by listTeamAssignments for its own "Active since"/"Scheduled" display (see toRow).
     private final EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    // Phase 3: the same effective-dated model as EmployeeShiftAssignment/employeeShiftAssignment-
+    // Repository above, applied to WHICH Weekly Off Policy an employee is assigned to instead of
+    // WHICH Shift. Employee.weeklyOffPolicy remains a best-effort, non-authoritative display cache
+    // (see its own Javadoc) — never written for attendance-relevant purposes by this class anymore.
+    private final EmployeeWeeklyOffPolicyAssignmentRepository employeeWeeklyOffPolicyAssignmentRepository;
+    private final EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
 
     @Transactional(readOnly = true)
     public List<EmployeeAssignmentRow> listTeamAssignments(String managerEmail, UUID shiftId, UUID weeklyOffPolicyId,
                                                             UUID penalisationPolicyId, String department,
                                                             String location, String search) {
         Employee manager = resolveManager(managerEmail);
-        List<UUID> reportIds = managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId());
+        List<UUID> reportIds = authorizedEmployeeIds(manager, "VIEW");
         if (reportIds.isEmpty()) {
             return List.of();
         }
@@ -101,13 +110,27 @@ public class EmployeeAssignmentService {
                 .findByEmployeeUserIdInAndEffectiveFromGreaterThanOrderByEmployeeUserIdAscEffectiveFromAsc(reportIds, today)) {
             pendingShiftByEmployee.putIfAbsent(a.getEmployeeUserId(), a); // first seen per employee = earliest effectiveFrom
         }
+        // Phase 3: same batching, applied to Weekly Off Policy assignments — never
+        // Employee.weeklyOffPolicy, a best-effort display cache that bulkUpdateWeeklyOff/CSV
+        // import no longer keep in sync (they only ever write EmployeeWeeklyOffPolicyAssignment
+        // rows now).
+        Map<UUID, EmployeeWeeklyOffPolicyAssignment> currentWeeklyOffByEmployee = new java.util.HashMap<>();
+        for (EmployeeWeeklyOffPolicyAssignment a : employeeWeeklyOffPolicyAssignmentRepository
+                .findByEmployeeUserIdInAndEffectiveFromLessThanEqualOrderByEmployeeUserIdAscEffectiveFromDesc(reportIds, today)) {
+            currentWeeklyOffByEmployee.putIfAbsent(a.getEmployeeUserId(), a);
+        }
+        Map<UUID, EmployeeWeeklyOffPolicyAssignment> pendingWeeklyOffByEmployee = new java.util.HashMap<>();
+        for (EmployeeWeeklyOffPolicyAssignment a : employeeWeeklyOffPolicyAssignmentRepository
+                .findByEmployeeUserIdInAndEffectiveFromGreaterThanOrderByEmployeeUserIdAscEffectiveFromAsc(reportIds, today)) {
+            pendingWeeklyOffByEmployee.putIfAbsent(a.getEmployeeUserId(), a);
+        }
 
         String q = search != null ? search.trim().toLowerCase() : null;
         return employeeRepository.findAllById(reportIds).stream()
                 .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null)
                 .filter(e -> shiftId == null || shiftId.equals(currentShiftIdOf(currentShiftByEmployee.get(e.getUserId()))))
                 .filter(e -> weeklyOffPolicyId == null
-                        || (e.getWeeklyOffPolicy() != null && weeklyOffPolicyId.equals(e.getWeeklyOffPolicy().getId())))
+                        || weeklyOffPolicyId.equals(currentWeeklyOffIdOf(currentWeeklyOffByEmployee.get(e.getUserId()))))
                 .filter(e -> penalisationPolicyId == null
                         || penalisationPolicyId.equals(resolvedPolicyByEmployee.get(e.getUserId())))
                 .filter(e -> department == null || department.isBlank()
@@ -117,6 +140,7 @@ public class EmployeeAssignmentService {
                 .filter(e -> q == null || q.isBlank()
                         || e.getFullName().toLowerCase().contains(q) || e.getEmployeeCode().toLowerCase().contains(q))
                 .map(e -> toRow(e, currentShiftByEmployee.get(e.getUserId()), pendingShiftByEmployee.get(e.getUserId()),
+                        currentWeeklyOffByEmployee.get(e.getUserId()), pendingWeeklyOffByEmployee.get(e.getUserId()),
                         resolvedPolicyByEmployee.get(e.getUserId()), policyCache))
                 .sorted(Comparator.comparing(EmployeeAssignmentRow::getFullName, Comparator.nullsLast(String::compareToIgnoreCase)))
                 .toList();
@@ -126,10 +150,14 @@ public class EmployeeAssignmentService {
         return current != null ? current.getShift().getId() : null;
     }
 
+    private static UUID currentWeeklyOffIdOf(EmployeeWeeklyOffPolicyAssignment current) {
+        return current != null ? current.getWeeklyOffPolicy().getId() : null;
+    }
+
     @Transactional(readOnly = true)
     public AssignmentLookupsResponse getLookups(String managerEmail) {
         Employee manager = resolveManager(managerEmail);
-        List<UUID> reportIds = managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId());
+        List<UUID> reportIds = authorizedEmployeeIds(manager, "VIEW");
         List<Employee> reports = reportIds.isEmpty() ? List.of() : employeeRepository.findAllById(reportIds);
 
         return AssignmentLookupsResponse.builder()
@@ -188,7 +216,7 @@ public class EmployeeAssignmentService {
         }
 
         Employee manager = resolveManager(managerEmail);
-        Set<UUID> reportIds = new HashSet<>(managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId()));
+        Set<UUID> reportIds = new HashSet<>(authorizedEmployeeIds(manager, "EDIT"));
         // Scoped to actual current direct reports only — never batch-queries assignment data for
         // an id the caller isn't even authorized to touch (mirrors the per-employee reportIds
         // check below, just resolved before the loop instead of after it).
@@ -217,8 +245,15 @@ public class EmployeeAssignmentService {
                 if (!reportIds.contains(employeeUserId)) {
                     throw new AccessDeniedException("Not a current direct report");
                 }
-                if (!employeeRepository.existsById(employeeUserId)) {
-                    throw new IllegalArgumentException("Employee not found");
+                Employee employee = employeeRepository.findById(employeeUserId)
+                        .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
+                // D2: scheduling starts on the LATER of employment start date and the Shift's own
+                // effective date — reject rather than silently let the resolver treat this Shift
+                // as governing dates before this employee's own employment even began. Mirrors
+                // UserManagementService#createUser's identical check.
+                if (employee.getJoiningDate() != null && effectiveFrom.isBefore(employee.getJoiningDate())) {
+                    throw new IllegalArgumentException("Effective From cannot be before this employee's joining date ("
+                            + employee.getJoiningDate() + ")");
                 }
                 assignShift(employeeUserId, shift, effectiveFrom, manager.getUserId(),
                         pendingByEmployee.get(employeeUserId), currentByEmployee.get(employeeUserId));
@@ -284,11 +319,64 @@ public class EmployeeAssignmentService {
                 .build());
     }
 
+    /**
+     * Phase 3: user-chosen-effective-date Weekly Off Policy assignment — writes a new {@link
+     * EmployeeWeeklyOffPolicyAssignment} row per employee rather than mutating {@code
+     * Employee.weeklyOffPolicy} directly, mirroring {@link #bulkUpdateShift}'s identical design
+     * (see its own Javadoc for the full rationale: that field is now a best-effort display cache
+     * only, never authoritative). {@code effectiveFrom} is required and persisted exactly as the
+     * manager chose it — today or any future date is valid, a past date is rejected.
+     */
     @Transactional
-    public AssignmentBulkResultResponse bulkUpdateWeeklyOff(String managerEmail, List<UUID> employeeUserIds, UUID policyId) {
+    public AssignmentBulkResultResponse bulkUpdateWeeklyOff(String managerEmail, List<UUID> employeeUserIds, UUID policyId, LocalDate effectiveFrom) {
         WeeklyOffPolicy policy = weeklyOffPolicyRepository.findById(policyId)
                 .orElseThrow(() -> new IllegalArgumentException("Weekly off policy not found"));
-        return bulkApply(managerEmail, employeeUserIds, "WEEKLY_OFF", policyId, e -> e.setWeeklyOffPolicy(policy));
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        if (effectiveFrom == null || effectiveFrom.isBefore(today)) {
+            throw new IllegalArgumentException("Effective From is required and cannot be in the past");
+        }
+
+        Employee manager = resolveManager(managerEmail);
+        Set<UUID> reportIds = new HashSet<>(authorizedEmployeeIds(manager, "EDIT"));
+        List<UUID> authorizedIds = employeeUserIds.stream().filter(reportIds::contains).toList();
+
+        Map<UUID, EmployeeWeeklyOffPolicyAssignment> pendingByEmployee = new java.util.HashMap<>();
+        Map<UUID, EmployeeWeeklyOffPolicyAssignment> currentByEmployee = new java.util.HashMap<>();
+        if (!authorizedIds.isEmpty()) {
+            for (EmployeeWeeklyOffPolicyAssignment a : employeeWeeklyOffPolicyAssignmentRepository
+                    .findByEmployeeUserIdInAndEffectiveFromGreaterThanOrderByEmployeeUserIdAscEffectiveFromAsc(authorizedIds, today)) {
+                pendingByEmployee.putIfAbsent(a.getEmployeeUserId(), a);
+            }
+            for (EmployeeWeeklyOffPolicyAssignment a : employeeWeeklyOffPolicyAssignmentRepository
+                    .findByEmployeeUserIdInAndEffectiveFromLessThanEqualOrderByEmployeeUserIdAscEffectiveFromDesc(authorizedIds, today)) {
+                currentByEmployee.putIfAbsent(a.getEmployeeUserId(), a);
+            }
+        }
+
+        List<UUID> succeeded = new ArrayList<>();
+        List<AssignmentBulkResultResponse.FailureDto> failed = new ArrayList<>();
+        for (UUID employeeUserId : employeeUserIds) {
+            try {
+                if (!reportIds.contains(employeeUserId)) {
+                    throw new AccessDeniedException("Not a current direct report");
+                }
+                Employee employee = employeeRepository.findById(employeeUserId)
+                        .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
+                // D2: same joining-date floor as bulkUpdateShift's identical check.
+                if (employee.getJoiningDate() != null && effectiveFrom.isBefore(employee.getJoiningDate())) {
+                    throw new IllegalArgumentException("Effective From cannot be before this employee's joining date ("
+                            + employee.getJoiningDate() + ")");
+                }
+                assignWeeklyOff(employeeUserId, policy, effectiveFrom, manager.getUserId(),
+                        pendingByEmployee.get(employeeUserId), currentByEmployee.get(employeeUserId));
+                succeeded.add(employeeUserId);
+            } catch (Exception e) {
+                failed.add(AssignmentBulkResultResponse.FailureDto.builder()
+                        .employeeUserId(employeeUserId).reason(e.getMessage()).build());
+            }
+        }
+        auditService.log(manager.getUserId(), "EMPLOYEE_ASSIGNMENT_BULK_UPDATE_WEEKLY_OFF", policyId);
+        return AssignmentBulkResultResponse.builder().succeededIds(succeeded).failed(failed).build();
     }
 
     /**
@@ -306,7 +394,7 @@ public class EmployeeAssignmentService {
     @Transactional
     public AssignmentBulkResultResponse bulkUpdatePenalisationPolicy(String managerEmail, List<UUID> employeeUserIds, UUID policyId) {
         Employee manager = resolveManager(managerEmail);
-        Set<UUID> reportIds = new HashSet<>(managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId()));
+        Set<UUID> reportIds = new HashSet<>(authorizedEmployeeIds(manager, "EDIT"));
 
         List<UUID> scopedIds = new ArrayList<>();
         List<AssignmentBulkResultResponse.FailureDto> failed = new ArrayList<>();
@@ -332,43 +420,53 @@ public class EmployeeAssignmentService {
         return AssignmentBulkResultResponse.builder().succeededIds(allocationResult.getSucceededIds()).failed(failed).build();
     }
 
-    private AssignmentBulkResultResponse bulkApply(String managerEmail, List<UUID> employeeUserIds, String fieldLabel,
-                                                    UUID policyId, Consumer<Employee> applier) {
-        Employee manager = resolveManager(managerEmail);
-        Set<UUID> reportIds = new HashSet<>(managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId()));
+    /**
+     * Single-employee entry point — resolves the pending/current rows to replace with their own
+     * SELECT each. Used by {@link #importShiftsAndWeeklyOffs}, which discovers one employee at a
+     * time while streaming the CSV. Mirrors {@code assignShift}'s identical pending/current-
+     * replacement semantics (see its own Javadoc) applied to Weekly Off Policy instead of Shift.
+     */
+    private void assignWeeklyOff(UUID employeeUserId, WeeklyOffPolicy policy, LocalDate effectiveFrom, UUID createdBy, LocalDate today) {
+        EmployeeWeeklyOffPolicyAssignment pending = employeeWeeklyOffPolicyAssignmentRepository
+                .findFirstByEmployeeUserIdAndEffectiveFromGreaterThanOrderByEffectiveFromAsc(employeeUserId, today)
+                .orElse(null);
+        EmployeeWeeklyOffPolicyAssignment current = employeeWeeklyOffPolicyAssignmentResolver.resolveIfPresent(employeeUserId, today)
+                .orElse(null);
+        assignWeeklyOff(employeeUserId, policy, effectiveFrom, createdBy, pending, current);
+    }
 
-        List<UUID> succeeded = new ArrayList<>();
-        List<AssignmentBulkResultResponse.FailureDto> failed = new ArrayList<>();
-        for (UUID employeeUserId : employeeUserIds) {
-            try {
-                if (!reportIds.contains(employeeUserId)) {
-                    throw new AccessDeniedException("Not a current direct report");
-                }
-                Employee employee = employeeRepository.findById(employeeUserId)
-                        .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
-                applier.accept(employee);
-                employeeRepository.save(employee);
-                succeeded.add(employeeUserId);
-            } catch (Exception e) {
-                failed.add(AssignmentBulkResultResponse.FailureDto.builder()
-                        .employeeUserId(employeeUserId).reason(e.getMessage()).build());
-            }
+    /** Bulk entry point — {@code pending}/{@code current} are batch-resolved once for the whole request by the caller. */
+    private void assignWeeklyOff(UUID employeeUserId, WeeklyOffPolicy policy, LocalDate effectiveFrom, UUID createdBy,
+                                  EmployeeWeeklyOffPolicyAssignment pending, EmployeeWeeklyOffPolicyAssignment current) {
+        if (pending != null) {
+            employeeWeeklyOffPolicyAssignmentRepository.delete(pending);
         }
-        auditService.log(manager.getUserId(), "EMPLOYEE_ASSIGNMENT_BULK_UPDATE_" + fieldLabel, policyId);
-        return AssignmentBulkResultResponse.builder().succeededIds(succeeded).failed(failed).build();
+        if (current != null && current.getEffectiveFrom().equals(effectiveFrom)) {
+            employeeWeeklyOffPolicyAssignmentRepository.delete(current);
+        }
+        employeeWeeklyOffPolicyAssignmentRepository.save(EmployeeWeeklyOffPolicyAssignment.builder()
+                .employeeUserId(employeeUserId)
+                .weeklyOffPolicy(policy)
+                .effectiveFrom(effectiveFrom)
+                .createdBy(createdBy)
+                .build());
     }
 
     /**
-     * CSV schema: {@code employee_code,shift_name,shift_effective_from,weekly_off_policy_name} —
-     * {@code shift_effective_from} mirrors {@link #bulkUpdateShift}'s identical rule: required
-     * whenever {@code shift_name} is non-blank, today or any future date accepted, a past date
+     * CSV schema: {@code employee_code,shift_name,shift_effective_from,weekly_off_policy_name,weekly_off_effective_from} —
+     * {@code shift_effective_from}/{@code weekly_off_effective_from} each mirror {@link
+     * #bulkUpdateShift}/{@link #bulkUpdateWeeklyOff}'s identical rule: required whenever the
+     * corresponding name column is non-blank, today or any future date accepted, a past date
      * rejected; ignored otherwise. A blank shift/weekly-off cell for a row leaves that field
-     * untouched rather than clearing it.
+     * untouched rather than clearing it. (Phase 3: weekly_off_effective_from is a new column — an
+     * older 4-column CSV that set weekly_off_policy_name without it will now fail that row with a
+     * clear "required" error instead of silently applying an undated change, since an explicit
+     * effective date is no longer optional for weekly-off either.)
      */
     @Transactional
     public ImportResultResponse importShiftsAndWeeklyOffs(String managerEmail, MultipartFile file) throws IOException {
         Employee manager = resolveManager(managerEmail);
-        Set<UUID> reportIds = new HashSet<>(managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId()));
+        Set<UUID> reportIds = new HashSet<>(authorizedEmployeeIds(manager, "CREATE"));
         // Same authoritative business-day clock as bulkUpdateShift's identical rule — never the
         // JVM default zone.
         LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
@@ -377,7 +475,7 @@ public class EmployeeAssignmentService {
         int succeeded = 0;
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
-            reader.readLine(); // header: employee_code,shift_name,shift_effective_from,weekly_off_policy_name
+            reader.readLine(); // header: employee_code,shift_name,shift_effective_from,weekly_off_policy_name,weekly_off_effective_from
             String line;
             int rowNum = 1;
             while ((line = reader.readLine()) != null) {
@@ -390,6 +488,7 @@ public class EmployeeAssignmentService {
                 String shiftName = cols.length > 1 ? cols[1].trim() : "";
                 String shiftEffectiveFromRaw = cols.length > 2 ? cols[2].trim() : "";
                 String weeklyOffName = cols.length > 3 ? cols[3].trim() : "";
+                String weeklyOffEffectiveFromRaw = cols.length > 4 ? cols[4].trim() : "";
 
                 try {
                     Employee employee = employeeRepository.findByEmployeeCode(employeeCode)
@@ -413,13 +512,33 @@ public class EmployeeAssignmentService {
                         if (shiftEffectiveFrom == null || shiftEffectiveFrom.isBefore(today)) {
                             throw new IllegalArgumentException("shift_effective_from is required and cannot be in the past when shift_name is set");
                         }
+                        // D2: same joining-date floor as bulkUpdateShift/createUser — never let a
+                        // CSV row's effective date govern dates before this employee's own
+                        // employment began.
+                        if (employee.getJoiningDate() != null && shiftEffectiveFrom.isBefore(employee.getJoiningDate())) {
+                            throw new IllegalArgumentException("shift_effective_from cannot be before this employee's joining date ("
+                                    + employee.getJoiningDate() + ")");
+                        }
                         assignShift(employee.getUserId(), shift, shiftEffectiveFrom, manager.getUserId(), today);
                     }
                     if (!weeklyOffName.isBlank()) {
-                        employee.setWeeklyOffPolicy(weeklyOffPolicyRepository.findByName(weeklyOffName)
-                                .orElseThrow(() -> new IllegalArgumentException("Unknown weekly off policy: " + weeklyOffName)));
+                        WeeklyOffPolicy policy = weeklyOffPolicyRepository.findByName(weeklyOffName)
+                                .orElseThrow(() -> new IllegalArgumentException("Unknown weekly off policy: " + weeklyOffName));
+                        LocalDate weeklyOffEffectiveFrom;
+                        try {
+                            weeklyOffEffectiveFrom = weeklyOffEffectiveFromRaw.isBlank() ? null : LocalDate.parse(weeklyOffEffectiveFromRaw);
+                        } catch (java.time.format.DateTimeParseException e) {
+                            throw new IllegalArgumentException("weekly_off_effective_from must be a valid date (YYYY-MM-DD): " + weeklyOffEffectiveFromRaw);
+                        }
+                        if (weeklyOffEffectiveFrom == null || weeklyOffEffectiveFrom.isBefore(today)) {
+                            throw new IllegalArgumentException("weekly_off_effective_from is required and cannot be in the past when weekly_off_policy_name is set");
+                        }
+                        if (employee.getJoiningDate() != null && weeklyOffEffectiveFrom.isBefore(employee.getJoiningDate())) {
+                            throw new IllegalArgumentException("weekly_off_effective_from cannot be before this employee's joining date ("
+                                    + employee.getJoiningDate() + ")");
+                        }
+                        assignWeeklyOff(employee.getUserId(), policy, weeklyOffEffectiveFrom, manager.getUserId(), today);
                     }
-                    employeeRepository.save(employee);
                     results.add(ImportResultResponse.RowResult.builder()
                             .row(rowNum).employeeCode(employeeCode).success(true).build());
                     succeeded++;
@@ -449,8 +568,10 @@ public class EmployeeAssignmentService {
      * <date>" without misreporting it as already active.
      */
     private EmployeeAssignmentRow toRow(Employee e, EmployeeShiftAssignment current, EmployeeShiftAssignment pending,
+                                         EmployeeWeeklyOffPolicyAssignment currentWeeklyOff, EmployeeWeeklyOffPolicyAssignment pendingWeeklyOff,
                                          UUID resolvedPolicyId, Map<UUID, PenalisationPolicy> policyCache) {
         Shift currentShift = current != null ? current.getShift() : null;
+        WeeklyOffPolicy currentPolicy = currentWeeklyOff != null ? currentWeeklyOff.getWeeklyOffPolicy() : null;
 
         return EmployeeAssignmentRow.builder()
                 .employeeUserId(e.getUserId())
@@ -469,8 +590,12 @@ public class EmployeeAssignmentService {
                 .pendingShiftId(pending != null ? pending.getShift().getId() : null)
                 .pendingShiftName(pending != null ? pending.getShift().getName() : null)
                 .pendingShiftEffectiveFrom(pending != null ? pending.getEffectiveFrom() : null)
-                .weeklyOffPolicyId(e.getWeeklyOffPolicy() != null ? e.getWeeklyOffPolicy().getId() : null)
-                .weeklyOffPolicyName(e.getWeeklyOffPolicy() != null ? e.getWeeklyOffPolicy().getName() : null)
+                .weeklyOffPolicyId(currentPolicy != null ? currentPolicy.getId() : null)
+                .weeklyOffPolicyName(currentPolicy != null ? currentPolicy.getName() : null)
+                .weeklyOffPolicyEffectiveSince(currentWeeklyOff != null ? currentWeeklyOff.getEffectiveFrom() : null)
+                .pendingWeeklyOffPolicyId(pendingWeeklyOff != null ? pendingWeeklyOff.getWeeklyOffPolicy().getId() : null)
+                .pendingWeeklyOffPolicyName(pendingWeeklyOff != null ? pendingWeeklyOff.getWeeklyOffPolicy().getName() : null)
+                .pendingWeeklyOffPolicyEffectiveFrom(pendingWeeklyOff != null ? pendingWeeklyOff.getEffectiveFrom() : null)
                 .penalisationPolicyId(resolvedPolicyId)
                 .penalisationPolicyName(resolvedPolicyName(resolvedPolicyId, policyCache))
                 .build();
@@ -482,6 +607,34 @@ public class EmployeeAssignmentService {
         }
         PenalisationPolicy cached = cache.computeIfAbsent(policyId, id -> penalisationPolicyRepository.findById(id).orElse(null));
         return cached != null ? cached.getName() : "Unknown Policy";
+    }
+
+    /**
+     * Ids this actor may act on for {@code action} (VIEW/EDIT/CREATE) on the
+     * employee_assignments module — every employee company-wide once the actor's granted scope
+     * is ALL (HR_ADMIN/SUPER_ADMIN — see V225's seed), or only their own current direct reports
+     * for TEAM (Manager). Read from the SAME granted authorities the controller's own
+     * {@code @PreAuthorize("hasAuthority('employee_assignments:ACTION:TEAM')")} already checked
+     * (ALL cascades through TEAM — see ScopeCoverage), never re-derived from a hardcoded role
+     * name, so this always matches whatever role_permissions actually grants. Returns the exact
+     * {@code List} findCurrentDirectReportIds already returns for the TEAM case (not a copy), so
+     * every existing TEAM-scope call site's observable behavior is unchanged.
+     */
+    private List<UUID> authorizedEmployeeIds(Employee manager, String action) {
+        if (hasCompanyWideScope(action)) {
+            return employeeRepository.findAll().stream().map(Employee::getUserId).toList();
+        }
+        return managerHistoryRepository.findCurrentDirectReportIds(manager.getUserId());
+    }
+
+    /** Whether the CURRENT request's authenticated principal holds ALL scope for this module+action. */
+    private boolean hasCompanyWideScope(String action) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
+            return false;
+        }
+        String required = "employee_assignments:" + action + ":ALL";
+        return auth.getAuthorities().stream().anyMatch(a -> required.equals(a.getAuthority()));
     }
 
     private Employee resolveManager(String actorEmail) {

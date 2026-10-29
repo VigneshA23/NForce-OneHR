@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { EmpCode } from '../components/EmpCode';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, X, ClipboardCheck } from 'lucide-react';
@@ -121,6 +124,7 @@ export default function SuperAdminRegularizationPage() {
   const { showToast } = useToast();
 
   const [rows, setRows] = useState<RegularizationRecord[]>([]);
+  const regPaged = usePaged(rows);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [departments, setDepartments] = useState<DepartmentRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -208,10 +212,11 @@ export default function SuperAdminRegularizationPage() {
                 <tr>{['Employee', 'Department', 'Date', 'Total Hours', 'Status', 'Assigned Approver', 'Reviewed By', 'Submitted'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {rows.map(r => (
+                {regPaged.pageRows.map(r => (
                   <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setDetail(r)}>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
                       {r.employeeName}
+                      <EmpCode userId={r.employeeUserId} />
                       <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeEmail}</div>
                     </td>
                     <td style={tdStyle}>{r.departmentName ?? '–'}</td>
@@ -225,6 +230,7 @@ export default function SuperAdminRegularizationPage() {
                 ))}
               </tbody>
             </table>
+            <TablePagination {...regPaged.pagerProps} noun="requests" />
           </div>
         )}
       </div>

@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { EmpCode } from '../components/EmpCode';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useNavigate } from 'react-router-dom';
-import { Archive, Check, ExternalLink, Paperclip, Plus, Package, Repeat, Search, Undo2, UserPlus } from 'lucide-react';
+import { Archive, Check, ExternalLink, Paperclip, Plus, Package, Repeat, Search, Trash2, Undo2, UserPlus } from 'lucide-react';
 import { PersonAvatar } from '../components/PersonCell';
+import { ActionDock } from '../components/ActionDock';
 import { TabBar } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
@@ -539,7 +543,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
               <tbody>
                 {filteredAssignments.length === 0 ? <EmptyRow cols={6} msg="No team assets found." /> : filteredAssignments.map(a => (
                   <tr key={a.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.employeeName}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{a.employeeName}</div><EmpCode userId={a.employeeUserId} /></td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{a.assetTag ?? '–'}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName ?? '–'}</td>
                     <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '–'}</td>
@@ -580,7 +584,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
                 <tbody>
                   {filteredRequests.length === 0 ? <EmptyRow cols={6} msg="No asset requests from your team." /> : filteredRequests.map(r => (
                     <tr key={r.id}>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{r.employeeName}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{r.employeeName}</div><EmpCode userId={r.employeeUserId} /></td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{r.categoryName}</td>
                       <td style={tdStyle}>
                         <StatusBadge status={r.status} />
@@ -632,7 +636,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
                 <tbody>
                   {filteredClaims.length === 0 ? <EmptyRow cols={6} msg="No expense claims for your team." /> : filteredClaims.map(c => (
                     <tr key={c.id}>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.employeeName}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{c.employeeName}</div><EmpCode userId={c.employeeUserId} /></td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{c.categoryName}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
                       <td style={tdStyle}>{fmtDate(c.expenseDate)}</td>
@@ -697,6 +701,12 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
     .filter(a => !inventorySearch || a.assetTag.toLowerCase().includes(inventorySearch.toLowerCase()) || (a.serialNumber ?? '').toLowerCase().includes(inventorySearch.toLowerCase()) || (a.brand ?? '').toLowerCase().includes(inventorySearch.toLowerCase()) || (a.model ?? '').toLowerCase().includes(inventorySearch.toLowerCase()))
     .filter(a => !inventoryCatFilter || a.categoryName === inventoryCatFilter)
     .filter(a => !inventoryStatusFilter || a.status === inventoryStatusFilter);
+  const invPaged = usePaged(filteredInventory, [inventorySearch, inventoryCatFilter, inventoryStatusFilter]);
+  const filteredAssetRequests = assetRequests.filter(r => !reqStatusFilter || r.status === reqStatusFilter);
+  const reqPaged = usePaged(filteredAssetRequests, [reqStatusFilter]);
+  const catPaged = usePaged(expCategories);
+  const filteredPayroll = payrollClaims.filter(c => !payrollSearch || c.employeeName.toLowerCase().includes(payrollSearch.toLowerCase()));
+  const payPaged = usePaged(filteredPayroll, [payrollSearch]);
 
   async function handleRetire(assetId: number) {
     try {
@@ -704,6 +714,18 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
       setInventory(prev => prev.map(a => a.id === updated.id ? updated : a));
       reload();
       showToast('success', 'Asset retired');
+    } catch (e) { showToast('error', e instanceof Error ? e.message : 'Failed'); }
+  }
+
+  async function handleDeleteAsset(asset: AssetResponse) {
+    if (!window.confirm(`Delete asset ${asset.assetTag} permanently?
+
+This can only be done for an asset that was never assigned. An asset with assignment history can only be retired.`)) return;
+    try {
+      await assetsApi.deleteAsset(asset.id, token);
+      setInventory(prev => prev.filter(a => a.id !== asset.id));
+      reload();
+      showToast('success', 'Asset deleted');
     } catch (e) { showToast('error', e instanceof Error ? e.message : 'Failed'); }
   }
 
@@ -774,7 +796,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Tag', 'Category', 'Brand / Model', 'Status', 'Condition', 'Custodian', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {filteredInventory.length === 0 ? <EmptyRow cols={7} msg="No assets in inventory." /> : filteredInventory.map(a => (
+                {filteredInventory.length === 0 ? <EmptyRow cols={7} msg="No assets in inventory." /> : invPaged.pageRows.map(a => (
                   <tr key={a.id}>
                     <td style={tdStyle}><span className="nf-asset-tag">{a.assetTag}</span></td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{a.categoryName}</td>
@@ -792,26 +814,22 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                       )}
                     </td>
                     <td style={{ ...tdStyle, padding: '8px 12px' }}>
-                      <div className="nf-act-group">
-                        {a.status === 'AVAILABLE' && (
-                          <button type="button" className="nf-act-btn" onClick={() => setShowAssignModal(a)}><UserPlus size={13} />Assign</button>
-                        )}
-                        {a.status === 'ASSIGNED' && (
-                          <>
-                            <button type="button" className="nf-act-btn" onClick={() => setShowReassignModal(a)}><Repeat size={13} />Reassign</button>
-                            <button type="button" className="nf-act-btn" title="Mark Returned" onClick={() => setShowReturnModal(a)}><Undo2 size={13} />Return</button>
-                          </>
-                        )}
-                        {a.status !== 'RETIRED' && (
-                          <button type="button" className="nf-act-btn nf-act-btn--danger" onClick={() => handleRetire(a.id)}><Archive size={13} />Retire</button>
-                        )}
-                      </div>
+                      <ActionDock items={[
+                        ...(a.status === 'AVAILABLE' ? [{ label: 'Assign', icon: UserPlus, onClick: () => setShowAssignModal(a) }] : []),
+                        ...(a.status === 'ASSIGNED' ? [
+                          { label: 'Reassign', icon: Repeat, onClick: () => setShowReassignModal(a) },
+                          { label: 'Mark Returned', icon: Undo2, onClick: () => setShowReturnModal(a) },
+                        ] : []),
+                        ...(a.status !== 'RETIRED' ? [{ label: 'Retire', icon: Archive, onClick: () => handleRetire(a.id), danger: true }] : []),
+                        { label: 'Delete', icon: Trash2, onClick: () => handleDeleteAsset(a), danger: true },
+                      ]} />
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <TablePagination {...invPaged.pagerProps} noun="assets" />
         </div>
       </div>)}
 
@@ -833,16 +851,16 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Employee', 'Category', 'Reason', 'Status', 'Submitted', 'Fulfill'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {assetRequests.filter(r => !reqStatusFilter || r.status === reqStatusFilter).length === 0 ? <EmptyRow cols={6} msg="No asset requests." /> : assetRequests.filter(r => !reqStatusFilter || r.status === reqStatusFilter).map(r => (
+                {filteredAssetRequests.length === 0 ? <EmptyRow cols={6} msg="No asset requests." /> : reqPaged.pageRows.map(r => (
                   <tr key={r.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{r.employeeName}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{r.employeeName}</div><EmpCode userId={r.employeeUserId} /></td>
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{r.categoryName}</td>
                     <td style={{ ...tdStyle, maxWidth: 200 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }} title={r.reason}>{r.reason}</div></td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
                     <td style={tdStyle}>{fmtDate(r.createdAt)}</td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
                       {r.status === 'APPROVED' && (
-                        <button onClick={() => setShowFulfillModal(r)} style={{ background: 'rgba(99,102,241,.15)', border: 'none', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: '#818CF8', cursor: 'pointer', fontWeight: 600 }}>
+                        <button type="button" className="nf-act-btn nf-act-btn--primary" onClick={() => setShowFulfillModal(r)}>
                           Fulfill
                         </button>
                       )}
@@ -852,6 +870,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
               </tbody>
             </table>
           </div>
+          <TablePagination {...reqPaged.pagerProps} noun="requests" />
         </div>
       </div>)}
 
@@ -867,20 +886,21 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Category', 'Receipt Required Above', 'Daily Limit', 'Second Approval Above', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {expCategories.length === 0 ? <EmptyRow cols={5} msg="No expense categories configured." /> : expCategories.map(c => (
+                {expCategories.length === 0 ? <EmptyRow cols={5} msg="No expense categories configured." /> : catPaged.pageRows.map(c => (
                   <tr key={c.id}>
                     <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.name}</td>
                     <td style={tdStyle}>{c.requiresReceiptAbove > 0 ? fmtCurrency(c.requiresReceiptAbove) : 'Not required'}</td>
                     <td style={tdStyle}>{c.dailyLimit ? fmtCurrency(c.dailyLimit) : '–'}</td>
                     <td style={tdStyle}>{c.secondApprovalAbove ? fmtCurrency(c.secondApprovalAbove) : '–'}</td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
-                      <button onClick={() => setShowCatModal(c)} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: 'var(--txt-dim)', cursor: 'pointer' }}>Edit</button>
+                      <button type="button" className="nf-act-btn" onClick={() => setShowCatModal(c)}>Edit</button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <TablePagination {...catPaged.pagerProps} noun="categories" />
         </div>
       </div>)}
 
@@ -904,9 +924,9 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Employee', 'Category', 'Amount', 'Expense Date', 'Approved By', 'Action'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {payrollClaims.filter(c => !payrollSearch || c.employeeName.toLowerCase().includes(payrollSearch.toLowerCase())).length === 0 ? <EmptyRow cols={6} msg="No claims cleared for payroll." /> : payrollClaims.filter(c => !payrollSearch || c.employeeName.toLowerCase().includes(payrollSearch.toLowerCase())).map(c => (
+                {filteredPayroll.length === 0 ? <EmptyRow cols={6} msg="No claims cleared for payroll." /> : payPaged.pageRows.map(c => (
                   <tr key={c.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.employeeName}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{c.employeeName}</div><EmpCode userId={c.employeeUserId} /></td>
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{c.categoryName}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
                     <td style={tdStyle}>{fmtDate(c.expenseDate)}</td>
@@ -929,7 +949,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                       )}
                     </td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
-                      <button onClick={() => handleMarkPaid(c.id)} style={{ background: 'rgba(47,182,124,.12)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: '#2FB67C', cursor: 'pointer', fontWeight: 600 }}>
+                      <button type="button" className="nf-act-btn nf-act-btn--primary" onClick={() => handleMarkPaid(c.id)}>
                         Mark as Paid
                       </button>
                     </td>
@@ -938,6 +958,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
               </tbody>
             </table>
           </div>
+          <TablePagination {...payPaged.pagerProps} noun="claims" />
         </div>
       </div>)}
 

@@ -71,12 +71,12 @@
    that doesn't account for actual available width varying with zoom/sidebar state. */
 .apv-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .apv-table th {
-  padding: 11px 14px; text-align: left; font-size: 11px; font-weight: 700; color: var(--txt-mut);
+  padding: 11px 10px; text-align: left; font-size: 11px; font-weight: 700; color: var(--txt-mut);
   text-transform: uppercase; letter-spacing: .07em; border-bottom: 1px solid var(--line);
   white-space: nowrap; background: var(--raised2);
 }
 .apv-table td {
-  padding: 13px 14px; font-size: 13px; color: var(--txt-mut);
+  padding: 13px 10px; font-size: 13px; color: var(--txt-mut);
   border-bottom: 1px solid var(--line); vertical-align: middle;
 }
 .apv-table tbody tr:last-child td { border-bottom: none; }
@@ -96,7 +96,9 @@
 .apv-type-label { font-weight: 600; color: var(--txt); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
 .apv-emp { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.apv-emp-text { display: flex; flex-direction: column; min-width: 0; }
 .apv-emp-name { color: var(--txt); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.apv-emp-code { font-size: 11.5px; color: var(--txt-dim); margin-top: 2px; letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .apv-dates { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--txt); }
 .apv-reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -109,7 +111,7 @@
 }
 .apv-status-sub { font-size: 10.5px; font-weight: 600; color: var(--txt-dim); margin-top: 4px; white-space: nowrap; }
 
-.apv-actions { display: flex; gap: 6px; }
+.apv-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .apv-empty { padding: 56px 24px; text-align: center; }
 .apv-empty-icon {

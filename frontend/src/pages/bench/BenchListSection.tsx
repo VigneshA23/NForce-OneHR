@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { EmpCode } from '../../components/EmpCode';
+import { usePaged } from '../../components/usePaged';
+import { TablePagination } from '../../components/TablePagination';
 import * as XLSX from 'xlsx';
 import { benchApi, BENCH_REASON_LABELS, CLOSE_REASON_LABELS, type AgingConfig, type AllocationOption, type BenchCloseReason, type BenchListRow } from '../../api/bench';
 import { skillsApi, type Skill } from '../../api/skills';
@@ -75,6 +78,7 @@ export default function BenchListSection({ token }: { token: string }) {
   const [skillIds, setSkillIds] = useState<string[]>([]);
   const [mode, setMode] = useState<'AND' | 'OR'>('OR');
   const [rows, setRows] = useState<BenchListRow[] | null>(null);
+  const benchPaged = usePaged(rows ?? []);
   const [error, setError] = useState('');
   const [ending, setEnding] = useState<BenchListRow | null>(null);
 
@@ -142,6 +146,7 @@ export default function BenchListSection({ token }: { token: string }) {
         <CardTitle>Employees on bench {rows ? `(${rows.length})` : ''}</CardTitle>
         <ErrorBox message={error} />
         {!rows ? <Empty>Loading…</Empty> : rows.length === 0 ? <Empty>No benched employees match these filters</Empty> : (
+          <>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
@@ -150,9 +155,9 @@ export default function BenchListSection({ token }: { token: string }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => (
+              {benchPaged.pageRows.map(r => (
                 <tr key={r.id}>
-                  <td style={td}>{r.employeeName}</td>
+                  <td style={td}><div>{r.employeeName}</div><EmpCode userId={r.employeeId} /></td>
                   <td style={td}>{BENCH_REASON_LABELS[r.reasonCode]}</td>
                   <td style={td}>{r.daysOnBench}</td>
                   <td style={td}>{r.agingBucket ? <Pill tone="warn">{r.agingBucket}</Pill> : '—'}</td>
@@ -163,6 +168,8 @@ export default function BenchListSection({ token }: { token: string }) {
               ))}
             </tbody>
           </table>
+          <TablePagination {...benchPaged.pagerProps} noun="employees" />
+          </>
         )}
       </div>
     </div>

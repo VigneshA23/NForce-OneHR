@@ -147,6 +147,15 @@ public class EmployeeService {
                     || req.getEffectiveFrom().isBefore(LocalDate.now(ZoneId.of(attendanceProperties.getZone())))) {
                 throw new IllegalArgumentException("Effective From is required and cannot be in the past");
             }
+            // D2: scheduling starts on the LATER of employment start date and the Shift's own
+            // effective date — an effectiveFrom earlier than the employee's own joiningDate would
+            // otherwise let EmployeeShiftAssignmentResolver treat this Shift as already governing
+            // dates before employment even began. Mirrors UserManagementService#createUser's
+            // identical check.
+            if (emp.getJoiningDate() != null && req.getEffectiveFrom().isBefore(emp.getJoiningDate())) {
+                throw new IllegalArgumentException(
+                        "Effective From cannot be before this employee's joining date (" + emp.getJoiningDate() + ")");
+            }
             // Employee.shift is only a display/roster cache (see its own Javadoc) — set here for
             // that purpose only; the EmployeeShiftAssignment row below is the sole authoritative
             // source EmployeeShiftAssignmentResolver reads.

@@ -89,6 +89,11 @@ export interface UpdateUserPayload {
   designationId?: string;
   locationId?: string;
   shiftId?: string;
+  /** Required whenever shiftId is an actual change from the employee's current shift (the
+   * backend resolves "current" via the authoritative assignment history, never the display
+   * cache) — today or any future date; a past date or a missing value is rejected. Never
+   * derived from joiningDate or "next working day." */
+  shiftEffectiveFrom?: string;
   employmentType?: string;
   workMode?: string;
   managerId?: string;

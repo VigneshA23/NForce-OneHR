@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
@@ -920,16 +922,6 @@ export function fmtShiftTime(t: string): string {
   return `${hour12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
-/** "All days" for the common case, otherwise abbreviated day names in Mon-Sun order regardless of the order the API happens to return them in. */
-function formatApplicableDays(workingDays: string[] | null | undefined): string {
-  // Defensive: ShiftRow#workingDays is documented as always-present (backend defaults it), but
-  // guard anyway so a stale backend response (missing the field) shows "All days" instead of
-  // throwing and blanking the whole app.
-  const days = workingDays ?? [];
-  if (days.length === 7) return 'All days';
-  return WEEKDAYS.filter(day => days.includes(day)).map(day => day.slice(0, 3)).join(', ');
-}
-
 interface ShiftFormModalProps {
   editRow?: ShiftRow;
   token: string;
@@ -977,26 +969,6 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
     (pending?.breakMinutes ?? editRow?.breakMinutes) != null ? String(pending?.breakMinutes ?? editRow?.breakMinutes) : '');
   const [lateGraceMinutes, setLateGraceMinutes] = useState(
     (pending?.lateGraceMinutes ?? editRow?.lateGraceMinutes) != null ? String(pending?.lateGraceMinutes ?? editRow?.lateGraceMinutes) : '10');
-  // Applicable Days — seeded from the existing Shift's current value when editing (unlike
-  // startTime/endTime/etc above, this is NOT versioned/future-effective: it changes immediately on
-  // save, since it's a plain Shift-row attribute never read by any attendance/workday calculation
-  // — see UpdateShiftRequest's own doc comment). Defaults to all 7 days selected for a brand-new
-  // Shift, per this feature's own requirement.
-  const [workingDays, setWorkingDays] = useState<string[]>(editRow?.workingDays ?? WEEKDAYS);
-  function toggleWorkingDay(day: string) {
-    setWorkingDays(prev => {
-      if (prev.includes(day)) {
-        // At least one applicable day must always remain selected — prevent removing the last one
-        // outright (per this feature's own requirement) rather than allow an invalid zero-day
-        // state and only catch it at submit time.
-        return prev.length === 1 ? prev : prev.filter(d => d !== day);
-      }
-      // Re-filtered against WEEKDAYS (rather than simply appended) so re-selecting a previously-
-      // deselected day lands back in canonical Monday-first order — the backend stores/returns
-      // whatever order is sent, and nothing should have to re-sort it after the fact.
-      return WEEKDAYS.filter(d => prev.includes(d) || d === day);
-    });
-  }
   // Shift changes are always future-effective — never today, never in the past (enforced
   // server-side regardless of what's picked here). Defaults to tomorrow; re-editing an
   // already-scheduled pending version keeps its own date instead of resetting to tomorrow.
@@ -1035,13 +1007,6 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
       setError('Effective From must be a future date (after today)');
       return;
     }
-    // Defense-in-depth: toggleWorkingDay already prevents reaching zero selected days, and the
-    // backend independently rejects an empty list too — this just keeps the same "never rely on
-    // frontend validation alone" double-check every other rule in this form already has.
-    if (workingDays.length === 0) {
-      setError('At least one applicable day is required');
-      return;
-    }
     if (exceedsMaxDuration) {
       setError(`Shift duration cannot exceed the organization's Maximum Shift Day Duration of ${maxDurationHours}h (this shift spans ${elapsedHours % 1 === 0 ? elapsedHours : elapsedHours.toFixed(1)}h)`);
       return;
@@ -1053,13 +1018,11 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
             name: name.trim(), code: code.trim() || undefined, description: description.trim() || undefined,
             startTime, endTime, breakMinutes: breakMinutes.trim() ? Number(breakMinutes) : undefined,
             lateGraceMinutes: lateGraceMinutes.trim() ? Number(lateGraceMinutes) : undefined, effectiveFrom,
-            workingDays,
           })
         : await orgApi.createShift(token, {
             name: name.trim(), code: code.trim() || undefined, description: description.trim() || undefined,
             startTime, endTime, breakMinutes: breakMinutes.trim() ? Number(breakMinutes) : undefined,
             lateGraceMinutes: lateGraceMinutes.trim() ? Number(lateGraceMinutes) : undefined,
-            workingDays,
           });
       onSaved(saved);
       onClose();
@@ -1142,37 +1105,6 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
               <input type="number" min={0} style={inputS} value={lateGraceMinutes} onChange={e => setLateGraceMinutes(e.target.value)} placeholder="e.g. 10" />
               <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Minutes past Start Time forgiven before a check-in counts as Late</span>
             </div>
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <label style={labelS} id="applicable-days-label">Applicable Days *</label>
-            <div role="group" aria-labelledby="applicable-days-label" style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-              {WEEKDAYS.map(day => {
-                const selected = workingDays.includes(day);
-                const dayLabel = day.charAt(0) + day.slice(1).toLowerCase();
-                return (
-                  <button
-                    key={day}
-                    type="button"
-                    aria-pressed={selected}
-                    aria-label={dayLabel}
-                    title={dayLabel}
-                    onClick={() => toggleWorkingDay(day)}
-                    style={{
-                      width: 34, height: 34, borderRadius: 6, cursor: 'pointer',
-                      border: selected ? '1px solid var(--brand)' : '1px solid var(--line2)',
-                      background: selected ? 'var(--brand)' : 'var(--raised)',
-                      color: selected ? '#fff' : 'var(--txt-mut)',
-                      fontSize: 12.5, fontWeight: 600,
-                    }}
-                  >
-                    {day.charAt(0)}
-                  </button>
-                );
-              })}
-            </div>
-            <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>
-              At least one day must remain selected{isEdit ? ' - unlike the timing below, this takes effect immediately on save' : ''}
-            </span>
           </div>
           {isEdit && (
             <div style={{ marginBottom: 20 }}>
@@ -1328,7 +1260,6 @@ function ShiftSummaryPanel({ shift }: { shift: ShiftRow }) {
         <div style={rowS}><span style={labelS}>Grace Period</span><span style={valueS}>{shift.lateGraceMinutes != null ? `${shift.lateGraceMinutes} minutes` : '–'}</span></div>
         <div style={rowS}><span style={labelS}>Status</span><span style={valueS}><StatusBadge active={shift.active} /></span></div>
         <div style={rowS}><span style={labelS}>Employees Assigned</span><span style={valueS}><CountBadge count={shift.employeeCount} /></span></div>
-        <div style={rowS}><span style={labelS}>Applicable Days</span><span style={valueS}>{formatApplicableDays(shift.workingDays)}</span></div>
       </div>
       {shift.pendingEffectiveFrom && (
         <div style={{
@@ -1576,6 +1507,18 @@ export default function OrgSetupPage() {
   );
   const visibleDocTypes = docTypes.filter(d => d.name.toLowerCase().includes(q));
   const visibleLeaveTypes = leaveTypes.filter(t => t.name.toLowerCase().includes(q));
+  const buPaged = usePaged(visibleBusinessUnits, [q, activeTab]);
+  const deptPaged = usePaged(visibleDepts, [q, activeTab]);
+  const desigPaged = usePaged(visibleDesigs, [q, activeTab]);
+  const locPaged = usePaged(visibleLocs, [q, activeTab]);
+  const docPaged = usePaged(visibleDocTypes, [q, activeTab]);
+  const leavePaged = usePaged(visibleLeaveTypes, [q, activeTab]);
+  const orgPagerProps = activeTab === 'businessunits' ? buPaged.pagerProps
+    : activeTab === 'departments' ? deptPaged.pagerProps
+    : activeTab === 'designations' ? desigPaged.pagerProps
+    : activeTab === 'locations' ? locPaged.pagerProps
+    : activeTab === 'doctypes' ? docPaged.pagerProps
+    : leavePaged.pagerProps;
   // Shifts no longer participates in the shared search/generic-table plumbing above — its master-
   // detail layout (ShiftsMasterDetail) filters the full, unfiltered `shifts` list with its own
   // internal search state instead (see the reference design's dedicated left-panel search box).
@@ -2071,7 +2014,7 @@ export default function OrgSetupPage() {
                   </td>
                 </tr>
               ) : activeTab === 'businessunits' ? (
-                visibleBusinessUnits.map(b => (
+                buPaged.pageRows.map(b => (
                   <tr key={b.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2087,7 +2030,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'departments' ? (
-                visibleDepts.map(d => (
+                deptPaged.pageRows.map(d => (
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2103,7 +2046,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'designations' ? (
-                visibleDesigs.map(d => (
+                desigPaged.pageRows.map(d => (
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2122,7 +2065,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'locations' ? (
-                visibleLocs.map(l => (
+                locPaged.pageRows.map(l => (
                   <tr key={l.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2142,7 +2085,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'doctypes' ? (
-                visibleDocTypes.map(dt => (
+                docPaged.pageRows.map(dt => (
                   <tr key={dt.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2166,7 +2109,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : (
-                visibleLeaveTypes.map(lt => (
+                leavePaged.pageRows.map(lt => (
                   <tr key={lt.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2186,6 +2129,7 @@ export default function OrgSetupPage() {
               )}
             </tbody>
           </table>
+          <TablePagination {...orgPagerProps} noun="records" />
         </div>
         )}
       </div>
@@ -2194,8 +2138,9 @@ export default function OrgSetupPage() {
 }
 
 // ── Weekly Offs ──────────────────────────────────────────────────────────────
-// WeeklyOffPolicy is the sole source of truth for weekly-off (Shift carries no working-days
-// concept — see the backend's own comment on Shift.workingDays' removal from this surface).
+// WeeklyOffPolicy is the sole source of truth for weekly-off, including which days a leave
+// request may span (Phase 4 — Shift's old "Applicable Days" field is gone; LeaveService resolves
+// this through WorkingDayService's shared weekly-off resolver instead, same as attendance does).
 // Full-day-only for P1, matching the offDays model already in place; no active/inactive concept
 // (not requested for P1, and the product's own Weekly Off reference screens don't show one).
 // Self-contained, mirroring how the Penalization Policy tab manages its own state/fetch rather

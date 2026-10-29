@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { Users, CalendarCheck, Clock, Download, ShieldAlert, BarChart3, X } from 'lucide-react';
@@ -11,7 +13,7 @@ import { useAuthStore } from '../store/authStore';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import { attendanceApi, type AttendanceRecord } from '../api/attendance';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
-import { PersonAvatar } from '../components/PersonCell';
+import { PersonCell, PersonCellById } from '../components/PersonCell';
 
 // ── Shared styles (matches the rest of the app — plain style objects, no CSS framework) ──
 
@@ -371,6 +373,8 @@ export default function ReportsPage() {
   );
 
   const headcountSummary = useMemo(() => computeHeadcountSummary(filteredReports), [filteredReports]);
+  const empPaged = usePaged(filteredReports);
+  const leavePaged = usePaged(leaveRecords);
   const attendanceSummary = useMemo(
     () => computeAttendanceSummary(attendanceRecords, headcountSummary.total),
     [attendanceRecords, headcountSummary.total]
@@ -499,7 +503,8 @@ export default function ReportsPage() {
 
           {/* Headcount table */}
           <Section title={isHr ? 'Employees' : 'Direct reports'} count={`${filteredReports.length}`}>
-            <HeadcountRows rows={filteredReports} />
+            <HeadcountRows rows={empPaged.pageRows} />
+            <TablePagination {...empPaged.pagerProps} noun="employees" />
           </Section>
 
           {/* Leave table */}
@@ -509,9 +514,9 @@ export default function ReportsPage() {
               <tbody>
                 {leaveRecords.length === 0 ? (
                   <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 30 }}>No approved leave in this period.</td></tr>
-                ) : leaveRecords.map(r => (
+                ) : leavePaged.pageRows.map(r => (
                   <tr key={r.id}>
-                    <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>
+                    <td style={tdS}><PersonCellById userId={r.employeeUserId} name={r.employeeName} /></td>
                     <td style={tdS}>{r.leaveTypeName}</td>
                     <td style={tdS}>{r.startDate}{r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ' (half day)' : ''}</td>
                     <td style={tdS}>{r.totalDays}</td>
@@ -520,6 +525,7 @@ export default function ReportsPage() {
                 ))}
               </tbody>
             </table>
+            <TablePagination {...leavePaged.pagerProps} noun="requests" />
           </Section>
         </>
       )}
@@ -542,19 +548,13 @@ export default function ReportsPage() {
 export function HeadcountRows({ rows }: { rows: DirectReport[] }) {
   return (
     <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-      <thead><tr>{['Name', 'Code', 'Department', 'Designation', 'Status'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
+      <thead><tr>{['Employee', 'Department', 'Designation', 'Status'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
       <tbody>
         {rows.length === 0 ? (
-          <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 30, color: 'var(--txt-mut)' }}>No employees to show.</td></tr>
+          <tr><td colSpan={4} style={{ ...tdS, textAlign: 'center', padding: 30, color: 'var(--txt-mut)' }}>No employees to show.</td></tr>
         ) : rows.map(r => (
           <tr key={r.userId}>
-            <td style={tdS}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <PersonAvatar userId={r.userId} name={r.fullName} size={34} />
-                <span style={{ fontWeight: 700, color: 'var(--txt)' }}>{r.fullName}</span>
-              </div>
-            </td>
-            <td style={tdS}><span className="nf-rep-code">{r.employeeCode}</span></td>
+            <td style={tdS}><PersonCell userId={r.userId} name={r.fullName} code={r.employeeCode} /></td>
             <td style={{ ...tdS, color: 'var(--txt-mut)' }}>{r.departmentName ?? '–'}</td>
             <td style={{ ...tdS, color: 'var(--txt-mut)' }}>{r.designationName ?? '–'}</td>
             <td style={tdS}>

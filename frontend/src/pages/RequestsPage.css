@@ -873,8 +873,9 @@
   .nf-rq-table td.nf-rq-td-actions::before { display: none; }
   /* My Requests' row action is a labelled "View Details" button (not the bare icon this rule was
      originally written for) — too wide for the absolute top-right corner, so only the icon shows. */
-  .nf-rq-view-btn { padding: 0 9px; }
+  .nf-rq-view-btn { padding: 0 12px; }
   .nf-rq-view-btn-label { display: none; }
+  .nf-rq-table .nf-rq-view-btn .nf-rq-view-btn-short { display: inline; }
   .nf-rq-summary { justify-content: flex-end; }
   .nf-rq-type,
   .nf-rq-person { min-width: 0; }
@@ -887,3 +888,4 @@
   .nf-rq-modal-body,
   .nf-rq-modal-foot { padding-left: 16px; padding-right: 16px; }
 }
+.nf-rq-view-btn-short { display: none; }

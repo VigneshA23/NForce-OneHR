@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
@@ -610,6 +612,7 @@ export default function MyRequestsPage() {
     if (sortOrder === 'latest') sorted.reverse();
     return sorted;
   }, [searched, sortOrder]);
+  const reqPaged = usePaged(filtered);
 
   const counts: Record<string, number> = { ALL: items.length };
   ALL_TYPES.forEach(t => { counts[t] = items.filter(i => i.requestType === t).length; });
@@ -701,7 +704,7 @@ export default function MyRequestsPage() {
                   {/* No row-level onClick (unlike HelpDeskAdminPage's own table, which shares this
                       CSS) — the details view opens only from "View Details" now, so the inherited
                       row cursor/hover styling is overridden to not imply the whole row is clickable. */}
-                  {filtered.map(item => (
+                  {reqPaged.pageRows.map(item => (
                     <tr key={`${item.requestType}:${item.id}`} style={{ cursor: 'default' }}>
                       <td className="nf-rq-td-lead" data-label="Type"><TypeBadge item={item} /></td>
                       <td data-label="Summary"><ItemDetail item={item} /></td>
@@ -716,13 +719,14 @@ export default function MyRequestsPage() {
                           className="nf-rq-btn nf-rq-btn--outline nf-rq-btn--sm nf-rq-view-btn"
                           onClick={() => setViewing(item)}
                         >
-                          <Eye size={14} /> <span className="nf-rq-view-btn-label">View Details</span>
+                          <Eye size={14} /> <span className="nf-rq-view-btn-label">View Details</span><span className="nf-rq-view-btn-short">View</span>
                         </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <TablePagination {...reqPaged.pagerProps} noun="requests" />
             </div>
           )}
         </div>

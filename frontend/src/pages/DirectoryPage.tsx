@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, MoreHorizontal } from 'lucide-react';
+import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, Eye } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useAuthStore } from '../store/authStore';
@@ -388,12 +388,13 @@ export default function DirectoryPage() {
                         <td>
                           {/* Second trigger for the same read-only details drawer the row click opens. */}
                           <button
-                            className="nf-pd-more"
+                            type="button"
+                            className="nf-row-view"
                             aria-label={`View details for ${e.fullName}`}
                             title="View details"
                             onClick={ev => { ev.stopPropagation(); setSelected(e); }}
                           >
-                            <MoreHorizontal size={16} />
+                            <Eye size={14} />View
                           </button>
                         </td>
                       </tr>

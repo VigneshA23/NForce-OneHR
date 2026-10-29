@@ -1,6 +1,6 @@
-import { Download } from 'lucide-react';
+import { Download, Search } from 'lucide-react';
 
-const inputStyle: React.CSSProperties = { background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
+const inputStyle: React.CSSProperties = { background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 12, height: 40, padding: '0 12px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
 
 interface Props {
@@ -23,11 +23,11 @@ export function AuditFilterBar({
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'end' }}>
-      <div style={{ minWidth: 200 }}>
-        <label style={labelStyle}>Search Affected User</label>
-        <input style={{ ...inputStyle, width: '100%' }} placeholder="Employee name"
+      <label className="nf-filter-search" style={{ flex: '0 1 300px' }}>
+        <Search size={15} aria-hidden="true" />
+        <input placeholder="Search affected user…" aria-label="Search affected user"
           value={targetSearch} onChange={e => onTargetSearchChange(e.target.value)} />
-      </div>
+      </label>
       <div>
         <label style={labelStyle}>From</label>
         <input type="date" style={inputStyle} value={from} onChange={e => onFromChange(e.target.value)} />
@@ -44,9 +44,9 @@ export function AuditFilterBar({
         onClick={onExport}
         disabled={exporting}
         style={{
-          display: 'flex', alignItems: 'center', gap: 7, padding: '8px 16px',
-          background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7,
-          fontSize: 12.5, fontWeight: 600, color: 'var(--txt)',
+          display: 'flex', alignItems: 'center', gap: 7, padding: '0 16px',
+          background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 12, height: 40, boxSizing: 'border-box',
+          fontSize: 13, fontWeight: 600, color: 'var(--txt)',
           cursor: exporting ? 'not-allowed' : 'pointer', opacity: exporting ? .6 : 1,
         }}
       >

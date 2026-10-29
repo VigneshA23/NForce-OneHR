@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { EmpCode } from '../components/EmpCode';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, Clock, XCircle, Eye, Search, Users, History, ShieldCheck } from 'lucide-react';
@@ -316,6 +317,7 @@ function MissingTab({ missing, searchEmpty, footer }: { missing: MissingDocument
                 <tr key={`${key}-${i}`}>
                   <td style={tdS}>
                     <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{m.employeeName}</div>
+                    <EmpCode userId={m.employeeUserId} />
                   </td>
                   <td style={{ ...tdS, color: '#ef4444', fontWeight: 600 }}>{m.documentTypeName}</td>
                   <td style={{ ...tdS, width: 48 }}>

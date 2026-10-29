@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ActionDock } from '../../../components/ActionDock';
 import {
   Plus, Pencil, Trash2, BookOpen, CheckCircle2, Target,
   Clock, Award, ArrowRight, ExternalLink,
@@ -15,10 +16,6 @@ const ADD_BTN_STYLE: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px',
   background: 'var(--brand)', border: 'none', borderRadius: 6,
   fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer',
-};
-const ICON_BTN_STYLE: React.CSSProperties = {
-  background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: 5,
-  cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex',
 };
 
 function Pill({ tone, children }: { tone: string; children: React.ReactNode }) {
@@ -161,10 +158,10 @@ const LEARNING_TABS: { key: LearningTabKey; label: string }[] = [
 
 function EntryActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
   return (
-    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-      <button onClick={onEdit} aria-label="Edit entry" style={ICON_BTN_STYLE}><Pencil size={13} /></button>
-      <button onClick={onDelete} aria-label="Delete entry" style={{ ...ICON_BTN_STYLE, color: 'var(--risk)' }}><Trash2 size={13} /></button>
-    </div>
+    <ActionDock items={[
+      { label: 'Edit', icon: Pencil, onClick: onEdit },
+      { label: 'Delete', icon: Trash2, onClick: onDelete, danger: true },
+    ]} />
   );
 }
 

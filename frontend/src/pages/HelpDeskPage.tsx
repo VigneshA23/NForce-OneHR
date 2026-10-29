@@ -29,6 +29,7 @@ import { ContentFormModal, StatusChip, ConfirmModal } from '../components/helpCo
 import { ReviewPublishModal } from '../components/helpContent/ReviewPublishModal';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
 import { ChipGroup } from '../components/TabBar';
+import { ActionDock } from '../components/ActionDock';
 
 // Same overlay/modal/input/label/table constants used across LeavePage, MyRequestsPage,
 // EmployeeMasterPage etc. — this codebase has no shared component library, every page
@@ -562,19 +563,6 @@ function actionsForStatus(item: HelpContentSummary, actions: ContentAdminActions
   }
 }
 
-/**
- * One icon-only action button next to Publish — same 30x30 footprint and hover convention as
- * the ⋮ trigger it replaces, just without the trigger: every action for the current status is
- * always visible, and the label only ever shows up as a hover tooltip (title/aria-label), the
- * same convention already used for the Publish button itself.
- */
-function ActionIconButton({ icon: Icon, label, onClick, danger }: { icon: LucideIcon; label: string; onClick: () => void; danger?: boolean }) {
-  return (
-    <button type="button" onClick={onClick} title={label} aria-label={label} className={`nf-dock-btn${danger ? ' is-danger' : ''}`}>
-      <Icon size={14} />
-    </button>
-  );
-}
 
 /**
  * Status chip + actions, shown under an FAQ or Guide row, admins only — right-aligned via
@@ -588,29 +576,28 @@ function ActionIconButton({ icon: Icon, label, onClick, danger }: { icon: Lucide
 function AdminItemControls({ item, actions, busy }: { item: HelpContentSummary; actions: ContentAdminActions; busy?: boolean }) {
   const canPublish = item.status === 'APPROVED' || item.status === 'UNPUBLISHED';
   const buttons = actionsForStatus(item, actions);
+  // View stays a labelled button; every other action lives in the app-wide Manage dock (same control
+  // as Policies, Assets, Workflow Studio, ...). Publish is the one primary action, shown labelled.
+  const viewBtn = buttons.find(b => b.label === 'View');
+  const rest = buttons.filter(b => b.label !== 'View');
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, height: 30 }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 34 }}>
       <StatusChip label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} />
       {busy ? (
         <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', fontStyle: 'italic' }}>Working…</span>
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          {canPublish && (
-            <button
-              onClick={() => actions.onPublish(item)}
-              title="Publish"
-              aria-label="Publish"
-              className="nf-dock-btn nf-dock-btn--publish"
-            >
-              <ArrowUp size={14} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {viewBtn && (
+            <button type="button" className="nf-row-view" title="View" aria-label="View" onClick={viewBtn.onClick}>
+              <viewBtn.icon size={14} />View
             </button>
           )}
-          {buttons.map(b => (
-            <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              {b.dividerBefore && <span style={{ width: 1, height: 18, background: 'var(--line2)', margin: '0 4px' }} />}
-              <ActionIconButton icon={b.icon} label={b.label} onClick={b.onClick} danger={b.danger} />
-            </div>
-          ))}
+          {canPublish && (
+            <button type="button" className="nf-act-btn nf-act-btn--primary" title="Publish" aria-label="Publish" onClick={() => actions.onPublish(item)}>
+              <ArrowUp size={13} />Publish
+            </button>
+          )}
+          <ActionDock items={rest.map(b => ({ label: b.label, icon: b.icon, onClick: b.onClick, danger: b.danger }))} />
         </div>
       )}
     </div>

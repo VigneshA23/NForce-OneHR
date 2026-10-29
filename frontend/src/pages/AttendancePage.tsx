@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { PersonCell } from '../components/PersonCell';
+import { PersonCell, PersonCellById } from '../components/PersonCell';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -5927,9 +5927,8 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                             />
                           )}
                         </td>
-                        <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>
-                          {r.employeeName}
-                          <TruncatedText text={r.employeeEmail} style={{ fontSize: 10, fontWeight: 400, color: 'var(--txt-dim)' }} />
+                        <td data-label="Employee" style={reqTdStyle}>
+                          <PersonCellById userId={r.employeeUserId} name={r.employeeName} extra={r.employeeEmail} />
                         </td>
                         <td data-label="Date" style={reqTdStyle}>{r.attendanceDate}</td>
                         <td data-label="Requested In / Out" style={reqTdStyle}>
@@ -6213,7 +6212,7 @@ function AttendanceRequestsSection({ token, canApprove, isPreview = false }: { t
                     : dash;
                   return (
                     <tr key={first.id}>
-                      {showActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{first.employeeName}</td>}
+                      {showActions && <td data-label="Employee" style={reqTdStyle}><PersonCellById userId={first.employeeUserId} name={first.employeeName} /></td>}
                       <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <Home size={13} style={{ color: 'var(--brand)', flexShrink: 0 }} />
@@ -6279,7 +6278,7 @@ function AttendanceRequestsSection({ token, canApprove, isPreview = false }: { t
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    {showActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
+                    {showActions && <td data-label="Employee" style={reqTdStyle}><PersonCellById userId={r.employeeUserId} name={r.employeeName} /></td>}
                     <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.requestDate)}</td>
                     <td data-label="Mode" style={reqTdStyle}>{partialDayModeLabel(r)}</td>
                     {/* partialDayHours is a decimal (e.g. 3.33 for 3h 20m) — round-trip through
@@ -6903,7 +6902,7 @@ function OvertimeRequestsSection({ token, canApprove, isPreview = false }: { tok
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    {showApprovalActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
+                    {showApprovalActions && <td data-label="Employee" style={reqTdStyle}><PersonCellById userId={r.employeeUserId} name={r.employeeName} /></td>}
                     <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
                     <td data-label="Overtime Hours" style={reqTdStyle}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>

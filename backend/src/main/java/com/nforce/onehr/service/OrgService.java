@@ -10,6 +10,7 @@ import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.ShiftVersion;
 import com.nforce.onehr.entity.WeeklyOffPolicy;
+import com.nforce.onehr.entity.WeeklyOffPolicyVersion;
 import com.nforce.onehr.repository.AssetRepository;
 import com.nforce.onehr.repository.AttendanceRepository;
 import com.nforce.onehr.repository.BusinessUnitRepository;
@@ -17,11 +18,14 @@ import com.nforce.onehr.repository.DepartmentRepository;
 import com.nforce.onehr.repository.DesignationRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.EmployeeShiftAssignmentRepository;
+import com.nforce.onehr.repository.EmployeeWeeklyOffPolicyAssignmentRepository;
 import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LocationRepository;
 import com.nforce.onehr.repository.ShiftRepository;
 import com.nforce.onehr.repository.ShiftVersionRepository;
 import com.nforce.onehr.repository.WeeklyOffPolicyRepository;
+import com.nforce.onehr.repository.WeeklyOffPolicyVersionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -68,6 +72,27 @@ public class OrgService {
     // class — Shift Version create/update/delete never touches Attendance in any way (see
     // orgService_hasNoAttendanceRepositoryDependencyAtAll's own test, updated alongside this).
     private final AttendanceRepository attendanceRepo;
+    // Read-only — used by deleteShift's guards alongside attendanceRepo above, two ways: (1) the
+    // same authoritative existsCurrentOrFutureAssignmentForShift check toggleShiftActive's D7 guard
+    // already uses, since employeeRepo.countByShiftId below reads Employee.shiftId, a best-effort
+    // display cache EmployeeAssignmentService's bulk-reassignment path never updates (see its own
+    // Javadoc) — relying on it alone could let a Shift someone was bulk-reassigned onto (or
+    // scheduled onto, for the future) be deleted out from under them; (2) existsByShiftId, since
+    // employee_shift_assignments.shift_id has no ON DELETE clause of its own (V172), so a Shift with
+    // zero current/future assignments can still be referenced by a purely historical/superseded
+    // EmployeeShiftAssignment row — this turns that case into the same clear message rather than a
+    // raw FK-violation error.
+    private final EmployeeShiftAssignmentRepository employeeShiftAssignmentRepo;
+    // Phase 3: Weekly Off Policy definition versioning — mirrors shiftVersionRepository's identical
+    // role for a Shift's own timing. Used exclusively by createWeeklyOffPolicy/updateWeeklyOffPolicy
+    // below; resolution for a business calculation always goes through WeeklyOffPolicyVersionResolver
+    // instead (see WorkingDayService).
+    private final WeeklyOffPolicyVersionRepository weeklyOffPolicyVersionRepo;
+    // Read-only — used exclusively by deleteWeeklyOffPolicy's historical/pending-usage guard,
+    // mirroring employeeShiftAssignmentRepo's identical role for deleteShift: this table's own
+    // weekly_off_policy_id FK has no ON DELETE clause, so a policy with zero *current* employees
+    // can still be referenced by assignment history.
+    private final EmployeeWeeklyOffPolicyAssignmentRepository employeeWeeklyOffPolicyAssignmentRepo;
 
     // ── Business Units ───────────────────────────────────────────────────────
 
@@ -444,7 +469,10 @@ public class OrgService {
     public List<ShiftResponse> listShifts() {
         Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByShiftId());
         LocalDate today = LocalDate.now();
-        return shiftRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
+        // Default Shift pinned first regardless of how long ago it was created (it was seeded in
+        // V95, so a plain createdAt DESC order would otherwise push it to the very bottom of an
+        // organization with any real shift history) — see isDefault's own Javadoc.
+        return shiftRepo.findAll(Sort.by(Sort.Direction.DESC, "isDefault").and(Sort.by(Sort.Direction.DESC, "createdAt"))).stream()
                 .map(s -> ShiftResponse.from(s, shiftVersionResolver.resolveCurrent(s), pendingVersion(s.getId(), today),
                         counts.getOrDefault(s.getId(), 0L)))
                 .toList();
@@ -510,12 +538,10 @@ public class OrgService {
         validateShiftDuration(req.getStartTime(), req.getEndTime());
         // flexible is still not settable through this API (P2 — see CreateShiftRequest's own
         // comment) — left at its entity default (false).
-        String workingDays = resolveApplicableDays(req.getWorkingDays());
         Shift saved = shiftRepo.save(Shift.builder()
                 .name(trimmedName)
                 .code(trimmedCode)
                 .description(blankToNull(req.getDescription()))
-                .workingDays(workingDays)
                 .build());
         // A brand-new Shift has no employees assigned yet and no prior configuration to protect —
         // its first version is effective immediately (today), unlike every subsequent change (see
@@ -545,7 +571,7 @@ public class OrgService {
         // (Shift.DEFAULT_SHIFT_NAME) wherever it's still referenced by name. Renaming it away
         // would silently break that lookup while leaving the (now differently-named) row otherwise
         // intact, so this is blocked outright rather than tolerated as an ordinary edit.
-        if (shift.getName().equals(Shift.DEFAULT_SHIFT_NAME) && !trimmedName.equals(Shift.DEFAULT_SHIFT_NAME)) {
+        if (isDefaultShift(shift) && !trimmedName.equals(Shift.DEFAULT_SHIFT_NAME)) {
             throw new IllegalArgumentException(
                     "'" + Shift.DEFAULT_SHIFT_NAME + "' is the organization's default shift and cannot be renamed.");
         }
@@ -572,9 +598,6 @@ public class OrgService {
         if (!req.getEffectiveFrom().isAfter(today)) {
             throw new IllegalArgumentException("Effective From must be a future date (after today)");
         }
-        // Validated (and applied) before any field is mutated below, so an invalid (explicitly
-        // empty) Applicable Days list rejects the whole update rather than partially applying it.
-        applyApplicableDaysUpdate(shift, req.getWorkingDays());
         shift.setName(trimmedName);
         shift.setCode(trimmedCode);
         shift.setDescription(blankToNull(req.getDescription()));
@@ -610,9 +633,22 @@ public class OrgService {
         // deactivating it (regardless of how many employees currently happen to be assigned to
         // it) would silently leave every subsequent hire without one. Reactivating it is always
         // fine and falls through to the toggle below unaffected.
-        if (shift.isActive() && shift.getName().equals(Shift.DEFAULT_SHIFT_NAME)) {
+        if (shift.isActive() && isDefaultShift(shift)) {
             throw new IllegalArgumentException(
                     "'" + Shift.DEFAULT_SHIFT_NAME + "' is the organization's default shift and cannot be deactivated.");
+        }
+        // D7: a Shift cannot be deactivated while it still governs any employee today or is
+        // scheduled to from a future date — only reassignment/cancellation of those assignments
+        // (never an automatic one performed here) can clear this guard. A Shift every current
+        // assignee has since moved away from (purely historical references only) remains
+        // deactivatable — see existsCurrentOrFutureAssignmentForShift's own Javadoc for exactly
+        // how "current" is resolved.
+        if (shift.isActive()
+                && employeeShiftAssignmentRepo.existsCurrentOrFutureAssignmentForShift(id, LocalDate.now())) {
+            throw new IllegalStateException(
+                    "Cannot deactivate this shift because it is currently assigned to one or more employees, "
+                            + "or scheduled to take effect for one in the future. Reassign or cancel those "
+                            + "assignments first.");
         }
         shift.setActive(!shift.isActive());
         long count = employeeRepo.countByShiftId(id);
@@ -627,7 +663,7 @@ public class OrgService {
         // The organization must always have a default shift to assign new employees to — blocked
         // regardless of employee count (unlike the ordinary guard below), since even a
         // currently-unused default shift is still needed for every future hire.
-        if (shift.getName().equals(Shift.DEFAULT_SHIFT_NAME)) {
+        if (isDefaultShift(shift)) {
             throw new IllegalArgumentException(
                     "'" + Shift.DEFAULT_SHIFT_NAME + "' is the organization's default shift and cannot be deleted.");
         }
@@ -637,8 +673,20 @@ public class OrgService {
                     "Cannot delete this shift because " + count + " current employee" + (count == 1 ? " is" : "s are")
                             + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
         }
-        // Independent of the current-assignment guard above: a Shift with zero employees
-        // currently assigned to it (everyone since reassigned away) can still be the historical
+        // Independent of (and authoritative over) the display-cache count above: the same
+        // effective-dated check toggleShiftActive's D7 guard uses, since Employee.shiftId above can
+        // be stale for an employee bulk-reassigned via EmployeeAssignmentService (which never
+        // updates that cache — see employeeShiftAssignmentRepo's own field Javadoc). Catches a real
+        // current or future-scheduled assignment the cache missed before falling through to the
+        // purely-historical guards below.
+        if (employeeShiftAssignmentRepo.existsCurrentOrFutureAssignmentForShift(id, LocalDate.now())) {
+            throw new IllegalStateException(
+                    "Cannot delete this shift because it is currently assigned to one or more employees, "
+                            + "or scheduled to take effect for one in the future. Reassign or cancel those "
+                            + "assignments first.");
+        }
+        // Independent of the current-assignment guards above: a Shift with zero current or
+        // future-scheduled assignments (everyone since reassigned away) can still be the historical
         // context for real Attendance rows via their snapshotted shiftId (see V163's migration) —
         // deleting it would silently erase that history, exactly the corruption the FK's own
         // ON DELETE RESTRICT exists to prevent. Checked explicitly here (rather than only relying
@@ -649,6 +697,16 @@ public class OrgService {
             throw new IllegalStateException(
                     "Cannot delete this shift because attendance records reference it, including historical "
                             + "ones. Deactivate it instead.");
+        }
+        // Same reasoning as the Attendance guard just above, for the one other table that can still
+        // reference this Shift once the current/future-assignment guard above has passed: a purely
+        // historical/superseded EmployeeShiftAssignment row (employee_shift_assignments.shift_id has
+        // no ON DELETE clause of its own — see V172) would otherwise fail this delete at the raw
+        // database FK instead of with a clear, actionable message.
+        if (employeeShiftAssignmentRepo.existsByShiftId(id)) {
+            throw new IllegalStateException(
+                    "Cannot delete this shift because it appears in an employee's shift assignment history. "
+                            + "Deactivate it instead.");
         }
         employeeRepo.clearShiftReferences(id);
         // Every ShiftVersion for this shift is removed via the FK's ON DELETE CASCADE (see the
@@ -683,54 +741,23 @@ public class OrgService {
         }
     }
 
+    /**
+     * Whether {@code shift} is the organization's protected Default Shift — the stable
+     * {@code is_default} flag (see its own Javadoc) OR the legacy exact-name match, additive so
+     * neither check is ever weaker than before: a pre-V232 row somehow missing the backfilled flag
+     * (shouldn't happen, but never relied upon) still falls back to the name match, and a row the
+     * flag protects remains protected even if its name were ever changed.
+     */
+    private boolean isDefaultShift(Shift shift) {
+        return shift.isDefault() || Shift.DEFAULT_SHIFT_NAME.equals(shift.getName());
+    }
+
     private String normalizeCode(String code) {
         return (code == null || code.isBlank()) ? null : code.trim().toUpperCase();
     }
 
     private String blankToNull(String value) {
         return (value == null || value.isBlank()) ? null : value.trim();
-    }
-
-    /**
-     * A brand-new Shift's Applicable Days (see Shift.workingDays's own Javadoc) — {@code null}/
-     * omitted defaults to {@link Shift#ALL_WORKING_DAYS} (the UI always sends an explicit list,
-     * all 7 selected by default; this default is only for a caller that omits the field entirely
-     * — there is no existing value to fall back to for a Shift that doesn't exist yet, unlike
-     * {@link #applyApplicableDaysUpdate}). Same empty-rejected/normalize-and-validate idiom as
-     * {@link #createWeeklyOffPolicy}/{@link #updateWeeklyOffPolicy} use for
-     * {@code WeeklyOffPolicy.offDays} below.
-     */
-    private String resolveApplicableDays(List<String> requestedDays) {
-        if (requestedDays == null) {
-            return Shift.ALL_WORKING_DAYS;
-        }
-        String workingDays = normalizeDayOfWeekList(requestedDays);
-        if (workingDays == null) {
-            throw new IllegalArgumentException("At least one applicable weekday is required");
-        }
-        return workingDays;
-    }
-
-    /**
-     * Applies an UpdateShiftRequest's Applicable Days to an existing Shift — {@code null}/omitted
-     * leaves the Shift's current value completely untouched (a caller unaware of this field, or
-     * an edit that simply isn't changing it, must never silently reset it back to
-     * {@link Shift#ALL_WORKING_DAYS}), unlike {@link #resolveApplicableDays}'s create-time
-     * default. Deliberately NOT versioned/effective-dated like startTime/endTime/breakMinutes/
-     * lateGraceMinutes above: workingDays is a plain Shift-row attribute never read by any
-     * attendance/workday calculation (see its own Javadoc), so there is no already-effective
-     * configuration for an immediate change to retroactively disturb — it takes effect
-     * immediately, exactly like name/code/description.
-     */
-    private void applyApplicableDaysUpdate(Shift shift, List<String> requestedDays) {
-        if (requestedDays == null) {
-            return;
-        }
-        String workingDays = normalizeDayOfWeekList(requestedDays);
-        if (workingDays == null) {
-            throw new IllegalArgumentException("At least one applicable weekday is required");
-        }
-        shift.setWorkingDays(workingDays);
     }
 
     /**
@@ -769,14 +796,25 @@ public class OrgService {
     }
 
     // ── Weekly Off Policies ───────────────────────────────────────────────────
-    // WeeklyOffPolicy is the sole source of truth for weekly-off — see WorkingDayService/
-    // ExceptionService, which read Employee.weeklyOffPolicy.offDays exclusively. No active/
-    // inactive concept here (not requested for P1, and not shown in the product's own Weekly Off
-    // reference screens) — full-day-only, matching the offDays model already in place.
+    // WeeklyOffPolicy is the sole source of truth for weekly-off. Its own off-days DEFINITION is
+    // now effective-dated via WeeklyOffPolicyVersion (Phase 3) — every date-aware consumer
+    // (WorkingDayService, ExceptionService) resolves through WeeklyOffPolicyVersionResolver
+    // instead of reading WeeklyOffPolicy.offDays directly; that field remains only as a
+    // best-effort display cache of the CURRENT version, kept in sync below. WHICH policy an
+    // employee is assigned to is separately effective-dated via EmployeeWeeklyOffPolicyAssignment
+    // (see EmployeeAssignmentService) — this class never touches that table, mirroring how it
+    // never touches EmployeeShiftAssignment either. No active/inactive concept here (not
+    // requested for P1, and not shown in the product's own Weekly Off reference screens) —
+    // full-day-only, matching the offDays model already in place.
 
     @Transactional(readOnly = true)
     public List<WeeklyOffPolicyResponse> listWeeklyOffPolicies() {
-        Map<UUID, Long> counts = toCountMap(employeeRepo.countGroupedByWeeklyOffPolicyId());
+        // Audit fix (Phase 3 verification): never employeeRepo.countGroupedByWeeklyOffPolicyId(),
+        // which reads Employee.weeklyOffPolicy — a field bulkUpdateWeeklyOff/CSV import no longer
+        // write to at all, making it permanently stale for any employee ever reassigned through
+        // the new EmployeeWeeklyOffPolicyAssignment table. See that repository's own Javadoc.
+        Map<UUID, Long> counts = toCountMap(
+                employeeWeeklyOffPolicyAssignmentRepo.countCurrentlyAssignedGroupedByPolicy(LocalDate.now()));
         return weeklyOffPolicyRepo.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
                 .map(p -> WeeklyOffPolicyResponse.from(p, counts.getOrDefault(p.getId(), 0L)))
                 .toList();
@@ -798,6 +836,14 @@ public class OrgService {
                 .name(trimmedName)
                 .offDays(offDays)
                 .build());
+        // A brand-new Policy has no employees assigned yet and no prior configuration to
+        // protect — its first version is effective immediately (today), exactly mirroring
+        // createShift's identical "day one" reasoning for ShiftVersion.
+        weeklyOffPolicyVersionRepo.save(WeeklyOffPolicyVersion.builder()
+                .weeklyOffPolicy(saved)
+                .offDays(offDays)
+                .effectiveFrom(LocalDate.now())
+                .build());
         return WeeklyOffPolicyResponse.from(saved, 0L);
     }
 
@@ -815,9 +861,36 @@ public class OrgService {
             throw new IllegalArgumentException("At least one off day is required");
         }
         assertNotAllSevenDaysOff(offDays);
+        // Name is plain policy identity (like Shift.name/code/description) and takes effect
+        // immediately — only off_days is versioned/effective-dated below.
         policy.setName(trimmedName);
-        policy.setOffDays(offDays);
-        long count = employeeRepo.countByWeeklyOffPolicyId(id);
+        // A changed off-days definition creates a NEW version rather than mutating history —
+        // the previous version (whatever was effective before today) remains intact and keeps
+        // governing every date before today exactly as it already did; only today-forward
+        // calculations see the new one. Effective TODAY (not admin-chosen, unlike Shift timing
+        // edits): a Weekly Off Policy's off-days is a whole-day concept with no "already open
+        // session under the old interpretation" ambiguity a same-day Shift-timing edit has, so
+        // there is no need for a mandatory future-only date here. At most one version is ever
+        // expected effective today-or-later (mirrors shiftVersionRepository's identical "at most
+        // one pending version" rule) — a second edit on the SAME calendar day replaces it in
+        // place (delete-then-insert) rather than stacking a second one, since nothing could
+        // already be attributed to that version within the same calendar day in a way that
+        // matters (weekly-off classification is whole-day, not time-of-day). This never touches
+        // any version whose effectiveFrom < today — those remain exactly as they are, so no
+        // already-effective (let alone historical) calculation is ever affected by this call.
+        LocalDate today = LocalDate.now();
+        if (!offDays.equals(policy.getOffDays())) {
+            weeklyOffPolicyVersionRepo.deleteByWeeklyOffPolicyIdAndEffectiveFromGreaterThanEqual(id, today);
+            weeklyOffPolicyVersionRepo.save(WeeklyOffPolicyVersion.builder()
+                    .weeklyOffPolicy(policy)
+                    .offDays(offDays)
+                    .effectiveFrom(today)
+                    .build());
+            // Display cache kept in sync with the new current version — see its own Javadoc.
+            policy.setOffDays(offDays);
+        }
+        // Audit fix (Phase 3 verification): see listWeeklyOffPolicies' identical comment.
+        long count = employeeWeeklyOffPolicyAssignmentRepo.countCurrentlyAssigned(id, LocalDate.now());
         return WeeklyOffPolicyResponse.from(weeklyOffPolicyRepo.save(policy), count);
     }
 
@@ -826,13 +899,28 @@ public class OrgService {
     public void deleteWeeklyOffPolicy(UUID id) {
         WeeklyOffPolicy policy = weeklyOffPolicyRepo.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Weekly off policy not found"));
-        long count = employeeRepo.countByWeeklyOffPolicyId(id);
+        // Audit fix (Phase 3 verification): see listWeeklyOffPolicies' identical comment — this
+        // guard must count CURRENT assignments via the authoritative table, never the stale
+        // Employee.weeklyOffPolicy cache, or it silently stops blocking deletion for any policy
+        // ever reassigned through bulkUpdateWeeklyOff/CSV import.
+        long count = employeeWeeklyOffPolicyAssignmentRepo.countCurrentlyAssigned(id, LocalDate.now());
         if (count > 0) {
             throw new IllegalStateException(
                     "Cannot delete this weekly off policy because " + count + " current employee" + (count == 1 ? " is" : "s are")
                             + " assigned to it. Reassign or remove " + (count == 1 ? "that employee" : "those employees") + " first.");
         }
+        // Independent of the current-assignment guard above: a Policy with zero employees
+        // currently assigned to it (everyone since reassigned away) can still be referenced by
+        // assignment history (employee_weekly_off_policy_assignments.weekly_off_policy_id has no
+        // ON DELETE clause of its own — see V234) — mirrors deleteShift's identical guard.
+        if (employeeWeeklyOffPolicyAssignmentRepo.existsByWeeklyOffPolicyId(id)) {
+            throw new IllegalStateException(
+                    "Cannot delete this weekly off policy because it appears in an employee's weekly off "
+                            + "assignment history.");
+        }
         employeeRepo.clearWeeklyOffPolicyReferences(id);
+        // Every WeeklyOffPolicyVersion for this policy is removed via the FK's ON DELETE CASCADE
+        // (see the V233 migration) — no separate Java-side cleanup needed.
         weeklyOffPolicyRepo.delete(policy);
     }
 

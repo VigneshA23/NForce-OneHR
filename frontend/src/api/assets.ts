@@ -145,6 +145,16 @@ export const assetsApi = {
   retireAsset: (assetId: number, token: string) =>
     fetch(`${BASE}/${assetId}/retire`, { method: 'POST', headers: authHeaders(token) }).then(handle<AssetResponse>),
 
+  /** Permanent delete: the server only allows it for an asset that was never assigned. */
+  deleteAsset: async (assetId: number, token: string): Promise<void> => {
+    const res = await fetch(`${BASE}/${assetId}`, { method: 'DELETE', headers: authHeaders(token) });
+    if (!res.ok) {
+      let message = `Delete failed (${res.status})`;
+      try { message = ((await res.json()) as { message?: string }).message ?? message; } catch { /* non-json */ }
+      throw new Error(message);
+    }
+  },
+
   availableByCategory: (categoryId: number, token: string) =>
     fetch(`${BASE}/available-by-category/${categoryId}`, { headers: authHeaders(token) }).then(handle<AssetResponse[]>),
 
