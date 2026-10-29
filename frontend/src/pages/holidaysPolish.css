@@ -1,0 +1,35 @@
+/* Holidays page polish — presentation only. Every colour is a theme token, so light/dark and the accent setting keep working. */
+
+/* section headings */
+.nf-hol-sec { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.nf-hol-sec h2 { margin: 0; font-family: Inter, sans-serif; font-size: 16px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 82%, var(--panel)); }
+.nf-hol-sec-ico { flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-hol-count { margin-left: auto; padding: 4px 12px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 26%, transparent); white-space: nowrap; }
+
+/* holiday list card */
+.nf-hol-card { background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 4%, var(--panel)) 0%, var(--panel) 110px); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: 0 6px 22px rgba(16, 24, 40, .07); }
+.nf-hol-card-hd { padding: 18px 22px 12px; }
+.nf-hol-card-hd .nf-hol-sec { margin-bottom: 0; }
+.nf-hol-table thead th { background: color-mix(in srgb, var(--brand) 6%, var(--raised)); border-bottom: 1px solid var(--line) !important; }
+.nf-hol-table tbody tr { transition: background .15s; }
+.nf-hol-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--brand) 2.5%, transparent); }
+.nf-hol-table tbody tr:hover { background: color-mix(in srgb, var(--brand) 6%, var(--raised)); }
+.nf-hol-table td { border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent) !important; }
+.nf-hol-table tr.is-past .nf-hol-nm b { color: var(--txt-dim); }
+.nf-hol-nm { display: flex; align-items: center; min-width: 0; text-align: left; }
+.nf-hol-nm b { min-width: 0; font-size: 13.5px; font-weight: 600; color: color-mix(in srgb, var(--txt) 78%, var(--panel)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nf-hol-loc { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 12px 4px 9px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line2); }
+.nf-hol-loc svg { flex-shrink: 0; color: var(--brand); }
+.nf-hol-loc span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.nf-hol-status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent); }
+.nf-hol-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.nf-hol-status.off { color: var(--txt-dim); background: var(--raised); border-color: var(--line2); }
+
+/* calendar polish */
+.nf-hol-cal { box-shadow: 0 6px 22px rgba(16, 24, 40, .08) !important; border-radius: 16px !important; }
+
+
+/* lighter body text in the list */
+.nf-hol-table td { color: var(--txt-mut); }
+.nf-hol-table tbody td { font-weight: 400; }

@@ -3,7 +3,8 @@ import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import { ActionDock } from '../components/ActionDock';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart, MapPin, List } from 'lucide-react';
+import './holidaysPolish.css';
 import { useAuthStore } from '../store/authStore';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { orgApi, type LocationRow } from '../api/org';
@@ -47,14 +48,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 const HOLIDAY_STATUS_BADGE = (active: boolean) => (
-  <span style={{
-    display: 'inline-flex', alignItems: 'center', gap: 4,
-    padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-    background: active ? 'rgba(47,182,124,.15)' : 'rgba(107,114,128,.15)',
-    color: active ? 'var(--ok)' : 'var(--txt-dim)',
-  }}>
-    {active ? 'Active' : 'Inactive'}
-  </span>
+  <span className={`nf-hol-status${active ? '' : ' off'}`}>{active ? 'Active' : 'Inactive'}</span>
 );
 
 function formatHolidayDate(iso: string) {
@@ -84,10 +78,10 @@ function UpcomingHolidayCard({ holiday, daysAway }: { holiday: HolidayRow; daysA
     }}>
       <div style={{ width: 52, height: 52, borderRadius: 10, flexShrink: 0, background: 'color-mix(in srgb, var(--brand) 14%, var(--raised))', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--brand)', textTransform: 'uppercase' }}>{d.toLocaleDateString(undefined, { month: 'short' })}</span>
-        <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{d.getDate()}</span>
+        <span style={{ fontSize: 18, fontWeight: 600, color: 'color-mix(in srgb, var(--txt) 78%, var(--panel))', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{d.getDate()}</span>
       </div>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={holiday.holidayName}>{holiday.holidayName}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'color-mix(in srgb, var(--txt) 78%, var(--panel))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={holiday.holidayName}>{holiday.holidayName}</div>
         <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 2 }}>{d.toLocaleDateString(undefined, { weekday: 'long' })}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3 }}>{daysAway === 0 ? 'Today' : daysAway === 1 ? 'Tomorrow' : `In ${daysAway} days`}</div>
       </div>
@@ -125,7 +119,7 @@ export function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
   };
 
   return (
-    <div className="nf-section-enter" style={{
+    <div className="nf-section-enter nf-hol-cal" style={{
       background: 'linear-gradient(180deg, color-mix(in srgb, var(--brand) 6%, var(--panel)) 0%, var(--panel) 120px)',
       border: '1px solid var(--line)', borderRadius: 14, padding: 14, boxShadow: '0 6px 22px rgba(0,0,0,.14)',
     }}>
@@ -173,7 +167,7 @@ export function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
               title={dayHolidays.map(h => h.holidayName).join(', ') || undefined}
               style={{
                 // Fixed height: the cell never resizes with content; extras are summarised as "+N more".
-                height: 74, minWidth: 0, width: '100%', overflow: 'hidden', boxSizing: 'border-box',
+                height: 84, minWidth: 0, width: '100%', overflow: 'hidden', boxSizing: 'border-box',
                 borderRadius: 10, padding: '5px 5px 4px', position: 'relative',
                 background: hasHoliday
                   ? 'linear-gradient(160deg, color-mix(in srgb, var(--brand) 30%, var(--panel)) 0%, color-mix(in srgb, var(--brand) 10%, var(--panel)) 100%)'
@@ -196,7 +190,7 @@ export function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
               </span>
               {visible.map(h => (
                 <span key={h.id} style={{
-                  fontSize: 9, fontWeight: 700, color: '#fff', background: 'var(--brand)',
+                  fontSize: 9.5, fontWeight: 700, color: '#fff', background: 'var(--brand)',
                   borderRadius: 5, padding: '2px 5px', lineHeight: 1.4,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   maxWidth: '100%', width: '100%', boxSizing: 'border-box', flexShrink: 0,
@@ -396,7 +390,7 @@ export default function HolidaysPage() {
         flexWrap: 'wrap',
       }}>
         <PageTitleBlock icon={CalendarHeart}>
-            <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
+            <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 600, color: 'color-mix(in srgb, var(--txt) 78%, var(--panel))', margin: 0 }}>
               Company Holidays{holidayScopeLabel ? ` - ${holidayScopeLabel}` : ''}
             </h1>
             <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 3 }}>
@@ -430,17 +424,26 @@ export default function HolidaysPage() {
 
       {upcomingHolidays.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Upcoming Holidays</div>
+          <div className="nf-hol-sec"><span className="nf-hol-sec-ico"><CalendarHeart size={17} /></span><h2>Upcoming Holidays</h2></div>
           <div className="nf-autofit-mobile-safe" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             {upcomingHolidays.map(u => <UpcomingHolidayCard key={u.holiday.id} holiday={u.holiday} daysAway={u.daysAway} />)}
           </div>
         </div>
       )}
 
-      <div className={holidays.length > 0 ? 'nf-grid-side-collapse' : undefined} style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(310px, 380px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
+      <div className={holidays.length > 0 ? 'nf-grid-side-collapse' : undefined} style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(340px, 440px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
         {holidays.length > 0 && <HolidayMonthCalendar holidays={holidays} />}
 
-        <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+        <div className="nf-section-enter nf-hol-card">
+          {holidays.length > 0 && (
+            <div className="nf-hol-card-hd">
+              <div className="nf-hol-sec">
+                <span className="nf-hol-sec-ico"><List size={17} /></span>
+                <h2>Holiday List</h2>
+                <span className="nf-hol-count">{holidays.length} {holidays.length === 1 ? 'holiday' : 'holidays'}</span>
+              </div>
+            </div>
+          )}
           {holidays.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center' }}>
               <CalendarDays size={28} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
@@ -450,7 +453,7 @@ export default function HolidaysPage() {
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <table className="nf-hol-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                 <colgroup>
                   {isAdmin ? (
                     <>
@@ -470,15 +473,19 @@ export default function HolidaysPage() {
                 </colgroup>
                 <thead>
                   <tr>
-                    {(isAdmin ? ['Holiday Name', 'Date', 'Location', 'Status', 'Actions'] : ['Holiday Name', 'Date', 'Status']).map(h => <th key={h} style={holidayThStyle}>{h}</th>)}
+                    {(isAdmin ? ['Holiday Name', 'Date', 'Location', 'Status', 'Actions'] : ['Holiday Name', 'Date', 'Status']).map(h => <th key={h} style={h === 'Holiday Name' ? { ...holidayThStyle, textAlign: 'left', paddingLeft: 22 } : holidayThStyle}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
-                  {holPaged.pageRows.map(h => (
-                    <tr key={h.id} className="nf-leave-row">
-                      <td style={{ ...holidayTdStyle, color: 'var(--txt)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.holidayName}>{h.holidayName}</td>
+                  {holPaged.pageRows.map(h => {
+                    const isPast = h.holidayDate < new Date().toISOString().slice(0, 10);
+                    return (
+                    <tr key={h.id} className={`nf-leave-row${isPast ? ' is-past' : ''}`}>
+                      <td style={{ ...holidayTdStyle, textAlign: 'left' }} title={h.holidayName}>
+                        <div className="nf-hol-nm"><b>{h.holidayName}</b></div>
+                      </td>
                       <td style={holidayTdStyle}>{formatHolidayDate(h.holidayDate)}</td>
-                      {isAdmin && <td style={{ ...holidayTdStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.locationName}>{h.locationName}</td>}
+                      {isAdmin && <td style={{ ...holidayTdStyle, overflow: 'hidden' }} title={h.locationName}><span className="nf-hol-loc"><MapPin size={12} /><span>{h.locationName}</span></span></td>}
                       <td style={holidayTdStyle}>{HOLIDAY_STATUS_BADGE(h.active)}</td>
                       {isAdmin && (
                         <td style={holidayTdStyle}>
@@ -489,7 +496,8 @@ export default function HolidaysPage() {
                         </td>
                       )}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
               <TablePagination {...holPaged.pagerProps} noun="holidays" />

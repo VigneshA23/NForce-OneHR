@@ -51,7 +51,7 @@ import TalentPerformancePage from '../talent/TalentPerformancePage';
 import LeavePage from '../LeavePage';
 import ApprovalsPage from '../ApprovalsPage';
 import DashboardPage from '../DashboardPage';
-import { HolidayMonthCalendar } from '../HolidaysPage';
+import HolidaysPage, { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
   { key: 'menu', label: 'Left menu', title: 'Left menu by role', subtitle: 'The real sidebar for each role, with the disabled "P2" placeholder modules removed.' },
@@ -80,6 +80,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'leave-page', label: 'Leave (full page)', title: 'Leave', subtitle: 'Employee view with sample data: KPIs, balance cards, filters, history table and the Manage dock on pending requests.' },
   { key: 'approvals-page', label: 'Approval Center (full page)', title: 'Approval Center', subtitle: 'Sample queue: Employee ID under each name, a table that fits without sideways scrolling, and the shared pagination.' },
   { key: 'dashboard-page', label: 'Super Admin dashboard (full page)', title: 'Dashboard', subtitle: 'Sample data: approvals donut, account health, users by role, birthdays, notifications and recent audit events.' },
+  { key: 'holidays-page', label: 'Holidays page (full)', title: 'Leave & Holidays', subtitle: 'Sample data: summary tiles, upcoming holidays, month calendar and the holiday list.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -667,6 +668,37 @@ function DashboardMock() {
   return ready ? <DashboardPage /> : null;
 }
 
+function HolidaysMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample holidays and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const rows = ([
+      ['2026-01-26', 'Republic Day', 'Hyderabad'], ['2026-01-26', 'Republic Day', 'Bangalore'], ['2026-04-11', 'Dussehra', 'Bangalore'], ['2026-08-15', 'Independence Day', 'Bangalore'],
+      ['2026-10-29', 'Founders Day', 'Hyderabad'], ['2026-11-08', 'Diwali', 'Bangalore'], ['2026-11-09', 'Govardhan Puja', 'Hyderabad'], ['2026-11-25', 'Guru Nanak Jayanti', 'Vishakhapatnam'],
+      ['2026-12-25', 'Christmas', 'Hyderabad'], ['2026-12-25', 'Christmas', 'Bangalore'], ['2026-12-31', 'New Year Eve', 'Vishakhapatnam'],
+    ] as Array<[string, string, string]>).map(([holidayDate, holidayName, locationName], i) => ({ id: `h${i}`, holidayName, holidayDate, locationId: locationName, locationName, active: i !== 6 }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/holidays') || url.endsWith('/api/holidays/my-location')) return json(rows);
+      if (url.endsWith('/locations')) return json(['Hyderabad', 'Bangalore', 'Vishakhapatnam'].map(name => ({ id: name, name, active: true })));
+      if (url.includes('/api/')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    const r = new URLSearchParams(window.location.search).get('role');
+    const mockRole = r === 'hr' ? 'HR_ADMIN' : r === 'employee' ? 'EMPLOYEE' : 'SUPER_ADMIN';
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: mockRole } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <HolidaysPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -886,6 +918,8 @@ function Tiles({ page }: { page: string }) {
       return <LeaveMock />;
     case 'approvals-page':
       return <ApprovalsMock />;
+    case 'holidays-page':
+      return <HolidaysMock />;
     case 'dashboard-page':
       return <DashboardMock />;
     case 'documents':
