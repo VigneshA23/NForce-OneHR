@@ -17,7 +17,11 @@ SELECT setval(
         (SELECT MAX(CAST(SPLIT_PART(employee_code, '-', 3) AS BIGINT))
          FROM employees
          WHERE employee_code ~ '^NF-[0-9]{4}-[0-9]+$'),
-        0
+        1
     ),
-    true
+    EXISTS (
+        SELECT 1
+        FROM employees
+        WHERE employee_code ~ '^NF-[0-9]{4}-[0-9]+$'
+    )
 );
