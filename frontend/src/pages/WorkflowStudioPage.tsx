@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { Plus, X, ShieldAlert, Workflow, ChevronRight, GitBranch, Pencil, Power, PowerOff, Trash2, Lock } from 'lucide-react';
 import './workflowRuleModal.css';
@@ -112,7 +113,7 @@ function ConfirmModal({ title, message, confirmLabel, danger, onConfirm, onCance
   title: string; message: string; confirmLabel: string; danger?: boolean;
   onConfirm: () => void; onCancel: () => void; busy: boolean;
 }) {
-  return (
+  return createPortal(
     <div className="nf-wf-dlg" style={overlayStyle}>
       <div className="nf-wf-card" style={{ ...modalStyle, maxWidth: 440 }}>
         <div style={{ padding: 22 }}>
@@ -130,7 +131,8 @@ function ConfirmModal({ title, message, confirmLabel, danger, onConfirm, onCance
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -221,7 +223,7 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
     </span>
   ));
 
-  return (
+  return createPortal(
     <div className="nf-wf-dlg" style={overlayStyle}>
       <div className="nf-wf-card" style={modalStyle}>
         <div className="nf-wf-head">
@@ -355,7 +357,8 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

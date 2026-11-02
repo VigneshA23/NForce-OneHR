@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, Eye, Mail, Building2, Briefcase, MapPin, Laptop, Clock, User, BadgeCheck, Sparkles } from 'lucide-react';
@@ -464,7 +465,7 @@ export default function DirectoryPage() {
       </div>
 
       {/* Detail drawer */}
-      {selected && (
+      {selected && createPortal(
         <>
           <div onClick={closeDetail} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 199 }} />
           <DetailPanel
@@ -478,7 +479,8 @@ export default function DirectoryPage() {
               ? () => setKudosTarget({ userId: selected.userId, name: selected.fullName })
               : undefined}
           />
-        </>
+        </>,
+        document.body
       )}
       <KudosModal target={kudosTarget} token={token} onClose={() => setKudosTarget(null)} />
     </div>
