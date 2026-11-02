@@ -14,6 +14,7 @@ import { dashboardApi, type DirectReport } from '../api/dashboard';
 import { attendanceApi, type AttendanceRecord } from '../api/attendance';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
 import { PersonCell, PersonCellById } from '../components/PersonCell';
+import './reportsDetails.css';
 
 // ── Shared styles (matches the rest of the app — plain style objects, no CSS framework) ──
 
@@ -206,50 +207,47 @@ function DetailsModal({ view, onClose, reports, attendance, attendanceDate, leav
   pendingLeave: LeaveRequestRecord[];
 }) {
   const presentStatuses = new Set(['PRESENT', 'HALF_DAY', 'MISSING_CHECKOUT']);
-  const config: Record<Exclude<DetailsView, null>, { title: string; headers: string[]; rows: React.ReactNode[] }> = {
+  const config: Record<Exclude<DetailsView, null>, { title: string; note?: string; noun: string; icon: typeof Users; headers: string[]; rows: React.ReactNode[] }> = {
     headcount: {
-      title: 'Employees',
-      headers: ['Name', 'Code', 'Department', 'Designation', 'Status'],
+      title: 'Employees', noun: 'employee', icon: Users,
+      headers: ['Employee', 'Department', 'Designation', 'Status'],
       rows: reports.map(r => (
         <tr key={r.userId}>
-          <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
-          <td style={{ ...tdS, fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</td>
-          <td style={tdS}>{r.departmentName ?? '–'}</td>
-          <td style={tdS}>{r.designationName ?? '–'}</td>
+          <td style={tdS}><PersonCell userId={r.userId} name={r.fullName} code={r.employeeCode} /></td>
+          <td style={tdS}>{r.departmentName ?? '-'}</td>
+          <td style={tdS}>{r.designationName ?? '-'}</td>
           <td style={tdS}><StatusPill label={r.active ? 'Active' : 'Inactive'} color={r.active ? '#2FB67C' : 'var(--txt-dim)'} /></td>
         </tr>
       )),
     },
     present: {
-      title: `Present — ${attendanceDate}`,
-      headers: ['Name', 'Code', 'Check-In', 'Status'],
+      title: 'Present', note: attendanceDate, noun: 'employee', icon: CalendarCheck,
+      headers: ['Employee', 'Check-In', 'Status'],
       rows: attendance.filter(a => presentStatuses.has(a.status ?? '')).map(a => (
         <tr key={a.employeeUserId}>
-          <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{a.fullName}</td>
-          <td style={{ ...tdS, fontFamily: 'Inter, sans-serif' }}>{a.employeeCode}</td>
-          <td style={tdS}>{a.checkInAt ? new Date(a.checkInAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '–'}</td>
-          <td style={tdS}><StatusPill label={a.status ?? '–'} color="#2FB67C" /></td>
+          <td style={tdS}><PersonCell userId={a.employeeUserId} name={a.fullName} code={a.employeeCode} /></td>
+          <td style={tdS}>{a.checkInAt ? new Date(a.checkInAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '-'}</td>
+          <td style={tdS}><StatusPill label={a.status ?? '-'} color="#2FB67C" /></td>
         </tr>
       )),
     },
     lateAbsent: {
-      title: `Late / Absent — ${attendanceDate}`,
-      headers: ['Name', 'Code', 'Status', 'Late By'],
+      title: 'Late / Absent', note: attendanceDate, noun: 'employee', icon: Clock,
+      headers: ['Employee', 'Status', 'Late By'],
       rows: attendance.filter(a => a.status === 'LATE' || a.status === 'ABSENT').map(a => (
         <tr key={a.employeeUserId}>
-          <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{a.fullName}</td>
-          <td style={{ ...tdS, fontFamily: 'Inter, sans-serif' }}>{a.employeeCode}</td>
+          <td style={tdS}><PersonCell userId={a.employeeUserId} name={a.fullName} code={a.employeeCode} /></td>
           <td style={tdS}><StatusPill label={a.status === 'LATE' ? 'Late' : 'Absent'} color={a.status === 'LATE' ? 'var(--warn)' : '#E4373D'} /></td>
-          <td style={tdS}>{a.lateByMinutes ? `${a.lateByMinutes}m` : '–'}</td>
+          <td style={tdS}>{a.lateByMinutes ? `${a.lateByMinutes}m` : '-'}</td>
         </tr>
       )),
     },
     leave: {
-      title: 'Leave in period',
+      title: 'Leave in period', noun: 'request', icon: CalendarCheck,
       headers: ['Employee', 'Type', 'Dates', 'Days', 'Status'],
       rows: [...leave, ...pendingLeave].map(r => (
         <tr key={r.id}>
-          <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>
+          <td style={tdS}><PersonCell userId={r.employeeUserId ?? r.employeeName} name={r.employeeName} /></td>
           <td style={tdS}>{r.leaveTypeName}</td>
           <td style={tdS}>{r.startDate}{r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ' (half day)' : ''}</td>
           <td style={tdS}>{r.totalDays}</td>
@@ -258,26 +256,21 @@ function DetailsModal({ view, onClose, reports, attendance, attendanceDate, leav
       )),
     },
   };
-  const { title, headers, rows } = config[view];
+  const { title, note, noun, icon: Icon, headers, rows } = config[view];
 
   return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{ ...card, width: '100%', maxWidth: 720, maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif', flex: 1 }}>{title}</h3>
-          <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{rows.length}</span>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, display: 'flex' }}>
-            <X size={16} />
-          </button>
+    <div className="nf-rd-overlay" onClick={onClose}>
+      <div className="nf-rd-card" role="dialog" aria-label={title} onClick={e => e.stopPropagation()}>
+        <div className="nf-rd-head">
+          <span className="nf-rd-ico"><Icon size={20} /></span>
+          <div className="nf-rd-titles">
+            <div className="nf-rd-title">{title}</div>
+            <div className="nf-rd-sub">{rows.length} {noun}{rows.length === 1 ? '' : 's'}{note ? ` · ${note}` : ''}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="nf-rd-x"><X size={16} /></button>
         </div>
-        <div style={{ overflow: 'auto' }}>
-          <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className="nf-rd-scroll">
+          <table className="nf-rep-table nf-rd-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>{headers.map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.length === 0
@@ -555,8 +548,8 @@ export function HeadcountRows({ rows }: { rows: DirectReport[] }) {
         ) : rows.map(r => (
           <tr key={r.userId}>
             <td style={tdS}><PersonCell userId={r.userId} name={r.fullName} code={r.employeeCode} /></td>
-            <td style={{ ...tdS, color: 'var(--txt-mut)' }}>{r.departmentName ?? '–'}</td>
-            <td style={{ ...tdS, color: 'var(--txt-mut)' }}>{r.designationName ?? '–'}</td>
+            <td style={{ ...tdS, color: 'var(--txt-mut)' }}>{r.departmentName ?? '-'}</td>
+            <td style={{ ...tdS, color: 'var(--txt-mut)' }}>{r.designationName ?? '-'}</td>
             <td style={tdS}>
               <span className={`nf-rep-pill${r.active ? '' : ' is-off'}`}>{r.active ? 'Active' : 'Inactive'}</span>
             </td>
