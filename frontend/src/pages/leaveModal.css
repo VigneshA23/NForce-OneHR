@@ -1,0 +1,64 @@
+/* Leave — Request / Edit Leave popup. Presentation only; theme tokens throughout. */
+
+.nf-lv-dlg { background: rgba(8, 10, 16, .6) !important; backdrop-filter: blur(3px); }
+.nf-lv-card {
+  max-width: 600px !important; border-radius: 20px !important; border-color: var(--line2) !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important;
+  animation: nf-lv-rise .2s ease-out;
+}
+@keyframes nf-lv-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+
+.nf-lv-head {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 18px 22px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line);
+}
+.nf-lv-ico { flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-lv-titles { flex: 1; min-width: 0; }
+.nf-lv-title { font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); }
+.nf-lv-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-lv-x { flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 11px; transition: color .15s, background .15s; }
+.nf-lv-x:hover { color: var(--txt); background: var(--raised2); }
+
+.nf-lv-form { padding: 20px 22px 0; display: flex; flex-direction: column; gap: 14px; }
+.nf-lv-err { color: var(--risk); background: color-mix(in srgb, var(--risk) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--risk) 30%, transparent); border-radius: 12px; padding: 10px 14px; font-size: 13px; }
+
+.nf-lv-sec { border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--brand) 2%, var(--raised)); padding: 14px 16px 16px; }
+.nf-lv-sec-hd { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.nf-lv-sec-ico { width: 28px; height: 28px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 11%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 24%, transparent); }
+.nf-lv-sec-title { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-mut); }
+.nf-lv-days { margin-left: auto; padding: 3px 12px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); white-space: nowrap; }
+.nf-lv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* balance chip under the leave type */
+.nf-lv-bal { margin-top: 10px; display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--ok); background: color-mix(in srgb, var(--ok) 11%, var(--panel)); border: 1px solid color-mix(in srgb, var(--ok) 28%, transparent); }
+.nf-lv-bal.over { color: var(--risk); background: color-mix(in srgb, var(--risk) 10%, var(--panel)); border-color: color-mix(in srgb, var(--risk) 30%, transparent); }
+.nf-lv-warn { margin-top: 8px; font-size: 12px; color: var(--risk); }
+
+/* half day toggle row */
+.nf-lv-half { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); cursor: pointer; transition: border-color .15s, background .15s; }
+.nf-lv-half:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line)); }
+.nf-lv-half.on { background: color-mix(in srgb, var(--brand) 6%, var(--panel)); border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); }
+.nf-lv-half b { display: block; font-size: 13px; font-weight: 700; color: var(--txt); }
+.nf-lv-half span { font-size: 11.5px; color: var(--txt-mut); }
+.nf-lv-sessions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.nf-lv-card label:has(> input[name='halfDaySession']) {
+  display: inline-flex !important; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 999px; cursor: pointer; font-size: 12.5px !important; font-weight: 600;
+  color: var(--txt-mut) !important; text-transform: none !important; letter-spacing: 0 !important; background: var(--panel); border: 1px solid var(--line2); transition: background .15s, border-color .15s, color .15s;
+}
+.nf-lv-card label:has(> input[name='halfDaySession']:checked) { color: var(--brand) !important; background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border-color: var(--brand); }
+
+/* fields */
+.nf-lv-card label.nf-lv-lbl { color: var(--txt-mut) !important; font-weight: 600 !important; letter-spacing: .04em !important; }
+.nf-lv-card input:not([type='checkbox']):not([type='radio']), .nf-lv-card select, .nf-lv-card textarea {
+  background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 11px !important; padding: 10px 13px !important; transition: border-color .15s, box-shadow .15s;
+}
+.nf-lv-card input:not([type='checkbox']):not([type='radio']):hover, .nf-lv-card select:hover, .nf-lv-card textarea:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-lv-card input:not([type='checkbox']):not([type='radio']):focus, .nf-lv-card select:focus, .nf-lv-card textarea:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.nf-lv-card input:disabled { background: var(--raised) !important; opacity: .7; cursor: not-allowed; }
+.nf-lv-card input[type='checkbox'], .nf-lv-card input[type='radio'] { accent-color: var(--brand); width: 16px; height: 16px; }
+
+/* footer */
+.nf-lv-foot { position: sticky; bottom: 0; z-index: 3; display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; padding: 14px 22px; background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -8px 18px rgba(16, 24, 40, .06); }
+.nf-lv-foot button { border-radius: 11px !important; padding: 9px 22px !important; }
+.nf-lv-foot button[type='submit']:not(:disabled) { box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 28%, transparent); }
+
+@media (max-width: 560px) { .nf-lv-grid { grid-template-columns: 1fr; } }

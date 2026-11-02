@@ -5,6 +5,7 @@ import {
   CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, History, Hourglass, Pencil, Search,
   Wallet, X, CalendarDays
 } from 'lucide-react';
+import './leaveModal.css';
 import { ActionDock } from '../components/ActionDock';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
@@ -33,17 +34,21 @@ const primaryButtonStyle: React.CSSProperties = { display: 'flex', alignItems: '
 const PAGE_SIZE = 5;
 const BALANCE_ACCENTS = ['var(--brand)', 'var(--info)', 'var(--ok)', 'var(--warn)'];
 
-function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+function ModalHeader({ title, subtitle, icon: Icon = CalendarPlus, onClose }: { title: string; subtitle?: string; icon?: React.ComponentType<{ size?: number }>; onClose: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+    <div className="nf-lv-head">
+      <span className="nf-lv-ico"><Icon size={20} /></span>
+      <div className="nf-lv-titles">
+        <div className="nf-lv-title">{title}</div>
+        {subtitle && <div className="nf-lv-sub">{subtitle}</div>}
+      </div>
+      <button onClick={onClose} className="nf-lv-x" aria-label="Close"><X size={16} /></button>
     </div>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label style={labelStyle}>{label}</label>{children}</div>;
+  return <div><label style={labelStyle} className="nf-lv-lbl">{label}</label>{children}</div>;
 }
 
 // Mirrors LeaveService#isAnnualBalanceLeaveType — Annual/Sick/Casual are independently
@@ -239,58 +244,81 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
     } finally { setSubmitting(false); }
   }
 
+  const dayCount = Number.isFinite(requestedDays) && requestedDays > 0 ? requestedDays : null;
+
   return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
-        <ModalHeader title={isEdit ? 'Edit Leave Request' : 'Request Leave'} onClose={onClose} />
-        <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Leave Type *">
-              <select style={inputStyle} value={form.leaveTypeCode} onChange={e => setForm(f => ({ ...f, leaveTypeCode: e.target.value }))}>
-                {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
-              </select>
-            </Field>
-            {selectedBalance && (
-              <div style={{ fontSize: 11.5, color: exceedsBalance ? 'var(--risk)' : 'var(--txt-dim)', marginTop: 5 }}>
-                Available: {selectedBalance.remainingDays} day{selectedBalance.remainingDays === 1 ? '' : 's'}
-                {exceedsBalance && ' - this request exceeds your available balance'}
+    <div className="nf-lv-dlg" style={overlayStyle}>
+      <div className="nf-lv-card" style={modalStyle}>
+        <ModalHeader
+          title={isEdit ? 'Edit Leave Request' : 'Request Leave'}
+          subtitle={isEdit ? 'Update your pending leave request.' : 'Pick the leave type, dates and a short reason.'}
+          icon={isEdit ? Pencil : CalendarPlus}
+          onClose={onClose}
+        />
+        <form onSubmit={handleSubmit}>
+          <div className="nf-lv-form">
+            {error && <div className="nf-lv-err">{error}</div>}
+
+            <section className="nf-lv-sec">
+              <div className="nf-lv-sec-hd"><span className="nf-lv-sec-ico"><Wallet size={15} /></span><span className="nf-lv-sec-title">Leave type</span></div>
+              <Field label="Leave Type *">
+                <select style={inputStyle} value={form.leaveTypeCode} onChange={e => setForm(f => ({ ...f, leaveTypeCode: e.target.value }))}>
+                  {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
+                </select>
+              </Field>
+              {selectedBalance && (
+                <div className={`nf-lv-bal${exceedsBalance ? ' over' : ''}`}>
+                  Available: {selectedBalance.remainingDays} day{selectedBalance.remainingDays === 1 ? '' : 's'}
+                  {exceedsBalance && ' - this request exceeds your available balance'}
+                </div>
+              )}
+              {blockedUnpaidWithPaidBalance && (
+                <div className="nf-lv-warn">
+                  You cannot apply for unpaid leave while you have an available paid leave balance.
+                </div>
+              )}
+            </section>
+
+            <section className="nf-lv-sec">
+              <div className="nf-lv-sec-hd">
+                <span className="nf-lv-sec-ico"><CalendarDays size={15} /></span><span className="nf-lv-sec-title">Dates</span>
+                {dayCount != null && <span className="nf-lv-days">{dayCount} day{dayCount === 1 ? '' : 's'}</span>}
               </div>
-            )}
-            {blockedUnpaidWithPaidBalance && (
-              <div style={{ fontSize: 11.5, color: 'var(--risk)', marginTop: 5 }}>
-                You cannot apply for unpaid leave while you have an available paid leave balance.
+              <div className="nf-lv-grid">
+                <Field label="Start Date *">
+                  <input type="date" min={today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay ? e.target.value : f.endDate }))} />
+                </Field>
+                <Field label="End Date *">
+                  <input type="date" style={inputStyle} value={form.halfDay ? form.startDate : form.endDate} disabled={form.halfDay} min={form.startDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+                </Field>
               </div>
-            )}
-          </div>
-          <Field label="Start Date *">
-            <input type="date" min={today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay ? e.target.value : f.endDate }))} />
-          </Field>
-          <Field label="End Date *">
-            <input type="date" style={inputStyle} value={form.halfDay ? form.startDate : form.endDate} disabled={form.halfDay} min={form.startDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
-          </Field>
-          <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input id="halfDay" type="checkbox" checked={form.halfDay} onChange={e => setForm(f => ({ ...f, halfDay: e.target.checked, halfDaySession: e.target.checked ? f.halfDaySession : undefined, endDate: e.target.checked ? f.startDate : f.endDate }))} />
-            <label htmlFor="halfDay" style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Half day</label>
-          </div>
-          {form.halfDay && (
-            <div style={{ gridColumn: '1/-1', display: 'flex', gap: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-                <input type="radio" name="halfDaySession" checked={form.halfDaySession === 'FIRST_HALF'} onChange={() => setForm(f => ({ ...f, halfDaySession: 'FIRST_HALF' }))} />
-                First Half
+              <label htmlFor="halfDay" className={`nf-lv-half${form.halfDay ? ' on' : ''}`} style={{ marginTop: 12, marginBottom: 0 }}>
+                <input id="halfDay" type="checkbox" checked={form.halfDay} onChange={e => setForm(f => ({ ...f, halfDay: e.target.checked, halfDaySession: e.target.checked ? f.halfDaySession : undefined, endDate: e.target.checked ? f.startDate : f.endDate }))} />
+                <span style={{ display: 'block' }}><b>Half day</b><span>Take only the first or second half of the day.</span></span>
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-                <input type="radio" name="halfDaySession" checked={form.halfDaySession === 'SECOND_HALF'} onChange={() => setForm(f => ({ ...f, halfDaySession: 'SECOND_HALF' }))} />
-                Second Half
-              </label>
-            </div>
-          )}
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Reason *">
-              <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for leave" />
-            </Field>
+              {form.halfDay && (
+                <div className="nf-lv-sessions">
+                  <label>
+                    <input type="radio" name="halfDaySession" checked={form.halfDaySession === 'FIRST_HALF'} onChange={() => setForm(f => ({ ...f, halfDaySession: 'FIRST_HALF' }))} />
+                    First Half
+                  </label>
+                  <label>
+                    <input type="radio" name="halfDaySession" checked={form.halfDaySession === 'SECOND_HALF'} onChange={() => setForm(f => ({ ...f, halfDaySession: 'SECOND_HALF' }))} />
+                    Second Half
+                  </label>
+                </div>
+              )}
+            </section>
+
+            <section className="nf-lv-sec">
+              <div className="nf-lv-sec-hd"><span className="nf-lv-sec-ico"><Pencil size={15} /></span><span className="nf-lv-sec-title">Reason</span></div>
+              <Field label="Reason *">
+                <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for leave" />
+              </Field>
+            </section>
           </div>
-          <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+
+          <div className="nf-lv-foot">
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             <button type="submit" disabled={submitting || exceedsBalance || blockedUnpaidWithPaidBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 0.6 : 1 }}>
               {submitting ? (isEdit ? 'Saving…' : 'Submitting…') : (isEdit ? 'Save Changes' : 'Submit Request')}
