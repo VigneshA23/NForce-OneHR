@@ -466,7 +466,8 @@ function WorkflowMock() {
       ({ id, ruleName, requestType: 'EXPENSE', conditionField, operator, conditionValue, approvalStages, active, createdByName: updatedByName, createdAt: '', updatedByName, updatedAt: '' });
     window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input).split('?')[0];
-      if (url.endsWith('/metadata')) return json({ requestTypes: ['EXPENSE', 'LEAVE'], conditionFieldsByRequestType: { EXPENSE: ['AMOUNT'], LEAVE: ['DAYS'] }, operators: ['>', '>=', '<', '<=', '='], approverRoles: ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'] });
+      if (url.endsWith('/preview')) return json({ conditionField: 'AMOUNT', operator: '>', conditionValue: '500', sampleValue: 800, conditionExpression: 'AMOUNT 800 > 500', conditionResult: true, currentRouting: ['Manager'], newRouting: ['Manager', 'HR ADMIN'] });
+      if (url.endsWith('/metadata')) return json({ requestTypes: ['EXPENSE', 'LEAVE'], conditionFieldsByRequestType: { EXPENSE: ['AMOUNT'], LEAVE: ['DAYS'] }, operators: ['>', '>=', '<', '<=', '='], approverRoles: ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'], approvalRoles: ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'] });
       if (url.includes('approval-rules')) {
         return json([
           rule('1', 'Expense claims over 20k', 'AMOUNT', '>', '20000', ['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'], false, 'MOHAN K'),
