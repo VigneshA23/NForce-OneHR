@@ -53,6 +53,7 @@ import ApprovalsPage from '../ApprovalsPage';
 import DashboardPage from '../DashboardPage';
 import DirectoryPage from '../DirectoryPage';
 import UserManagementPage from '../UserManagementPage';
+import OrgSetupPage from '../OrgSetupPage';
 import HolidaysPage, { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -85,6 +86,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'holidays-page', label: 'Holidays page (full)', title: 'Leave & Holidays', subtitle: 'Sample data: summary tiles, upcoming holidays, month calendar and the holiday list.' },
   { key: 'directory-page', label: 'People Directory + details drawer', title: 'People Directory', subtitle: 'Sample data. Click View (or a row) to open the details drawer; add &role=hr or &role=employee to the URL to see other roles.' },
   { key: 'user-mgmt-page', label: 'User Management + Add/Edit popups', title: 'User Management', subtitle: 'Sample data. Click Add User, or a row Manage > Edit, to see the popups.' },
+  { key: 'masters-page', label: 'Org Masters + Add popups (real page)', title: 'Organization Masters', subtitle: 'Sample data. Pick a tab and click its Add button (Business Unit, Department, Designation, Location, Shift...) to see the popup.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -786,6 +788,34 @@ function UserMgmtMock() {
   return ready ? <UserManagementPage /> : null;
 }
 
+function OrgMastersMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample org data with a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const named = (names: string[]) => names.map((name, i) => ({ id: `x${i}`, name, active: i !== 3, employeeCount: 12 - i * 2, createdAt: '2026-01-10T00:00:00', updatedAt: '2026-01-10T00:00:00' }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/business-units')) return json(named(['Workday', 'Internal', 'R&D', 'Operations']));
+      if (url.endsWith('/departments')) return json(named(['Engineering', 'Finance', 'Sales', 'Quality']));
+      if (url.endsWith('/designations')) return json(['Software Engineer', 'Analyst'].map((title, i) => ({ id: `g${i}`, title, grade: 'L2', level: 'Mid', departmentId: 'x0', departmentName: 'Engineering', active: true, employeeCount: 4, createdAt: '', updatedAt: '' })));
+      if (url.endsWith('/locations')) return json(['Hyderabad', 'Bangalore'].map((name, i) => ({ id: `l${i}`, name, city: name, state: 'Telangana', country: 'India', holidayRegion: 'TS', timezone: 'Asia/Kolkata', active: true, employeeCount: 20, createdAt: '', updatedAt: '' })));
+      if (url.endsWith('/locations/timezones') || url.includes('timezones')) return json(['Asia/Kolkata', 'America/New_York', 'Europe/London']);
+      if (url.includes('/api/')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <OrgSetupPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -799,6 +829,8 @@ function Tiles({ page }: { page: string }) {
           ))}
         </div>
       );
+    case 'masters-page':
+      return <OrgMastersMock />;
     case 'masters':
       return <MastersMock />;
     case 'people':
