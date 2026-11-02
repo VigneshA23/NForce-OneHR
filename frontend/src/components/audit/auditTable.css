@@ -1,0 +1,21 @@
+/* Audit log table — fixed column widths so the columns sit close together instead of stretching across the
+ * full page width, plus a "Performed By" column that uses the actor already on every entry. Presentation only. */
+
+.nf-audit-table { table-layout: fixed; }
+.nf-audit-table thead th, .nf-audit-table tbody td { padding-left: 16px; padding-right: 16px; }
+.nf-audit-user { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.nf-audit-by { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.nf-audit-by-av {
+  flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; letter-spacing: .02em; color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 26%, transparent);
+}
+.nf-audit-by-av.sys { color: var(--txt-mut); background: var(--raised); border-color: var(--line2); }
+.nf-audit-by-main { min-width: 0; }
+.nf-audit-by-name { font-size: 12.5px; font-weight: 600; color: color-mix(in srgb, var(--txt) 86%, var(--panel)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nf-audit-by-mail { margin-top: 1px; font-size: 11px; color: var(--txt-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .nf-audit-table { table-layout: auto; min-width: 760px; }
+}
