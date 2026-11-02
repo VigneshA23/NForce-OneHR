@@ -3,7 +3,7 @@ import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import { ActionDock } from '../components/ActionDock';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart, MapPin, List } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart, MapPin, List, CalendarPlus } from 'lucide-react';
 import './holidaysPolish.css';
 import { useAuthStore } from '../store/authStore';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
@@ -34,17 +34,21 @@ const HOLIDAY_NAME_MAX_LENGTH = 100;
 // size/weight rather than drifting independently.
 const primaryButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 
-function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+function ModalHeader({ title, subtitle, icon: Icon = CalendarPlus, onClose }: { title: string; subtitle?: string; icon?: React.ComponentType<{ size?: number }>; onClose: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+    <div className="nf-hm-head">
+      <span className="nf-hm-ico"><Icon size={20} /></span>
+      <div className="nf-hm-titles">
+        <div className="nf-hm-title">{title}</div>
+        {subtitle && <div className="nf-hm-sub">{subtitle}</div>}
+      </div>
+      <button onClick={onClose} className="nf-hm-x" aria-label="Close"><X size={16} /></button>
     </div>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label style={labelStyle}>{label}</label>{children}</div>;
+  return <div><label style={labelStyle} className="nf-hm-lbl">{label}</label>{children}</div>;
 }
 
 const HOLIDAY_STATUS_BADGE = (active: boolean) => (
@@ -269,27 +273,38 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
   }
 
   return (
-    <div style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={modalStyle}>
-        <ModalHeader title={editing ? 'Edit Holiday' : 'Add Holiday'} onClose={onClose} />
-        {error && <div style={{ margin: '16px 20px 0', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
-        <form onSubmit={submit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Field label="Holiday Name *">
-            <input ref={firstRef} maxLength={HOLIDAY_NAME_MAX_LENGTH} style={inputStyle} value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="e.g. Diwali" />
-          </Field>
-          <Field label="Date *">
-            <input type="date" min={editing ? undefined : todayIso} style={inputStyle} value={holidayDate} onChange={e => setHolidayDate(e.target.value)} />
-          </Field>
-          <Field label="Location *">
-            <select style={inputStyle} value={locationId} onChange={e => setLocationId(e.target.value)}>
-              <option value="">Select a location…</option>
-              {/* Active-only for a NEW selection — a deactivated (not deleted) location shouldn't
-                  be pickable going forward; `locationId` keeps this holiday's existing location
-                  visible/selected if it was assigned before that location was deactivated. */}
-              {locations.filter(l => l.active !== false || l.id === locationId).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-          </Field>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+    <div className="nf-hm-dlg" style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="nf-hm-card" style={modalStyle}>
+        <ModalHeader
+          title={editing ? 'Edit Holiday' : 'Add Holiday'}
+          subtitle={editing ? 'Update the name, date or location.' : 'Add a company holiday for a location.'}
+          icon={editing ? Pencil : CalendarPlus}
+          onClose={onClose}
+        />
+        <form onSubmit={submit}>
+          <div className="nf-hm-form">
+            {error && <div className="nf-hm-err">{error}</div>}
+            <section className="nf-hm-sec">
+              <Field label="Holiday Name *">
+                <input ref={firstRef} maxLength={HOLIDAY_NAME_MAX_LENGTH} style={inputStyle} value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="e.g. Diwali" />
+              </Field>
+              <div className="nf-hm-grid">
+                <Field label="Date *">
+                  <input type="date" min={editing ? undefined : todayIso} style={inputStyle} value={holidayDate} onChange={e => setHolidayDate(e.target.value)} />
+                </Field>
+                <Field label="Location *">
+                  <select style={inputStyle} value={locationId} onChange={e => setLocationId(e.target.value)}>
+                    <option value="">Select a location…</option>
+                    {/* Active-only for a NEW selection — a deactivated (not deleted) location shouldn't
+                        be pickable going forward; `locationId` keeps this holiday's existing location
+                        visible/selected if it was assigned before that location was deactivated. */}
+                    {locations.filter(l => l.active !== false || l.id === locationId).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </Field>
+              </div>
+            </section>
+          </div>
+          <div className="nf-hm-foot">
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             <button type="submit" disabled={loading} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>{loading ? 'Saving…' : 'Save'}</button>
           </div>

@@ -33,3 +33,27 @@
 /* lighter body text in the list */
 .nf-hol-table td { color: var(--txt-mut); }
 .nf-hol-table tbody td { font-weight: 400; }
+
+/* ── Add / Edit Holiday popup ── */
+.nf-hm-dlg { background: rgba(8, 10, 16, .6) !important; backdrop-filter: blur(3px); }
+.nf-hm-card { max-width: 520px !important; border-radius: 20px !important; border-color: var(--line2) !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important; animation: nf-hm-rise .2s ease-out; }
+@keyframes nf-hm-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+.nf-hm-head { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 18px 22px; background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line); }
+.nf-hm-ico { flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-hm-titles { flex: 1; min-width: 0; }
+.nf-hm-title { font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); }
+.nf-hm-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-hm-x { flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 11px; transition: color .15s, background .15s; }
+.nf-hm-x:hover { color: var(--txt); background: var(--raised2); }
+.nf-hm-form { padding: 20px 22px 4px; display: flex; flex-direction: column; gap: 14px; }
+.nf-hm-err { color: var(--risk); background: color-mix(in srgb, var(--risk) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--risk) 30%, transparent); border-radius: 12px; padding: 10px 14px; font-size: 13px; }
+.nf-hm-sec { border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--brand) 2%, var(--raised)); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.nf-hm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.nf-hm-card label.nf-hm-lbl { color: var(--txt-mut) !important; font-weight: 600 !important; letter-spacing: .04em !important; }
+.nf-hm-card input, .nf-hm-card select { background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 11px !important; padding: 10px 13px !important; transition: border-color .15s, box-shadow .15s; }
+.nf-hm-card input:hover, .nf-hm-card select:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-hm-card input:focus, .nf-hm-card select:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.nf-hm-foot { position: sticky; bottom: 0; z-index: 3; display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; padding: 14px 22px; background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -8px 18px rgba(16, 24, 40, .06); }
+.nf-hm-foot button { border-radius: 11px !important; padding: 9px 22px !important; }
+.nf-hm-foot button[type='submit']:not(:disabled) { box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 28%, transparent); }
+@media (max-width: 560px) { .nf-hm-grid { grid-template-columns: 1fr; } }
