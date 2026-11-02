@@ -3,7 +3,7 @@ import { PersonCell } from '../components/PersonCell';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
-import { Plus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon } from 'lucide-react';
+import { Plus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, UserPlus, Pencil, KeyRound, Trash2, Power, CheckCircle2, Briefcase, MapPin, Clock, ListChecks } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
@@ -13,6 +13,7 @@ import { useToast } from '../context/ToastContext';
 import { ShiftFormModal, fmtShiftTime } from './OrgSetupPage';
 import { InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
 import { businessTodayIsoDate } from '../utils/businessDate';
+import './userManagementPolish.css';
 
 /** "Sep 16, 2026" from a plain "YYYY-MM-DD" date-input value — for the Effective From helper text. */
 function fmtEffectiveDate(iso: string): string {
@@ -105,22 +106,33 @@ function RowActionsMenu({ items }: {
 
 interface OrgOptions { businessUnits: any[]; departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; shifts: ShiftRow[]; }
 
-const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,17,23,.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 };
+const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,17,23,.6)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.4)' };
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 9, padding: '10px 12px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' };
-const formSectionLabelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 2 };
 const primaryBtnStyle: React.CSSProperties = { background: 'linear-gradient(135deg, var(--brand-bright), var(--brand))', color: '#fff', border: 'none', borderRadius: 9, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 6px 16px rgba(177,17,22,.25)' };
 const secondaryBtnStyle: React.CSSProperties = { background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 9, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 
+function headerIcon(title: string): React.ComponentType<{ size?: number }> {
+  if (title.startsWith('Add')) return UserPlus;
+  if (title.startsWith('Edit')) return Pencil;
+  if (title.startsWith('Reset')) return KeyRound;
+  if (title.startsWith('Delete')) return Trash2;
+  if (title.startsWith('Deactivate') || title.startsWith('Activate') || title.startsWith('Reactivate')) return Power;
+  if (title.includes('Created')) return CheckCircle2;
+  return UserIcon;
+}
+
 function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose: () => void }) {
+  const Icon = headerIcon(title);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid var(--line)' }}>
-      <div>
-        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 16, color: 'var(--txt)' }}>{title}</div>
-        {subtitle && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{subtitle}</div>}
+    <div className="nf-um-head">
+      <span className="nf-um-head-ico"><Icon size={20} /></span>
+      <div className="nf-um-head-txt">
+        <div className="nf-um-head-title">{title}</div>
+        {subtitle && <div className="nf-um-head-sub">{subtitle}</div>}
       </div>
-      <button onClick={onClose} style={{ background: 'var(--raised2)', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+      <button onClick={onClose} className="nf-um-close" aria-label="Close"><X size={16} /></button>
     </div>
   );
 }
@@ -128,10 +140,18 @@ function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: s
 // Groups related fields under a small uppercase heading, matching the premium
 // section pattern used elsewhere on the User Management page — purely a
 // visual wrapper, no effect on the fields' state, validation, or submission.
+const SECTION_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
+  'Identity': UserIcon, 'Role & Employment': Briefcase, 'Location & Reporting': MapPin, 'Shift': Clock, 'Onboarding': ListChecks,
+};
+
 function FormSection({ label, columns = 2, children }: { label: string; columns?: 1 | 2; children: React.ReactNode }) {
+  const Icon = SECTION_ICONS[label] ?? UserIcon;
   return (
-    <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={formSectionLabelStyle}>{label}</div>
+    <div className="nf-um-sec" style={{ gridColumn: '1/-1' }}>
+      <div className="nf-um-sec-hd">
+        <span className="nf-um-sec-ico"><Icon size={15} /></span>
+        <span className="nf-um-sec-title">{label}</span>
+      </div>
       <div className={columns === 2 ? 'nf-grid-2col-collapse' : undefined} style={{ display: 'grid', gridTemplateColumns: columns === 2 ? '1fr 1fr' : '1fr', gap: 14 }}>
         {children}
       </div>
@@ -465,7 +485,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   if (created) {
     return (
       <div style={overlayStyle}>
-        <div style={modalStyle}>
+        <div className="nf-um-modal" style={modalStyle}>
           <ModalHeader title="User Created" onClose={onClose} />
           <div style={{ padding: 24 }}>
             <div style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
@@ -517,9 +537,9 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 640 }}>
+      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 640 }}>
         <ModalHeader title="Add User" subtitle="Create a new account with role, department, and access details." onClose={onClose} />
-        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr', gap: 22 }}>
+        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
           {error && !employeeCodeConflict && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
 
           <FormSection label="Identity">
@@ -669,7 +689,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
 
           <FormSection label="Onboarding" columns={1}>
           <div>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', cursor: 'pointer' }}>
+            <label className="nf-um-check" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={startOnboarding}
@@ -686,7 +706,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           </div>
           </FormSection>
 
-          <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <div className="nf-um-foot" style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={secondaryBtnStyle}>Cancel</button>
             <button type="submit" disabled={submitting} style={{ ...primaryBtnStyle, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Creating…' : 'Create User'}</button>
           </div>
@@ -776,7 +796,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 580 }}>
+      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 580 }}>
         <ModalHeader title={`Edit - ${user.fullName}`} onClose={onClose} />
         <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
@@ -915,7 +935,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           {isInactive && (
             <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Role, Reporting Manager, Department, Designation, or Employment Type" />
           )}
-          <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <div className="nf-um-foot" style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={secondaryBtnStyle}>Cancel</button>
             <button type="submit" disabled={submitting || gatedFieldsLocked} style={{ ...primaryBtnStyle, cursor: (submitting || gatedFieldsLocked) ? 'not-allowed' : 'pointer', opacity: (submitting || gatedFieldsLocked) ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
           </div>
@@ -953,7 +973,7 @@ function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; on
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 420 }}>
+      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 420 }}>
         <ModalHeader title="Reset Password" onClose={onClose} />
         <div style={{ padding: 24 }}>
           {state === 'confirm' && (
@@ -1022,7 +1042,7 @@ function StatusModal({ user, isSelf, isLastActiveSuperAdmin, onClose, onUpdated,
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 400 }}>
+      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 400 }}>
         <ModalHeader title={`${action} User`} onClose={onClose} />
         <div style={{ padding: 24 }}>
           {isSelf && user.active ? (
@@ -1081,7 +1101,7 @@ function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 440 }}>
+      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 440 }}>
         <ModalHeader title="Delete User" onClose={onClose} />
         <div style={{ padding: 24 }}>
           <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 8, padding: 14, marginBottom: 20 }}>

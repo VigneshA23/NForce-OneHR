@@ -52,6 +52,7 @@ import LeavePage from '../LeavePage';
 import ApprovalsPage from '../ApprovalsPage';
 import DashboardPage from '../DashboardPage';
 import DirectoryPage from '../DirectoryPage';
+import UserManagementPage from '../UserManagementPage';
 import HolidaysPage, { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -83,6 +84,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'dashboard-page', label: 'Super Admin dashboard (full page)', title: 'Dashboard', subtitle: 'Sample data: approvals donut, account health, users by role, birthdays, notifications and recent audit events.' },
   { key: 'holidays-page', label: 'Holidays page (full)', title: 'Leave & Holidays', subtitle: 'Sample data: summary tiles, upcoming holidays, month calendar and the holiday list.' },
   { key: 'directory-page', label: 'People Directory + details drawer', title: 'People Directory', subtitle: 'Sample data. Click View (or a row) to open the details drawer; add &role=hr or &role=employee to the URL to see other roles.' },
+  { key: 'user-mgmt-page', label: 'User Management + Add/Edit popups', title: 'User Management', subtitle: 'Sample data. Click Add User, or a row Manage > Edit, to see the popups.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -744,6 +746,46 @@ function DirectoryMock() {
   return ready ? <DirectoryPage /> : null;
 }
 
+function UserMgmtMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample users and org data with a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const depts = ['Engineering', 'Finance', 'Sales', 'Human Resources'].map((name, i) => ({ id: `d${i}`, name, active: true, employeeCount: 5, createdAt: '', updatedAt: '' }));
+    const desigs = ['Software Engineer', 'Analyst', 'Sales Executive', 'HR Executive'].map((title, i) => ({ id: `g${i}`, title, grade: null, level: null, departmentId: `d${i}`, departmentName: depts[i].name, active: true, employeeCount: 3, createdAt: '', updatedAt: '' }));
+    const locs = ['Hyderabad', 'Bangalore', 'Vishakhapatnam'].map((name, i) => ({ id: `l${i}`, name, city: name, state: null, country: 'India', timezone: 'Asia/Kolkata', active: true }));
+    const roles = ['EMPLOYEE', 'EMPLOYEE', 'MANAGER', 'HR_ADMIN', 'SUPER_ADMIN'];
+    const users = ['Aanuj Reddy K', 'Abbas DarubaiGari', 'Abuzar Siddiqui', 'Priya Nair', 'Rohit Sharma', 'Meera Iyer'].map((fullName, i) => ({
+      userId: `u${i}`, employeeCode: `NF-2026${1030 - i}`, fullName, email: `${fullName.split(' ')[0].toLowerCase()}@nforceone.com`, role: roles[i % roles.length],
+      businessUnitId: null, businessUnitName: null, departmentId: `d${i % 4}`, departmentName: depts[i % 4].name, designationId: `g${i % 4}`, designationName: desigs[i % 4].title,
+      locationId: `l${i % 3}`, locationName: locs[i % 3].name, shiftId: null, shiftName: null, employmentType: 'FULL_TIME', workMode: 'ONSITE', joiningDate: '2026-04-12', active: i !== 4,
+      currentManager: i === 3 ? null : { userId: 'u3', fullName: 'Priya Nair' },
+    }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/users')) return json(users);
+      if (url.endsWith('/employees/potential-managers')) return json(users.filter(u => u.role !== 'EMPLOYEE'));
+      if (url.endsWith('/employees/next-code')) return json({ employeeCode: 'NF-20261305' });
+      if (url.endsWith('/business-units')) return json([{ id: 'b1', name: 'Technology', active: true, employeeCount: 10, createdAt: '', updatedAt: '' }]);
+      if (url.endsWith('/departments')) return json(depts);
+      if (url.endsWith('/designations')) return json(desigs);
+      if (url.endsWith('/locations')) return json(locs);
+      if (url.endsWith('/shifts')) return json([]);
+      if (url.includes('/api/')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <UserManagementPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -963,6 +1005,8 @@ function Tiles({ page }: { page: string }) {
       return <LeaveMock />;
     case 'approvals-page':
       return <ApprovalsMock />;
+    case 'user-mgmt-page':
+      return <UserMgmtMock />;
     case 'directory-page':
       return <DirectoryMock />;
     case 'holidays-page':
