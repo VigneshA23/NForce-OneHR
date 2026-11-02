@@ -394,17 +394,15 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
     <div ref={overlayRef} className="apv-overlay" role="dialog" aria-modal="true" aria-label={`${TYPE_LABELS[item.requestType]} request from ${item.employeeName}`}>
       <div className="apv-modal">
         <div className="apv-modal-head">
-          <EmployeeAvatar userId={item.employeeUserId} name={item.employeeName} size={38} fontSize={13} />
+          <span className="apv-head-av"><EmployeeAvatar userId={item.employeeUserId} name={item.employeeName} size={48} fontSize={16} /></span>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {item.employeeName}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+            <div className="apv-head-name">{item.employeeName}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
               <TypeBadge type={item.requestType} />
-              <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Submitted {fmtDate(item.createdAt)}</span>
+              <span className="apv-head-sub">Submitted {fmtDate(item.createdAt)}</span>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignSelf: 'flex-start' }}><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="apv-head-x"><X size={16} /></button>
         </div>
 
         <div className="apv-modal-body">
@@ -620,11 +618,24 @@ function BulkActionModal({ items, mode, onClose, onDone, token }: {
   );
 }
 
+/** Icon for a detail row, picked from its label — presentation only. */
+function rowIcon(label: string): LucideIcon {
+  const l = label.toLowerCase();
+  if (l.includes('date') || l.includes('dates')) return CalendarDays;
+  if (l.includes('check-in') || l.includes('check-out') || l.includes('duration') || l.includes('hours') || l.includes('days')) return Clock;
+  if (l.includes('amount') || l.includes('category') || l.includes('stage')) return Wallet;
+  return FileText;
+}
+
 function Row({ label, value, span }: { label: string; value?: string | null; span?: boolean }) {
+  const Icon = rowIcon(label);
   return (
-    <div className={span ? 'apv-span' : undefined}>
-      <div style={labelStyle}>{label}</div>
-      <div style={{ fontSize: 13, color: 'var(--txt)' }}>{value ?? EMPTY_VALUE}</div>
+    <div className={`apv-fact${span ? ' apv-span' : ''}`}>
+      <span className="apv-fact-ico"><Icon size={15} /></span>
+      <div className="apv-fact-main">
+        <div className="apv-fact-lbl">{label}</div>
+        <div className="apv-fact-val">{value ?? EMPTY_VALUE}</div>
+      </div>
     </div>
   );
 }
