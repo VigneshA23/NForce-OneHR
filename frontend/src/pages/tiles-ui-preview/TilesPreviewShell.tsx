@@ -51,6 +51,7 @@ import TalentPerformancePage from '../talent/TalentPerformancePage';
 import LeavePage from '../LeavePage';
 import ApprovalsPage from '../ApprovalsPage';
 import DashboardPage from '../DashboardPage';
+import DirectoryPage from '../DirectoryPage';
 import HolidaysPage, { HolidayMonthCalendar } from '../HolidaysPage';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -81,6 +82,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'approvals-page', label: 'Approval Center (full page)', title: 'Approval Center', subtitle: 'Sample queue: Employee ID under each name, a table that fits without sideways scrolling, and the shared pagination.' },
   { key: 'dashboard-page', label: 'Super Admin dashboard (full page)', title: 'Dashboard', subtitle: 'Sample data: approvals donut, account health, users by role, birthdays, notifications and recent audit events.' },
   { key: 'holidays-page', label: 'Holidays page (full)', title: 'Leave & Holidays', subtitle: 'Sample data: summary tiles, upcoming holidays, month calendar and the holiday list.' },
+  { key: 'directory-page', label: 'People Directory + details drawer', title: 'People Directory', subtitle: 'Sample data. Click View (or a row) to open the details drawer; add &role=hr or &role=employee to the URL to see other roles.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -699,6 +701,39 @@ function HolidaysMock() {
   return ready ? <HolidaysPage /> : null;
 }
 
+function DirectoryMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample people and a chosen session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const names = ['Aanuj Reddy K', 'Abbas DarubaiGari', 'Abuzar Siddiqui', 'Anil Kumar Ramtenki', 'Priya Nair', 'Rohit Sharma', 'Meera Iyer', 'Karthik S'];
+    const people = names.map((fullName, i) => ({
+      userId: `u${i}`, employeeCode: `NF-2026${1030 - i}`, fullName, email: `${fullName.split(' ')[0].toLowerCase()}@nforceone.com`,
+      departmentName: i % 3 === 0 ? 'Engineering' : i % 3 === 1 ? 'Finance' : 'Sales', designationName: i === 1 ? null : ['Junior Sales Engineer', 'Software Engineer', 'Backend Developer', 'Analyst'][i % 4],
+      locationName: ['Hyderabad', 'Bangalore', 'Vishakhapatnam'][i % 3], workMode: ['ONSITE', 'HYBRID', 'REMOTE'][i % 3], employmentType: i % 4 === 3 ? 'PART_TIME' : 'FULL_TIME',
+      active: i !== 5, managerName: i === 3 ? null : 'Vignesh Appani', managerEmail: 'vignesh@nforceone.com',
+    }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/employees/directory')) return json(people);
+      if (url.endsWith('/photo')) return Promise.resolve(new Response(null, { status: 404 }));
+      if (url.includes('/api/')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    const r = new URLSearchParams(window.location.search).get('role');
+    const mockRole = r === 'hr' ? 'HR_ADMIN' : r === 'employee' ? 'EMPLOYEE' : r === 'manager' ? 'MANAGER' : 'SUPER_ADMIN';
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: mockRole } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <DirectoryPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -918,6 +953,8 @@ function Tiles({ page }: { page: string }) {
       return <LeaveMock />;
     case 'approvals-page':
       return <ApprovalsMock />;
+    case 'directory-page':
+      return <DirectoryMock />;
     case 'holidays-page':
       return <HolidaysMock />;
     case 'dashboard-page':
