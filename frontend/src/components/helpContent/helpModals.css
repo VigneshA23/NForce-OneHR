@@ -1,0 +1,39 @@
+/* Help & Guidance popups — Add/Edit FAQ and Guide, Contact HR Support, the content viewer, "All FAQs / All Guides"
+ * lists, reason prompts and confirm dialogs. Presentation only; theme tokens throughout. Inline styles set the
+ * field properties, hence the few !important rules. */
+
+.nf-hp-dlg { background: rgba(8, 10, 16, .6) !important; backdrop-filter: blur(3px); }
+.nf-hp-card {
+  border-radius: 20px !important; border-color: var(--line2) !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important;
+  animation: nf-hp-rise .2s ease-out;
+}
+@keyframes nf-hp-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+
+.nf-hp-head {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 18px 22px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line);
+}
+.nf-hp-ico { flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-hp-titles { flex: 1; min-width: 0; }
+.nf-hp-title { font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); overflow-wrap: anywhere; }
+.nf-hp-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-hp-x { flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; padding: 0; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 11px; transition: color .15s, background .15s; }
+.nf-hp-x:hover { color: var(--txt); background: var(--raised2); }
+
+/* fields */
+.nf-hp-card label { color: var(--txt-mut); font-weight: 600; letter-spacing: .04em; }
+.nf-hp-card input:not([type='checkbox']):not([type='radio']):not([type='file']),
+.nf-hp-card select,
+.nf-hp-card textarea {
+  background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 11px !important; padding: 10px 13px !important; transition: border-color .15s, box-shadow .15s;
+}
+.nf-hp-card input:not([type='checkbox']):not([type='radio']):not([type='file']):hover,
+.nf-hp-card select:hover, .nf-hp-card textarea:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-hp-card input:not([type='checkbox']):not([type='radio']):not([type='file']):focus,
+.nf-hp-card select:focus, .nf-hp-card textarea:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.nf-hp-card input[type='checkbox'], .nf-hp-card input[type='radio'] { accent-color: var(--brand); width: 16px; height: 16px; }
+
+/* action row */
+.nf-hp-foot { margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--line); }
+.nf-hp-foot button { border-radius: 11px !important; padding: 9px 22px !important; }
+.nf-hp-foot button[type='submit']:not(:disabled), .nf-hp-foot button:last-child:not(:first-child):not(:disabled) { box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 28%, transparent); }

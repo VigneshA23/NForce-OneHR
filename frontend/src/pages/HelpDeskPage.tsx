@@ -30,6 +30,7 @@ import { ReviewPublishModal } from '../components/helpContent/ReviewPublishModal
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
 import { ChipGroup } from '../components/TabBar';
 import { ActionDock } from '../components/ActionDock';
+import '../components/helpContent/helpModals.css';
 
 // Same overlay/modal/input/label/table constants used across LeavePage, MyRequestsPage,
 // EmployeeMasterPage etc. — this codebase has no shared component library, every page
@@ -41,11 +42,37 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
 const tdStyle: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 
+function modalIconFor(title: string): LucideIcon {
+  const t = title.toLowerCase();
+  if (t.includes('faq')) return HelpCircle;
+  if (t.includes('guide') || t.includes('quick help')) return BookOpen;
+  if (t.includes('edit')) return Pencil;
+  if (t.includes('contact') || t.includes('support')) return LifeBuoy;
+  if (t.includes('reject') || t.includes('reason')) return X;
+  if (t.includes('delete') || t.includes('archive')) return Trash2;
+  return FileText;
+}
+
+function modalSubtitleFor(title: string): string | null {
+  const t = title.toLowerCase();
+  if (t.startsWith('add new faq')) return 'Write the question as an employee would ask it, with a short answer.';
+  if (t.startsWith('add new guide') || t.startsWith('add guide')) return 'Add a guide or quick-help document.';
+  if (t.startsWith('edit')) return 'Update this content.';
+  if (t === 'contact hr support') return 'Tell HR what you need and we will get back to you.';
+  return null;
+}
+
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  const Icon = modalIconFor(title);
+  const sub = modalSubtitleFor(title);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+    <div className="nf-hp-head">
+      <span className="nf-hp-ico"><Icon size={20} /></span>
+      <div className="nf-hp-titles">
+        <div className="nf-hp-title">{title}</div>
+        {sub && <div className="nf-hp-sub">{sub}</div>}
+      </div>
+      <button onClick={onClose} className="nf-hp-x" aria-label="Close"><X size={16} /></button>
     </div>
   );
 }
@@ -106,8 +133,8 @@ function ContactHRModal({ categories, token, initialDescription, onClose, onCrea
 
   if (created) {
     return (
-      <div style={overlayStyle}>
-        <div style={modalStyle}>
+      <div className="nf-hp-dlg" style={overlayStyle}>
+        <div className="nf-hp-card" style={modalStyle}>
           <ModalHeader title="Contact HR Support" onClose={onClose} />
           <div style={{ padding: '32px 24px', textAlign: 'center' }}>
             <CheckCircle2 size={40} style={{ color: 'var(--ok)', marginBottom: 12 }} />
@@ -134,8 +161,8 @@ function ContactHRModal({ categories, token, initialDescription, onClose, onCrea
   }
 
   return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
+    <div className="nf-hp-dlg" style={overlayStyle}>
+      <div className="nf-hp-card" style={modalStyle}>
         <ModalHeader title="Contact HR Support" onClose={onClose} />
         <form onSubmit={handleSubmit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
@@ -152,7 +179,7 @@ function ContactHRModal({ categories, token, initialDescription, onClose, onCrea
               placeholder="Describe your request in detail…"
             />
           </Field>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <div className="nf-hp-foot" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             <button type="submit" disabled={submitting} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
               {submitting ? 'Submitting…' : 'Submit Request'}
@@ -625,14 +652,14 @@ function ReasonPromptModal({ title, label, onConfirm, onClose }: {
   }
 
   return (
-    <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 460 }}>
+    <div className="nf-hp-dlg" style={overlayStyle}>
+      <div className="nf-hp-card" style={{ ...modalStyle, maxWidth: 460 }}>
         <ModalHeader title={title} onClose={onClose} />
         <div style={{ padding: 24 }}>
           <label style={labelStyle}>{label} *</label>
           <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit', marginBottom: 14 }} value={reason} onChange={e => setReason(e.target.value)} autoFocus disabled={submitting} />
           {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '9px 13px', fontSize: 12.5, marginBottom: 14 }}>{error}</div>}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <div className="nf-hp-foot" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button onClick={onClose} disabled={submitting} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>Cancel</button>
             <button onClick={handleConfirm} disabled={!reason.trim() || submitting} style={{ background: reason.trim() ? 'var(--brand)' : 'var(--raised2)', color: reason.trim() ? '#fff' : 'var(--txt-dim)', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: (!reason.trim() || submitting) ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
               {submitting ? 'Processing…' : 'Confirm'}
@@ -758,32 +785,49 @@ function ContentModal({ id, token, isAdmin, viewedRef, onClose, onContactHR }: {
   onClose: () => void; onContactHR: (guideTitle: string) => void;
 }) {
   const [item, setItem] = useState<HelpContentDetail | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [viewingAttachments, setViewingAttachments] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     // Admins fetch via the admin endpoint so this modal also works for the non-published
     // statuses admins can legitimately open (e.g. from search or "View") — the employee-facing
-    // endpoint requires PUBLISHED and would otherwise leave this stuck on "Loading…" forever.
+    // endpoint requires PUBLISHED and would otherwise fail for them.
     const fetchDetail = isAdmin ? hrHelpContentApi.getOne(id, token) : helpContentApi.getOne(id, token);
-    fetchDetail.then(setItem);
+    // A failed or malformed response used to leave this popup on "Loading…" forever with no way
+    // out; it now shows the reason and lets the user close it.
+    fetchDetail
+      .then(d => { if (!cancelled) { if (d && (d as HelpContentDetail).id) setItem(d); else setLoadError('This content could not be loaded.'); } })
+      .catch(e => { if (!cancelled) setLoadError(e instanceof Error ? e.message : 'This content could not be loaded.'); });
     // Deduped per session, same as FAQAccordion's viewedRef — see D10.
     if (!viewedRef.current.has(id)) {
       viewedRef.current.add(id);
       helpContentApi.trackView(id, token);
     }
+    return () => { cancelled = true; };
   }, [id, token, isAdmin, viewedRef]);
 
   if (!item) {
     return (
-      <div style={overlayStyle}>
-        <div style={modalStyle}><div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div></div>
+      <div className="nf-hp-dlg" style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+        <div className="nf-hp-card" style={{ ...modalStyle, maxWidth: 460 }}>
+          <ModalHeader title={loadError ? 'Could not open this item' : 'Opening…'} onClose={onClose} />
+          <div style={{ padding: 28, textAlign: 'center', color: loadError ? 'var(--risk)' : 'var(--txt-dim)', fontSize: 13.5, lineHeight: 1.6 }}>
+            {loadError ?? 'Loading…'}
+          </div>
+          {loadError && (
+            <div className="nf-hp-foot" style={{ display: 'flex', justifyContent: 'flex-end', padding: '14px 22px' }}>
+              <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>Close</button>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ ...modalStyle, maxWidth: 620 }}>
+    <div className="nf-hp-dlg" style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="nf-hp-card" style={{ ...modalStyle, maxWidth: 620 }}>
         <ModalHeader title={item.title} onClose={onClose} />
         <div style={{ padding: 24 }}>
           {item.description && <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 0, marginBottom: 14 }}>{item.description}</p>}
@@ -923,8 +967,8 @@ function AllFaqsModal({ token, isAdmin, refreshToken, actions, busyIds, onClose 
   }, [token, isAdmin, refreshToken]);
   const filtered = items === null ? null : statusFilter === 'ALL' ? items : items.filter(i => i.status === statusFilter);
   return (
-    <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ ...modalStyle, maxWidth: 620 }}>
+    <div className="nf-hp-dlg" style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="nf-hp-card" style={{ ...modalStyle, maxWidth: 620 }}>
         <ModalHeader title="All FAQs" onClose={onClose} />
         <div style={{ padding: 24, maxHeight: '70vh', overflowY: 'auto' }}>
           {items === null ? (
@@ -953,8 +997,8 @@ function AllGuidesModal({ token, isAdmin, refreshToken, onOpenItem, actions, bus
   }, [token, isAdmin, refreshToken]);
   const filtered = items === null ? null : statusFilter === 'ALL' ? items : items.filter(i => i.status === statusFilter);
   return (
-    <div style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ ...modalStyle, maxWidth: 620 }}>
+    <div className="nf-hp-dlg" style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="nf-hp-card" style={{ ...modalStyle, maxWidth: 620 }}>
         <ModalHeader title="All Guides & Quick Help" onClose={onClose} />
         <div style={{ padding: 24, maxHeight: '70vh', overflowY: 'auto' }}>
           {items === null ? (

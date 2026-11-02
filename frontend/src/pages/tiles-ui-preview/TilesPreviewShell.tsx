@@ -38,7 +38,7 @@ import { AuditStatCards } from '../../components/audit/AuditStatCards';
 import { AuditCategoryChips } from '../../components/audit/AuditCategoryChips';
 import { AuditLogTable } from '../../components/audit/AuditLogTable';
 import type { AuditLogEntry } from '../../api/audit';
-import { KpiCard as ReportKpi, Section as ReportSection, HeadcountRows } from '../ReportsPage';
+import ReportsPage, { KpiCard as ReportKpi, Section as ReportSection, HeadcountRows } from '../ReportsPage';
 import ApiUsagePage, { KpiCard as ApiKpi } from '../ApiUsagePage';
 import { useAuthStore } from '../../store/authStore';
 import { HRView } from '../AssetsExpensesPage';
@@ -87,6 +87,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'directory-page', label: 'People Directory + details drawer', title: 'People Directory', subtitle: 'Sample data. Click View (or a row) to open the details drawer; add &role=hr or &role=employee to the URL to see other roles.' },
   { key: 'user-mgmt-page', label: 'User Management + Add/Edit popups', title: 'User Management', subtitle: 'Sample data. Click Add User, or a row Manage > Edit, to see the popups.' },
   { key: 'masters-page', label: 'Org Masters + Add popups (real page)', title: 'Organization Masters', subtitle: 'Sample data. Pick a tab and click its Add button (Business Unit, Department, Designation, Location, Shift...) to see the popup.' },
+  { key: 'reports-page', label: 'Reports + KPI drill-down (real page)', title: 'Reports & Analytics', subtitle: 'Sample data. Click a KPI tile (Total Headcount, Present, Late/Absent, Leave) to open its employee list.' },
   { key: 'documents', label: 'My Documents', title: 'My Documents & Policies', subtitle: 'Manage your required documents and acknowledge company policies.' },
 ];
 
@@ -203,7 +204,7 @@ const AUDIT_ROWS: AuditLogEntry[] = [
   ['EMPLOYEE_UPDATED', 'EMPLOYEE', 'Meera Nair', '2026-10-17T16:40:00'],
   ['USER_ROLE_CHANGED', 'ACCESS', 'Rahul Verma', '2026-10-16T09:15:00'],
 ].map(([action, actionGroup, targetLabel, occurredAt], i) => ({
-  id: i + 1, occurredAt, actorId: null, actorName: 'Admin', actorEmail: null, action, actionCategory: action,
+  id: i + 1, occurredAt, actorId: null, actorName: i === 2 ? null : ['Naveen Kumar R', 'Anil Kumar Ramtenki', 'Vignesh Appani'][i % 3], actorEmail: i === 2 ? null : ['naveen@nforceone.com', 'anil@nforceone.com', 'vignesh@nforceone.com'][i % 3], action, actionCategory: action,
   actionGroup, targetId: null, targetLabel, targetEmployeeCode: null, affectedUsers: null, beforeState: null, afterState: null,
 } as unknown as AuditLogEntry));
 
@@ -440,6 +441,11 @@ function HelpMock() {
       const url = String(input).split('?')[0];
       if (url.endsWith('/api/hr/help-content') || url.endsWith('/api/help-content')) {
         return json({ content: all, totalElements: all.length, totalPages: 1, number: 0, size: 100 });
+      }
+      const detailId = /\/api\/(?:hr\/)?help-content\/([^/]+)$/.exec(url)?.[1];
+      if (detailId && all.some(a => a.id === detailId)) {
+        const it = all.find(a => a.id === detailId)!;
+        return json({ ...it, body: it.type === 'FAQ' ? 'Open the item from the list, read the details and follow the steps shown. If you are still stuck, contact HR Support.' : null, publishedAt: null, createdByName: 'Anil Kumar', updatedByName: null, attachments: it.attachmentCount ? [{ id: 'at1', fileName: 'guide.pdf', contentType: 'application/pdf', sizeBytes: 20480, displayOrder: 0 }] : [] });
       }
       if (url.endsWith('/api/helpdesk/my')) return json({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 10 });
       if (url.includes('/api/helpdesk')) return json([]);
@@ -817,6 +823,40 @@ function OrgMastersMock() {
   return ready ? <OrgSetupPage /> : null;
 }
 
+function ReportsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample org data with a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const names = ['Abuzar Siddiqui', 'Vandana', 'Venkat Narsimha Reddy', 'Venkatesh', 'Naveen Kumar R', 'Ramesh A', 'Testo', 'Priya Nair', 'Rohit Sharma', 'Meera Iyer'];
+    const depts = ['Finance', 'Engineering', 'Sales', 'Quality Engineering', 'Human Resources'];
+    const reports = names.map((fullName, i) => ({ userId: `u${i}`, employeeCode: `NF-2026${1004 + i}`, fullName, designationName: ['Finance Analyst', 'Senior QA Engineer', 'Software Developer', 'HR Executive'][i % 4], departmentName: depts[i % 5], active: i !== 9, roleCode: 'EMPLOYEE' }));
+    const today = new Date().toISOString().slice(0, 10);
+    const statuses = ['PRESENT', 'PRESENT', 'LATE', 'PRESENT', 'ABSENT', 'PRESENT', 'HALF_DAY', 'PRESENT', 'LATE', 'PRESENT'];
+    const attendance = reports.map((r, i) => ({ id: `a${i}`, employeeUserId: r.userId, employeeCode: r.employeeCode, fullName: r.fullName, workDate: today, checkInAt: `${today}T0${9 + (i % 2)}:${i % 2 ? '25' : '05'}:00`, checkOutAt: null, sessionStartedAt: null, workedMinutes: 300, status: statuses[i], lateByMinutes: statuses[i] === 'LATE' ? 22 : null, source: 'SYSTEM', workMode: 'ONSITE', timezone: null }));
+    const leaveRows = [0, 3, 6].map(i => ({ id: `l${i}`, employeeUserId: reports[i].userId, employeeName: reports[i].fullName, employeeCode: reports[i].employeeCode, leaveTypeCode: 'ANNUAL', leaveTypeName: 'Annual Leave', startDate: today, endDate: today, halfDay: i === 3, totalDays: i === 3 ? 0.5 : 1, status: ['APPROVED', 'PENDING', 'APPROVED'][i / 3] }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/org-dashboard') || url.endsWith('/my-reports')) return json({ directReportCount: reports.length, directReports: reports, teamJoiners: [] });
+      if (url.endsWith('/attendance/day') || url.endsWith('/attendance/team')) return json(attendance);
+      if (url.endsWith('/leave/organization') || url.endsWith('/leave/team')) return json(leaveRows);
+      if (url.endsWith('/leave/approvals')) return json([]);
+      if (url.endsWith('/photo')) return Promise.resolve(new Response(null, { status: 404 }));
+      if (url.includes('/api/')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <ReportsPage /> : null;
+}
+
 function Tiles({ page }: { page: string }) {
   switch (page) {
     case 'menu':
@@ -970,6 +1010,8 @@ function Tiles({ page }: { page: string }) {
         </>
       );
     }
+    case 'reports-page':
+      return <ReportsMock />;
     case 'reports':
       return (
         <>
