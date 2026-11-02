@@ -496,7 +496,9 @@ function TalentMock() {
     const skillNames: Array<[string, string]> = [['Java', 'Backend'], ['React', 'Frontend'], ['SQL', 'Data'], ['Python', 'Backend'], ['AWS', 'Cloud']];
     const skillOptions = skillNames.map(([name, category], i) => ({ id: `s${i}`, name, category, aliases: i === 1 ? ['ReactJS'] : [] }));
     const levels = ['Beginner', 'Intermediate', 'Advanced', 'Expert'].map((name, i) => ({ id: `l${i}`, name, sortOrder: i + 1, description: null }));
-    const cert = (id: string, name: string) => ({ id, name, categoryId: null, categoryName: 'Cloud', issuingOrganization: 'AWS', credentialId: null, credentialUrl: null, issueDate: null, expiryDate: null });
+    const inDays = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+    const expiries = [20, 200, -5, 75];
+    const cert = (id: string, name: string, k = 0) => ({ id, name, categoryId: null, categoryName: 'Cloud', issuingOrganization: 'AWS', credentialId: null, credentialUrl: null, issueDate: null, expiryDate: inDays(expiries[k % expiries.length]) });
     const people: Array<[string, string, string, string, Array<[string, string]>, number]> = [
       ['u1', 'Abuzar Siddiqui', 'NF-20261004', 'Finance', [['Java', 'Expert'], ['SQL', 'Advanced'], ['AWS', 'Intermediate']], 2],
       ['u2', 'Vandana', 'NF-20261096', 'Engineering', [['React', 'Advanced'], ['Java', 'Intermediate']], 1],
@@ -506,7 +508,7 @@ function TalentMock() {
     const summaries = people.map(([id, employeeName, employeeCode, departmentName, sk, certs]) => ({
       employeeUserId: id, employeeName, employeeCode, departmentName, locationName: 'Hyderabad', designationName: null, managerName: 'Narendra Reddy',
       skills: sk.map(([skillName, proficiencyLevel], i) => ({ id: `${id}-${i}`, skillId: null, skillName, proficiencyLevel })),
-      certificates: Array.from({ length: certs }, (_, i) => cert(`${id}-c${i}`, 'AWS Cloud Practitioner')), learningEntries: [],
+      certificates: Array.from({ length: certs }, (_, i) => cert(`${id}-c${i}`, i === 0 ? 'AWS Cloud Practitioner' : 'Azure Fundamentals', Number(id.slice(1)) + i)), learningEntries: id === 'u1' ? [{ id: 'le1', title: 'Advanced Kubernetes', status: 'In Progress', learningType: 'Course' }, { id: 'le2', title: 'System Design', status: 'Completed', learningType: 'Book' }] : [],
     }));
     window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input).split('?')[0];
@@ -517,6 +519,14 @@ function TalentMock() {
         return json({ items: summaries.filter(x => x.skills.length > 0).map(x => ({ employeeUserId: x.employeeUserId, employeeName: x.employeeName, employeeCode: x.employeeCode, departmentName: x.departmentName, managerName: x.managerName, matchingSkills: x.skills.map(k => ({ skillName: k.skillName, proficiencyLevel: k.proficiencyLevel })), certificates: x.certificates, currentLearningTrack: null, matchScore: 90 })), page: 0, size: 20, totalElements: 3, totalPages: 1 });
       }
       if (url.endsWith('/org/talent/directory')) return json(summaries);
+      if (url.includes('/org/talent/directory/')) { const e = summaries.find(x => url.endsWith('/' + x.employeeUserId)); return e ? json({ employeeUserId: e.employeeUserId, employeeName: e.employeeName, skills: e.skills, certificates: e.certificates, learningEntries: e.learningEntries }) : json({}); }
+      if (url.endsWith('/org/talent/dashboard')) {
+        return json({
+          totalEmployees: summaries.length, withSkills: summaries.filter(x => x.skills.length > 0).length, withCertificates: summaries.filter(x => x.certificates.length > 0).length, withActiveLearningTrack: 1,
+          certificatesExpiringIn30Days: 1, topSkills: [{ name: 'Java', count: 2 }, { name: 'SQL', count: 1 }, { name: 'React', count: 1 }], proficiencyDistribution: [{ name: 'Beginner', count: 1 }, { name: 'Intermediate', count: 2 }, { name: 'Advanced', count: 2 }, { name: 'Expert', count: 1 }],
+          skillsByDepartment: { Finance: [{ name: 'Java', count: 1 }], Engineering: [{ name: 'React', count: 1 }] }, certificatesByCategory: [{ name: 'Cloud', count: 3 }], certificateExpiryBreakdown: { in30Days: 1, in60Days: 1, in90Days: 2 }, learningStatusCounts: [{ name: 'In Progress', count: 1 }, { name: 'Completed', count: 1 }],
+        });
+      }
       if (url.endsWith('/org/talent/skills')) return json(skillOptions.map((x, i) => ({ ...x, active: i !== 4, usageCount: 12 - i * 2 })));
       if (url.endsWith('/org/talent/proficiency-levels')) return json(levels.map((l, i) => ({ ...l, active: true, usageCount: 20 - i * 4 })));
       if (url.endsWith('/org/talent/certificate-categories')) return json([{ id: 'c1', name: 'Cloud', hasExpiry: true, active: true, usageCount: 6 }, { id: 'c2', name: 'Security', hasExpiry: false, active: true, usageCount: 2 }]);
