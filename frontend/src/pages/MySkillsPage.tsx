@@ -2,13 +2,13 @@ import PageTitleBlock from '../components/PageTitleBlock';
 import { Award } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { SkillsCard } from './profile/tabs/SkillsCard';
+import { SkillRatingsCard, TeamSkillEndorsementsCard } from './SkillRatings';
 
-// Org-wide taxonomy + 1-5 self/manager-rating used to live here too (US-A07) — removed from this
-// page per request. That system still exists and is still used elsewhere (Bench Management's own
-// Settings tab manages the taxonomy; Bench List and Internal Opportunities use it for skill
-// matching) — see skillsApi/SkillController. Only this page's own UI for it was removed.
+// US-A07: 1–5 self-rating against the HR-managed taxonomy, plus manager endorsement of direct reports.
 export default function MySkillsPage() {
   const token = useAuthStore(s => s.token) ?? '';
+  const role = useAuthStore(s => s.user?.role);
+  const canEndorse = role === 'MANAGER' || role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
 
   return (
     <div>
@@ -20,6 +20,8 @@ export default function MySkillsPage() {
       </PageTitleBlock>
 
       <SkillsCard token={token} />
+      <SkillRatingsCard token={token} />
+      {canEndorse && <TeamSkillEndorsementsCard token={token} />}
     </div>
   );
 }
