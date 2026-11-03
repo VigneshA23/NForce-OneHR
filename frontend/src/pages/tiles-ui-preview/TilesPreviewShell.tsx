@@ -293,6 +293,7 @@ function AssetsMock() {
       const url = String(input).split('?')[0];
       if (url.endsWith('/api/assets')) return json(inventory);
       if (url.endsWith('/api/assets/tiles/hr')) return json({ totalAssigned: 8, available: 12, overdueReturns: 0 });
+      if (url.endsWith('/api/assets/categories')) return json(['Laptop', 'Monitor', 'Mobile Phone', 'Access Card'].map((name, i) => ({ id: i + 1, name, active: true })));
       if (url.endsWith('/api/assets/requests/pending')) return json([]);
       if (url.includes('/api/expenses') || url.includes('/api/assets')) return json([]);
       return prevFetch(input, init);

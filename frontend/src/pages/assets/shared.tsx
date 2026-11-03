@@ -1,5 +1,7 @@
 import { X } from 'lucide-react';
-import { AlarmClock, Hourglass, CheckCircle2, Boxes, Receipt, ClipboardList, Package } from 'lucide-react';
+import { AlarmClock, Hourglass, CheckCircle2, Boxes, Receipt, ClipboardList, Package, Pencil, Undo2, UserPlus, PackagePlus } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import './assetsModals.css';
 import DashTile from '../../components/DashTile';
 
 // ── Shared styles ─────────────────────────────────────────
@@ -107,15 +109,43 @@ export function EmptyRow({ cols, msg }: { cols: number; msg: string }) {
 
 // ── Modal wrapper ─────────────────────────────────────────
 
+function modalIconFor(title: string): LucideIcon {
+  const t = title.toLowerCase();
+  if (t.includes('expense')) return Receipt;
+  if (t.startsWith('add asset')) return PackagePlus;
+  if (t.startsWith('assign') || t.startsWith('reassign')) return UserPlus;
+  if (t.includes('returned')) return Undo2;
+  if (t.startsWith('fulfill')) return CheckCircle2;
+  if (t.startsWith('edit')) return Pencil;
+  return Package;
+}
+
+function modalSubtitleFor(title: string): string | null {
+  const t = title.toLowerCase();
+  if (t.startsWith('add asset')) return 'Register a new company asset in the inventory.';
+  if (t.startsWith('assign')) return 'Choose who this asset goes to.';
+  if (t.startsWith('reassign')) return 'Move this asset to another employee.';
+  if (t.includes('returned')) return 'Record that this asset is back with the company.';
+  if (t.startsWith('request asset')) return 'Ask for an asset you need for your work.';
+  if (t.startsWith('submit expense')) return 'Add the details and receipt for your claim.';
+  return null;
+}
+
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const Icon = modalIconFor(title);
+  const sub = modalSubtitleFor(title);
   return (
-    <div style={overlayStyle} className="nf-modal-overlay-in">
-      <div style={modalStyle} className="nf-modal-panel-in">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'flex' }}><X size={16} /></button>
+    <div style={overlayStyle} className="nf-modal-overlay-in nf-as-dlg">
+      <div style={modalStyle} className="nf-modal-panel-in nf-as-card">
+        <div className="nf-as-head">
+          <span className="nf-as-ico"><Icon size={20} /></span>
+          <div className="nf-as-titles">
+            <div className="nf-as-title">{title}</div>
+            {sub && <div className="nf-as-sub">{sub}</div>}
+          </div>
+          <button onClick={onClose} className="nf-as-x" aria-label="Close"><X size={16} /></button>
         </div>
-        <div style={{ padding: 20 }}>{children}</div>
+        <div className="nf-as-body">{children}</div>
       </div>
     </div>
   );
