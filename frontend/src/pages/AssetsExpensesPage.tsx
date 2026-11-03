@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { EmpCode } from '../components/EmpCode';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useNavigate } from 'react-router-dom';
-import { Check, ExternalLink, Paperclip, Plus } from 'lucide-react';
-import { KebabMenu } from '../components/KebabMenu';
+import { Archive, Check, ExternalLink, Paperclip, Plus, Package, Repeat, Search, Trash2, Undo2, UserPlus } from 'lucide-react';
+import { PersonAvatar } from '../components/PersonCell';
+import { ActionDock } from '../components/ActionDock';
 import { TabBar } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
@@ -117,14 +122,14 @@ function EmployeeView({ token }: { token: string }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* Tiles */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <Tile label="My Assigned Assets" value={tiles?.assignedCount ?? '—'} sub={tiles?.assignedSubtitle} clickable onClick={() => setActiveTab('assets')} />
-        <Tile label="Open Expense Claims" value={expTiles?.openClaimCount ?? '—'} sub={expTiles?.openClaimCount ? fmtCurrency(expTiles.openClaimAmount) : undefined} clickable onClick={() => setActiveTab('claims')} />
-        <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '—'} clickable onClick={() => setActiveTab('claims')} />
-        <Tile label="My Asset Requests" value={tiles?.openRequestCount ?? '—'} clickable onClick={() => setActiveTab('requests')} />
+        <Tile label="My Assigned Assets" value={tiles?.assignedCount ?? '–'} sub={tiles?.assignedSubtitle} clickable onClick={() => setActiveTab('assets')} />
+        <Tile label="Open Expense Claims" value={expTiles?.openClaimCount ?? '–'} sub={expTiles?.openClaimCount ? fmtCurrency(expTiles.openClaimAmount) : undefined} clickable onClick={() => setActiveTab('claims')} />
+        <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '–'} clickable onClick={() => setActiveTab('claims')} />
+        <Tile label="My Asset Requests" value={tiles?.openRequestCount ?? '–'} clickable onClick={() => setActiveTab('requests')} />
       </div>
 
       {/* Tab bar */}
-      <TabBar tabs={tabDef} active={activeTab} onChange={setActiveTab} ariaLabel="My assets and expenses" />
+      <TabBar className="nf-pilltabs" tabs={tabDef} active={activeTab} onChange={setActiveTab} ariaLabel="My assets and expenses" />
 
       {/* My Assets tab */}
       {activeTab === 'assets' && (
@@ -146,9 +151,9 @@ function EmployeeView({ token }: { token: string }) {
                 <tbody>
                   {filteredAssignments.length === 0 ? <EmptyRow cols={7} msg="No assets assigned." /> : filteredAssignments.map(a => (
                     <tr key={a.id}>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.assetTag ?? '—'}</td>
-                      <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName ?? '—'}</td>
-                      <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '—'}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.assetTag ?? '–'}</td>
+                      <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName ?? '–'}</td>
+                      <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '–'}</td>
                       <td style={tdStyle}>{fmtDate(a.effectiveFrom)}</td>
                       <td style={tdStyle}>
                         {a.condition ? (
@@ -156,7 +161,7 @@ function EmployeeView({ token }: { token: string }) {
                             <StatusBadge status={a.condition} />
                             <div style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 2 }}>Assessed by HR/Admin</div>
                           </div>
-                        ) : '—'}
+                        ) : '–'}
                       </td>
                       <td style={tdStyle}>{a.acknowledgedAt ? <span style={{ color: '#10B981', fontWeight: 600, fontSize: 12 }}><Check size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }} />Yes</span> : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Pending</span>}</td>
                       <td style={{ ...tdStyle, padding: '8px 12px' }}>
@@ -209,7 +214,7 @@ function EmployeeView({ token }: { token: string }) {
                       <td style={tdStyle}>
                         {r.fulfilledByName
                           ? <div><div style={{ color: 'var(--txt)', fontSize: 12, fontWeight: 600 }}>{r.fulfilledByName}</div><div style={{ color: 'var(--txt-dim)', fontSize: 10 }}>{fmtDate(r.fulfilledAt)}</div></div>
-                          : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>{r.status === 'APPROVED' ? 'Awaiting HR' : '—'}</span>}
+                          : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>{r.status === 'APPROVED' ? 'Awaiting HR' : '–'}</span>}
                       </td>
                     </tr>
                   ))}
@@ -283,19 +288,19 @@ function EmployeeView({ token }: { token: string }) {
                 <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 20px' }}>
                   <div>
                     <div style={{ ...labelStyle, marginBottom: 2 }}>Asset Tag</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{ackTarget.assetTag ?? '—'}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{ackTarget.assetTag ?? '–'}</div>
                   </div>
                   <div>
                     <div style={{ ...labelStyle, marginBottom: 2 }}>Category</div>
-                    <div style={{ fontSize: 13, color: 'var(--txt)' }}>{ackTarget.categoryName ?? '—'}</div>
+                    <div style={{ fontSize: 13, color: 'var(--txt)' }}>{ackTarget.categoryName ?? '–'}</div>
                   </div>
                   <div>
                     <div style={{ ...labelStyle, marginBottom: 2 }}>Brand / Model</div>
-                    <div style={{ fontSize: 13, color: 'var(--txt)' }}>{[ackTarget.brand, ackTarget.model].filter(Boolean).join(' ') || '—'}</div>
+                    <div style={{ fontSize: 13, color: 'var(--txt)' }}>{[ackTarget.brand, ackTarget.model].filter(Boolean).join(' ') || '–'}</div>
                   </div>
                   <div>
                     <div style={{ ...labelStyle, marginBottom: 2 }}>Condition</div>
-                    <div>{ackTarget.condition ? <StatusBadge status={ackTarget.condition} /> : '—'}</div>
+                    <div>{ackTarget.condition ? <StatusBadge status={ackTarget.condition} /> : '–'}</div>
                     <div style={{ fontSize: 10, color: 'var(--txt-dim)', marginTop: 3 }}>Assessed by HR/Admin</div>
                   </div>
                   <div style={{ gridColumn: 'span 2' }}>
@@ -321,7 +326,7 @@ function EmployeeView({ token }: { token: string }) {
           categories={categories}
           token={token}
           onClose={() => setShowRequestModal(false)}
-          onCreated={r => { setRequests(prev => [r, ...prev]); reload(); showToast('success', 'Asset request submitted — pending manager approval'); }}
+          onCreated={r => { setRequests(prev => [r, ...prev]); reload(); showToast('success', 'Asset request submitted - pending manager approval'); }}
         />
       )}
       {showExpModal && (
@@ -504,16 +509,16 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
       {/* Tiles */}
       {!hideTiles && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-          <Tile label="Team Assets Assigned" value={tiles?.teamAssignedCount ?? '—'} sub={tiles ? `${tiles.teamMemberCount} team members` : undefined} clickable onClick={() => setActiveTab('assets')} />
-          <Tile label="Pending Expense Claims" value={expTiles?.pendingCount ?? '—'} sub={expTiles?.pendingCount ? fmtCurrency(expTiles.pendingAmount) : undefined} clickable={!!expTiles?.pendingCount} onClick={() => navigate('/approvals?type=EXPENSE')} clickHint="Review in Approval Center →" />
-          <Tile label="Overdue Returns" value={tiles?.overdueReturnCount ?? '—'} clickable onClick={() => setActiveTab('assets')} />
-          <Tile label="Pending Asset Requests" value={tiles?.pendingRequestCount ?? '—'} clickable={!!tiles?.pendingRequestCount} onClick={() => navigate('/approvals?type=ASSET_REQUEST')} clickHint="Review in Approval Center →" />
-          <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '—'} clickable onClick={() => setActiveTab('claims')} />
+          <Tile label="Team Assets Assigned" value={tiles?.teamAssignedCount ?? '–'} sub={tiles ? `${tiles.teamMemberCount} team members` : undefined} clickable onClick={() => setActiveTab('assets')} />
+          <Tile label="Pending Expense Claims" value={expTiles?.pendingCount ?? '–'} sub={expTiles?.pendingCount ? fmtCurrency(expTiles.pendingAmount) : undefined} clickable={!!expTiles?.pendingCount} onClick={() => navigate('/approvals?type=EXPENSE')} clickHint="Review in Approval Center →" />
+          <Tile label="Overdue Returns" value={tiles?.overdueReturnCount ?? '–'} clickable onClick={() => setActiveTab('assets')} />
+          <Tile label="Pending Asset Requests" value={tiles?.pendingRequestCount ?? '–'} clickable={!!tiles?.pendingRequestCount} onClick={() => navigate('/approvals?type=ASSET_REQUEST')} clickHint="Review in Approval Center →" />
+          <Tile label="Approved This Month" value={expTiles ? fmtCurrency(expTiles.approvedThisMonthAmount) : '–'} clickable onClick={() => setActiveTab('claims')} />
         </div>
       )}
 
       {/* Tab bar */}
-      <TabBar tabs={managerTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Team assets and expenses" trailing={
+      <TabBar className="nf-pilltabs" tabs={managerTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Team assets and expenses" trailing={
         <button onClick={() => navigate('/approvals?type=EXPENSE')} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--brand)', borderRadius: 7, padding: '5px 12px', fontSize: 12, color: 'var(--brand)', cursor: 'pointer' }}>
           <ExternalLink size={12} /> Approval Center
         </button>
@@ -538,10 +543,10 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
               <tbody>
                 {filteredAssignments.length === 0 ? <EmptyRow cols={6} msg="No team assets found." /> : filteredAssignments.map(a => (
                   <tr key={a.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.employeeName}</td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{a.assetTag ?? '—'}</td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName ?? '—'}</td>
-                    <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '—'}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{a.employeeName}</div><EmpCode userId={a.employeeUserId} /></td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{a.assetTag ?? '–'}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName ?? '–'}</td>
+                    <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '–'}</td>
                     <td style={tdStyle}>{fmtDate(a.effectiveFrom)}</td>
                     <td style={tdStyle}>{a.acknowledgedAt ? <span style={{ color: '#10B981', fontWeight: 600, fontSize: 12 }}>Yes</span> : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>Pending</span>}</td>
                   </tr>
@@ -579,7 +584,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
                 <tbody>
                   {filteredRequests.length === 0 ? <EmptyRow cols={6} msg="No asset requests from your team." /> : filteredRequests.map(r => (
                     <tr key={r.id}>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{r.employeeName}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{r.employeeName}</div><EmpCode userId={r.employeeUserId} /></td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{r.categoryName}</td>
                       <td style={tdStyle}>
                         <StatusBadge status={r.status} />
@@ -594,7 +599,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
                       <td style={tdStyle}>
                         {r.fulfilledByName
                           ? <div><div style={{ color: 'var(--txt)', fontSize: 12, fontWeight: 600 }}>{r.fulfilledByName}</div><div style={{ color: 'var(--txt-dim)', fontSize: 10 }}>{fmtDate(r.fulfilledAt)}</div></div>
-                          : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>{r.status === 'APPROVED' ? 'Awaiting HR' : '—'}</span>}
+                          : <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>{r.status === 'APPROVED' ? 'Awaiting HR' : '–'}</span>}
                       </td>
                     </tr>
                   ))}
@@ -631,7 +636,7 @@ export function ManagerView({ token, hideTiles }: { token: string; hideTiles?: b
                 <tbody>
                   {filteredClaims.length === 0 ? <EmptyRow cols={6} msg="No expense claims for your team." /> : filteredClaims.map(c => (
                     <tr key={c.id}>
-                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.employeeName}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{c.employeeName}</div><EmpCode userId={c.employeeUserId} /></td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{c.categoryName}</td>
                       <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
                       <td style={tdStyle}>{fmtDate(c.expenseDate)}</td>
@@ -696,6 +701,12 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
     .filter(a => !inventorySearch || a.assetTag.toLowerCase().includes(inventorySearch.toLowerCase()) || (a.serialNumber ?? '').toLowerCase().includes(inventorySearch.toLowerCase()) || (a.brand ?? '').toLowerCase().includes(inventorySearch.toLowerCase()) || (a.model ?? '').toLowerCase().includes(inventorySearch.toLowerCase()))
     .filter(a => !inventoryCatFilter || a.categoryName === inventoryCatFilter)
     .filter(a => !inventoryStatusFilter || a.status === inventoryStatusFilter);
+  const invPaged = usePaged(filteredInventory, [inventorySearch, inventoryCatFilter, inventoryStatusFilter]);
+  const filteredAssetRequests = assetRequests.filter(r => !reqStatusFilter || r.status === reqStatusFilter);
+  const reqPaged = usePaged(filteredAssetRequests, [reqStatusFilter]);
+  const catPaged = usePaged(expCategories);
+  const filteredPayroll = payrollClaims.filter(c => !payrollSearch || c.employeeName.toLowerCase().includes(payrollSearch.toLowerCase()));
+  const payPaged = usePaged(filteredPayroll, [payrollSearch]);
 
   async function handleRetire(assetId: number) {
     try {
@@ -703,6 +714,18 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
       setInventory(prev => prev.map(a => a.id === updated.id ? updated : a));
       reload();
       showToast('success', 'Asset retired');
+    } catch (e) { showToast('error', e instanceof Error ? e.message : 'Failed'); }
+  }
+
+  async function handleDeleteAsset(asset: AssetResponse) {
+    if (!window.confirm(`Delete asset ${asset.assetTag} permanently?
+
+This can only be done for an asset that was never assigned. An asset with assignment history can only be retired.`)) return;
+    try {
+      await assetsApi.deleteAsset(asset.id, token);
+      setInventory(prev => prev.filter(a => a.id !== asset.id));
+      reload();
+      showToast('success', 'Asset deleted');
     } catch (e) { showToast('error', e instanceof Error ? e.message : 'Failed'); }
   }
 
@@ -726,39 +749,42 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
       {/* Tiles */}
       {!hideTiles && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-          <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '—'} clickable onClick={() => { setInventoryStatusFilter('ASSIGNED'); setActiveTab('inventory'); }} />
-          <Tile label="Available Inventory" value={hrTiles?.available ?? '—'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
+          <Tile label="Assets Assigned" value={hrTiles?.totalAssigned ?? '–'} clickable onClick={() => { setInventoryStatusFilter('ASSIGNED'); setActiveTab('inventory'); }} />
+          <Tile label="Available Inventory" value={hrTiles?.available ?? '–'} clickable onClick={() => { setInventoryStatusFilter('AVAILABLE'); setActiveTab('inventory'); }} />
           {/* No due-date/expected-return field exists on AssetResponse or in the backend Asset/AssetAssignment
               model — "overdue" here is computed server-side only (assignments to inactive/deleted employees,
               see AssetAssignmentRepository#findOverdueAssignments) and cannot be reproduced as a client-side
               predicate over the inventory list. Navigate to Inventory without applying a fake/misleading
               filter rather than silently showing "assigned" assets under an "overdue" label. */}
-          <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '—'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
-          <Tile label="Pending Expense Clearance" value={hrExpTiles?.pendingClearanceCount ?? '—'} sub={hrExpTiles?.pendingClearanceCount ? fmtCurrency(hrExpTiles.pendingAmount) : undefined} clickable={!!hrExpTiles?.pendingClearanceCount} onClick={() => navigate('/approvals?type=EXPENSE&stage=FINAL')} clickHint="Review in Approval Center →" />
+          <Tile label="Overdue Returns" value={hrTiles?.overdueReturns ?? '–'} clickable={!!hrTiles?.overdueReturns} onClick={() => { setInventoryStatusFilter(''); setActiveTab('inventory'); }} />
+          <Tile label="Pending Expense Clearance" value={hrExpTiles?.pendingClearanceCount ?? '–'} sub={hrExpTiles?.pendingClearanceCount ? fmtCurrency(hrExpTiles.pendingAmount) : undefined} clickable={!!hrExpTiles?.pendingClearanceCount} onClick={() => navigate('/approvals?type=EXPENSE&stage=FINAL')} clickHint="Review in Approval Center →" />
           <Tile label="Pending Asset Fulfillment" value={assetRequests.filter(r => r.status === 'APPROVED').length} clickable onClick={() => setActiveTab('requests')} />
         </div>
       )}
 
       {/* Tab bar */}
-      <TabBar tabs={hrTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Asset and expense administration" />
+      <TabBar className="nf-pilltabs" tabs={hrTabs} active={activeTab} onChange={setActiveTab} ariaLabel="Asset and expense administration" />
 
       {/* Asset Inventory tab */}
       {activeTab === 'inventory' && (<div>
         <SectionHead
           title="Company Asset Inventory"
           action={
-            <button onClick={() => setShowAddAsset(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            <button onClick={() => setShowAddAsset(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 30%, transparent)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               <Plus size={13} /> Add Asset
             </button>
           }
         />
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-          <input value={inventorySearch} onChange={e => setInventorySearch(e.target.value)} placeholder="Search tag / serial / brand…" style={{ ...inputStyle, width: 210, fontSize: 12, padding: '6px 10px' }} />
-          <select value={inventoryCatFilter} onChange={e => setInventoryCatFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
+        <div className="nf-filterbar">
+          <label className="nf-filter-search">
+            <Search size={15} />
+            <input value={inventorySearch} onChange={e => setInventorySearch(e.target.value)} placeholder="Search tag / serial / brand…" />
+          </label>
+          <select className="nf-filter-select" value={inventoryCatFilter} onChange={e => setInventoryCatFilter(e.target.value)}>
             <option value="">All Categories</option>
             {inventoryCategoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <select value={inventoryStatusFilter} onChange={e => setInventoryStatusFilter(e.target.value)} style={{ ...inputStyle, width: 'auto', fontSize: 12, padding: '6px 10px' }}>
+          <select className="nf-filter-select" value={inventoryStatusFilter} onChange={e => setInventoryStatusFilter(e.target.value)}>
             <option value="">All Statuses</option>
             {inventoryStatusOptions.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
           </select>
@@ -770,22 +796,32 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Tag', 'Category', 'Brand / Model', 'Status', 'Condition', 'Custodian', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {filteredInventory.length === 0 ? <EmptyRow cols={7} msg="No assets in inventory." /> : filteredInventory.map(a => (
+                {filteredInventory.length === 0 ? <EmptyRow cols={7} msg="No assets in inventory." /> : invPaged.pageRows.map(a => (
                   <tr key={a.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{a.assetTag}</td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)' }}>{a.categoryName}</td>
-                    <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '—'}</td>
+                    <td style={tdStyle}><span className="nf-asset-tag">{a.assetTag}</span></td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{a.categoryName}</td>
+                    <td style={tdStyle}>{[a.brand, a.model].filter(Boolean).join(' ') || '–'}</td>
                     <td style={tdStyle}><StatusBadge status={a.status} /></td>
                     <td style={tdStyle}><StatusBadge status={a.condition} /></td>
-                    <td style={{ ...tdStyle, color: a.currentCustodianName ? 'var(--txt)' : 'var(--txt-dim)' }}>{a.currentCustodianName ?? 'Unassigned'}</td>
-                    <td style={{ ...tdStyle, padding: '8px 10px' }}>
-                      <KebabMenu items={[
-                        ...(a.status === 'AVAILABLE' ? [{ label: 'Assign', onClick: () => setShowAssignModal(a) }] : []),
+                    <td style={tdStyle}>
+                      {a.currentCustodianName ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <PersonAvatar userId={a.currentCustodianUserId ?? a.currentCustodianName} name={a.currentCustodianName} size={30} />
+                          <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{a.currentCustodianName}</span>
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--txt-dim)' }}>Unassigned</span>
+                      )}
+                    </td>
+                    <td style={{ ...tdStyle, padding: '8px 12px' }}>
+                      <ActionDock items={[
+                        ...(a.status === 'AVAILABLE' ? [{ label: 'Assign', icon: UserPlus, onClick: () => setShowAssignModal(a) }] : []),
                         ...(a.status === 'ASSIGNED' ? [
-                          { label: 'Reassign', onClick: () => setShowReassignModal(a) },
-                          { label: 'Mark Returned', onClick: () => setShowReturnModal(a) },
+                          { label: 'Reassign', icon: Repeat, onClick: () => setShowReassignModal(a) },
+                          { label: 'Mark Returned', icon: Undo2, onClick: () => setShowReturnModal(a) },
                         ] : []),
-                        ...(a.status !== 'RETIRED' ? [{ label: 'Retire', onClick: () => handleRetire(a.id), danger: true }] : []),
+                        ...(a.status !== 'RETIRED' ? [{ label: 'Retire', icon: Archive, onClick: () => handleRetire(a.id), danger: true }] : []),
+                        { label: 'Delete', icon: Trash2, onClick: () => handleDeleteAsset(a), danger: true },
                       ]} />
                     </td>
                   </tr>
@@ -793,6 +829,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
               </tbody>
             </table>
           </div>
+          <TablePagination {...invPaged.pagerProps} noun="assets" />
         </div>
       </div>)}
 
@@ -814,16 +851,16 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Employee', 'Category', 'Reason', 'Status', 'Submitted', 'Fulfill'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {assetRequests.filter(r => !reqStatusFilter || r.status === reqStatusFilter).length === 0 ? <EmptyRow cols={6} msg="No asset requests." /> : assetRequests.filter(r => !reqStatusFilter || r.status === reqStatusFilter).map(r => (
+                {filteredAssetRequests.length === 0 ? <EmptyRow cols={6} msg="No asset requests." /> : reqPaged.pageRows.map(r => (
                   <tr key={r.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{r.employeeName}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{r.employeeName}</div><EmpCode userId={r.employeeUserId} /></td>
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{r.categoryName}</td>
                     <td style={{ ...tdStyle, maxWidth: 200 }}><div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }} title={r.reason}>{r.reason}</div></td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
                     <td style={tdStyle}>{fmtDate(r.createdAt)}</td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
                       {r.status === 'APPROVED' && (
-                        <button onClick={() => setShowFulfillModal(r)} style={{ background: 'rgba(99,102,241,.15)', border: 'none', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: '#818CF8', cursor: 'pointer', fontWeight: 600 }}>
+                        <button type="button" className="nf-act-btn nf-act-btn--primary" onClick={() => setShowFulfillModal(r)}>
                           Fulfill
                         </button>
                       )}
@@ -833,6 +870,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
               </tbody>
             </table>
           </div>
+          <TablePagination {...reqPaged.pagerProps} noun="requests" />
         </div>
       </div>)}
 
@@ -848,20 +886,21 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Category', 'Receipt Required Above', 'Daily Limit', 'Second Approval Above', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {expCategories.length === 0 ? <EmptyRow cols={5} msg="No expense categories configured." /> : expCategories.map(c => (
+                {expCategories.length === 0 ? <EmptyRow cols={5} msg="No expense categories configured." /> : catPaged.pageRows.map(c => (
                   <tr key={c.id}>
                     <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.name}</td>
                     <td style={tdStyle}>{c.requiresReceiptAbove > 0 ? fmtCurrency(c.requiresReceiptAbove) : 'Not required'}</td>
-                    <td style={tdStyle}>{c.dailyLimit ? fmtCurrency(c.dailyLimit) : '—'}</td>
-                    <td style={tdStyle}>{c.secondApprovalAbove ? fmtCurrency(c.secondApprovalAbove) : '—'}</td>
+                    <td style={tdStyle}>{c.dailyLimit ? fmtCurrency(c.dailyLimit) : '–'}</td>
+                    <td style={tdStyle}>{c.secondApprovalAbove ? fmtCurrency(c.secondApprovalAbove) : '–'}</td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
-                      <button onClick={() => setShowCatModal(c)} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: 'var(--txt-dim)', cursor: 'pointer' }}>Edit</button>
+                      <button type="button" className="nf-act-btn" onClick={() => setShowCatModal(c)}>Edit</button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <TablePagination {...catPaged.pagerProps} noun="categories" />
         </div>
       </div>)}
 
@@ -885,9 +924,9 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                 <tr>{['Employee', 'Category', 'Amount', 'Expense Date', 'Approved By', 'Action'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
-                {payrollClaims.filter(c => !payrollSearch || c.employeeName.toLowerCase().includes(payrollSearch.toLowerCase())).length === 0 ? <EmptyRow cols={6} msg="No claims cleared for payroll." /> : payrollClaims.filter(c => !payrollSearch || c.employeeName.toLowerCase().includes(payrollSearch.toLowerCase())).map(c => (
+                {filteredPayroll.length === 0 ? <EmptyRow cols={6} msg="No claims cleared for payroll." /> : payPaged.pageRows.map(c => (
                   <tr key={c.id}>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}>{c.employeeName}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--txt)' }}><div>{c.employeeName}</div><EmpCode userId={c.employeeUserId} /></td>
                     <td style={{ ...tdStyle, color: 'var(--txt)' }}>{c.categoryName}</td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCurrency(c.amount)}</td>
                     <td style={tdStyle}>{fmtDate(c.expenseDate)}</td>
@@ -906,11 +945,11 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
                                 </div>
                               )}
                             </div>
-                          : '—'
+                          : '–'
                       )}
                     </td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
-                      <button onClick={() => handleMarkPaid(c.id)} style={{ background: 'rgba(47,182,124,.12)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 10px', fontSize: 11, color: '#2FB67C', cursor: 'pointer', fontWeight: 600 }}>
+                      <button type="button" className="nf-act-btn nf-act-btn--primary" onClick={() => handleMarkPaid(c.id)}>
                         Mark as Paid
                       </button>
                     </td>
@@ -919,6 +958,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
               </tbody>
             </table>
           </div>
+          <TablePagination {...payPaged.pagerProps} noun="claims" />
         </div>
       </div>)}
 
@@ -1040,7 +1080,7 @@ function MarkReturnedModal({ asset, token, onClose, onDone }: { asset: AssetResp
   }
 
   return (
-    <Modal title={`Mark Returned — ${asset.assetTag}`} onClose={onClose}>
+    <Modal title={`Mark Returned - ${asset.assetTag}`} onClose={onClose}>
       <FormRow>
         <label style={labelStyle}>Return Condition</label>
         <select value={returnCondition} onChange={e => setReturnCondition(e.target.value)} style={inputStyle}>
@@ -1077,9 +1117,9 @@ function FulfillRequestModal({ request, token, onClose, onDone }: { request: Ass
   }
 
   return (
-    <Modal title={`Fulfill Request — ${request.employeeName}`} onClose={onClose}>
+    <Modal title={`Fulfill Request - ${request.employeeName}`} onClose={onClose}>
       <div style={{ marginBottom: 14, padding: '10px 12px', background: 'var(--raised)', borderRadius: 6, fontSize: 13, color: 'var(--txt-mut)' }}>
-        Requested: <strong style={{ color: 'var(--txt)' }}>{request.categoryName}</strong> — "{request.reason}"
+        Requested: <strong style={{ color: 'var(--txt)' }}>{request.categoryName}</strong> – "{request.reason}"
       </div>
       <FormRow>
         <label style={labelStyle}>Select Asset to Assign *</label>
@@ -1088,7 +1128,7 @@ function FulfillRequestModal({ request, token, onClose, onDone }: { request: Ass
         ) : (
           <select value={assetId} onChange={e => setAssetId(e.target.value)} style={inputStyle}>
             <option value="">Select available asset…</option>
-            {availableAssets.map(a => <option key={a.id} value={a.id}>{a.assetTag} — {[a.brand, a.model].filter(Boolean).join(' ') || 'No details'} ({a.condition})</option>)}
+            {availableAssets.map(a => <option key={a.id} value={a.id}>{a.assetTag} – {[a.brand, a.model].filter(Boolean).join(' ') || 'No details'} ({a.condition})</option>)}
           </select>
         )}
       </FormRow>
@@ -1167,7 +1207,7 @@ function ExpenseCategoryModal({ category, token, onClose, onSaved }: { category:
   }
 
   return (
-    <Modal title={category ? `Edit — ${category.name}` : 'Add Expense Category'} onClose={onClose}>
+    <Modal title={category ? `Edit - ${category.name}` : 'Add Expense Category'} onClose={onClose}>
       <FormRow><label style={labelStyle}>Name *</label><input style={inputStyle} value={form.name} onChange={e => set('name', e.target.value)} /></FormRow>
       <FormRow><label style={labelStyle}>Receipt Required Above (₹)</label><input type="number" min="0" step="0.01" style={inputStyle} value={form.requiresReceiptAbove} onChange={e => set('requiresReceiptAbove', e.target.value)} /><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3 }}>Set to 0 to never require a receipt.</div></FormRow>
       <FormRow><label style={labelStyle}>Daily Limit (₹, optional)</label><input type="text" inputMode="decimal" style={inputStyle} value={form.dailyLimit} onChange={e => setPositiveDecimal('dailyLimit', e.target.value)} placeholder="No limit" /></FormRow>
@@ -1195,14 +1235,14 @@ export default function AssetsExpensesPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 22 }}>
+      <PageTitleBlock card icon={Package} style={{ marginBottom: 22 }}>
         <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>{pageTitle}</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
           {role === 'Manager' ? 'Read-only view of your team\'s assets and expenses. Approval decisions are made in the Approval Center.'
             : role === 'HR Admin' || role === 'Super Admin' ? 'Manage company inventory, expense policies, and payroll-ready claims.'
             : 'Track your assigned assets and submit expense claims.'}
         </p>
-      </div>
+      </PageTitleBlock>
 
       {(role === 'Employee') && <EmployeeView token={token} />}
       {(role === 'Manager') && <ManagerView token={token} />}

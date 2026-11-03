@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { EmpCode } from '../components/EmpCode';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, XCircle, Eye, Search, Users, History } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Eye, Search, Users, History, ShieldCheck } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { TablePagination, clampPage, paginate } from '../components/TablePagination';
 import { useAuthStore } from '../store/authStore';
@@ -315,6 +317,7 @@ function MissingTab({ missing, searchEmpty, footer }: { missing: MissingDocument
                 <tr key={`${key}-${i}`}>
                   <td style={tdS}>
                     <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{m.employeeName}</div>
+                    <EmpCode userId={m.employeeUserId} />
                   </td>
                   <td style={{ ...tdS, color: '#ef4444', fontWeight: 600 }}>{m.documentTypeName}</td>
                   <td style={{ ...tdS, width: 48 }}>
@@ -380,7 +383,7 @@ export default function DocumentsCompliancePage() {
       setPending(p => p.filter(d => d.id !== doc.id));
       setVerified(v => [updated, ...v]);
       setDetailDoc(null);
-      showToast('success', 'Document verified — the employee has been notified');
+      showToast('success', 'Document verified - the employee has been notified');
       getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Verify failed');
@@ -395,7 +398,7 @@ export default function DocumentsCompliancePage() {
       await verifyDocument(token, doc.id, 'REJECT', reason.trim());
       setPending(p => p.filter(d => d.id !== doc.id));
       setDetailDoc(null);
-      showToast('success', 'Document rejected — the employee has been notified');
+      showToast('success', 'Document rejected - the employee has been notified');
       getAdminKpis(token).then(setKpis).catch(() => {});
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Reject failed');
@@ -466,8 +469,10 @@ export default function DocumentsCompliancePage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
+      <PageTitleBlock card icon={ShieldCheck}>
+<h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
       <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Verify employee documents and track compliance.</p>
+</PageTitleBlock>
 
       {/* KPI row */}
       {kpis && (
@@ -557,7 +562,7 @@ export default function DocumentsCompliancePage() {
                       </span>
                     </td>
                     <td style={tdS}>{new Date(d.uploadedAt).toLocaleDateString()}</td>
-                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
+                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '–'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[
                         { label: 'Review', onClick: () => setDetailDoc(d) },
@@ -611,8 +616,8 @@ export default function DocumentsCompliancePage() {
                         <Eye size={12} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fileName}</span>
                       </span>
                     </td>
-                    <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '—'}</td>
-                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '—'}</td>
+                    <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '–'}</td>
+                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '–'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[{ label: 'View Document', onClick: () => setDetailDoc(d) }]} />
                     </td>

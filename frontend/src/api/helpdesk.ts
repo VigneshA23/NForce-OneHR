@@ -38,6 +38,7 @@ export interface TicketSummary {
   assignedTo: string | null;
   assignedToName: string | null;
   replyCount: number;
+  satisfactionRating: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,6 +70,10 @@ export interface TicketDetail {
   assignedToName: string | null;
   resolvedAt: string | null;
   resolvedByName: string | null;
+  satisfactionRating: number | null;
+  satisfactionComment: string | null;
+  satisfactionSubmittedAt: string | null;
+  reopenable: boolean;
   createdAt: string;
   updatedAt: string;
   replies: ReplyItem[];
@@ -128,6 +133,13 @@ export const helpdeskApi = {
   // RESOLVED -> CLOSED only; the one status change an employee may make on their own ticket.
   close: (id: string, token: string) =>
     fetch(`${BASE}/${id}/close`, { method: 'POST', headers: authHeaders(token) }).then(handle<TicketDetail>),
+
+  // CLOSED -> OPEN; only within the backend's reopen window — see TicketDetail.reopenable.
+  reopen: (id: string, reason: string | undefined, token: string) =>
+    fetch(`${BASE}/${id}/reopen`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ reason }) }).then(handle<TicketDetail>),
+
+  submitSatisfaction: (id: string, rating: number, comment: string | undefined, token: string) =>
+    fetch(`${BASE}/${id}/satisfaction`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ rating, comment }) }).then(handle<TicketDetail>),
 
   attachmentDownloadUrl: (replyId: string) => `${BASE}/replies/${replyId}/attachment`,
 

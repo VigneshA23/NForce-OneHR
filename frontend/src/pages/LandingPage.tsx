@@ -254,7 +254,7 @@ function LandingHero() {
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 32 }}>
               <span className="lp-hero-badge" style={{ background: 'rgba(228,55,61,0.1)', border: '1px solid rgba(228,55,61,0.22)', borderRadius: 999, padding: '3px 14px 3px 6px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ background: 'var(--brand-bright)', borderRadius: 999, padding: '2px 9px', fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', flexShrink: 0 }}>NEW</span>
-                <span style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Full-stack HR platform — built for teams of every size.</span>
+                <span style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Full-stack HR platform - built for teams of every size.</span>
               </span>
             </div>
           </FadeIn>
@@ -288,7 +288,7 @@ function LandingHero() {
 
           <FadeIn delay={150}>
             <p style={{ color: 'var(--txt-mut)', fontSize: 'clamp(0.95rem, 1.8vw, 1.12rem)', lineHeight: 1.68, margin: '0 0 40px', maxWidth: 460 }}>
-              Attendance, leave, approvals, documents, and your full org chart — all in one place.
+              Attendance, leave, approvals, documents, and your full org chart - all in one place.
               AI agents are joining the team soon.
             </p>
           </FadeIn>
@@ -356,13 +356,13 @@ const SHOWCASE_TABS = [
     label: 'Org Hierarchy',
     view: 'Organization',
     src: '/assets/screenshots/fresh/fresh-superadmin-hierarchy.png',
-    desc: '21 direct reports under the Chief Executive. Every reporting line, every role — navigable in seconds.',
+    desc: '21 direct reports under the Chief Executive. Every reporting line, every role - navigable in seconds.',
   },
   {
     label: 'HR Admin',
     view: 'HR Dashboard',
     src: '/assets/screenshots/fresh/fresh-hradmin-dashboard.png',
-    desc: '95 employees, org-wide active count, and a live employee list — all on the first screen after login.',
+    desc: '95 employees, org-wide active count, and a live employee list - all on the first screen after login.',
   },
 ];
 
@@ -432,7 +432,7 @@ function LandingProductShowcase() {
                     <img
                       key={i}
                       src={t.src}
-                      alt={`${t.label} — ${t.view}`}
+                      alt={`${t.label} - ${t.view}`}
                       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', opacity: active === i ? 1 : 0, transition: 'opacity 0.45s ease' }}
                     />
                   ))}
@@ -440,7 +440,7 @@ function LandingProductShowcase() {
                 {/* Caption */}
                 <div className="lp-showcase-caption" style={{ background: 'var(--panel)', borderTop: '1px solid var(--line)', padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
                   <div>
-                    <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: 'var(--txt)', display: 'block', marginBottom: 3 }}>{SHOWCASE_TABS[active].label} — {SHOWCASE_TABS[active].view}</span>
+                    <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: 'var(--txt)', display: 'block', marginBottom: 3 }}>{SHOWCASE_TABS[active].label} – {SHOWCASE_TABS[active].view}</span>
                     <span style={{ fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.5 }}>{SHOWCASE_TABS[active].desc}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -461,7 +461,7 @@ function LandingProductShowcase() {
 
 // ── Features ──────────────────────────────────────────────────────────────────
 const FEATURES = [
-  { icon: Users,       title: 'People Directory & Org Hierarchy', desc: "Search any employee, see their manager, team, and reporting chain. The org chart updates automatically when anyone moves roles — no manual diagram to maintain." },
+  { icon: Users,       title: 'People Directory & Org Hierarchy', desc: "Search any employee, see their manager, team, and reporting chain. The org chart updates automatically when anyone moves roles - no manual diagram to maintain." },
   { icon: Clock,       title: 'Attendance & Leave',               desc: 'Employees clock in from the browser. Hours log automatically. Leave balances update the moment a request is approved. Nobody calls HR to ask how many days they have left.' },
   { icon: CheckSquare, title: 'Approvals & Workflows',            desc: "Leave, expenses, and asset requests all land in one queue. The person responsible sees what needs a decision, with the relevant context already there." },
   { icon: FileText,    title: 'Documents & Compliance',           desc: 'Track which employees have signed which policies, and when each document expires. The system flags what\'s overdue before you have to chase it.' },
@@ -479,7 +479,7 @@ function LandingFeatures() {
           <div>
             <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>WHAT'S INSIDE</p></FadeIn>
             <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.038em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.08 }}>
-              Everything HR runs on — all in one place.
+              Everything HR runs on - all in one place.
             </h2></FadeIn>
             <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 16, lineHeight: 1.65, margin: 0 }}>
               Pick any HR process your team currently manages across multiple tools or email threads. It's probably already here.
@@ -520,21 +520,21 @@ const AGENT_LIST = [
     name: 'HR Assistant Agent',
     icon: MessageCircle,
     img: '/assets/photos/hr-agent-person.jpg',
-    desc: "Your HR inbox has 20 questions that come back every month: 'How many leaves do I have?' 'What's the WFH policy for Fridays?' 'Do I need a receipt for this amount?' This agent handles those — immediately, correctly — so your team spends time on things that actually need HR judgment.",
+    desc: "Your HR inbox has 20 questions that come back every month: 'How many leaves do I have?' 'What's the WFH policy for Fridays?' 'Do I need a receipt for this amount?' This agent handles those - immediately, correctly - so your team spends time on things that actually need HR judgment.",
   },
   {
     verb: 'MONITORS',
     name: 'Compliance Guardian',
     icon: FileCheck,
     img: '/assets/photos/hr-compliance.jpg',
-    desc: "Document expiry dates don't announce themselves. This agent tracks every form, acknowledgment, and certification across your whole team, and flags what's about to lapse in time for someone to actually do something about it — not after an audit already found it.",
+    desc: "Document expiry dates don't announce themselves. This agent tracks every form, acknowledgment, and certification across your whole team, and flags what's about to lapse in time for someone to actually do something about it - not after an audit already found it.",
   },
   {
     verb: 'TRACKS',
     name: 'Attendance Monitor',
     icon: AlertTriangle,
     img: '/assets/photos/hr-ai-team.jpg',
-    desc: "A manager shouldn't need to run a report to notice someone has been clocking in 45 minutes late every Monday for six weeks. This agent tracks those patterns — inconsistent clock-ins, early exits, hours that don't line up with approved WFH — and flags them early.",
+    desc: "A manager shouldn't need to run a report to notice someone has been clocking in 45 minutes late every Monday for six weeks. This agent tracks those patterns - inconsistent clock-ins, early exits, hours that don't line up with approved WFH - and flags them early.",
   },
   {
     verb: 'MAPS',
@@ -558,7 +558,7 @@ function LandingAI() {
           <div style={{ marginBottom: 56 }}>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 20, background: 'rgba(228,55,61,0.07)', border: '1px solid rgba(228,55,61,0.18)', borderRadius: 999, padding: '5px 14px 5px 10px' }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--brand-bright)', boxShadow: '0 0 8px rgba(228,55,61,0.7)', display: 'inline-block', animation: 'lp-cta-pulse 2.5s ease-in-out infinite' }} />
-              <span style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase' }}>Roadmap — Actively Being Built</span>
+              <span style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase' }}>Roadmap - Actively Being Built</span>
             </div>
             <h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2.3rem, 5.5vw, 3.8rem)', letterSpacing: '-0.043em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.03 }}>
               Meet the agents<br />joining your HR team.
@@ -587,7 +587,7 @@ function LandingAI() {
                 </div>
                 <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.45rem, 2.8vw, 2rem)', color: 'var(--txt)', margin: '0 0 16px', lineHeight: 1.18, letterSpacing: '-0.028em' }}>The Approvals Agent</h3>
                 <p style={{ color: 'var(--txt-mut)', fontSize: 15, lineHeight: 1.72, margin: 0 }}>
-                  Right now, every request — leave, expense, WFH — lands in someone's inbox and waits until they decide whether it needs attention. This agent reads the request, checks the policy, the employee's history, and team leave coverage, then clears low-risk ones automatically. The ones that do reach you already have the full context — so what used to take 30 minutes takes 30 seconds.
+                  Right now, every request - leave, expense, WFH - lands in someone's inbox and waits until they decide whether it needs attention. This agent reads the request, checks the policy, the employee's history, and team leave coverage, then clears low-risk ones automatically. The ones that do reach you already have the full context - so what used to take 30 minutes takes 30 seconds.
                 </p>
               </div>
               {/* Image side */}
@@ -638,7 +638,7 @@ function LandingAI() {
             <Bot size={18} color="var(--brand-bright)" style={{ flexShrink: 0, marginTop: 2 }} />
             <p style={{ color: 'var(--txt-dim)', fontSize: 13.5, lineHeight: 1.65, margin: 0 }}>
               <strong style={{ color: 'var(--txt-mut)', fontWeight: 600 }}>Why agents, not features?&nbsp;</strong>
-              Traditional HR software helps your team do the work faster. These agents handle specific tasks themselves — so your HR people spend time on the decisions only people should make.
+              Traditional HR software helps your team do the work faster. These agents handle specific tasks themselves - so your HR people spend time on the decisions only people should make.
             </p>
           </div>
         </FadeIn>
@@ -688,10 +688,10 @@ function LandingBrandMoment() {
 
 // ── Roles ─────────────────────────────────────────────────────────────────────
 const ROLES = [
-  { slug: 'employee',    label: 'Employee',    icon: User,      color: '#2FB67C', bg: 'rgba(47,182,124,0.1)',  desc: 'Clock in, check your leave balance, submit requests, and track your own documents — without asking HR every time.' },
-  { slug: 'manager',     label: 'Manager',     icon: Users,     color: '#4C8DD6', bg: 'rgba(76,141,214,0.1)',  desc: "Your team's attendance, pending leave requests, and outstanding approvals — visible from your dashboard without digging through reports." },
-  { slug: 'hr-admin',    label: 'HR Admin',    icon: Building2, color: '#E0A93B', bg: 'rgba(224,169,59,0.1)', desc: 'Manage employee records, run compliance checks, process documents, and enforce policies — with the full context you need to make good calls.' },
-  { slug: 'super-admin', label: 'Super Admin', icon: Shield,    color: '#E4373D', bg: 'rgba(228,55,61,0.1)',  desc: 'Full access to every user, every role assignment, every audit trail, and every system setting — with nothing hidden.' },
+  { slug: 'employee',    label: 'Employee',    icon: User,      color: '#2FB67C', bg: 'rgba(47,182,124,0.1)',  desc: 'Clock in, check your leave balance, submit requests, and track your own documents - without asking HR every time.' },
+  { slug: 'manager',     label: 'Manager',     icon: Users,     color: '#4C8DD6', bg: 'rgba(76,141,214,0.1)',  desc: "Your team's attendance, pending leave requests, and outstanding approvals - visible from your dashboard without digging through reports." },
+  { slug: 'hr-admin',    label: 'HR Admin',    icon: Building2, color: '#E0A93B', bg: 'rgba(224,169,59,0.1)', desc: 'Manage employee records, run compliance checks, process documents, and enforce policies - with the full context you need to make good calls.' },
+  { slug: 'super-admin', label: 'Super Admin', icon: Shield,    color: '#E4373D', bg: 'rgba(228,55,61,0.1)',  desc: 'Full access to every user, every role assignment, every audit trail, and every system setting - with nothing hidden.' },
 ];
 
 function LandingRoles() {
@@ -706,7 +706,7 @@ function LandingRoles() {
             Pick your role and see exactly what you can do.
           </h2></FadeIn>
           <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15, margin: 0, maxWidth: 500, marginLeft: 'auto', marginRight: 'auto' }}>
-            Every role has its own tailored view. What an employee sees is completely different from what HR Admin sees — intentionally.
+            Every role has its own tailored view. What an employee sees is completely different from what HR Admin sees - intentionally.
           </p></FadeIn>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 16 }}>
@@ -736,8 +736,8 @@ function LandingRoles() {
 
 // ── How it works ──────────────────────────────────────────────────────────────
 const STEPS = [
-  { n: 1, icon: Building2,   title: 'Admin sets up the organization',       desc: 'Departments, designations, locations, and reporting lines — configured once. Every person who logs in inherits that structure automatically.' },
-  { n: 2, icon: LogIn,       title: 'Everyone signs in to their own view',  desc: "Each person sees their role's screen on first login — their attendance, their pending tasks, their team. Nothing to configure per user." },
+  { n: 1, icon: Building2,   title: 'Admin sets up the organization',       desc: 'Departments, designations, locations, and reporting lines - configured once. Every person who logs in inherits that structure automatically.' },
+  { n: 2, icon: LogIn,       title: 'Everyone signs in to their own view',  desc: "Each person sees their role's screen on first login - their attendance, their pending tasks, their team. Nothing to configure per user." },
   { n: 3, icon: CheckSquare, title: 'Requests and approvals just flow',     desc: 'A leave request submitted by an employee shows up in their manager\'s queue instantly. Both sides can see the status without anyone sending a follow-up.' },
 ];
 
@@ -849,7 +849,7 @@ function LandingSignIn() {
             Your team is already here.
           </h2></FadeIn>
           <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15.5, lineHeight: 1.7, margin: '0 0 32px' }}>
-            Attendance records, approval queues, org charts, documents — live and updated right now. Sign in and see what's happening with your team today.
+            Attendance records, approval queues, org charts, documents - live and updated right now. Sign in and see what's happening with your team today.
           </p></FadeIn>
           <FadeIn delay={240}><button
             onClick={() => navigate('/login')}

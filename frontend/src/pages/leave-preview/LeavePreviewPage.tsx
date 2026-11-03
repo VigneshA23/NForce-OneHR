@@ -316,7 +316,7 @@ function RequestLeaveMockModal({ onClose, onCreated }: { onClose: () => void; on
             {balance && (
               <div style={{ fontSize: 11.5, color: exceedsBalance ? 'var(--pv-risk)' : 'var(--pv-txt-dim)', marginTop: 5 }}>
                 Available: {balance.remainingDays} day{balance.remainingDays === 1 ? '' : 's'}
-                {exceedsBalance && ' — this request exceeds your available balance'}
+                {exceedsBalance && ' - this request exceeds your available balance'}
               </div>
             )}
           </div>
@@ -543,7 +543,7 @@ export default function LeavePreviewPage({ role: roleKey }: { role: PreviewRole 
       <MockShellChrome role={role}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: 'color-mix(in srgb, var(--pv-info) 12%, var(--pv-panel))', border: '1px solid color-mix(in srgb, var(--pv-info) 35%, var(--pv-line))', borderRadius: 8, padding: '9px 14px', fontSize: 12.5, color: 'var(--pv-txt-mut)', marginBottom: 18 }}>
           <span style={{ fontWeight: 700, color: 'var(--pv-info)', textTransform: 'uppercase', letterSpacing: '.04em', fontSize: 11 }}>Preview · {role.shellRoleLabel} · Mock Data</span>
-          <span>Sidebar/topbar shown here is a static visual replica — not connected to any real leave data or API.</span>
+          <span>Sidebar/topbar shown here is a static visual replica - not connected to any real leave data or API.</span>
         </div>
 
         <div className="pv-enter pv-header" style={{
@@ -585,7 +585,7 @@ export default function LeavePreviewPage({ role: roleKey }: { role: PreviewRole 
               <KpiTile icon={Hourglass} label="My Pending Requests" value={String(myPendingCount)} sub={myPendingCount === 0 ? 'All caught up' : 'Awaiting a decision'} accent="var(--pv-warn)" />
               <KpiTile
                 icon={CalendarClock} label="Upcoming Leave"
-                value={upcoming ? new Date(upcoming.startDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}
+                value={upcoming ? new Date(upcoming.startDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '–'}
                 sub={upcoming ? upcoming.leaveTypeName : 'Nothing scheduled'} accent="var(--pv-brand)"
               />
             </div>
@@ -670,7 +670,7 @@ export default function LeavePreviewPage({ role: roleKey }: { role: PreviewRole 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
               <p style={{ fontSize: 12.5, color: 'var(--pv-txt-mut)', margin: 0 }}>
-                {role.isAdmin ? 'Holidays across the company, by location.' : 'Holidays for your work location — Bengaluru HQ.'}
+                {role.isAdmin ? 'Holidays across the company, by location.' : 'Holidays for your work location - Bengaluru HQ.'}
               </p>
               {role.isAdmin && (
                 <button onClick={() => setShowAddHoliday(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--pv-brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>

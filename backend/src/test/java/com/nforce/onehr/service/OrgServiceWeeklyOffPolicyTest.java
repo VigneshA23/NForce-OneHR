@@ -11,6 +11,7 @@ import com.nforce.onehr.repository.DepartmentRepository;
 import com.nforce.onehr.repository.DesignationRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.EmployeeShiftAssignmentRepository;
 import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LocationRepository;
 import com.nforce.onehr.repository.ShiftRepository;
@@ -28,9 +29,11 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -56,6 +59,9 @@ class OrgServiceWeeklyOffPolicyTest {
     @Mock private HolidayRepository holidayRepo;
     @Mock private AssetRepository assetRepo;
     @Mock private AttendanceRepository attendanceRepo;
+    @Mock private EmployeeShiftAssignmentRepository employeeShiftAssignmentRepo;
+    @Mock private com.nforce.onehr.repository.WeeklyOffPolicyVersionRepository weeklyOffPolicyVersionRepo;
+    @Mock private com.nforce.onehr.repository.EmployeeWeeklyOffPolicyAssignmentRepository employeeWeeklyOffPolicyAssignmentRepo;
 
     private OrgService service;
 
@@ -63,7 +69,7 @@ class OrgServiceWeeklyOffPolicyTest {
     void setUp() {
         service = new OrgService(businessUnitRepo, departmentRepo, designationRepo, locationRepo, shiftRepo,
                 shiftVersionRepository, shiftVersionResolver, shiftWeeklyOffRulesService, weeklyOffPolicyRepo, employeeRepo, historyRepo,
-                holidayRepo, assetRepo, attendanceRepo);
+                holidayRepo, assetRepo, attendanceRepo, employeeShiftAssignmentRepo, weeklyOffPolicyVersionRepo, employeeWeeklyOffPolicyAssignmentRepo);
         lenient().when(weeklyOffPolicyRepo.save(any())).thenAnswer(inv -> {
             WeeklyOffPolicy p = inv.getArgument(0);
             if (p.getId() == null) p.setId(UUID.randomUUID());
@@ -156,5 +162,84 @@ class OrgServiceWeeklyOffPolicyTest {
         WeeklyOffPolicyResponse response = service.createWeeklyOffPolicy(createReq("Standard", List.of("SATURDAY", "SUNDAY")));
 
         assertEquals(List.of("SATURDAY", "SUNDAY"), response.getOffDays());
+    }
+
+    // ── Phase 3: policy-definition versioning — editing offDays creates a new version rather than
+    //    mutating historical configuration; the name field stays immediate/unversioned. ─────────
+
+    @Test
+    void createWeeklyOffPolicy_savesAnInitialVersion_effectiveToday() {
+        when(weeklyOffPolicyRepo.existsByNameIgnoreCase(any())).thenReturn(false);
+
+        service.createWeeklyOffPolicy(createReq("Standard", List.of("SATURDAY", "SUNDAY")));
+
+        ArgumentCaptor<com.nforce.onehr.entity.WeeklyOffPolicyVersion> captor =
+                ArgumentCaptor.forClass(com.nforce.onehr.entity.WeeklyOffPolicyVersion.class);
+        verify(weeklyOffPolicyVersionRepo).save(captor.capture());
+        assertEquals("SATURDAY,SUNDAY", captor.getValue().getOffDays());
+        assertEquals(java.time.LocalDate.now(), captor.getValue().getEffectiveFrom());
+    }
+
+    @Test
+    void updateWeeklyOffPolicy_changedOffDays_createsANewVersion_replacingAnyVersionEffectiveTodayOrLater() {
+        UUID policyId = UUID.randomUUID();
+        WeeklyOffPolicy existing = WeeklyOffPolicy.builder().id(policyId).name("Standard").offDays("SATURDAY,SUNDAY").build();
+        when(weeklyOffPolicyRepo.findById(policyId)).thenReturn(java.util.Optional.of(existing));
+
+        service.updateWeeklyOffPolicy(policyId, updateReq("Standard", List.of("FRIDAY")));
+
+        verify(weeklyOffPolicyVersionRepo).deleteByWeeklyOffPolicyIdAndEffectiveFromGreaterThanEqual(policyId, java.time.LocalDate.now());
+        ArgumentCaptor<com.nforce.onehr.entity.WeeklyOffPolicyVersion> captor =
+                ArgumentCaptor.forClass(com.nforce.onehr.entity.WeeklyOffPolicyVersion.class);
+        verify(weeklyOffPolicyVersionRepo).save(captor.capture());
+        assertEquals("FRIDAY", captor.getValue().getOffDays());
+        // The display cache is kept in sync with the new current version.
+        assertEquals("FRIDAY", existing.getOffDays());
+    }
+
+    @Test
+    void updateWeeklyOffPolicy_unchangedOffDays_renameOnly_createsNoNewVersion() {
+        UUID policyId = UUID.randomUUID();
+        WeeklyOffPolicy existing = WeeklyOffPolicy.builder().id(policyId).name("Standard").offDays("SATURDAY,SUNDAY").build();
+        when(weeklyOffPolicyRepo.findById(policyId)).thenReturn(java.util.Optional.of(existing));
+
+        service.updateWeeklyOffPolicy(policyId, updateReq("Standard (Renamed)", List.of("SATURDAY", "SUNDAY")));
+
+        verifyNoInteractions(weeklyOffPolicyVersionRepo);
+        assertEquals("Standard (Renamed)", existing.getName());
+        assertEquals("SATURDAY,SUNDAY", existing.getOffDays());
+    }
+
+    // ── Audit fix (Phase 3 verification): "current employee" counts/guards must read the
+    //    authoritative EmployeeWeeklyOffPolicyAssignment table, never the stale
+    //    Employee.weeklyOffPolicy cache that bulkUpdateWeeklyOff/CSV import no longer write to. ──
+
+    @Test
+    void deleteWeeklyOffPolicy_blockedByCurrentAssignmentCount_fromTheAuthoritativeTable_notTheStaleCache() {
+        UUID policyId = UUID.randomUUID();
+        WeeklyOffPolicy existing = WeeklyOffPolicy.builder().id(policyId).name("Standard").offDays("SATURDAY,SUNDAY").build();
+        when(weeklyOffPolicyRepo.findById(policyId)).thenReturn(java.util.Optional.of(existing));
+        // The stale Employee.weeklyOffPolicy cache says zero — exactly what happens once an
+        // employee was ever reassigned via bulkUpdateWeeklyOff/CSV import post-Phase-3 — but the
+        // authoritative assignment table says 3 employees are currently on this policy today.
+        lenient().when(employeeRepo.countByWeeklyOffPolicyId(policyId)).thenReturn(0L);
+        when(employeeWeeklyOffPolicyAssignmentRepo.countCurrentlyAssigned(eq(policyId), any())).thenReturn(3L);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> service.deleteWeeklyOffPolicy(policyId));
+
+        assertTrue(ex.getMessage().contains("3 current employees"));
+        verify(weeklyOffPolicyRepo, never()).delete(any());
+    }
+
+    @Test
+    void deleteWeeklyOffPolicy_allowedWhenAuthoritativeCurrentCountIsZero_evenIfStaleCacheDisagreed() {
+        UUID policyId = UUID.randomUUID();
+        WeeklyOffPolicy existing = WeeklyOffPolicy.builder().id(policyId).name("Standard").offDays("SATURDAY,SUNDAY").build();
+        when(weeklyOffPolicyRepo.findById(policyId)).thenReturn(java.util.Optional.of(existing));
+        when(employeeWeeklyOffPolicyAssignmentRepo.countCurrentlyAssigned(eq(policyId), any())).thenReturn(0L);
+        when(employeeWeeklyOffPolicyAssignmentRepo.existsByWeeklyOffPolicyId(policyId)).thenReturn(false);
+
+        assertDoesNotThrow(() -> service.deleteWeeklyOffPolicy(policyId));
+        verify(weeklyOffPolicyRepo).delete(existing);
     }
 }

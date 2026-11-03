@@ -19,9 +19,15 @@ export interface DashTileProps {
   /** Any CSS color — pass `var(--brand)` for tiles that should follow the chosen theme color. */
   accent: string;
   onClick?: () => void;
+  /** Native hover tooltip. */
+  title?: string;
+  /** Selected state for filter tiles: a ring in the accent colour. */
+  active?: boolean;
+  /** Extra class (e.g. an entrance animation) added next to nf-dash-tile. */
+  className?: string;
 }
 
-export default function DashTile({ icon, label, value, sub, accent, onClick }: DashTileProps) {
+export default function DashTile({ icon, label, value, sub, accent, onClick, title, active, className }: DashTileProps) {
   const Tag = onClick ? 'button' : 'div';
   const isAction = value === undefined;
   const style: CSSProperties = {
@@ -29,13 +35,15 @@ export default function DashTile({ icon, label, value, sub, accent, onClick }: D
     border: `1px solid color-mix(in srgb, ${accent} 24%, var(--line))`,
     borderLeft: `6px solid ${accent}`,
     borderRadius: 18,
-    boxShadow: `0 6px 18px -10px color-mix(in srgb, ${accent} 55%, transparent)`,
+    boxShadow: active
+      ? `0 0 0 2px ${accent}, 0 6px 18px -10px color-mix(in srgb, ${accent} 55%, transparent)`
+      : `0 6px 18px -10px color-mix(in srgb, ${accent} 55%, transparent)`,
     padding: '14px 16px 12px 14px',
     display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left', width: '100%', minWidth: 0,
     font: 'inherit', cursor: onClick ? 'pointer' : 'default',
   };
   return (
-    <Tag onClick={onClick} className="nf-dash-tile" style={style}>
+    <Tag onClick={onClick} className={className ? `nf-dash-tile ${className}` : 'nf-dash-tile'} style={style} title={title} aria-pressed={onClick && active !== undefined ? active : undefined}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
         <div style={{
           minWidth: 0, overflowWrap: 'anywhere', lineHeight: 1.3, paddingTop: 2,

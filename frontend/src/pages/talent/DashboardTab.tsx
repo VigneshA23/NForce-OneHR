@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Users, Sparkles, Award, BookOpen, AlertTriangle } from 'lucide-react';
+import DashTile from '../../components/DashTile';
+import { Users, Sparkles, Award, BookOpen, AlertTriangle, ChevronRight, ArrowLeft } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -10,26 +11,22 @@ import { talentDashboardApi, talentDirectoryApi, type TalentDashboardSummary, ty
 import { DetailModalShell } from '../../components/TeamGrowthModal';
 import { LEVEL_TONE, Pill, EmployeeDetailView } from './EmployeeDetailView';
 import { useEmployeeDetail } from './useEmployeeDetail';
+import { PersonAvatar } from '../../components/PersonCell';
+import './talentPolish.css';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
 const PIE_PALETTE = ['#B11116', '#4C8DD6', '#2FB67C', '#E0A93B', '#8B5FBF', 'var(--raised2)'];
 
-function KpiCard({ icon, label, value, note, danger, onClick }: {
-  icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean; onClick?: () => void;
+// Same tile as the Home dashboard (components/DashTile). Clicking still opens the same employee drill-down.
+export function KpiCard({ icon, label, value, note, danger, accent, onClick }: {
+  icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean; accent?: string; onClick?: () => void;
 }) {
-  const Tag = onClick ? 'button' : 'div';
   return (
-    <Tag onClick={onClick} title={onClick ? 'Click to view employees' : undefined} style={{
-      background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px',
-      textAlign: 'left', font: 'inherit', width: '100%', cursor: onClick ? 'pointer' : 'default',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span style={{ color: 'var(--brand)' }}>{icon}</span>
-        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</span>
-      </div>
-      <div style={{ fontSize: 28, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: danger ? '#E4373D' : 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      {note && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>}
-    </Tag>
+    <DashTile
+      icon={icon} label={label} value={String(value)} sub={note}
+      accent={danger ? 'var(--risk)' : (accent ?? 'var(--brand)')}
+      onClick={onClick} title={onClick ? 'Click to view employees' : undefined}
+    />
   );
 }
 
@@ -58,6 +55,14 @@ function expiresWithin(expiryDate: string | null, days: number): boolean {
 /** Mirrors the backend's learningStatusCounts grouping: "Planned" is displayed as "Not Started". */
 function learningStatusLabel(status: string): string {
   return status === 'Planned' ? 'Not Started' : status;
+}
+
+/** Header icon for the employee drill-down, matched to the tile / chart it was opened from. */
+function drillIcon(title: string) {
+  if (title.includes('Certificates')) return title.includes('Expiring') ? AlertTriangle : Award;
+  if (title.includes('Skills') || title.includes('Proficiency')) return Sparkles;
+  if (title.includes('Learning')) return BookOpen;
+  return Users;
 }
 
 export function DashboardTab() {
@@ -113,13 +118,13 @@ export function DashboardTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-        <KpiCard icon={<Users size={14} />} label="Total Employees" value={data.totalEmployees}
+        <KpiCard icon={<Users size={20} />} label="Total Employees" value={data.totalEmployees} accent="var(--info)"
           onClick={() => openDrill('All Employees', rows)} />
-        <KpiCard icon={<Sparkles size={14} />} label="With Skills Logged" value={data.withSkills} note={`of ${data.totalEmployees}`}
+        <KpiCard icon={<Sparkles size={20} />} label="With Skills Logged" value={data.withSkills} accent="var(--ok)" note={`of ${data.totalEmployees}`}
           onClick={() => openDrill('Employees With Skills Logged', rows.filter(r => r.skills.length > 0))} />
-        <KpiCard icon={<Award size={14} />} label="With Certificates" value={data.withCertificates} note={`of ${data.totalEmployees}`}
+        <KpiCard icon={<Award size={20} />} label="With Certificates" value={data.withCertificates} accent="var(--om-purple)" note={`of ${data.totalEmployees}`}
           onClick={() => openDrill('Employees With Certificates', rows.filter(r => r.certificates.length > 0))} />
-        <KpiCard icon={<AlertTriangle size={14} />} label="Certs Expiring (30d)" value={data.certificatesExpiringIn30Days} danger={data.certificatesExpiringIn30Days > 0}
+        <KpiCard icon={<AlertTriangle size={20} />} label="Certs Expiring (30d)" value={data.certificatesExpiringIn30Days} accent="var(--warn)" danger={data.certificatesExpiringIn30Days > 0}
           onClick={() => openDrill('Certificates Expiring in 30 Days', rows.filter(r => r.certificates.some(c => expiresWithin(c.expiryDate, 30))))} />
       </div>
 
@@ -151,7 +156,7 @@ export function DashboardTab() {
                 <Pie data={data.proficiencyDistribution} cx="50%" cy="50%" innerRadius="50%" outerRadius="85%" dataKey="count" nameKey="name" strokeWidth={0}
                   cursor="pointer"
                   onClick={(entry: { name?: string }) => entry.name && openDrill(
-                    `Employees — ${entry.name} proficiency`, rows.filter(r => r.skills.some(s => s.proficiencyLevel === entry.name)))}>
+                    `Employees - ${entry.name} proficiency`, rows.filter(r => r.skills.some(s => s.proficiencyLevel === entry.name)))}>
                   {data.proficiencyDistribution.map((_, i) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
                 </Pie>
                 <Legend verticalAlign="bottom" height={28} formatter={(value) => <span style={{ color: 'var(--txt-mut)', fontSize: 12 }}>{value}</span>} />
@@ -182,7 +187,7 @@ export function DashboardTab() {
                 <Tooltip {...tooltipStyle} cursor={{ fill: 'rgba(177,17,22,.08)' }} />
                 <Bar dataKey="count" name="Employees" fill="#4C8DD6" radius={[4, 4, 0, 0]} cursor="pointer"
                   onClick={(entry: { name?: string }) => entry.name && openDrill(
-                    department ? `${department} — "${entry.name}"` : `Employees with "${entry.name}"`,
+                    department ? `${department} - "${entry.name}"` : `Employees with "${entry.name}"`,
                     rows.filter(r => (!department || r.departmentName === department) && r.skills.some(s => s.skillName === entry.name)))} />
               </BarChart>
             </ResponsiveContainer>
@@ -198,7 +203,7 @@ export function DashboardTab() {
                 <Pie data={data.certificatesByCategory} cx="50%" cy="50%" innerRadius="50%" outerRadius="85%" dataKey="count" nameKey="name" strokeWidth={0}
                   cursor="pointer"
                   onClick={(entry: { name?: string }) => entry.name && openDrill(
-                    `Certificates — ${entry.name}`, rows.filter(r => r.certificates.some(c => (c.categoryName ?? 'Uncategorized') === entry.name)))}>
+                    `Certificates - ${entry.name}`, rows.filter(r => r.certificates.some(c => (c.categoryName ?? 'Uncategorized') === entry.name)))}>
                   {data.certificatesByCategory.map((_, i) => <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />)}
                 </Pie>
                 <Legend verticalAlign="bottom" height={28} formatter={(value) => <span style={{ color: 'var(--txt-mut)', fontSize: 12 }}>{value}</span>} />
@@ -210,11 +215,11 @@ export function DashboardTab() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }} className="nf-kpi-2x2-mobile">
-        <KpiCard icon={<AlertTriangle size={14} />} label="Expiring in 30 days" value={data.certificateExpiryBreakdown.in30Days} danger={data.certificateExpiryBreakdown.in30Days > 0}
+        <KpiCard icon={<AlertTriangle size={20} />} label="Expiring in 30 days" value={data.certificateExpiryBreakdown.in30Days} danger={data.certificateExpiryBreakdown.in30Days > 0}
           onClick={() => openDrill('Certificates Expiring in 30 Days', rows.filter(r => r.certificates.some(c => expiresWithin(c.expiryDate, 30))))} />
-        <KpiCard icon={<AlertTriangle size={14} />} label="Expiring in 60 days" value={data.certificateExpiryBreakdown.in60Days}
+        <KpiCard icon={<AlertTriangle size={20} />} label="Expiring in 60 days" value={data.certificateExpiryBreakdown.in60Days} accent="var(--warn)"
           onClick={() => openDrill('Certificates Expiring in 60 Days', rows.filter(r => r.certificates.some(c => expiresWithin(c.expiryDate, 60))))} />
-        <KpiCard icon={<AlertTriangle size={14} />} label="Expiring in 90 days" value={data.certificateExpiryBreakdown.in90Days}
+        <KpiCard icon={<AlertTriangle size={20} />} label="Expiring in 90 days" value={data.certificateExpiryBreakdown.in90Days} accent="var(--info)"
           onClick={() => openDrill('Certificates Expiring in 90 Days', rows.filter(r => r.certificates.some(c => expiresWithin(c.expiryDate, 90))))} />
       </div>
 
@@ -228,7 +233,7 @@ export function DashboardTab() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {data.learningStatusCounts.map(s => (
               <button key={s.name} onClick={() => openDrill(
-                `Learning — ${s.name}`, rows.filter(r => r.learningEntries.some(l => learningStatusLabel(l.status) === s.name)))}
+                `Learning - ${s.name}`, rows.filter(r => r.learningEntries.some(l => learningStatusLabel(l.status) === s.name)))}
                 style={{
                   flex: '1 1 140px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '10px 14px',
                   textAlign: 'left', cursor: 'pointer', font: 'inherit',
@@ -241,41 +246,52 @@ export function DashboardTab() {
         )}
       </ChartCard>
 
-      {drillTitle !== null && (
-        <DetailModalShell title={selectedEmployee ? (detail?.employeeName ?? 'Loading…') : drillTitle} onClose={closeDrill}>
+      {drillTitle !== null && (() => {
+        const picked = selectedEmployee ? drillEmployees.find(r => r.employeeUserId === selectedEmployee) : undefined;
+        return (
+        <DetailModalShell
+          title={selectedEmployee ? (detail?.employeeName ?? 'Loading…') : drillTitle}
+          subtitle={selectedEmployee
+            ? (picked ? [picked.employeeCode, picked.departmentName, picked.designationName].filter(Boolean).join(' · ') : undefined)
+            : `${drillEmployees.length} ${drillEmployees.length === 1 ? 'employee' : 'employees'}`}
+          icon={selectedEmployee ? Users : drillIcon(drillTitle)}
+          onClose={closeDrill}
+        >
           {selectedEmployee ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <button onClick={backToList} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: 'var(--brand-bright)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
-                ← Back to list
+              <button onClick={backToList} className="nf-tl-back">
+                <ArrowLeft size={14} /> Back to list
               </button>
               {detailLoading || !detail ? <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div> : <EmployeeDetailView detail={detail} />}
             </div>
           ) : drillEmployees.length === 0 ? (
-            <div style={{ color: 'var(--txt-dim)', fontSize: 13, fontStyle: 'italic' }}>No employees match.</div>
+            <div className="nf-tl-empty"><Users size={18} /> No employees match.</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {drillEmployees.map((r, i) => (
-                <button key={r.employeeUserId} onClick={() => selectEmployee(r.employeeUserId)} style={{
-                  display: 'flex', alignItems: 'center', gap: 14, width: '100%', textAlign: 'left',
-                  padding: '10px 4px', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit',
-                  borderTop: i === 0 ? 'none' : '1px solid var(--line)',
-                }}>
-                  <div style={{ flex: '0 0 180px', minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.employeeName}</div>
-                    <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{r.employeeCode} · {r.departmentName ?? '—'}</div>
+            <div className="nf-tl-list">
+              {drillEmployees.map(r => (
+                <button key={r.employeeUserId} onClick={() => selectEmployee(r.employeeUserId)} className="nf-tl-row">
+                  <div className="nf-tl-id">
+                    <PersonAvatar userId={r.employeeUserId} name={r.employeeName} size={38} />
+                    <div style={{ minWidth: 0 }}>
+                      <div className="nf-tl-name">{r.employeeName}</div>
+                      <div className="nf-tl-meta">{r.employeeCode} · {r.departmentName ?? '–'}</div>
+                    </div>
                   </div>
-                  <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 5, minWidth: 0 }}>
-                    {r.skills.slice(0, 3).map(s => (
-                      <Pill key={s.id} tone={LEVEL_TONE[s.proficiencyLevel] ?? 'var(--txt-dim)'}>{s.skillName}</Pill>
+                  <div className="nf-tl-chips">
+                    {r.skills.slice(0, 3).map(sk => (
+                      <Pill key={sk.id} tone={LEVEL_TONE[sk.proficiencyLevel] ?? 'var(--txt-dim)'}>{sk.skillName}</Pill>
                     ))}
-                    {r.skills.length > 3 && <span style={{ fontSize: 11, color: 'var(--txt-dim)' }}>+{r.skills.length - 3} more</span>}
+                    {r.skills.length > 3 && <span className="nf-tl-more">+{r.skills.length - 3} more</span>}
                   </div>
+                  {r.certificates.length > 0 && <span className="nf-cert-badge"><Award size={12} /> {r.certificates.length}</span>}
+                  <ChevronRight size={16} className="nf-tl-go" />
                 </button>
               ))}
             </div>
           )}
         </DetailModalShell>
-      )}
+        );
+      })()}
     </div>
   );
 }

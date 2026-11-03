@@ -64,14 +64,19 @@
 
 /* Table */
 .apv-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-.apv-table { width: 100%; border-collapse: collapse; }
+/* Fixed layout with every column given a percentage width via <colgroup> (ApprovalsPage.tsx),
+   summing to exactly 100% — so width: 100% here can never overflow the card (no horizontal
+   scrollbar hiding Actions off-screen) while still giving each column a deliberate,
+   content-proportional share instead of auto-layout's unpredictable one, or a fixed-px column set
+   that doesn't account for actual available width varying with zoom/sidebar state. */
+.apv-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .apv-table th {
-  padding: 11px 14px; text-align: left; font-size: 11px; font-weight: 700; color: var(--txt-mut);
+  padding: 11px 10px; text-align: left; font-size: 11px; font-weight: 700; color: var(--txt-mut);
   text-transform: uppercase; letter-spacing: .07em; border-bottom: 1px solid var(--line);
   white-space: nowrap; background: var(--raised2);
 }
 .apv-table td {
-  padding: 13px 14px; font-size: 13px; color: var(--txt-mut);
+  padding: 13px 10px; font-size: 13px; color: var(--txt-mut);
   border-bottom: 1px solid var(--line); vertical-align: middle;
 }
 .apv-table tbody tr:last-child td { border-bottom: none; }
@@ -82,16 +87,22 @@
 .apv-check { width: 40px; }
 .apv-check input { cursor: pointer; accent-color: var(--brand); width: 15px; height: 15px; }
 
-.apv-type { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.apv-type { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .apv-type-icon { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex-shrink: 0; }
-.apv-type-label { font-weight: 600; color: var(--txt); white-space: nowrap; }
+/* overflow/ellipsis, not just nowrap — with the column's width now fixed (see .apv-table), an
+   unusually long label (e.g. "Work From Home" at a narrower zoom) truncates instead of forcing
+   the row taller or spilling into the next column; the title attribute (see ApprovalsPage.tsx)
+   covers the full text on hover. */
+.apv-type-label { font-weight: 600; color: var(--txt); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
-.apv-emp { display: flex; align-items: center; gap: 10px; min-width: 150px; }
-.apv-emp-name { color: var(--txt); font-weight: 600; }
+.apv-emp { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.apv-emp-text { display: flex; flex-direction: column; min-width: 0; }
+.apv-emp-name { color: var(--txt); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.apv-emp-code { font-size: 11.5px; color: var(--txt-dim); margin-top: 2px; letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.apv-dates { white-space: nowrap; color: var(--txt); }
-.apv-reason { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.apv-submitted { white-space: nowrap; }
+.apv-dates { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--txt); }
+.apv-reason { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-submitted { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .apv-status {
   display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700;
@@ -100,7 +111,7 @@
 }
 .apv-status-sub { font-size: 10.5px; font-weight: 600; color: var(--txt-dim); margin-top: 4px; white-space: nowrap; }
 
-.apv-actions { display: flex; gap: 6px; }
+.apv-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .apv-empty { padding: 56px 24px; text-align: center; }
 .apv-empty-icon {
@@ -138,15 +149,13 @@
    they respond correctly whether or not the app sidebar is taking up space beside the page. */
 .apv-card { container: apv-card / inline-size; }
 
-/* Laptop / tablet landscape: tighten spacing and the free-text column first. */
+/* Laptop / tablet landscape: tighten spacing. Column widths themselves stay fixed (see
+   .apv-table/<colgroup>) rather than shrinking further — below this the table's own
+   overflow-x: auto (ApprovalsPage.tsx) scrolls horizontally instead of squeezing columns, which
+   is what used to reintroduce the uneven-gap problem this whole fix is for. */
 @container apv-card (max-width: 1300px) {
   .apv-table th, .apv-table td { padding-left: 10px; padding-right: 10px; }
-  .apv-reason { max-width: 170px; }
-  .apv-type, .apv-emp { min-width: 0; }
   .apv-type-icon { width: 28px; height: 28px; }
-}
-@container apv-card (max-width: 1060px) {
-  .apv-reason { max-width: 120px; }
 }
 
 @media (max-width: 760px) {
@@ -192,3 +201,33 @@
 @media (max-width: 520px) {
   .apv-detail-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Review modal v2 (details popup) ── */
+.apv-overlay { background: rgba(8, 10, 16, .6) !important; backdrop-filter: blur(3px); }
+.apv-modal { border-radius: 20px !important; border-color: var(--line2) !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important; max-width: 600px !important; animation: apv-rise .2s ease-out; }
+@keyframes apv-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+.apv-modal-head { padding: 18px 22px !important; gap: 14px !important; background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); }
+.apv-head-av { display: inline-flex; padding: 3px; border-radius: 50%; background: var(--panel); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 38%, transparent); }
+.apv-head-name { font-family: Inter, sans-serif; font-weight: 700; font-size: 17px; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apv-head-sub { padding: 2px 10px; border-radius: 999px; font-size: 11.5px; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); }
+.apv-head-x { align-self: flex-start; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; padding: 0; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 11px; transition: color .15s, background .15s; }
+.apv-head-x:hover { color: var(--txt); background: var(--raised2); }
+.apv-modal-body { padding: 20px 22px !important; }
+.apv-detail-grid { gap: 12px !important; }
+.apv-fact {
+  display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 14px; min-width: 0;
+  background: color-mix(in srgb, var(--brand) 2.5%, var(--raised)); border: 1px solid var(--line);
+}
+.apv-fact-ico {
+  flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);
+}
+.apv-fact-main { min-width: 0; }
+.apv-fact-lbl { margin-bottom: 3px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-dim); }
+.apv-fact-val { font-size: 13.5px; font-weight: 500; color: color-mix(in srgb, var(--txt) 86%, var(--panel)); overflow-wrap: anywhere; line-height: 1.5; }
+.apv-modal-body textarea { background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 12px !important; padding: 11px 13px !important; transition: border-color .15s, box-shadow .15s; }
+.apv-modal-body textarea:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.apv-modal-foot { padding: 14px 22px !important; background: var(--panel) !important; box-shadow: 0 -8px 18px rgba(16, 24, 40, .06); }
+.apv-modal-foot .apv-btn { border-radius: 11px !important; padding: 9px 22px !important; font-weight: 700 !important; }
+.apv-modal-foot .apv-btn:not(:disabled):hover { filter: brightness(1.06); }
+@media (max-width: 560px) { .apv-detail-grid { grid-template-columns: 1fr !important; } }

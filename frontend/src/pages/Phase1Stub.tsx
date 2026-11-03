@@ -19,7 +19,7 @@ export default function Phase1Stub() {
       <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 15, color: 'var(--txt)', marginBottom: 6, textTransform: 'capitalize' }}>
         {name}
       </div>
-      Phase 1 module — content builds in its dedicated slice.
+      Phase 1 module - content builds in its dedicated slice.
     </div>
   );
 }

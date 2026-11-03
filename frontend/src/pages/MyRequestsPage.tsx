@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
+import PageTitleBlock from '../components/PageTitleBlock';
+import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  CalendarDays, ClipboardList, ClockAlert, Eye, House, Hourglass, Inbox, Layers, Timer, X,
+  AlertCircle, CheckCircle2, CalendarDays, ClipboardList, ClockAlert, Eye, House, Hourglass, Inbox, Layers, Timer, X,
   Plus, ChevronDown, Search, ArrowRight, Send, Smile, type LucideIcon,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -110,7 +114,7 @@ function StatusBadge({ status }: { status: string }) {
 // rolls it back a day. Parsing its Y/M/D into a *local* Date avoids that; a real timestamp already
 // carries its own offset/Z, so it's left to parse normally.
 function fmtDate(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   const d = s.includes('T')
     ? new Date(s)
     : (([y, m, day]) => new Date(y, m - 1, day))(s.split('-').map(Number));
@@ -118,16 +122,16 @@ function fmtDate(s?: string | null) {
 }
 
 function fmtTime(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
 /** Overtime's requested duration ("Overtime Hours") — derived from requestedCheckIn/Out rather
  * than shown as raw clock times, since the employee-facing concept is hours claimed, not when. */
 function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
-  if (!startIso || !endIso) return '—';
+  if (!startIso || !endIso) return '–';
   const minutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
-  if (minutes <= 0) return '—';
+  if (minutes <= 0) return '–';
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -188,7 +192,7 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
       <div className="nf-rq-summary">
         <div className="nf-rq-strong">Overtime</div>
         <SummaryLine>
-          {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '—'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '—'}
+          {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '–'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '–'}
         </SummaryLine>
       </div>
     );
@@ -202,25 +206,25 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
 
 export type StatusFilter = 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
-function StatRing({ value, total, pct, label, caption, tone, active, onClick }: {
+const RING_ACCENT: Record<string, string> = {
+  'tone-indigo': 'var(--info)', 'tone-warn': 'var(--warn)', 'tone-ok': 'var(--ok)', 'tone-risk': 'var(--risk)',
+};
+const RING_ICON: Record<string, React.ReactNode> = {
+  'tone-indigo': <ClipboardList size={20} />, 'tone-warn': <Hourglass size={20} />, 'tone-ok': <CheckCircle2 size={20} />, 'tone-risk': <AlertCircle size={20} />,
+};
+
+// Same tile as the Home dashboard (components/DashTile). Still a button: picking one filters the table below.
+export function StatRing({ value, total, pct, label, caption, tone, active, onClick }: {
   value: number; total: number; pct: number; label: string; caption: string; tone: string;
   active: boolean; onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={`nf-rq-ring-item ${tone}${active ? ' nf-rq-ring-item--active' : ''}`}
-      onClick={onClick}
+    <DashTile
+      icon={RING_ICON[tone] ?? <ClipboardList size={20} />} accent={RING_ACCENT[tone] ?? 'var(--brand)'}
+      label={label} value={String(value)} sub={`${caption} · ${pct}%`}
+      active={active} onClick={onClick}
       title={`${label}: ${value} of ${total} request${total !== 1 ? 's' : ''} (${pct}%)`}
-    >
-      <div className={`nf-rq-ring ${tone}`} style={{ '--pct': pct } as React.CSSProperties}>
-        <span className="nf-rq-ring-value">{value}</span>
-      </div>
-      <div>
-        <div className="nf-rq-ring-label">{label}</div>
-        <div className="nf-rq-ring-caption">{caption}</div>
-      </div>
-    </button>
+    />
   );
 }
 
@@ -239,7 +243,7 @@ function RequestOverviewCard({ items, statusFilter, onFilter }: {
       <div className="nf-rq-panel-head">
         <div>
           <h3 className="nf-rq-panel-title"><ClipboardList size={16} aria-hidden="true" />Request Overview</h3>
-          <div className="nf-rq-panel-meta">Track your requests at a glance — click a stat to filter</div>
+          <div className="nf-rq-panel-meta">Track your requests at a glance - click a stat to filter</div>
         </div>
       </div>
       <div className="nf-rq-panel-body nf-rq-ring-row">
@@ -452,7 +456,7 @@ function Row({ label, value, wide }: { label: string; value?: string | null; wid
   return (
     <div style={wide ? { gridColumn: '1 / -1' } : undefined}>
       <div className="nf-rq-field-label">{label}</div>
-      <div className="nf-rq-field-value">{value ?? '—'}</div>
+      <div className="nf-rq-field-value">{value ?? '–'}</div>
     </div>
   );
 }
@@ -508,7 +512,7 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
           </div>
 
           <div className="nf-rq-section-label">Reason</div>
-          <div className="nf-rq-quote">{reason ?? '—'}</div>
+          <div className="nf-rq-quote">{reason ?? '–'}</div>
 
           <div className="nf-rq-decision">
             <div>
@@ -608,6 +612,7 @@ export default function MyRequestsPage() {
     if (sortOrder === 'latest') sorted.reverse();
     return sorted;
   }, [searched, sortOrder]);
+  const reqPaged = usePaged(filtered);
 
   const counts: Record<string, number> = { ALL: items.length };
   ALL_TYPES.forEach(t => { counts[t] = items.filter(i => i.requestType === t).length; });
@@ -616,14 +621,11 @@ export default function MyRequestsPage() {
 
   return (
     <div className="nf-rq">
-      <div className="nf-rq-header">
-        <div className="nf-rq-header-main">
-          <div className="nf-rq-header-icon"><ClipboardList size={24} /></div>
-          <div>
+      <div className="nf-rq-header nf-page-hdr">
+        <PageTitleBlock icon={ClipboardList} style={{ position: 'relative' }}>
             <h1 className="nf-rq-title">My Requests</h1>
             <p className="nf-rq-subtitle">All your submitted leave and attendance requests in one place.</p>
-          </div>
-        </div>
+        </PageTitleBlock>
         <NewRequestMenu />
       </div>
 
@@ -702,7 +704,7 @@ export default function MyRequestsPage() {
                   {/* No row-level onClick (unlike HelpDeskAdminPage's own table, which shares this
                       CSS) — the details view opens only from "View Details" now, so the inherited
                       row cursor/hover styling is overridden to not imply the whole row is clickable. */}
-                  {filtered.map(item => (
+                  {reqPaged.pageRows.map(item => (
                     <tr key={`${item.requestType}:${item.id}`} style={{ cursor: 'default' }}>
                       <td className="nf-rq-td-lead" data-label="Type"><TypeBadge item={item} /></td>
                       <td data-label="Summary"><ItemDetail item={item} /></td>
@@ -717,13 +719,14 @@ export default function MyRequestsPage() {
                           className="nf-rq-btn nf-rq-btn--outline nf-rq-btn--sm nf-rq-view-btn"
                           onClick={() => setViewing(item)}
                         >
-                          <Eye size={14} /> <span className="nf-rq-view-btn-label">View Details</span>
+                          <Eye size={14} /> <span className="nf-rq-view-btn-label">View Details</span><span className="nf-rq-view-btn-short">View</span>
                         </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <TablePagination {...reqPaged.pagerProps} noun="requests" />
             </div>
           )}
         </div>

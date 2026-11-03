@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Plus, Check, X, RotateCcw, Pencil } from 'lucide-react';
+import { usePaged } from '../../components/usePaged';
+import { TablePagination } from '../../components/TablePagination';
+import { ActionDock } from '../../components/ActionDock';
+import { Plus, Check, X, Pencil, Power, PowerOff } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import type { SkillMasterOption } from '../../api/talentMasterData';
@@ -10,26 +13,21 @@ import {
   type SkillRequestQueueEntry,
 } from '../../api/talentOrg';
 
-const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-const thS: React.CSSProperties = { padding: '9px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', borderBottom: '1px solid var(--line)', background: 'var(--raised)' };
-const tdS: React.CSSProperties = { padding: '10px 14px', fontSize: 12.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
-const inputStyle: React.CSSProperties = { padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)', fontSize: 12.5, fontFamily: 'inherit' };
-const btnPrimary: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: '#B11116', border: 'none', borderRadius: 7, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' };
-const btnGhost: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 5, padding: '5px 9px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, color: 'var(--txt)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' };
+const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' };
+const thS: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+const tdS: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const inputStyle: React.CSSProperties = { padding: '10px 14px', borderRadius: 12, border: '1px solid var(--line2)', background: 'var(--panel)', color: 'var(--txt)', fontSize: 13.5, fontFamily: 'inherit', outline: 'none' };
+const btnPrimary: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, padding: '10px 18px', background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 68%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 28%, transparent)', border: 'none', borderRadius: 12, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' };
 
 function Pill({ active }: { active: boolean }) {
-  return (
-    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, color: active ? '#2FB67C' : 'var(--txt-dim)', background: active ? 'rgba(47,182,124,.15)' : 'var(--raised2)' }}>
-      {active ? 'Active' : 'Inactive'}
-    </span>
-  );
+  return <span className={`nf-rep-pill${active ? '' : ' is-off'}`}>{active ? 'Active' : 'Inactive'}</span>;
 }
 
 function SubSection({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={card}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid var(--line)', background: 'var(--raised)' }}>
-        <h3 style={{ fontSize: 13, flex: 1, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>{title}</h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(90deg, color-mix(in srgb, var(--brand) 9%, var(--panel)), var(--panel))' }}>
+        <h3 style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-.01em', flex: 1, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>{title}</h3>
         {action}
       </div>
       <div style={{ overflowX: 'auto' }}>{children}</div>
@@ -42,6 +40,7 @@ function SubSection({ title, action, children }: { title: string; action?: React
 function SkillsSection({ token }: { token: string }) {
   const { showToast } = useToast();
   const [skills, setSkills] = useState<SkillMasterSettingsEntry[]>([]);
+  const skillPaged = usePaged(skills);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -69,34 +68,33 @@ function SkillsSection({ token }: { token: string }) {
 
   return (
     <SubSection title="Skills master list">
-      <div style={{ display: 'flex', gap: 8, padding: 14, borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '16px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="New skill name" style={inputStyle} />
         <input value={category} onChange={e => setCategory(e.target.value)} placeholder="Category (optional)" style={inputStyle} />
         <button onClick={create} disabled={!name.trim()} style={{ ...btnPrimary, opacity: name.trim() ? 1 : 0.5 }}><Plus size={13} /> Add</button>
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead><tr>{['Name', 'Category', 'Aliases', 'In use', 'Status', ''].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
         <tbody>
           {loading ? (
             <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center' }}>Loading…</td></tr>
           ) : skills.length === 0 ? (
             <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center' }}>No skills yet.</td></tr>
-          ) : skills.map(s => (
+          ) : skillPaged.pageRows.map(s => (
             <tr key={s.id}>
               <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{s.name}</td>
-              <td style={tdS}>{s.category ?? '—'}</td>
-              <td style={tdS}>{s.aliases.length > 0 ? s.aliases.join(', ') : '—'}</td>
+              <td style={tdS}>{s.category ?? '–'}</td>
+              <td style={tdS}>{s.aliases.length > 0 ? s.aliases.join(', ') : '–'}</td>
               <td style={tdS}>{s.usageCount}</td>
               <td style={tdS}><Pill active={s.active} /></td>
               <td style={{ ...tdS, textAlign: 'right' }}>
-                <button onClick={() => toggle(s)} style={btnGhost}>
-                  {s.active ? <><X size={11} /> Deactivate</> : <><RotateCcw size={11} /> Reactivate</>}
-                </button>
+                <ActionDock items={[{ label: s.active ? 'Deactivate' : 'Reactivate', icon: s.active ? PowerOff : Power, onClick: () => toggle(s) }]} />
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      <TablePagination {...skillPaged.pagerProps} noun="skills" />
     </SubSection>
   );
 }
@@ -128,16 +126,16 @@ function ProficiencyLevelsSection({ token }: { token: string }) {
     try {
       await (l.active ? proficiencyLevelSettingsApi.deactivate(token, l.id) : proficiencyLevelSettingsApi.reactivate(token, l.id));
       load();
-    } catch (e) { showToast('error', e instanceof Error ? e.message : (l.active ? 'Could not deactivate — it may still be in use' : 'Could not reactivate level')); }
+    } catch (e) { showToast('error', e instanceof Error ? e.message : (l.active ? 'Could not deactivate - it may still be in use' : 'Could not reactivate level')); }
   }
 
   return (
     <SubSection title="Proficiency levels">
-      <div style={{ display: 'flex', gap: 8, padding: 14, borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '16px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="New level name" style={inputStyle} />
         <button onClick={create} disabled={!name.trim()} style={{ ...btnPrimary, opacity: name.trim() ? 1 : 0.5 }}><Plus size={13} /> Add</button>
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead><tr>{['Order', 'Name', 'In use', 'Status', ''].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
         <tbody>
           {loading ? (
@@ -149,9 +147,7 @@ function ProficiencyLevelsSection({ token }: { token: string }) {
               <td style={tdS}>{l.usageCount}</td>
               <td style={tdS}><Pill active={l.active} /></td>
               <td style={{ ...tdS, textAlign: 'right' }}>
-                <button onClick={() => toggle(l)} style={btnGhost}>
-                  {l.active ? <><X size={11} /> Deactivate</> : <><RotateCcw size={11} /> Reactivate</>}
-                </button>
+                <ActionDock items={[{ label: l.active ? 'Deactivate' : 'Reactivate', icon: l.active ? PowerOff : Power, onClick: () => toggle(l) }]} />
               </td>
             </tr>
           ))}
@@ -220,14 +216,14 @@ function CertificateCategoriesSection({ token }: { token: string }) {
 
   return (
     <SubSection title="Certificate categories">
-      <div style={{ display: 'flex', gap: 8, padding: 14, borderBottom: '1px solid var(--line)', flexWrap: 'wrap', alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '16px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap', alignItems: 'center' }}>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="New category name" style={inputStyle} />
         <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--txt-mut)' }}>
           <input type="checkbox" checked={hasExpiry} onChange={e => setHasExpiry(e.target.checked)} /> Has expiry
         </label>
         <button onClick={create} disabled={!name.trim()} style={{ ...btnPrimary, opacity: name.trim() ? 1 : 0.5 }}><Plus size={13} /> Add</button>
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead><tr>{['Name', 'Has Expiry', 'In use', 'Status', ''].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
         <tbody>
           {loading ? (
@@ -246,10 +242,10 @@ function CertificateCategoriesSection({ token }: { token: string }) {
               <td style={tdS}><Pill active={c.active} /></td>
               <td style={{ ...tdS, textAlign: 'right' }}>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                  <button onClick={() => saveEdit(c.id)} disabled={!editName.trim() || saving} style={{ ...btnGhost, opacity: !editName.trim() || saving ? 0.6 : 1 }}>
+                  <button onClick={() => saveEdit(c.id)} disabled={!editName.trim() || saving} className="nf-act-btn" style={{ opacity: !editName.trim() || saving ? 0.6 : 1 }}>
                     <Check size={11} /> Save
                   </button>
-                  <button onClick={cancelEdit} style={btnGhost}><X size={11} /> Cancel</button>
+                  <button onClick={cancelEdit} className="nf-act-btn"><X size={11} /> Cancel</button>
                 </div>
               </td>
             </tr>
@@ -260,12 +256,10 @@ function CertificateCategoriesSection({ token }: { token: string }) {
               <td style={tdS}>{c.usageCount}</td>
               <td style={tdS}><Pill active={c.active} /></td>
               <td style={{ ...tdS, textAlign: 'right' }}>
-                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                  <button onClick={() => startEdit(c)} style={btnGhost}><Pencil size={11} /> Edit</button>
-                  <button onClick={() => toggle(c)} style={btnGhost}>
-                    {c.active ? <><X size={11} /> Deactivate</> : <><RotateCcw size={11} /> Reactivate</>}
-                  </button>
-                </div>
+                <ActionDock items={[
+                  { label: 'Edit', icon: Pencil, onClick: () => startEdit(c) },
+                  { label: c.active ? 'Deactivate' : 'Reactivate', icon: c.active ? PowerOff : Power, onClick: () => toggle(c) },
+                ]} />
               </td>
             </tr>
           ))}
@@ -308,8 +302,8 @@ function SkillRequestsSection({ token }: { token: string }) {
   }
 
   return (
-    <SubSection title="Pending skill requests" action={<span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{requests.length} pending</span>}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+    <SubSection title="Pending skill requests" action={<span className="nf-rep-pill is-warn">{requests.length} pending</span>}>
+      <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead><tr>{['Requested by', 'Skill name', 'Category / note', 'Map to existing', ''].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
         <tbody>
           {loading ? (
@@ -320,18 +314,18 @@ function SkillRequestsSection({ token }: { token: string }) {
             <tr key={r.id}>
               <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.requesterName}</td>
               <td style={tdS}>{r.name}</td>
-              <td style={tdS}>{[r.category, r.note].filter(Boolean).join(' · ') || '—'}</td>
+              <td style={tdS}>{[r.category, r.note].filter(Boolean).join(' · ') || '–'}</td>
               <td style={tdS}>
                 <select value={mapping[r.id] ?? ''} onChange={e => setMapping(prev => ({ ...prev, [r.id]: e.target.value }))} style={inputStyle}>
-                  <option value="">— choose existing skill —</option>
+                  <option value="">– choose existing skill –</option>
                   {skills.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </td>
               <td style={{ ...tdS, whiteSpace: 'nowrap' }}>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                  <button onClick={() => approve(r.id)} style={btnGhost}><Check size={11} /> Approve new</button>
-                  <button onClick={() => mapToExisting(r.id)} disabled={!mapping[r.id]} style={{ ...btnGhost, opacity: mapping[r.id] ? 1 : 0.5 }}>Map</button>
-                  <button onClick={() => reject(r.id)} style={btnGhost}><X size={11} /> Reject</button>
+                  <button onClick={() => approve(r.id)} className="nf-act-btn"><Check size={11} /> Approve new</button>
+                  <button onClick={() => mapToExisting(r.id)} disabled={!mapping[r.id]} className="nf-act-btn" style={{ opacity: mapping[r.id] ? 1 : 0.5 }}>Map</button>
+                  <button onClick={() => reject(r.id)} className="nf-act-btn"><X size={11} /> Reject</button>
                 </div>
               </td>
             </tr>
@@ -359,14 +353,9 @@ export function SettingsTab({ initialSub }: { initialSub?: SettingsSubTab } = {}
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {SUB_TABS.map(t => (
-          <button key={t.key} onClick={() => setSub(t.key)} style={{
-            padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-            border: sub === t.key ? '1px solid #B11116' : '1px solid var(--line2)',
-            background: sub === t.key ? 'rgba(177,17,22,.1)' : 'var(--shell)',
-            color: sub === t.key ? '#B11116' : 'var(--txt-mut)',
-          }}>
+          <button key={t.key} type="button" aria-pressed={sub === t.key} onClick={() => setSub(t.key)} className={`nf-skill-chip${sub === t.key ? ' is-on' : ''}`}>
             {t.label}
           </button>
         ))}

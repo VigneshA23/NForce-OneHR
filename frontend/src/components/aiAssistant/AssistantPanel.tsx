@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, RotateCcw, Send, Sparkles, X } from 'lucide-react';
+import { Loader2, RotateCcw, Send, X } from 'lucide-react';
+import { NoraAvatar } from './NoraAvatar';
 import * as assistantApi from '../../api/aiAssistant';
 import { myCompliance } from '../../api/documents';
 import { useAuthStore } from '../../store/authStore';
@@ -262,7 +263,7 @@ export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: Assi
             {/* Speeds way up while a question is in flight — the ring goes from calm ambient
                 motion to visibly "working," the same idea as a browser tab's loading spinner. */}
             <div style={{ ...headerBadgeRingStyle, animationDuration: state.sending ? '1.1s' : '7s' }} />
-            <div style={headerBadgeStyle} className="nf-ai-badge"><Sparkles size={13} /></div>
+            <div style={headerBadgeStyle} className="nf-ai-badge"><NoraAvatar /></div>
           </div>
           <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>
             NORA
@@ -378,7 +379,7 @@ export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: Assi
 
       {tooLong && (
         <div style={{ ...errorBannerStyle, borderTop: 'none' }}>
-          {draft.trim().length} of {MAX_MESSAGE_CHARS} characters — shorten your question.
+          {draft.trim().length} of {MAX_MESSAGE_CHARS} characters - shorten your question.
         </div>
       )}
     </div>

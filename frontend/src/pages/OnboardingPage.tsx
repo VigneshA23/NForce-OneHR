@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import {
   ChevronRight, ChevronLeft, Clock, FileText, Package, RefreshCw, Check,
-  Archive, Calendar, Users, AlertTriangle, ClipboardList, X, Eye, Search,
+  Archive, Calendar, Users, AlertTriangle, ClipboardList, X, Eye, Search, UserPlus
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -27,9 +28,9 @@ const btnPrimaryStyle: React.CSSProperties = { ...btnStyle, background: 'var(--b
 // ── Small shared bits ──────────────────────────────────────
 
 function fmtDate(iso: string | null | undefined) {
-  if (!iso) return '—';
+  if (!iso) return '–';
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
+  if (Number.isNaN(d.getTime())) return '–';
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -231,12 +232,14 @@ function EmployeeDocumentsDrawer({ employeeUserId, employeeName, onClose }: { em
               </div>
               <DocStatusBadge status={d.status} />
               <button
+                type="button"
+                className="nf-row-view"
                 onClick={() => open(d.id)}
                 disabled={opening === d.id}
                 title="View"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--info)', display: 'flex', flexShrink: 0, padding: 4 }}
+                style={{ flexShrink: 0, opacity: opening === d.id ? 0.6 : 1 }}
               >
-                <Eye size={15} />
+                <Eye size={13} /> View
               </button>
             </div>
           ))
@@ -306,7 +309,7 @@ function AssignAssetToEmployeeModal({
             <select value={assetId} onChange={e => setAssetId(e.target.value)} style={inputStyle}>
               <option value="">Select asset…</option>
               {available.map(a => (
-                <option key={a.id} value={a.id}>{a.assetTag} — {[a.brand, a.model].filter(Boolean).join(' ') || 'No details'} ({a.condition})</option>
+                <option key={a.id} value={a.id}>{a.assetTag} – {[a.brand, a.model].filter(Boolean).join(' ') || 'No details'} ({a.condition})</option>
               ))}
             </select>
           </Field>
@@ -395,19 +398,19 @@ function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId:
 
       {!detail.active && (
         <div style={{ marginBottom: 16 }}>
-          <InactiveEditBanner message={`${detail.employeeName} has been deactivated — this onboarding flow is kept for history only and is not counted as an active onboarding case.`} />
+          <InactiveEditBanner message={`${detail.employeeName} has been deactivated - this onboarding flow is kept for history only and is not counted as an active onboarding case.`} />
         </div>
       )}
 
       {detail.archived && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(47,182,124,.12)', border: '1px solid rgba(47,182,124,.3)', color: '#2FB67C', borderRadius: 10, padding: '13px 18px', marginBottom: 16, fontSize: 13.5, fontWeight: 600 }}>
-          <Archive size={16} /> Onboarding complete — archived on {fmtDate(detail.completedAt)}.
+          <Archive size={16} /> Onboarding complete - archived on {fmtDate(detail.completedAt)}.
         </div>
       )}
 
       {!detail.archived && detail.readyToComplete && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.3)', color: '#4C8DD6', borderRadius: 10, padding: '13px 18px', marginBottom: 16, fontSize: 13.5 }}>
-          <span style={{ fontWeight: 600 }}><Check size={16} style={{ verticalAlign: -2, marginRight: 6 }} />All tasks are done — review the details above, then submit to move {detail.employeeName} to Successfully Onboarded.</span>
+          <span style={{ fontWeight: 600 }}><Check size={16} style={{ verticalAlign: -2, marginRight: 6 }} />All tasks are done - review the details above, then submit to move {detail.employeeName} to Successfully Onboarded.</span>
           <button onClick={complete} disabled={completing} style={{ ...btnPrimaryStyle, flexShrink: 0 }}>
             {completing ? 'Completing…' : 'Complete onboarding'}
           </button>
@@ -648,11 +651,11 @@ export default function OnboardingPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
-        <div>
+      <div className="nf-page-hdr" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
+        <PageTitleBlock icon={UserPlus}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Onboarding</h1>
           <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>Every great career starts with NForceOne.</p>
-        </div>
+        </PageTitleBlock>
       </div>
 
       <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 12, marginBottom: 20 }}>
@@ -726,7 +729,7 @@ export default function OnboardingPage() {
                       </div>
                     </td>
                     <td style={tdS}>
-                      {e.departmentName ?? '—'}
+                      {e.departmentName ?? '–'}
                       {e.designationName && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 1 }}>{e.designationName}</div>}
                     </td>
                     <td style={tdS}>{fmtDate(e.joiningDate)}</td>
@@ -793,7 +796,7 @@ export default function OnboardingPage() {
                         </div>
                       </td>
                       <td style={tdS}>
-                        {r.departmentName ?? '—'}
+                        {r.departmentName ?? '–'}
                         {r.designationName && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 1 }}>{r.designationName}</div>}
                       </td>
                       <td style={tdS}>{fmtDate(inProgressTab ? r.joiningDate : r.completedDate)}</td>
@@ -811,7 +814,7 @@ export default function OnboardingPage() {
                       )}
                       <td style={tdS}>{r.active ? <StatusPill status={r.status} /> : <StatusBadge active={false} />}</td>
                       {tab === 'started' && (
-                        <td style={tdS}>{r.nextDueLabel ?? '—'}{r.nextDueDate ? ` · ${fmtDate(r.nextDueDate)}` : ''}</td>
+                        <td style={tdS}>{r.nextDueLabel ?? '–'}{r.nextDueDate ? ` · ${fmtDate(r.nextDueDate)}` : ''}</td>
                       )}
                       <td style={{ ...tdS, color: 'var(--txt-dim)' }}><ChevronRight size={14} /></td>
                     </tr>

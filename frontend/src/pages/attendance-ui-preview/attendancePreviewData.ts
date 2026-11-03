@@ -46,7 +46,7 @@ export function previewRegularizations(): { mine: RegularizationRecord[]; forApp
   ];
   const forApprover = [
     make(3, PEOPLE[0], 2, 'PENDING', 'Missed the evening check-out, left at 6 PM'),
-    make(4, PEOPLE[1], 3, 'PENDING', 'Network outage — could not punch in'),
+    make(4, PEOPLE[1], 3, 'PENDING', 'Network outage - could not punch in'),
     make(5, PEOPLE[2], 5, 'APPROVED', 'Client site visit, no access to the portal', approvedExtra),
     make(6, PEOPLE[3], 6, 'REJECTED', 'Forgot to punch', { reviewedByName: APPROVER.name, reviewedAt: `${isoAgo(5)}T10:00:00+05:30`, reviewComment: 'Please attach proof' }),
   ];
@@ -123,4 +123,11 @@ export function previewRoster(scope: 'team' | 'all', date: string): AttendanceRe
       shiftStartAt: `${date}T09:00:00`, shiftEndAt: `${date}T18:00:00`, workdayStartAt: null, workdayEndAt: null, penalized: false,
     } as AttendanceRecord;
   });
+}
+
+/** Sample e-mails for the roster preview (the live page reads them from the People Directory API). */
+export function previewRosterEmails(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const p of PEOPLE) out[p.id] = `${p.name.toLowerCase().replace(/[^a-z ]/g, '').trim().split(/\s+/).join('.')}@nforceone.com`;
+  return out;
 }

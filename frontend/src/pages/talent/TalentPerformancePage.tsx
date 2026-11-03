@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import PageTitleBlock from '../../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
-import { LayoutDashboard, Search, Users, Settings } from 'lucide-react';
+import { LayoutDashboard, Search, Users, Settings, TrendingUp } from 'lucide-react';
+import { TabBar } from '../../components/TabBar';
 import { DashboardTab } from './DashboardTab';
 import { SearchTab } from './SearchTab';
 import { DirectoryTab } from './DirectoryTab';
@@ -41,28 +43,20 @@ export default function TalentPerformancePage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div>
+      <PageTitleBlock card style={{ marginBottom: 0 }} icon={TrendingUp}>
         <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Performance</h1>
         <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '4px 0 0' }}>
-          Org-wide skills, certificates, and learning — dashboard, search, and directory.
+          Org-wide skills, certificates, and learning - dashboard, search, and directory.
         </p>
-      </div>
+      </PageTitleBlock>
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--line)' }}>
-        {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            background: 'none', border: 'none', cursor: 'pointer',
-            padding: '10px 16px', fontSize: 13, fontWeight: tab === t.key ? 700 : 600,
-            color: tab === t.key ? 'var(--brand-bright)' : 'var(--txt-mut)',
-            borderBottom: tab === t.key ? '2px solid var(--brand-bright)' : '2px solid transparent',
-            marginBottom: -1,
-          }}>
-            <t.icon size={14} aria-hidden="true" />
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <TabBar
+        className="nf-pilltabs"
+        ariaLabel="Performance views"
+        active={tab}
+        onChange={setTab}
+        tabs={TABS.map(t => ({ key: t.key, label: t.label, icon: <t.icon size={14} aria-hidden="true" /> }))}
+      />
 
       {tab === 'dashboard' && <DashboardTab />}
       {tab === 'search' && <SearchTab />}

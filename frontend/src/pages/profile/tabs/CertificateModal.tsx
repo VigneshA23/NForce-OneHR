@@ -4,7 +4,7 @@ import { profileCertificatesApi, type CertificateEntry } from '../../../api/prof
 import { certificateCategoryApi, type CertificateCategoryOption } from '../../../api/talentMasterData';
 import { EditModal, EditField, SelectField } from '../shared';
 
-const UNCATEGORIZED = '— Uncategorized —';
+const UNCATEGORIZED = '– Uncategorized –';
 
 export function CertificateModal({ token, existing, onClose, onSaved }: {
   token: string;

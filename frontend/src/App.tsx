@@ -58,6 +58,8 @@ import HeroGenderPreviewPage from './pages/hero-gender-preview/HeroGenderPreview
 import AttendancePreviewShell from './pages/attendance-ui-preview/AttendancePreviewShell';
 // Design-review mock only — Home dashboard tile rows per role. See the route below.
 import DashboardPreviewShell from './pages/dashboard-ui-preview/DashboardPreviewShell';
+import HierarchyPreviewShell from './pages/hierarchy-ui-preview/HierarchyPreviewShell';
+import TilesPreviewShell from './pages/tiles-ui-preview/TilesPreviewShell';
 
 // Role-switchable mock preview of the redesigned My Team page (?role=manager|hr-admin|super-admin|employee).
 // Mock data only — see the file header in my-team/MyTeamPreviewPage.tsx.
@@ -162,6 +164,10 @@ export default function App() {
         {/* Design-review mock only — the Home dashboard's tile rows (Quick Actions + stat tiles) for
             each role, built from the real components with invented numbers; no auth, no API calls. */}
         <Route path="/dashboard-ui-preview" element={<DashboardPreviewShell />} />
+        {/* Design-review mock only: the Organization Hierarchy summary tiles with invented numbers; no auth, no API calls. */}
+        <Route path="/hierarchy-ui-preview" element={<HierarchyPreviewShell />} />
+        {/* Design-review mock only: summary tiles of the module pages with invented numbers; no auth, no API calls. */}
+        <Route path="/tiles-ui-preview" element={<TilesPreviewShell />} />
 
         {/* Design-review mock only — redesigned My Team page, no auth, no network, not linked from
             the app nav. ?role=manager|hr-admin|super-admin|employee picks the mock dataset only. */}

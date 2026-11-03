@@ -35,6 +35,9 @@ public interface AttendanceExceptionRepository extends JpaRepository<AttendanceE
     // Backs ExceptionService#notifyUnnotifiedExceptions — the scheduled job is the only caller
     // that ever emails an employee about one of these occurrences, regardless of whether the row
     // itself was created moments ago by the same run or earlier by someone opening the Exceptions
-    // dashboard. No date bound: any never-notified row, however it was created, gets caught up.
-    List<AttendanceException> findByExceptionTypeInAndNotifiedAtIsNull(List<String> exceptionTypes);
+    // dashboard. A row whose email failed stays un-notified and is picked up again on the next run;
+    // the date floor bounds that retry (and any first-run backlog) so a permanently undeliverable
+    // row doesn't retry forever and old history isn't mass-emailed.
+    List<AttendanceException> findByExceptionTypeInAndNotifiedAtIsNullAndExceptionDateGreaterThanEqual(
+            List<String> exceptionTypes, LocalDate notBefore);
 }

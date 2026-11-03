@@ -17,7 +17,7 @@ export default function DashboardPlaceholder() {
           className="text-xs font-sans tracking-widest uppercase"
           style={{ color: '#b11116' }}
         >
-          Phase 1 — Login slice complete
+          Phase 1 - Login slice complete
         </p>
         <h1
           className="text-3xl font-bold"

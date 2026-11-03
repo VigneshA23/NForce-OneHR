@@ -54,6 +54,17 @@ public class HelpdeskTicket {
     @Column(name = "resolved_by")
     private UUID resolvedBy;
 
+    // 1-5, employee-submitted once the ticket is CLOSED — optional, and cleared on reopen (see
+    // HelpdeskService#reopenTicket) so a ticket closed a second time can be rated on its own merits.
+    @Column(name = "satisfaction_rating")
+    private Integer satisfactionRating;
+
+    @Column(name = "satisfaction_comment", columnDefinition = "TEXT")
+    private String satisfactionComment;
+
+    @Column(name = "satisfaction_submitted_at", columnDefinition = "TIMESTAMPTZ")
+    private Instant satisfactionSubmittedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "TIMESTAMPTZ")
     @Builder.Default
     private Instant createdAt = Instant.now();

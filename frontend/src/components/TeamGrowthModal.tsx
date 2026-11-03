@@ -5,12 +5,13 @@ import type { LucideIcon } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { teamGrowthApi, type TeamGrowthData } from '../api/teamGrowth';
 import { TabBar } from './TabBar';
+import '../pages/talent/talentPolish.css';
 
 /** Overlay + card chrome, browse-only (no forced Cancel/Save footer like EditModal) — this is a
  * read-only view over an employee's Skills/Certificates/Learning, not a form. Exported for reuse
  * by the single-item detail popups on the Team Performance roster (MyTeamPage). */
-export function DetailModalShell({ title, subtitle, onClose, children }: {
-  title: string; subtitle?: React.ReactNode; onClose: () => void; children: React.ReactNode;
+export function DetailModalShell({ title, subtitle, icon: Icon = Sparkles, onClose, children }: {
+  title: string; subtitle?: React.ReactNode; icon?: LucideIcon; onClose: () => void; children: React.ReactNode;
 }) {
   useEffect(() => {
     const previous = document.body.style.overflow;
@@ -19,29 +20,17 @@ export function DetailModalShell({ title, subtitle, onClose, children }: {
   }, []);
 
   return createPortal(
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: 'clamp(16px, 4vw, 40px)' }}
-      onClick={onClose}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 12,
-          width: 'clamp(320px, 70vw, 760px)', maxWidth: '95vw', maxHeight: '90vh',
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          boxShadow: '0 24px 64px rgba(0,0,0,.55)',
-        }}
-      >
-        <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{title}</span>
-            <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, display: 'flex' }}>
-              <X size={16} />
-            </button>
+    <div className="nf-tm-overlay" onClick={onClose}>
+      <div className="nf-tm-card" role="dialog" aria-label={title} onClick={e => e.stopPropagation()}>
+        <div className="nf-tm-head">
+          <span className="nf-tm-ico"><Icon size={20} /></span>
+          <div className="nf-tm-titles">
+            <div className="nf-tm-title">{title}</div>
+            {subtitle && <div className="nf-tm-sub">{subtitle}</div>}
           </div>
-          {subtitle && <div style={{ marginTop: 4 }}>{subtitle}</div>}
+          <button onClick={onClose} aria-label="Close" className="nf-tm-close"><X size={16} /></button>
         </div>
-        <div style={{ padding: 22, overflowY: 'auto' }}>{children}</div>
+        <div className="nf-tm-body">{children}</div>
       </div>
     </div>,
     document.body
@@ -53,7 +42,7 @@ function parseLocalDate(d: string): Date {
   return new Date(y, m - 1, day);
 }
 function fmtDate(d: string | null): string {
-  if (!d) return '—';
+  if (!d) return '–';
   return parseLocalDate(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -127,7 +116,7 @@ export function TeamGrowthModal({ token, employeeUserId, onClose }: {
   }
 
   return (
-    <DetailModalShell title={`${data.employeeName} — Skills & Growth`} onClose={onClose}>
+    <DetailModalShell title={`${data.employeeName} - Skills & Growth`} onClose={onClose}>
       <SectionTabs
         tab={tab}
         setTab={setTab}

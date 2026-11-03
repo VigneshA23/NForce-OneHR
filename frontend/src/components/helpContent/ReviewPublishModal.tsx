@@ -91,13 +91,13 @@ export function ReviewPublishModal({ item, token, onClose, onEdit, onPublished }
           {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
 
           <ReadOnlyField label={item.type === 'FAQ' ? 'Question' : 'Title'} value={item.title} />
-          <ReadOnlyField label={item.type === 'FAQ' ? 'Short Answer' : 'Description'} value={item.description || <span style={{ color: 'var(--txt-dim)' }}>—</span>} />
+          <ReadOnlyField label={item.type === 'FAQ' ? 'Short Answer' : 'Description'} value={item.description || <span style={{ color: 'var(--txt-dim)' }}>–</span>} />
           {item.type !== 'FAQ' && (
-            <ReadOnlyField label="Body" value={item.body || <span style={{ color: 'var(--txt-dim)' }}>—</span>} />
+            <ReadOnlyField label="Body" value={item.body || <span style={{ color: 'var(--txt-dim)' }}>–</span>} />
           )}
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ flex: 1 }}>
-              <ReadOnlyField label="Category" value={item.category || <span style={{ color: 'var(--txt-dim)' }}>—</span>} />
+              <ReadOnlyField label="Category" value={item.category || <span style={{ color: 'var(--txt-dim)' }}>–</span>} />
             </div>
             <div style={{ flex: 1 }}>
               <ReadOnlyField label="Featured" value={item.featured ? 'Yes' : 'No'} />
@@ -115,7 +115,7 @@ export function ReviewPublishModal({ item, token, onClose, onEdit, onPublished }
               >
                 <Paperclip size={13} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} />
                 <span style={{ flex: 1 }}>
-                  {item.attachments.length} file{item.attachments.length === 1 ? '' : 's'} — {item.attachments.map(a => a.fileName).join(', ')}
+                  {item.attachments.length} file{item.attachments.length === 1 ? '' : 's'} – {item.attachments.map(a => a.fileName).join(', ')}
                 </span>
                 <span style={{ color: 'var(--brand)', fontWeight: 600, fontSize: 12, flexShrink: 0 }}>View</span>
               </button>

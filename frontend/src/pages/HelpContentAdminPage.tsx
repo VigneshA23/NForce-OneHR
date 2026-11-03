@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Archive, ArchiveRestore, FilePlus2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ActionDock } from '../components/ActionDock';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { Archive, ArchiveRestore, FilePlus2, Pencil, Plus, Trash2, BookOpen } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import {
@@ -24,7 +26,6 @@ const STATUS_TONE: Record<HelpContentStatus, 'ok' | 'warn' | 'dim'> = {
 const filterSelect: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', color: 'var(--txt)', fontSize: 12.5, outline: 'none' };
 const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
 const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
-const iconBtn: React.CSSProperties = { background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 7px', color: 'var(--txt-mut)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' };
 
 // Quick Help and Document are no longer creatable (see HelpContentService.CREATABLE_TYPES) and
 // their existing rows were removed (V133), so the filter dropdown only offers FAQ/Guide now.
@@ -75,7 +76,7 @@ export default function HelpContentAdminPage() {
         const reason = window.prompt('Withdrawal reason:');
         if (!reason) return;
         await hrHelpContentApi.withdraw(item.id, reason, token);
-        showToast('success', 'Withdrawn — back to Draft');
+        showToast('success', 'Withdrawn - back to Draft');
       } else if (item.status === 'APPROVED' || item.status === 'UNPUBLISHED') {
         // This unrouted legacy page has no Review & Publish modal (see HelpDeskPage.tsx for
         // that) — publishes to Employee only as a minimal default so this still compiles/works.
@@ -116,11 +117,11 @@ export default function HelpContentAdminPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 22, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
-        <div>
+      <div className="nf-page-hdr" style={{ marginBottom: 22, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14 }}>
+        <PageTitleBlock icon={BookOpen}>
           <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Help & Guidance Content</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>Manage the FAQs, guides, quick help, and documents employees see on the Help & Guidance page.</p>
-        </div>
+        </PageTitleBlock>
         <button onClick={() => { setEditing(null); setFormOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
           <Plus size={14} /> New Content
         </button>
@@ -161,7 +162,7 @@ export default function HelpContentAdminPage() {
                   <tr key={item.id}>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600, maxWidth: 260 }}>{item.title}</td>
                     <td style={tdStyle}>{TYPE_LABEL[item.type]}</td>
-                    <td style={tdStyle}>{item.category ?? '—'}</td>
+                    <td style={tdStyle}>{item.category ?? '–'}</td>
                     <td style={tdStyle}>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         <StatusChip label={STATUS_LABEL[item.status]} tone={STATUS_TONE[item.status]} />
@@ -171,18 +172,14 @@ export default function HelpContentAdminPage() {
                     <td style={tdStyle}>{item.viewCount}</td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{new Date(item.updatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
                     <td style={tdStyle}>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button title="Edit" onClick={() => openEdit(item.id)} style={iconBtn}><Pencil size={13} /></button>
-                        <button title="Next step" onClick={() => handlePrimaryAction(item)} style={{ ...iconBtn, width: 'auto', padding: '5px 9px', fontSize: 11 }}>
-                          {item.status === 'DRAFT' ? 'Submit' : item.status === 'PENDING_APPROVAL' ? 'Withdraw' : item.status === 'PUBLISHED' ? 'Unpublish' : item.status === 'ARCHIVED' ? 'Restore' : 'Publish'}
-                        </button>
-                        {item.status !== 'PENDING_APPROVAL' && item.status !== 'APPROVED' && (
-                          <button title={item.status === 'ARCHIVED' ? 'Restore' : 'Archive'} onClick={() => toggleActive(item)} style={iconBtn}>
-                            {item.status === 'ARCHIVED' ? <ArchiveRestore size={13} /> : <Archive size={13} />}
-                          </button>
-                        )}
-                        <button title="Delete" onClick={() => remove(item)} style={{ ...iconBtn, color: 'var(--risk)' }}><Trash2 size={13} /></button>
-                      </div>
+                      <ActionDock items={[
+                        { label: 'Edit', icon: Pencil, onClick: () => openEdit(item.id) },
+                        { label: item.status === 'DRAFT' ? 'Submit' : item.status === 'PENDING_APPROVAL' ? 'Withdraw' : item.status === 'PUBLISHED' ? 'Unpublish' : item.status === 'ARCHIVED' ? 'Restore' : 'Publish', onClick: () => handlePrimaryAction(item) },
+                        ...(item.status !== 'PENDING_APPROVAL' && item.status !== 'APPROVED'
+                          ? [{ label: item.status === 'ARCHIVED' ? 'Restore' : 'Archive', icon: item.status === 'ARCHIVED' ? ArchiveRestore : Archive, onClick: () => toggleActive(item) }]
+                          : []),
+                        { label: 'Delete', icon: Trash2, onClick: () => remove(item), danger: true },
+                      ]} />
                     </td>
                   </tr>
                 ))}

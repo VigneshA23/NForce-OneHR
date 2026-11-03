@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { X, ChevronDown, ChevronUp, Search, Users, AlertCircle } from 'lucide-react';
+import { PersonCell } from '../components/PersonCell';
+import PageTitleBlock from '../components/PageTitleBlock';
+import { X, ChevronDown, ChevronUp, Search, Users, AlertCircle, Contact } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord, type UpdateEmployeePayload } from '../api/employees';
@@ -34,24 +36,6 @@ function StatusBadge({ active }: { active: boolean }) {
     <span style={{ fontSize: 11, fontWeight: 600, color: active ? 'var(--ok)' : 'var(--txt-dim)', background: active ? 'rgba(47,182,124,.15)' : 'rgba(107,114,128,.15)', borderRadius: 20, padding: '2px 8px', whiteSpace: 'nowrap' }}>
       {active ? 'Active' : 'Inactive'}
     </span>
-  );
-}
-
-function initials(name: string) {
-  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
-}
-
-function Avatar({ name, size = 32 }: { name: string; size?: number }) {
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: 'rgba(177,17,22,.18)', color: 'var(--brand-bright)',
-      display: 'grid', placeItems: 'center',
-      fontSize: size * 0.34, fontWeight: 700, flexShrink: 0,
-      fontFamily: '"Space Grotesk", sans-serif',
-    }}>
-      {initials(name)}
-    </div>
   );
 }
 
@@ -146,8 +130,7 @@ function CreatableLocationSelect({
             onMouseDown={() => { onChange(undefined); setQuery(''); setOpen(false); }}
             style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', cursor: 'pointer' }}
           >
-            — Clear —
-          </div>
+            – Clear - </div>
         </div>
       )}
     </div>
@@ -192,7 +175,7 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
   return (
     <div style={overlayStyle}>
       <div style={{ ...modalStyle, maxWidth: 540 }}>
-        <ModalHeader title={`Edit — ${emp.fullName}`} onClose={onClose} />
+        <ModalHeader title={`Edit - ${emp.fullName}`} onClose={onClose} />
         <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', fontSize: 13, padding: '10px 14px', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6 }}>{error}</div>}
           {isInactive && <InactiveEditBanner />}
@@ -203,19 +186,19 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
           </div>
           <Field label="Business Unit">
             <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => setForm(f => ({ ...f, businessUnitId: e.target.value || undefined }))}>
-              <option value="">— None —</option>
+              <option value="">– None –</option>
               {opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
           <Field label="Department">
             <select style={inputStyle} disabled={employmentFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
-              <option value="">— None —</option>
+              <option value="">– None –</option>
               {assignableOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} disabled={employmentFieldsLocked} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
-              <option value="">— None —</option>
+              <option value="">– None –</option>
               {assignableOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
@@ -245,7 +228,7 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
           </div>
           <div style={{ gridColumn: '1/-1', fontSize: 11, color: 'var(--txt-dim)' }}>
             Manager &amp; Role are managed by Super Admin only. Attendance timezone is derived
-            automatically from Location — see the Locations tab under Organization Masters.
+            automatically from Location - see the Locations tab under Organization Masters.
           </div>
           {isInactive && (
             <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Department, Designation, or Employment Type" />
@@ -340,8 +323,8 @@ export default function EmployeeMasterPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <div>
+      <div className="nf-page-hdr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <PageTitleBlock icon={Contact}>
           <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Employee Master</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 4 }}>
             {loading
@@ -350,7 +333,7 @@ export default function EmployeeMasterPage() {
                 ? "Couldn't load employees"
                 : `${employees.length} employee${employees.length !== 1 ? 's' : ''}`} · New hires, role and access are added from Super Admin → User Management.
           </p>
-        </div>
+        </PageTitleBlock>
       </div>
 
       {/* Search + Filters */}
@@ -414,7 +397,6 @@ export default function EmployeeMasterPage() {
                     <th style={sortableThStyle} onClick={() => toggleSort('fullName')}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Employee <SortIcon active={sortKey === 'fullName'} dir={sortDir} /></span>
                     </th>
-                    <th style={thStyle}>Employee ID</th>
                     <th style={sortableThStyle} onClick={() => toggleSort('departmentName')}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Dept <SortIcon active={sortKey === 'departmentName'} dir={sortDir} /></span>
                     </th>
@@ -436,7 +418,7 @@ export default function EmployeeMasterPage() {
                   {loading ? (
                     Array.from({ length: 8 }, (_, i) => (
                       <tr key={i}>
-                        {[180, 90, 110, 120, 110, 100, 70, 60, 30].map((w, ci) => (
+                        {[180, 110, 120, 110, 100, 70, 60, 30].map((w, ci) => (
                           <td key={ci} style={{ ...tdStyle, padding: '14px' }}>
                             <div style={{ height: 12, width: w, borderRadius: 4, background: 'var(--raised2)', animation: 'glow-pulse 1.6s ease-in-out infinite' }} />
                           </td>
@@ -449,19 +431,12 @@ export default function EmployeeMasterPage() {
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
                       <td style={tdStyle}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Avatar name={emp.fullName} />
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ color: 'var(--txt)', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}>{emp.fullName}</div>
-                            <div style={{ color: 'var(--txt-dim)', fontSize: 12, whiteSpace: 'nowrap' }}>{emp.email}</div>
-                          </div>
-                        </div>
+                        <PersonCell userId={emp.userId} name={emp.fullName} code={emp.employeeCode} extra={emp.email} />
                       </td>
-                      <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{emp.employeeCode}</td>
-                      <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                      <td style={tdStyle}>{emp.designationName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                      <td style={tdStyle}>{emp.currentManager ? emp.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                      <td style={tdStyle}>{emp.locationName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                      <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{emp.designationName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{emp.currentManager ? emp.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{emp.locationName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
                       <td style={tdStyle}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: emp.workMode === 'REMOTE' ? '#4C8DD6' : emp.workMode === 'HYBRID' ? '#E0A93B' : '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 7px' }}>
                           {emp.workMode ?? 'ONSITE'}

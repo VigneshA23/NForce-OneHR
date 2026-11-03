@@ -50,22 +50,10 @@ export interface ShiftRow {
   pendingBreakMinutes: number | null;
   pendingLateGraceMinutes: number | null;
   active: boolean; employeeCount: number; createdAt: string;
-  // "Applicable Days" — java.time.DayOfWeek names, Monday-first. Always non-empty: a Shift
-  // created before this field existed reads as all 7 days (see ShiftResponse#from on the
-  // backend), same as a brand-new Shift's own default.
-  workingDays: string[];
 }
 export interface CreateShiftPayload {
   name: string; code?: string; description?: string;
   startTime: string; endTime: string; breakMinutes?: number; lateGraceMinutes?: number;
-  // "Applicable Days" — optional, but if provided must be non-empty (the backend rejects an
-  // explicitly empty list). On create, omitting it defaults to all 7 days server-side. On update
-  // (UpdateShiftPayload inherits this field), omitting it leaves the Shift's current Applicable
-  // Days untouched — never silently reset to all 7. Unlike startTime/endTime/etc, an update to
-  // this field is NOT deferred to effectiveFrom: it takes effect immediately (see
-  // OrgService#updateShift's own comment) since it's never read by any attendance/workday
-  // calculation.
-  workingDays?: string[];
 }
 export interface UpdateShiftPayload extends CreateShiftPayload {
   // Required, and must be strictly after today — the backend rejects today/past regardless of
@@ -211,8 +199,10 @@ export const orgApi = {
     fetch(`${BASE}/shifts/${id}`, { method: 'DELETE', headers: authHeaders(token) })
       .then(r => handleEmpty(r)),
 
-  // Weekly Off Policies — WeeklyOffPolicy is the sole source of truth for weekly-off (Shift
-  // carries no working-days concept). Same Super-Admin-only create/edit/delete pattern as Shifts.
+  // Weekly Off Policies — WeeklyOffPolicy is the sole source of truth for weekly-off, including
+  // which days a leave request may span (Phase 4 — see LeaveService#requireOnlyWorkingDays, which
+  // now resolves this through the same WorkingDayService path attendance uses).
+  // Same Super-Admin-only create/edit/delete pattern as Shifts.
   listWeeklyOffPolicies: (token: string) =>
     fetch(`${BASE}/weekly-off-policies`, { headers: authHeaders(token) }).then(r => handle<WeeklyOffPolicyRow[]>(r)),
 

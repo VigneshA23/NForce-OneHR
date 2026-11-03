@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { PersonCell } from '../components/PersonCell';
+import PageTitleBlock from '../components/PageTitleBlock';
+import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
-import { Plus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, MoreVertical } from 'lucide-react';
+import { Plus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, UserPlus, Pencil, KeyRound, Trash2, Power, CheckCircle2, Briefcase, MapPin, Clock, ListChecks } from 'lucide-react';
+import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
 import { orgApi, type ShiftRow } from '../api/org';
@@ -9,6 +13,7 @@ import { useToast } from '../context/ToastContext';
 import { ShiftFormModal, fmtShiftTime } from './OrgSetupPage';
 import { InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
 import { businessTodayIsoDate } from '../utils/businessDate';
+import './userManagementPolish.css';
 
 /** "Sep 16, 2026" from a plain "YYYY-MM-DD" date-input value — for the Effective From helper text. */
 function fmtEffectiveDate(iso: string): string {
@@ -57,30 +62,24 @@ function RoleBadge({ role }: { role: string }) {
 
 // Page-local, purely presentational restyle of the Active/Inactive pill (dot + rounded pill) —
 // same `active` input and same Active/Inactive wording as the shared EmployeeStatus.StatusBadge.
+/** The three summary tiles on the Access page: same tile as the Home dashboard (components/DashTile). Display only. */
+export function AccessStatTiles({ total, active, inactive, roleSummary }: { total: number; active: number; inactive: number; roleSummary: string }) {
+  const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+      <DashTile icon={<Users2 size={20} />} accent="var(--info)" label="Total Users" value={String(total)} sub={roleSummary} />
+      <DashTile icon={<ShieldCheck size={20} />} accent="var(--ok)" label="Active" value={String(active)} sub={`${pct(active)}% of total`} />
+      <DashTile icon={<UserX size={20} />} accent="var(--risk)" label="Inactive" value={String(inactive)} sub={`${pct(inactive)}% of total`} />
+    </div>
+  );
+}
+
 function StatusBadge({ active }: { active: boolean }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: active ? '#2FB67C' : '#E4373D', background: active ? 'rgba(47,182,124,.1)' : 'rgba(228,55,61,.1)', borderRadius: 20, padding: '3px 10px', whiteSpace: 'nowrap' }}>
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: active ? '#2FB67C' : '#E4373D' }} />
       {active ? 'Active' : 'Inactive'}
     </span>
-  );
-}
-
-function initials(name: string) {
-  return name.split(' ').map(w => w[0] ?? '').join('').slice(0, 2).toUpperCase();
-}
-
-function Avatar({ name, size = 32 }: { name: string; size?: number }) {
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: '50%',
-      background: 'rgba(177,17,22,.14)', color: 'var(--brand-bright)',
-      display: 'grid', placeItems: 'center',
-      fontSize: size * 0.36, fontWeight: 700, flexShrink: 0,
-      fontFamily: '"Space Grotesk", sans-serif',
-    }}>
-      {initials(name)}
-    </div>
   );
 }
 
@@ -96,116 +95,44 @@ function Avatar({ name, size = 32 }: { name: string; size?: number }) {
 // the caller's items array, not here.
 interface RowActionItem { label: string; onClick: () => void; danger?: boolean; dividerBefore?: boolean; }
 
-function RowActionsMenu({ open, onToggle, onClose, items }: {
-  open: boolean;
-  onToggle: () => void;
-  onClose: () => void;
+function RowActionsMenu({ items }: {
+  open?: boolean;
+  onToggle?: () => void;
+  onClose?: () => void;
   items: RowActionItem[];
 }) {
-  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number }>({ top: 0, right: 0 });
-  const [hovered, setHovered] = useState(false);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const minWidth = 180;
-
-  if (items.length === 0) return null;
-
-  function handleClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (!open && btnRef.current) {
-      const rect = btnRef.current.getBoundingClientRect();
-      const menuHeight = items.length * 36 + 8;
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const viewportMargin = 8;
-      const maxRight = Math.max(viewportMargin, window.innerWidth - minWidth - viewportMargin);
-      const right = Math.min(window.innerWidth - rect.right, maxRight);
-      if (spaceBelow < menuHeight) setPos({ bottom: window.innerHeight - rect.top + 4, right });
-      else setPos({ top: rect.bottom + 4, right });
-    }
-    onToggle();
-  }
-
-  const lit = open || hovered;
-
-  return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={handleClick}
-        aria-label="Row actions"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          background: lit ? 'var(--raised2)' : 'transparent',
-          border: `1px solid ${lit ? 'var(--line2)' : 'transparent'}`,
-          borderRadius: 8, width: 30, height: 30, cursor: 'pointer',
-          color: lit ? 'var(--txt)' : 'var(--txt-mut)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          transition: 'background .15s, border-color .15s, color .15s',
-        }}
-      >
-        <MoreVertical size={15} />
-      </button>
-
-      {open && createPortal(
-        <>
-          {/* Full-viewport scrim, above the table's overflow context — clicking it (or
-              any row's own trigger) closes the menu, which is how exclusivity + outside-click-to-close both work. */}
-          <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
-          <div
-            role="menu"
-            style={{
-              position: 'fixed', top: pos.top, bottom: pos.bottom, right: pos.right,
-              background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10,
-              boxShadow: '0 16px 40px rgba(16,24,40,.18)', zIndex: 1000,
-              minWidth, maxWidth: 'calc(100vw - 16px)', boxSizing: 'border-box', overflow: 'hidden',
-            }}
-          >
-            {items.map((item, i) => (
-              <button
-                key={i}
-                role="menuitem"
-                onClick={e => { e.stopPropagation(); item.onClick(); onClose(); }}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
-                  fontSize: 12.5, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer',
-                  color: item.danger ? 'var(--risk)' : 'var(--txt)',
-                  borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
-                  transition: 'background .1s',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = item.danger ? 'rgba(228,55,61,.08)' : 'var(--raised)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </>,
-        document.body
-      )}
-    </>
-  );
+  return <KebabMenu items={items} />;
 }
 
 interface OrgOptions { businessUnits: any[]; departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; shifts: ShiftRow[]; }
 
-const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,17,23,.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 };
+const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,17,23,.6)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 };
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.4)' };
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 9, padding: '10px 12px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' };
-const formSectionLabelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 2 };
 const primaryBtnStyle: React.CSSProperties = { background: 'linear-gradient(135deg, var(--brand-bright), var(--brand))', color: '#fff', border: 'none', borderRadius: 9, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 6px 16px rgba(177,17,22,.25)' };
 const secondaryBtnStyle: React.CSSProperties = { background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 9, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 
+function headerIcon(title: string): React.ComponentType<{ size?: number }> {
+  if (title.startsWith('Add')) return UserPlus;
+  if (title.startsWith('Edit')) return Pencil;
+  if (title.startsWith('Reset')) return KeyRound;
+  if (title.startsWith('Delete')) return Trash2;
+  if (title.startsWith('Deactivate') || title.startsWith('Activate') || title.startsWith('Reactivate')) return Power;
+  if (title.includes('Created')) return CheckCircle2;
+  return UserIcon;
+}
+
 function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose: () => void }) {
+  const Icon = headerIcon(title);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 22px', borderBottom: '1px solid var(--line)' }}>
-      <div>
-        <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 16, color: 'var(--txt)' }}>{title}</div>
-        {subtitle && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{subtitle}</div>}
+    <div className="nf-um-head">
+      <span className="nf-um-head-ico"><Icon size={20} /></span>
+      <div className="nf-um-head-txt">
+        <div className="nf-um-head-title">{title}</div>
+        {subtitle && <div className="nf-um-head-sub">{subtitle}</div>}
       </div>
-      <button onClick={onClose} style={{ background: 'var(--raised2)', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+      <button onClick={onClose} className="nf-um-close" aria-label="Close"><X size={16} /></button>
     </div>
   );
 }
@@ -213,10 +140,18 @@ function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: s
 // Groups related fields under a small uppercase heading, matching the premium
 // section pattern used elsewhere on the User Management page — purely a
 // visual wrapper, no effect on the fields' state, validation, or submission.
+const SECTION_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
+  'Identity': UserIcon, 'Role & Employment': Briefcase, 'Location & Reporting': MapPin, 'Shift': Clock, 'Onboarding': ListChecks,
+};
+
 function FormSection({ label, columns = 2, children }: { label: string; columns?: 1 | 2; children: React.ReactNode }) {
+  const Icon = SECTION_ICONS[label] ?? UserIcon;
   return (
-    <div style={{ gridColumn: '1/-1', display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={formSectionLabelStyle}>{label}</div>
+    <div className="nf-um-sec" style={{ gridColumn: '1/-1' }}>
+      <div className="nf-um-sec-hd">
+        <span className="nf-um-sec-ico"><Icon size={15} /></span>
+        <span className="nf-um-sec-title">{label}</span>
+      </div>
       <div className={columns === 2 ? 'nf-grid-2col-collapse' : undefined} style={{ display: 'grid', gridTemplateColumns: columns === 2 ? '1fr 1fr' : '1fr', gap: 14 }}>
         {children}
       </div>
@@ -275,8 +210,7 @@ function CreatableLocationSelect({ locations, value, onChange, disabled }: { loc
           ))}
           <div onMouseDown={() => { onChange(undefined); setQuery(''); setOpen(false); }}
             style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', cursor: 'pointer' }}>
-            — Clear —
-          </div>
+            – Clear - </div>
         </div>
       )}
     </div>
@@ -297,7 +231,7 @@ function ShiftSelect({ shifts, value, onChange, onCreated, token, disabled }: {
     document.addEventListener('mousedown', out);
     return () => document.removeEventListener('mousedown', out);
   }, []);
-  const label = (s: ShiftRow) => `${s.name} — ${fmtShiftTime(s.startTime)}–${fmtShiftTime(s.endTime)}`;
+  const label = (s: ShiftRow) => `${s.name} - ${fmtShiftTime(s.startTime)}–${fmtShiftTime(s.endTime)}`;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <div style={{ position: 'relative' }} onClick={() => !disabled && setOpen(o => !o)}>
@@ -309,8 +243,7 @@ function ShiftSelect({ shifts, value, onChange, onCreated, token, disabled }: {
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, boxShadow: '0 8px 24px rgba(0,0,0,.3)', zIndex: 100, maxHeight: 220, overflowY: 'auto' }}>
           <div onMouseDown={() => { onChange(undefined); setOpen(false); }}
             style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', cursor: 'pointer' }}>
-            — None —
-          </div>
+            – None - </div>
           {shifts.map(s => (
             <div key={s.id} onMouseDown={() => { onChange(s.id); setOpen(false); }}
               style={{ padding: '9px 14px', fontSize: 13, color: value === s.id ? 'var(--brand-bright)' : 'var(--txt)', background: value === s.id ? 'rgba(176,17,22,.12)' : 'transparent', cursor: 'pointer' }}
@@ -497,13 +430,13 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
     const trimmedName = form.fullName.trim();
     const rawEmail = form.email;
     if (!trimmedName || !rawEmail) { setError('Name and email required.'); return; }
-    if (!NAME_PATTERN.test(trimmedName)) { setError("Full name can only contain letters, spaces, hyphens, and apostrophes — no emojis or symbols."); return; }
+    if (!NAME_PATTERN.test(trimmedName)) { setError("Full name can only contain letters, spaces, hyphens, and apostrophes - no emojis or symbols."); return; }
     // Deliberately checked against the raw value, not a trimmed one — a leading/trailing
     // space is rejected outright rather than silently stripped before validating.
     if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
     if (!form.role) { setError('Role is required.'); return; }
-    if (!form.locationId) { setError('Location is required — Leave & Holidays depends on it.'); return; }
+    if (!form.locationId) { setError('Location is required - Leave & Holidays depends on it.'); return; }
     if (!form.departmentId) { setError('Department is required.'); return; }
     if (!form.designationId) { setError('Designation is required.'); return; }
     if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
@@ -552,7 +485,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
   if (created) {
     return (
       <div style={overlayStyle}>
-        <div style={modalStyle}>
+        <div className="nf-um-modal" style={modalStyle}>
           <ModalHeader title="User Created" onClose={onClose} />
           <div style={{ padding: 24 }}>
             <div style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
@@ -571,7 +504,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             )}
             {onboardingOutcome === 'started' && (
               <div style={{ background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: '#4C8DD6' }}>
-                Onboarding checklist started — find it under Onboarding → Onboarding Started.
+                Onboarding checklist started - find it under Onboarding → Onboarding Started.
               </div>
             )}
             {onboardingOutcome === 'failed' && (
@@ -589,7 +522,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
             )}
             {created.tempPassword && (
               <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Temp password — share once, store nowhere</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Temp password - share once, store nowhere</div>
                 <code style={{ fontSize: 14, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', userSelect: 'all' }}>{created.tempPassword}</code>
               </div>
             )}
@@ -604,9 +537,9 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 640 }}>
+      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 640 }}>
         <ModalHeader title="Add User" subtitle="Create a new account with role, department, and access details." onClose={onClose} />
-        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr', gap: 22 }}>
+        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
           {error && !employeeCodeConflict && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
 
           <FormSection label="Identity">
@@ -699,20 +632,20 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} value={form.managerId ?? ''} disabled={noRoleYet} onChange={e => set('managerId', e.target.value)}>
                     <option value="">
-                      {noRoleYet ? '— Select a Role first —' : isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}
+                      {noRoleYet ? '– Select a Role first –' : isSA ? '– None (optional) –' : '– Select a Reporting Manager –'}
                     </option>
                     {/* Deactivated managers stay in the list (see getManagersForRole) but as a
                         disabled option, so they can't be picked for a new assignment — they're
                         only shown to explain an EXISTING selection that already points at one. */}
                     {mgrList.map((m: any) => (
                       <option key={m.userId} value={m.userId} disabled={m.active === false}>
-                        {m.fullName} ({m.email}){m.active === false ? ' — Inactive' : ''}
+                        {m.fullName} ({m.email}){m.active === false ? ' - Inactive' : ''}
                       </option>
                     ))}
                   </select>
                   {!noRoleYet && !isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                      No {mgrRoleLabel} users found — add one first.
+                      No {mgrRoleLabel} users found - add one first.
                     </div>
                   )}
                 </Field>
@@ -756,7 +689,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
 
           <FormSection label="Onboarding" columns={1}>
           <div>
-            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', cursor: 'pointer' }}>
+            <label className="nf-um-check" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={startOnboarding}
@@ -773,7 +706,7 @@ function AddModal({ onClose, onCreated, token, opts, setOpts }: {
           </div>
           </FormSection>
 
-          <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <div className="nf-um-foot" style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={secondaryBtnStyle}>Cancel</button>
             <button type="submit" disabled={submitting} style={{ ...primaryBtnStyle, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Creating…' : 'Create User'}</button>
           </div>
@@ -800,6 +733,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
     designationId: user.designationId ?? undefined,
     locationId: user.locationId ?? undefined,
     shiftId: user.shiftId ?? undefined,
+    shiftEffectiveFrom: todayIso(),
     employmentType: user.employmentType,
     workMode: user.workMode ?? 'ONSITE',
     managerId: user.currentManager?.userId ?? undefined,
@@ -819,6 +753,10 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
   const [joiningDateNote, setJoiningDateNote] = useState('');
 
   const emailChanged = (form.email ?? '') !== user.email;
+  // Only an actual CHANGE from the employee's current shift requires an Effective From — a no-op
+  // resubmission of the same value (e.g. an edit that never touched this field) needs no date,
+  // exactly matching UserManagementService#updateUser's own "no-op means no-op" change detection.
+  const shiftChanged = form.shiftId !== (user.shiftId ?? undefined);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -829,6 +767,14 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
     if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
     if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
     if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
+    // Defense-in-depth: the date input's own `required`/`min` already keep this from happening
+    // through normal use — the backend independently rejects it too regardless. Only enforced
+    // when the shift is an actual CHANGE from the employee's current one (see shiftChanged below)
+    // — resubmitting the same value needs no effective date.
+    if (shiftChanged && (!form.shiftEffectiveFrom || form.shiftEffectiveFrom < todayIso())) {
+      setError('Effective From is required and cannot be in the past.');
+      return;
+    }
     setSubmitting(true); setError(null);
     try {
       let updated = await usersApi.update(user.userId, { ...form, confirmInactiveEdit }, token);
@@ -850,8 +796,8 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 580 }}>
-        <ModalHeader title={`Edit — ${user.fullName}`} onClose={onClose} />
+      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 580 }}>
+        <ModalHeader title={`Edit - ${user.fullName}`} onClose={onClose} />
         <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
           {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
           {isInactive && <InactiveEditBanner />}
@@ -890,17 +836,17 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           </Field>
           <Field label="Business Unit">
             <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
-              <option value="">— None —</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              <option value="">– None –</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
           <Field label="Department">
             <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined, designationId: undefined }))}>
-              <option value="">— None —</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">– None –</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} disabled={gatedFieldsLocked || !form.departmentId} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">{form.departmentId ? '— None —' : 'Select a Department first'}</option>
+              <option value="">{form.departmentId ? '– None –' : 'Select a Department first'}</option>
               {getDesignationOptions(opts.designations, form.designationId, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
@@ -937,19 +883,19 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                    <option value="">{isSA ? '— None (optional) —' : '— Select a Reporting Manager —'}</option>
+                    <option value="">{isSA ? '– None (optional) –' : '– Select a Reporting Manager –'}</option>
                     {/* Deactivated managers stay in the list (see getManagersForRole) but as a
                         disabled option, so they can't be picked for a new assignment — they're
                         only shown to explain an EXISTING selection that already points at one. */}
                     {mgrList.map((m: any) => (
                       <option key={m.userId} value={m.userId} disabled={m.active === false}>
-                        {m.fullName} ({m.email}){m.active === false ? ' — Inactive' : ''}
+                        {m.fullName} ({m.email}){m.active === false ? ' - Inactive' : ''}
                       </option>
                     ))}
                   </select>
                   {!isSA && mgrList.length === 0 && (
                     <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                      No {mgrRoleLabel} users found — add one first.
+                      No {mgrRoleLabel} users found - add one first.
                     </div>
                   )}
                 </Field>
@@ -964,17 +910,32 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
                 onChange={id => setForm(f => ({ ...f, shiftId: id }))}
                 onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
                 token={token}
-                disabled
               />
-              <div style={{ fontSize: 11, color: 'var(--txt-mut)', marginTop: 4 }}>
-                Shift changes are currently unavailable when updating an employee. Contact an administrator.
-              </div>
             </Field>
+            {shiftChanged && form.shiftId && (
+              <div style={{ marginTop: 10 }}>
+                <Field label="Effective From *">
+                  <input
+                    type="date"
+                    style={inputStyle}
+                    value={form.shiftEffectiveFrom ?? todayIso()}
+                    min={todayIso()}
+                    required
+                    onChange={e => setForm(f => ({ ...f, shiftEffectiveFrom: e.target.value }))}
+                  />
+                </Field>
+                {form.shiftEffectiveFrom && (
+                  <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 5 }}>
+                    This shift will become active for the employee from {fmtEffectiveDate(form.shiftEffectiveFrom)}.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           {isInactive && (
             <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Role, Reporting Manager, Department, Designation, or Employment Type" />
           )}
-          <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <div className="nf-um-foot" style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} style={secondaryBtnStyle}>Cancel</button>
             <button type="submit" disabled={submitting || gatedFieldsLocked} style={{ ...primaryBtnStyle, cursor: (submitting || gatedFieldsLocked) ? 'not-allowed' : 'pointer', opacity: (submitting || gatedFieldsLocked) ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
           </div>
@@ -1012,7 +973,7 @@ function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; on
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 420 }}>
+      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 420 }}>
         <ModalHeader title="Reset Password" onClose={onClose} />
         <div style={{ padding: 24 }}>
           {state === 'confirm' && (
@@ -1036,7 +997,7 @@ function ResetPasswordModal({ user, onClose, token }: { user: EmployeeRecord; on
           {state === 'done' && result && (
             <>
               <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>New temp password — share once, store nowhere</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>New temp password - share once, store nowhere</div>
                 <code style={{ fontSize: 15, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', userSelect: 'all' }}>{result.tempPassword}</code>
               </div>
               <button onClick={onClose} style={{ width: '100%', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '10px 16px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>Done</button>
@@ -1081,7 +1042,7 @@ function StatusModal({ user, isSelf, isLastActiveSuperAdmin, onClose, onUpdated,
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 400 }}>
+      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 400 }}>
         <ModalHeader title={`${action} User`} onClose={onClose} />
         <div style={{ padding: 24 }}>
           {isSelf && user.active ? (
@@ -1090,7 +1051,7 @@ function StatusModal({ user, isSelf, isLastActiveSuperAdmin, onClose, onUpdated,
             </div>
           ) : isLastActiveSuperAdmin && user.active ? (
             <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
-              <b style={{ color: 'var(--txt)' }}>{user.fullName}</b> is the last active Super Admin. Deactivating this account would leave nobody able to manage users — assign Super Admin to another account first.
+              <b style={{ color: 'var(--txt)' }}>{user.fullName}</b> is the last active Super Admin. Deactivating this account would leave nobody able to manage users - assign Super Admin to another account first.
             </div>
           ) : user.active ? (
             <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14, marginBottom: 20, fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.7 }}>
@@ -1140,7 +1101,7 @@ function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord
 
   return (
     <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 440 }}>
+      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 440 }}>
         <ModalHeader title="Delete User" onClose={onClose} />
         <div style={{ padding: 24 }}>
           <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 8, padding: 14, marginBottom: 20 }}>
@@ -1255,28 +1216,14 @@ export default function UserManagementPage() {
 
   const ROLE_LABEL: Record<string, string> = { EMPLOYEE: 'Employee', MANAGER: 'Manager', HR_ADMIN: 'HR Admin', SUPER_ADMIN: 'Super Admin' };
 
-  const kpiCardStyle: React.CSSProperties = {
-    background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14,
-    padding: '18px 20px', flex: '1 1 220px', boxShadow: '0 1px 2px rgba(0,0,0,.04)',
-    display: 'flex', flexDirection: 'column', gap: 12,
-  };
-  const kpiIconStyle = (bg: string, fg: string): React.CSSProperties => ({
-    width: 40, height: 40, borderRadius: 11, background: bg, color: fg, display: 'grid', placeItems: 'center', flexShrink: 0,
-  });
-
   return (
     <div>
       {/* Header */}
-      <div className="nf-policy-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(177,17,22,.12)', color: 'var(--brand-bright)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
-            <UserIcon size={19} />
-          </div>
-          <div>
+      <div className="nf-policy-header nf-page-hdr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 14 }}>
+        <PageTitleBlock icon={UserIcon}>
             <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 21, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>User Management</h1>
             <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 3 }}>Manage access, roles, and account status for all users.</p>
-          </div>
-        </div>
+        </PageTitleBlock>
         <div className="nf-policy-actions" style={{ display: 'flex' }}>
           {/* Matches the primary "Add/Create" button used across Organization Masters and Workflow
               Studio (var(--brand) fill, '+' glyph) rather than a one-off gradient + custom icon —
@@ -1289,33 +1236,8 @@ export default function UserManagementPage() {
 
       {/* Stats tiles */}
       {!loading && (
-        <div style={{ display: 'flex', gap: 14, marginBottom: 20, flexWrap: 'wrap' }}>
-          <div style={kpiCardStyle}>
-            <div style={kpiIconStyle('rgba(155,161,172,.14)', 'var(--txt-mut)')}><Users2 size={18} /></div>
-            <div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--txt)', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{total}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', fontWeight: 600, marginTop: 6 }}>Total Users</div>
-            </div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>
-              {Object.entries(roleCounts).map(([r, c]) => `${c} ${ROLE_LABEL[r] ?? r}`).join(' · ')}
-            </div>
-          </div>
-          <div style={kpiCardStyle}>
-            <div style={kpiIconStyle('rgba(47,182,124,.14)', '#2FB67C')}><ShieldCheck size={18} /></div>
-            <div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: '#2FB67C', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{active}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', fontWeight: 600, marginTop: 6 }}>Active</div>
-            </div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>{total > 0 ? Math.round((active / total) * 100) : 0}% of total</div>
-          </div>
-          <div style={kpiCardStyle}>
-            <div style={kpiIconStyle('rgba(228,55,61,.12)', '#E4373D')}><UserX size={18} /></div>
-            <div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: '#E4373D', fontFamily: '"Space Grotesk", sans-serif', lineHeight: 1 }}>{inactive}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', fontWeight: 600, marginTop: 6 }}>Inactive</div>
-            </div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>{total > 0 ? Math.round((inactive / total) * 100) : 0}% of total</div>
-          </div>
+        <div style={{ marginBottom: 20 }}>
+          <AccessStatTiles total={total} active={active} inactive={inactive} roleSummary={Object.entries(roleCounts).map(([r, c]) => `${c} ${ROLE_LABEL[r] ?? r}`).join(' · ')} />
         </div>
       )}
 
@@ -1368,7 +1290,7 @@ export default function UserManagementPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    {['Employee ID', 'Name', 'Email', 'Role', 'Department', 'Reporting Manager', 'Status', ''].map(h => (
+                    {['Name', 'Email', 'Role', 'Department', 'Reporting Manager', 'Status', ''].map(h => (
                       <th key={h} style={thStyle}>{h}</th>
                     ))}
                   </tr>
@@ -1383,17 +1305,13 @@ export default function UserManagementPage() {
                     <tr key={u.userId} style={{ opacity: u.active ? 1 : 0.6 }}
                       onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
-                      <td style={{ ...tdStyle, fontFamily: 'Inter, sans-serif', fontSize: 12 }}>{u.employeeCode}</td>
-                      <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Avatar name={u.fullName} />
-                          {u.fullName}
-                        </div>
+                      <td style={tdStyle}>
+                        <PersonCell userId={u.userId} name={u.fullName} code={u.employeeCode} />
                       </td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{u.email}</td>
                       <td style={tdStyle}><RoleBadge role={u.role} /></td>
-                      <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
-                      <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>—</span>}</td>
+                      <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
                       <td style={tdStyle}><StatusBadge active={u.active} /></td>
                       <td style={{ ...tdStyle, padding: '8px 12px', width: 44 }}>
                         <RowActionsMenu
@@ -1457,6 +1375,10 @@ export default function UserManagementPage() {
         )}
       </div>
 
+      {/* Rendered at the top level of the document (not inside the animated page content): a fixed overlay nested in a
+          transformed ancestor is positioned against that ancestor, not the window, which pushed these dialogs under
+          the sticky top bar. Same approach DetailDrawer uses on the Attendance page. */}
+      {createPortal(<>
       {showAdd && <AddModal token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
       {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => {
         setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
@@ -1480,6 +1402,7 @@ export default function UserManagementPage() {
         setUsers(prev => prev.filter(u => u.userId !== userId));
         setOrgOptions(o => ({ ...o, managers: o.managers.filter(m => m.userId !== userId) }));
       }} />}
+      </>, document.body)}
     </div>
   );
 }

@@ -1,49 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, MoreHorizontal } from 'lucide-react';
+import { X, Search, Users, Download, ChevronUp, ChevronDown, ChevronLeft, ChevronRight as ChevronRightIcon, Eye, Mail, Building2, Briefcase, MapPin, Laptop, Clock, User, BadgeCheck, Sparkles } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { useAuthStore } from '../store/authStore';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
-import { EmployeeAvatar } from '../components/EmployeeAvatar';
-import { AppreciateButton, KudosModal, type KudosTarget } from './MyTeamPage';
+import { PersonAvatar as Avatar, PersonCell } from '../components/PersonCell';
+import { KudosModal, type KudosTarget } from './MyTeamPage';
 import './DirectoryPage.css';
 
 const PAGE_SIZE = 25;
 
 /* ── Helpers ──────────────────────────────────────── */
-// Soft initials-disc tints, picked deterministically per employee so the same person always
-// gets the same color. Translucent backgrounds read correctly on both dark and light themes.
-const AVATAR_TINTS: [string, string][] = [
-  ['rgba(217,72,95,.14)',  '#D9485F'],
-  ['rgba(59,111,216,.14)', '#3B6FD8'],
-  ['rgba(124,92,214,.15)', '#7C5CD6'],
-  ['rgba(31,157,107,.14)', '#1F9D6B'],
-  ['rgba(217,119,43,.15)', '#D9772B'],
-  ['rgba(27,146,166,.14)', '#1B92A6'],
-];
-
-function avatarTint(key: string): [string, string] {
-  let h = 0;
-  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
-  return AVATAR_TINTS[Math.abs(h) % AVATAR_TINTS.length];
-}
-
-function Avatar({ userId, name, size = 38 }: { userId: string; name: string; size?: number }) {
-  const [background, color] = avatarTint(userId || name);
-  return (
-    <EmployeeAvatar
-      userId={userId}
-      name={name}
-      size={size}
-      fontSize={size * 0.36}
-      background={background}
-      color={color}
-      style={{ fontFamily: 'Inter, sans-serif', letterSpacing: '.02em' }}
-    />
-  );
-}
-
 function StatusChip({ active }: { active: boolean }) {
   return (
     <span className={`nf-pd-status ${active ? 'nf-pd-status--active' : 'nf-pd-status--inactive'}`}>
@@ -71,58 +41,74 @@ function HeaderArt() {
 }
 
 /* ── Detail drawer ────────────────────────────────── */
+type DetailRow = { label: string; value: string | null | undefined; icon: React.ComponentType<{ size?: number }> };
+
+function DetailSection({ title, rows }: { title: string; rows: DetailRow[] }) {
+  return (
+    <section className="nf-pd-dsec">
+      <h4 className="nf-pd-dsec-title">{title}</h4>
+      <div className="nf-pd-dsec-body">
+        {rows.map(({ label, value, icon: Icon }) => (
+          <div key={label} className="nf-pd-drow">
+            <span className="nf-pd-drow-ico"><Icon size={15} /></span>
+            <div className="nf-pd-drow-main">
+              <div className="nf-pd-drawer-label">{label}</div>
+              <div className={`nf-pd-drow-val${value ? '' : ' empty'}`}>{value || '–'}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function DetailPanel({ entry, onClose, onAppreciate, onViewProfile }: { entry: DirectoryEntry; onClose: () => void; onAppreciate?: () => void; onViewProfile: () => void }) {
-  const rows: [string, string | null | undefined][] = [
-    ['Employee Code', entry.employeeCode],
-    ['Work Email', entry.email],
-    ['Department', entry.departmentName],
-    ['Designation', entry.designationName],
-    ['Location', entry.locationName],
-    ['Work Mode', entry.workMode?.replace('_', ' ')],
-    ['Employment Type', entry.employmentType?.replace('_', ' ')],
-    ['Manager', entry.managerName],
+  const work: DetailRow[] = [
+    { label: 'Department', value: entry.departmentName, icon: Building2 },
+    { label: 'Designation', value: entry.designationName, icon: Briefcase },
+    { label: 'Location', value: entry.locationName, icon: MapPin },
+  ];
+  const employment: DetailRow[] = [
+    { label: 'Work Mode', value: entry.workMode?.replace('_', ' '), icon: Laptop },
+    { label: 'Employment Type', value: entry.employmentType?.replace('_', ' '), icon: Clock },
+    { label: 'Manager', value: entry.managerName, icon: User },
   ];
 
   return (
-    <div className="nf-drawer-responsive nf-drawer-panel nf-pd-drawer" style={{
-      position: 'fixed', top: 0, right: 0, bottom: 0, width: 360,
+    <div className="nf-drawer-responsive nf-drawer-panel nf-pd-drawer" role="dialog" aria-label="Employee details" style={{
+      position: 'fixed', top: 0, right: 0, bottom: 0, width: 380,
       background: 'var(--panel)', borderLeft: '1px solid var(--line)',
       boxShadow: '-8px 0 32px rgba(0,0,0,.35)', zIndex: 200,
       display: 'flex', flexDirection: 'column', overflowY: 'auto',
     }}>
-      <div className="nf-pd-drawer-head">
-        <span className="nf-pd-drawer-title">
-          Employee Details
-        </span>
-        <button onClick={onClose} className="nf-pd-drawer-close" aria-label="Close">
+      <div className="nf-pd-hero">
+        <button onClick={onClose} className="nf-pd-hero-close" aria-label="Close">
           <X size={15} />
         </button>
+        <div className="nf-pd-hero-av"><Avatar userId={entry.userId} name={entry.fullName} size={84} /></div>
+        <div className="nf-pd-hero-name">{entry.fullName}</div>
+        <div className="nf-pd-hero-role">{entry.designationName ?? '–'}</div>
+        <div className="nf-pd-hero-chips">
+          <StatusChip active={entry.active} />
+          <span className="nf-pd-code"><BadgeCheck size={12} /> {entry.employeeCode}</span>
+        </div>
       </div>
-      <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Avatar userId={entry.userId} name={entry.fullName} size={52} />
-          <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', marginBottom: 3 }}>{entry.fullName}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>{entry.designationName ?? '—'}</div>
-            <StatusChip active={entry.active} />
-          </div>
+
+      <div className="nf-pd-dbody">
+        <div className="nf-pd-dactions">
+          <button onClick={onViewProfile} className="nf-pd-dbtn">
+            <User size={14} /> View Full Profile
+          </button>
+          {onAppreciate && (
+            <button onClick={onAppreciate} className="nf-pd-dbtn nf-pd-dbtn--primary">
+              <Sparkles size={14} /> Appreciate
+            </button>
+          )}
         </div>
-        <button onClick={onViewProfile} style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          padding: '8px 14px', background: 'var(--raised)', border: '1px solid var(--line2)',
-          borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', cursor: 'pointer',
-        }}>
-          View Full Profile
-        </button>
-        {onAppreciate && <AppreciateButton label="Appreciate" onClick={onAppreciate} />}
-        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {rows.map(([label, value]) => (
-            <div key={label}>
-              <div className="nf-pd-drawer-label">{label}</div>
-              <div style={{ fontSize: 13, color: value ? 'var(--txt)' : 'var(--txt-dim)' }}>{value || '—'}</div>
-            </div>
-          ))}
-        </div>
+
+        <DetailSection title="Contact" rows={[{ label: 'Work Email', value: entry.email, icon: Mail }]} />
+        <DetailSection title="Work" rows={work} />
+        <DetailSection title="Employment" rows={employment} />
       </div>
     </div>
   );
@@ -297,11 +283,7 @@ export default function DirectoryPage() {
       {/* Header */}
       <div className="nf-pd-header">
         <HeaderArt />
-        <div className="nf-pd-header-main">
-          <div className="nf-pd-header-icon" aria-hidden="true">
-            <Users size={24} strokeWidth={1.8} />
-          </div>
-          <div style={{ minWidth: 0 }}>
+        <PageTitleBlock icon={Users} style={{ position: 'relative' }}>
             <h1 className="nf-pd-title">
               People Directory
             </h1>
@@ -311,8 +293,7 @@ export default function DirectoryPage() {
             <div className="nf-pd-count">
               {loading ? 'Loading…' : loadError ? 'Load failed' : `${filtered.length} of ${all.length} people`}
             </div>
-          </div>
-        </div>
+        </PageTitleBlock>
         {!loading && !loadError && all.length > 0 && (
           <button className="nf-pd-export" onClick={() => exportToExcel(filtered)}>
             <Download size={16} />
@@ -324,7 +305,7 @@ export default function DirectoryPage() {
       {/* Load error */}
       {loadError && (
         <div role="alert" className="nf-pd-error">
-          {loadError} — check that the backend is running.
+          {loadError} – check that the backend is running.
         </div>
       )}
 
@@ -412,30 +393,25 @@ export default function DirectoryPage() {
                         style={inactiveDimStyle(e.active)}
                       >
                         <td>
-                          <div className="nf-pd-person">
-                            <Avatar userId={e.userId} name={e.fullName} />
-                            <div>
-                              <div className="nf-pd-name">{e.fullName}</div>
-                              <div className="nf-pd-code">{e.employeeCode}</div>
-                            </div>
-                          </div>
+                          <PersonCell userId={e.userId} name={e.fullName} code={e.employeeCode} />
                         </td>
-                        <td className={e.email ? 'nf-pd-email' : 'nf-pd-dim'}>{e.email ? <EmailText email={e.email} /> : '—'}</td>
-                        <td className={e.departmentName ? undefined : 'nf-pd-dim'}>{e.departmentName ?? '—'}</td>
-                        <td className={e.designationName ? undefined : 'nf-pd-dim'}>{e.designationName ?? '—'}</td>
-                        <td className={e.locationName ? undefined : 'nf-pd-dim'}>{e.locationName ?? '—'}</td>
-                        <td className={e.workMode ? 'nf-pd-mode' : 'nf-pd-dim'}>{e.workMode?.replace('_', ' ') ?? '—'}</td>
+                        <td className={e.email ? 'nf-pd-email' : 'nf-pd-dim'}>{e.email ? <EmailText email={e.email} /> : '–'}</td>
+                        <td className={e.departmentName ? undefined : 'nf-pd-dim'}>{e.departmentName ?? '–'}</td>
+                        <td className={e.designationName ? undefined : 'nf-pd-dim'}>{e.designationName ?? '–'}</td>
+                        <td className={e.locationName ? undefined : 'nf-pd-dim'}>{e.locationName ?? '–'}</td>
+                        <td className={e.workMode ? 'nf-pd-mode' : 'nf-pd-dim'}>{e.workMode?.replace('_', ' ') ?? '–'}</td>
                         <td><StatusChip active={e.active} /></td>
-                        <td className={e.managerName ? undefined : 'nf-pd-dim'}>{e.managerName ?? '—'}</td>
+                        <td className={e.managerName ? undefined : 'nf-pd-dim'}>{e.managerName ?? '–'}</td>
                         <td>
                           {/* Second trigger for the same read-only details drawer the row click opens. */}
                           <button
-                            className="nf-pd-more"
+                            type="button"
+                            className="nf-row-view"
                             aria-label={`View details for ${e.fullName}`}
                             title="View details"
                             onClick={ev => { ev.stopPropagation(); setSelected(e); }}
                           >
-                            <MoreHorizontal size={16} />
+                            <Eye size={14} />View
                           </button>
                         </td>
                       </tr>
@@ -489,7 +465,7 @@ export default function DirectoryPage() {
       </div>
 
       {/* Detail drawer */}
-      {selected && (
+      {selected && createPortal(
         <>
           <div onClick={closeDetail} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 199 }} />
           <DetailPanel
@@ -503,7 +479,8 @@ export default function DirectoryPage() {
               ? () => setKudosTarget({ userId: selected.userId, name: selected.fullName })
               : undefined}
           />
-        </>
+        </>,
+        document.body
       )}
       <KudosModal target={kudosTarget} token={token} onClose={() => setKudosTarget(null)} />
     </div>

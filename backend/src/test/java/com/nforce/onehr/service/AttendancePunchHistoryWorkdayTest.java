@@ -71,6 +71,8 @@ class AttendancePunchHistoryWorkdayTest {
     @Mock private com.nforce.onehr.repository.AttendanceRulesRepository attendanceRulesRepository;
     @Mock private com.nforce.onehr.repository.ShiftRepository shiftRepository;
     @Mock private com.nforce.onehr.repository.AttendancePenaltyRepository attendancePenaltyRepository;
+    @Mock private EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
+    @Mock private WeeklyOffPolicyVersionResolver weeklyOffPolicyVersionResolver;
 
     private AttendanceService service;
     private final UUID employeeId = UUID.randomUUID();
@@ -128,7 +130,7 @@ class AttendancePunchHistoryWorkdayTest {
                 attendanceExceptionRepository, employeeRepository, managerHistoryRepository,
                 auditService, auditSnapshot, latePenaltyService, workingDayService, expectedWorkHoursService,
                 shiftDayPolicy, attendanceRulesService, attendanceInterpretationService, employeeShiftAssignmentResolver,
-                attendancePenaltyRepository);
+                attendancePenaltyRepository, employeeWeeklyOffPolicyAssignmentResolver, weeklyOffPolicyVersionResolver);
 
         // The spec's own worked example: 10:00-19:00 shift, 18h max -> workday Sep 8 04:00 to
         // Sep 9 04:00.

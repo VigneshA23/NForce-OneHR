@@ -84,7 +84,7 @@ export function ReceiptViewerModal({ claimId, token, onClose }: {
                 )}
                 {!isPdf && !isImage && (
                   <div style={{ padding: '28px 18px', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5, background: 'var(--raised)', border: '1px dashed var(--line2)', borderRadius: 8, width: '100%' }}>
-                    Preview isn't available for this file type in the browser — download it to view.
+                    Preview isn't available for this file type in the browser - download it to view.
                   </div>
                 )}
               </div>

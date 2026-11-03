@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import { EmpCode } from '../components/EmpCode';
+import PageTitleBlock from '../components/PageTitleBlock';
+import DashTile from '../components/DashTile';
 import { useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, Clock, Eye, History, Inbox, Info,
-  Lock, MessageSquareText, Paperclip, Play, Search, Send, SlidersHorizontal, Ticket, UserPlus,
+  Lock, MessageSquareText, Paperclip, Play, Search, Send, SlidersHorizontal, Star, Ticket, UserPlus,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -34,15 +37,20 @@ function StatusBadge({ status }: { status: TicketStatus }) {
   );
 }
 
-function Kpi({ icon, label, value, danger, tone }: { icon: React.ReactNode; label: string; value: number; danger?: boolean; tone: string }) {
+const KPI_ACCENT: Record<string, string> = {
+  'tone-brand': 'var(--brand)', 'tone-warn': 'var(--warn)', 'tone-indigo': 'var(--info)', 'tone-ok': 'var(--ok)', 'tone-mute': 'var(--txt-dim)',
+};
+// Same tile as the Home dashboard (components/DashTile); display only.
+export function Kpi({ icon, label, value, danger, tone, onClick, active }: {
+  icon: React.ReactNode; label: string; value: number; danger?: boolean; tone: string;
+  onClick?: () => void; active?: boolean;
+}) {
   return (
-    <div className="nf-rq-kpi">
-      <div className={`nf-rq-kpi-icon ${tone}`}>{icon}</div>
-      <div style={{ minWidth: 0 }}>
-        <div className="nf-rq-kpi-label">{label}</div>
-        <div className={`nf-rq-kpi-value${danger && value > 0 ? ' nf-rq-kpi-value--danger' : ''}`}>{value}</div>
-      </div>
-    </div>
+    <DashTile
+      icon={icon} label={label} value={String(value)}
+      accent={danger && value > 0 ? 'var(--risk)' : (KPI_ACCENT[tone] ?? 'var(--brand)')}
+      onClick={onClick} active={active}
+    />
   );
 }
 
@@ -53,33 +61,33 @@ function initials(name?: string | null) {
   return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?';
 }
 
-function Person({ name, fallback, large }: { name?: string | null; fallback?: string; large?: boolean }) {
+function Person({ name, fallback, large, userId }: { name?: string | null; fallback?: string; large?: boolean; userId?: string | null }) {
   return (
     <div className="nf-rq-person">
       <span className={`nf-rq-avatar${large ? ' nf-rq-avatar--lg' : ''}${name ? '' : ' nf-rq-avatar--muted'}`} aria-hidden="true">
         {name ? initials(name) : '–'}
       </span>
-      <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '—'}</span>
+      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '–'}</span>
+        {userId && <EmpCode userId={userId} />}
+      </span>
     </div>
   );
 }
 
 function PageHeader({ subtitle }: { subtitle?: string }) {
   return (
-    <div className="nf-rq-header">
-      <div className="nf-rq-header-main">
-        <div className="nf-rq-header-icon"><Ticket size={24} /></div>
-        <div>
+    <div className="nf-rq-header nf-page-hdr">
+      <PageTitleBlock icon={Ticket} style={{ position: 'relative' }}>
           <h1 className="nf-rq-title">HR Service Requests</h1>
           {subtitle && <p className="nf-rq-subtitle">{subtitle}</p>}
-        </div>
-      </div>
+      </PageTitleBlock>
     </div>
   );
 }
 
 function fmtDateTime(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -309,6 +317,21 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
                     <div><div className="nf-rq-tl-title">Resolved</div><div className="nf-rq-tl-sub">{fmtDateTime(ticket.resolvedAt)} by {ticket.resolvedByName}</div></div>
                   </li>
                 )}
+                {ticket.satisfactionRating != null && (
+                  <li>
+                    <span className="nf-rq-tl-dot nf-rq-tl-dot--filled tone-warn" />
+                    <div>
+                      <div className="nf-rq-tl-title">Rated by employee</div>
+                      <div className="nf-rq-tl-sub" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        {[1, 2, 3, 4, 5].map(n => (
+                          <Star key={n} size={13} fill={n <= ticket.satisfactionRating! ? 'currentColor' : 'none'} style={{ color: '#f59e0b' }} />
+                        ))}
+                        <span style={{ marginLeft: 4 }}>{ticket.satisfactionRating}/5</span>
+                      </div>
+                      {ticket.satisfactionComment && <div className="nf-rq-tl-sub" style={{ marginTop: 4, fontStyle: 'italic' }}>"{ticket.satisfactionComment}"</div>}
+                    </div>
+                  </li>
+                )}
               </ul>
             </div>
           </div>
@@ -392,7 +415,7 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
             <div className="nf-rq-fields">
               <div>
                 <div className="nf-rq-field-label">Requested By</div>
-                <Person name={ticket.employeeName} />
+                <Person name={ticket.employeeName} userId={ticket.employeeUserId} />
               </div>
               <div>
                 <div className="nf-rq-field-label">Created</div>
@@ -402,10 +425,27 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
                 <div className="nf-rq-field-label">Assigned To</div>
                 <Person name={ticket.assignedToName} fallback="Unassigned" />
               </div>
+              {ticket.satisfactionRating != null && (
+                <div>
+                  <div className="nf-rq-field-label">Employee Rating</div>
+                  <div className="nf-rq-field-value" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {[1, 2, 3, 4, 5].map(n => (
+                      <Star key={n} size={13} fill={n <= ticket.satisfactionRating! ? 'currentColor' : 'none'} style={{ color: '#f59e0b' }} />
+                    ))}
+                    <span style={{ marginLeft: 4 }}>{ticket.satisfactionRating}/5</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="nf-rq-section-label">Description</div>
             <div className="nf-rq-quote">{ticket.description}</div>
+            {ticket.satisfactionComment && (
+              <>
+                <div className="nf-rq-section-label">Employee Feedback</div>
+                <div className="nf-rq-quote">{ticket.satisfactionComment}</div>
+              </>
+            )}
           </div>
         </div>
 
@@ -415,7 +455,7 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
           </div>
           <div className="nf-rq-panel-body">
             <div className="nf-rq-hint" style={{ marginBottom: 16 }}>
-              <Info size={14} /> Just viewing — nothing changes until you choose an action below.
+              <Info size={14} /> Just viewing - nothing changes until you choose an action below.
             </div>
 
             {showAssignPanel ? (
@@ -576,14 +616,19 @@ export default function HelpDeskAdminPage() {
       <PageHeader subtitle="Help Desk tickets raised by employees across the organization." />
 
       <div className="nf-rq-kpis">
-        <Kpi icon={<Inbox size={20} />} tone="tone-brand" label="Active Queue" value={dashboard.openCount + dashboard.inProgressCount} danger />
-        <Kpi icon={<CircleDot size={20} />} tone="tone-warn" label="Open" value={dashboard.openCount} />
-        <Kpi icon={<Clock size={20} />} tone="tone-indigo" label="In Progress" value={dashboard.inProgressCount} />
-        <Kpi icon={<CheckCircle2 size={20} />} tone="tone-ok" label="Resolved" value={dashboard.resolvedCount} />
-        <Kpi icon={<Lock size={20} />} tone="tone-mute" label="Closed" value={dashboard.closedCount} />
+        <Kpi icon={<Inbox size={20} />} tone="tone-brand" label="Active Queue" value={dashboard.openCount + dashboard.inProgressCount} danger
+          onClick={() => setStatusFilter('ACTIVE')} active={statusFilter === 'ACTIVE'} />
+        <Kpi icon={<CircleDot size={20} />} tone="tone-warn" label="Open" value={dashboard.openCount}
+          onClick={() => setStatusFilter('OPEN')} active={statusFilter === 'OPEN'} />
+        <Kpi icon={<Clock size={20} />} tone="tone-indigo" label="In Progress" value={dashboard.inProgressCount}
+          onClick={() => setStatusFilter('IN_PROGRESS')} active={statusFilter === 'IN_PROGRESS'} />
+        <Kpi icon={<CheckCircle2 size={20} />} tone="tone-ok" label="Resolved" value={dashboard.resolvedCount}
+          onClick={() => setStatusFilter('RESOLVED')} active={statusFilter === 'RESOLVED'} />
+        <Kpi icon={<Lock size={20} />} tone="tone-mute" label="Closed" value={dashboard.closedCount}
+          onClick={() => setStatusFilter('CLOSED')} active={statusFilter === 'CLOSED'} />
       </div>
       <p className="nf-rq-note">
-        Totals across all tickets — the search and assignee filters below narrow the list only.
+        Totals across all tickets - click a card or a tab below to filter the list by that status.
       </p>
 
       <div className="nf-rq-card">
@@ -618,7 +663,7 @@ export default function HelpDeskAdminPage() {
         </div>
         {hasActiveNarrowing && (
           <div className="nf-rq-narrowing">
-            Showing {totalElements} ticket{totalElements === 1 ? '' : 's'} matching your search/assignee filter — the cards above still reflect all tickets.
+            Showing {totalElements} ticket{totalElements === 1 ? '' : 's'} matching your search/assignee filter - the cards above still reflect all tickets.
           </div>
         )}
 
@@ -658,21 +703,21 @@ export default function HelpDeskAdminPage() {
                 {tickets.map(t => (
                   <tr key={t.id} onClick={() => setPreviewId(t.id)}>
                     <td className="nf-rq-td-lead" data-label="Ticket Number"><span className="nf-rq-ticket-no">{t.ticketNumber}</span></td>
-                    <td data-label="Employee"><Person name={t.employeeName} /></td>
+                    <td data-label="Employee"><Person name={t.employeeName} userId={t.employeeUserId} /></td>
                     <td data-label="Topic">{t.categoryName}</td>
                     <td data-label="Status"><StatusBadge status={t.status} /></td>
-                    <td data-label="Assigned To">{t.assignedToName ? <Person name={t.assignedToName} /> : <span className="nf-rq-dim">—</span>}</td>
+                    <td data-label="Assigned To">{t.assignedToName ? <Person name={t.assignedToName} /> : <span className="nf-rq-dim">–</span>}</td>
                     <td data-label="Last Update" className="nf-rq-nowrap">{fmtDateTime(t.updatedAt)}</td>
                     <td className="nf-rq-td-actions">
                       {/* Same action as clicking the row — opens the read-only preview. */}
                       <button
                         type="button"
-                        className="nf-rq-row-btn"
+                        className="nf-row-view"
                         aria-label={`View ticket ${t.ticketNumber}`}
                         title="View ticket"
                         onClick={e => { e.stopPropagation(); setPreviewId(t.id); }}
                       >
-                        <Eye size={16} />
+                        <Eye size={13} /> View
                       </button>
                     </td>
                   </tr>

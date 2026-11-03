@@ -76,7 +76,7 @@ export function SkillModal({ token, existing, onClose, onSaved, onRequestSubmitt
         category: requestCategory.trim() || undefined,
         note: requestNote.trim() || undefined,
       });
-      showToast('success', 'Request submitted — HR will review it. Check its status from your Skills tab.');
+      showToast('success', 'Request submitted - HR will review it. Check its status from your Skills tab.');
       onRequestSubmitted?.();
       onClose();
     } catch (e) {
@@ -92,7 +92,7 @@ export function SkillModal({ token, existing, onClose, onSaved, onRequestSubmitt
         saveDisabled={!requestName.trim()} width={420}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', margin: 0 }}>
-            Not in the list yet? Ask HR to add it — you'll be able to add it to your own Skills tab once it's approved.
+            Not in the list yet? Ask HR to add it - you'll be able to add it to your own Skills tab once it's approved.
           </p>
           <EditField label="Skill Name" value={requestName} onChange={setRequestName} filter={nameCharsOnly} placeholder="e.g. Rust" />
           <EditField label="Category (optional)" value={requestCategory} onChange={setRequestCategory} placeholder="e.g. Programming Language" />

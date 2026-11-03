@@ -29,7 +29,9 @@ interface SidebarNavProps {
  * "make room for the artwork" logic needed here.
  */
 export function SidebarNav({ role, currentKey, isVisible, onNavigate }: SidebarNavProps) {
-  const tree = buildRoleNav(role, isVisible);
+  // Items that only exist as a disabled "P2" placeholder (Phase 2 / locked modules) are left out of the menu
+  // entirely. Nothing else about visibility changes: the same role + permission filter applies to the rest.
+  const tree = buildRoleNav(role, (item) => !isNavItemDisabled(item) && (!isVisible || isVisible(item)));
   const activeAncestors = findActiveAncestors(tree, currentKey) ?? [];
 
   // Which group keys are currently expanded. Independent per node (not a single-open-branch

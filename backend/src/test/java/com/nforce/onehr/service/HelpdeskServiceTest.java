@@ -2,6 +2,7 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.helpdesk.AssignTicketRequest;
 import com.nforce.onehr.dto.helpdesk.CreateHelpdeskTicketRequest;
+import com.nforce.onehr.dto.helpdesk.SubmitSatisfactionRequest;
 import com.nforce.onehr.dto.helpdesk.TicketDetailDto;
 import com.nforce.onehr.dto.helpdesk.UpdateTicketStatusRequest;
 import com.nforce.onehr.entity.HelpdeskCategory;
@@ -24,6 +25,8 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -543,5 +546,198 @@ class HelpdeskServiceTest {
         when(ticketRepo.findById(missing)).thenReturn(Optional.empty());
 
         assertThrows(NoSuchElementException.class, () -> helpdeskService.getDetail(missing, employeeEmail));
+    }
+
+    // ── Reopen ───────────────────────────────────────────────
+
+    private HelpdeskTicket closedTicket() {
+        HelpdeskTicket ticket = openTicket();
+        ticket.setStatus(TicketStatus.CLOSED.name());
+        ticket.setResolvedAt(Instant.now());
+        ticket.setResolvedBy(hrAdminId);
+        // openTicket()'s @Builder.Default sets updatedAt to "now" already — explicit here so the
+        // within-window tests don't depend on that default surviving unnoticed.
+        ticket.setUpdatedAt(Instant.now());
+        return ticket;
+    }
+
+    @Test
+    void reopenTicket_closedWithinWindow_movesBackToOpenAndResetsResolvedFields() {
+        HelpdeskTicket ticket = closedTicket();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        TicketDetailDto detail = helpdeskService.reopenTicket(ticket.getId(), "still broken", employeeEmail);
+
+        assertEquals("OPEN", detail.getStatus());
+        assertNull(ticket.getResolvedAt());
+        assertNull(ticket.getResolvedBy());
+        verify(replyRepo).save(argThat(r -> "still broken".equals(r.getMessage()) && !r.isInternal()));
+        verify(auditService).log(eq(employeeId), eq("HELPDESK_TICKET_REOPENED"), eq(ticket.getId()), any(), any());
+    }
+
+    @Test
+    void reopenTicket_clearsAnyExistingSatisfactionRating() {
+        HelpdeskTicket ticket = closedTicket();
+        ticket.setSatisfactionRating(2);
+        ticket.setSatisfactionComment("not fixed");
+        ticket.setSatisfactionSubmittedAt(Instant.now());
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        helpdeskService.reopenTicket(ticket.getId(), null, employeeEmail);
+
+        assertNull(ticket.getSatisfactionRating());
+        assertNull(ticket.getSatisfactionComment());
+        assertNull(ticket.getSatisfactionSubmittedAt());
+    }
+
+    @Test
+    void reopenTicket_closedMoreThanAWeekAgo_isRejected() {
+        HelpdeskTicket ticket = closedTicket();
+        ticket.setUpdatedAt(Instant.now().minus(8, ChronoUnit.DAYS));
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertThrows(IllegalStateException.class, () -> helpdeskService.reopenTicket(ticket.getId(), null, employeeEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void reopenTicket_onNonClosedTicket_isRejected() {
+        HelpdeskTicket ticket = openTicket(); // OPEN, not CLOSED
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertThrows(IllegalStateException.class, () -> helpdeskService.reopenTicket(ticket.getId(), null, employeeEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void reopenTicket_byAnotherEmployee_isDenied() {
+        HelpdeskTicket ticket = closedTicket();
+        User stranger = User.builder().id(otherEmployeeId).email(otherEmployeeEmail)
+                .roles(Set.of(Role.builder().code("EMPLOYEE").build())).build();
+        when(userRepo.findByEmail(otherEmployeeEmail)).thenReturn(Optional.of(stranger));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertThrows(AccessDeniedException.class, () -> helpdeskService.reopenTicket(ticket.getId(), null, otherEmployeeEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void reopenTicket_whenUnassigned_notifiesEveryActiveHrAdmin() {
+        HelpdeskTicket ticket = closedTicket(); // unassigned
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId));
+
+        helpdeskService.reopenTicket(ticket.getId(), null, employeeEmail);
+
+        verify(notificationService).send(eq(hrAdminId), eq("HELPDESK_TICKET_REOPENED"), any(), any(), any());
+    }
+
+    @Test
+    void reopenTicket_whenAssigned_notifiesOnlyTheAssignee() {
+        HelpdeskTicket ticket = closedTicket();
+        ticket.setAssignedTo(hrAdminId);
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        helpdeskService.reopenTicket(ticket.getId(), null, employeeEmail);
+
+        verify(notificationService).send(eq(hrAdminId), eq("HELPDESK_TICKET_REOPENED"), any(), any(), any());
+        verify(notificationService, times(1)).send(any(), eq("HELPDESK_TICKET_REOPENED"), any(), any(), any());
+    }
+
+    // ── Satisfaction rating ──────────────────────────────────
+
+    @Test
+    void submitSatisfaction_onClosedTicket_succeeds() {
+        HelpdeskTicket ticket = closedTicket();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        SubmitSatisfactionRequest req = new SubmitSatisfactionRequest();
+        req.setRating(5);
+        req.setComment("Quick and helpful");
+
+        TicketDetailDto detail = helpdeskService.submitSatisfaction(ticket.getId(), req, employeeEmail);
+
+        assertEquals(5, detail.getSatisfactionRating());
+        assertEquals("Quick and helpful", detail.getSatisfactionComment());
+        assertNotNull(detail.getSatisfactionSubmittedAt());
+        verify(auditService).log(eq(employeeId), eq("HELPDESK_TICKET_SATISFACTION_SUBMITTED"), eq(ticket.getId()));
+    }
+
+    @Test
+    void submitSatisfaction_onNonClosedTicket_isRejected() {
+        HelpdeskTicket ticket = openTicket();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        SubmitSatisfactionRequest req = new SubmitSatisfactionRequest();
+        req.setRating(4);
+
+        assertThrows(IllegalStateException.class, () -> helpdeskService.submitSatisfaction(ticket.getId(), req, employeeEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void submitSatisfaction_whenAlreadySubmitted_isRejected() {
+        HelpdeskTicket ticket = closedTicket();
+        ticket.setSatisfactionRating(3);
+        ticket.setSatisfactionSubmittedAt(Instant.now());
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        SubmitSatisfactionRequest req = new SubmitSatisfactionRequest();
+        req.setRating(5);
+
+        assertThrows(IllegalStateException.class, () -> helpdeskService.submitSatisfaction(ticket.getId(), req, employeeEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void submitSatisfaction_byAnotherEmployee_isDenied() {
+        HelpdeskTicket ticket = closedTicket();
+        User stranger = User.builder().id(otherEmployeeId).email(otherEmployeeEmail)
+                .roles(Set.of(Role.builder().code("EMPLOYEE").build())).build();
+        when(userRepo.findByEmail(otherEmployeeEmail)).thenReturn(Optional.of(stranger));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        SubmitSatisfactionRequest req = new SubmitSatisfactionRequest();
+        req.setRating(5);
+
+        assertThrows(AccessDeniedException.class, () -> helpdeskService.submitSatisfaction(ticket.getId(), req, otherEmployeeEmail));
+        verify(ticketRepo, never()).save(any());
+    }
+
+    @Test
+    void getDetail_reopenableFlag_trueForRecentlyClosedTicket() {
+        HelpdeskTicket ticket = closedTicket();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertTrue(helpdeskService.getDetail(ticket.getId(), employeeEmail).isReopenable());
+    }
+
+    @Test
+    void getDetail_reopenableFlag_falseForOldClosedTicket() {
+        HelpdeskTicket ticket = closedTicket();
+        ticket.setUpdatedAt(Instant.now().minus(30, ChronoUnit.DAYS));
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertFalse(helpdeskService.getDetail(ticket.getId(), employeeEmail).isReopenable());
+    }
+
+    @Test
+    void getDetail_reopenableFlag_falseForOpenTicket() {
+        HelpdeskTicket ticket = openTicket();
+        when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
+
+        assertFalse(helpdeskService.getDetail(ticket.getId(), employeeEmail).isReopenable());
     }
 }

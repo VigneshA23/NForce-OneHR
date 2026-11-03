@@ -1,6 +1,7 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.helpdesk.*;
+import com.nforce.onehr.service.HelpdeskAnalyticsService;
 import com.nforce.onehr.service.HelpdeskService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +27,13 @@ import java.util.UUID;
 public class HrHelpdeskController {
 
     private final HelpdeskService helpdeskService;
+    private final HelpdeskAnalyticsService helpdeskAnalyticsService;
+
+    @GetMapping("/analytics")
+    @PreAuthorize("hasAuthority('helpdesk:VIEW:ALL')")
+    public HelpdeskAnalyticsDto analytics(Principal principal) {
+        return helpdeskAnalyticsService.getAnalytics(principal.getName());
+    }
 
     @GetMapping
     @PreAuthorize("hasAuthority('helpdesk:VIEW:ALL')")

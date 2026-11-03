@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -286,6 +287,35 @@ class ExceptionServiceTest {
                         && exc.getExceptionDate().equals(missingPunchYesterday.getWorkDate())));
     }
 
+    /** The nightly run covers every role (so a Manager/HR/Super Admin is emailed about a missing
+     * check-out too), but the Penalization Policy must still never be evaluated for them. */
+    @Test
+    void scheduledRun_detectsMissingPunchForNonEmployeeRole_butNeverEvaluatesAPenalty() {
+        LocalDate day = to.minusDays(1);
+        // managerId is not in findEmployeeRoleUserIds() (only employeeId is) — i.e. a non-EMPLOYEE-only account.
+        when(userRepository.findAllNonDeletedUserIds()).thenReturn(Set.of(managerId));
+        Attendance missing = Attendance.builder().employeeUserId(managerId).workDate(day)
+                .checkInAt(day.atTime(9, 30)).checkOutAt(null).lateByMinutes(0).build();
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(anyList(), any(), any()))
+                .thenReturn(List.of(missing));
+        Shift shift = Shift.builder().id(UUID.randomUUID()).name(Shift.DEFAULT_SHIFT_NAME).active(true).build();
+        when(employeeRepository.findAllByIdWithScheduleDetails(any()))
+                .thenReturn(List.of(Employee.builder().userId(managerId).shift(shift).build()));
+        when(workingDayService.computeExpectedWorkingDaysBulk(anyList(), any(), any()))
+                .thenReturn(java.util.Map.of(managerId, com.nforce.onehr.dto.attendance.WorkingDaySchedule.builder()
+                        .employeeUserId(managerId).workingDates(Set.of(day)).build()));
+        when(attendanceExceptionRepository.findByEmployeeUserIdAndExceptionDateAndExceptionType(
+                managerId, day, ExceptionType.MISSING_PUNCH)).thenReturn(Optional.empty());
+        when(attendanceExceptionRepository.save(any(AttendanceException.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        exceptionService.runScheduledPenaltyEvaluation(7);
+
+        verify(attendanceExceptionRepository).save(argThat(exc ->
+                exc.getExceptionType().equals(ExceptionType.MISSING_PUNCH) && exc.getEmployeeUserId().equals(managerId)));
+        verifyNoInteractions(attendancePenaltyEvaluationService);
+    }
+
     @Test
     void detection_upsertsExistingExceptionInstead_ofDuplicating() {
         User hr = userWithRole(hrEmail, "HR_ADMIN", UUID.randomUUID());
@@ -467,6 +497,26 @@ class ExceptionServiceTest {
         verifyNoInteractions(emailService);
     }
 
+    private AttendanceException pendingMissingPunch(UUID forEmployee) {
+        return AttendanceException.builder()
+                .id(UUID.randomUUID())
+                .employeeUserId(forEmployee)
+                .exceptionDate(to)
+                .exceptionType(ExceptionType.MISSING_PUNCH)
+                .actualTime(LocalTime.of(9, 30))
+                .build();
+    }
+
+    private void stubPending(AttendanceException... rows) {
+        when(attendanceExceptionRepository.findByExceptionTypeInAndNotifiedAtIsNullAndExceptionDateGreaterThanEqual(
+                argThat(types -> types.contains(ExceptionType.MISSING_PUNCH)), any()))
+                .thenReturn(List.of(rows));
+    }
+
+    private Employee employeeWithEmail(UUID id, String email) {
+        return Employee.builder().userId(id).user(User.builder().email(email).build()).fullName("Test Employee").build();
+    }
+
     @Test
     void notifyUnnotifiedExceptions_emailsAPendingLeaveAttendanceConflict_exactlyOnce() {
         AttendanceException pending = AttendanceException.builder()
@@ -476,18 +526,61 @@ class ExceptionServiceTest {
                 .exceptionType(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)
                 .actualTime(LocalTime.of(9, 30))
                 .build();
-        when(attendanceExceptionRepository.findByExceptionTypeInAndNotifiedAtIsNull(
-                argThat(types -> types.contains(ExceptionType.LEAVE_ATTENDANCE_CONFLICT))))
+        when(attendanceExceptionRepository.findByExceptionTypeInAndNotifiedAtIsNullAndExceptionDateGreaterThanEqual(
+                argThat(types -> types.contains(ExceptionType.LEAVE_ATTENDANCE_CONFLICT)), any()))
                 .thenReturn(List.of(pending));
-        Employee employee = Employee.builder().userId(employeeId).user(User.builder().email(employeeEmail).build())
-                .fullName("Test Employee").build();
-        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employeeWithEmail(employeeId, employeeEmail)));
+        when(emailService.sendLeaveAttendanceConflictEmail(any(), any(), any(), any(), any()))
+                .thenReturn(CompletableFuture.completedFuture(true));
 
         exceptionService.notifyUnnotifiedExceptions();
 
         verify(emailService, times(1)).sendLeaveAttendanceConflictEmail(
                 eq(employeeEmail), any(), eq("Test Employee"), eq(to), eq(LocalTime.of(9, 30)));
         assertNotNull(pending.getNotifiedAt());
+    }
+
+    @Test
+    void notifyUnnotifiedExceptions_failedSend_isNotStamped_soNextRunRetries() {
+        AttendanceException pending = pendingMissingPunch(employeeId);
+        stubPending(pending);
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employeeWithEmail(employeeId, employeeEmail)));
+        when(emailService.sendMissingPunchEmail(any(), any(), any(), any(), any()))
+                .thenReturn(CompletableFuture.completedFuture(false));
+
+        exceptionService.notifyUnnotifiedExceptions();
+
+        assertNull(pending.getNotifiedAt(), "a send the provider refused must stay pending so it is retried");
+        verify(attendanceExceptionRepository, never()).save(any(AttendanceException.class));
+    }
+
+    @Test
+    void notifyUnnotifiedExceptions_oneFailingRow_doesNotBlockTheOthers() {
+        UUID brokenId = UUID.randomUUID();
+        AttendanceException broken = pendingMissingPunch(brokenId);
+        AttendanceException good = pendingMissingPunch(employeeId);
+        stubPending(broken, good);
+        when(employeeRepository.findById(brokenId)).thenThrow(new IllegalStateException("boom"));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employeeWithEmail(employeeId, employeeEmail)));
+        when(emailService.sendMissingPunchEmail(any(), any(), any(), any(), any()))
+                .thenReturn(CompletableFuture.completedFuture(true));
+
+        exceptionService.notifyUnnotifiedExceptions();
+
+        assertNull(broken.getNotifiedAt());
+        assertNotNull(good.getNotifiedAt(), "the healthy row must still be emailed and stamped");
+    }
+
+    @Test
+    void notifyUnnotifiedExceptions_nothingToEmail_isStampedSoItDoesNotRetryForever() {
+        AttendanceException pending = pendingMissingPunch(employeeId);
+        stubPending(pending);
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.empty());
+
+        exceptionService.notifyUnnotifiedExceptions();
+
+        assertNotNull(pending.getNotifiedAt());
+        verifyNoInteractions(emailService);
     }
 
     // ── Gap-033: reevaluateAndReverseIfInvalid must reverse ONLY the invalidated type ──────────

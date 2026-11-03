@@ -1,4 +1,8 @@
+import './orgSetupModals.css';
 import { useEffect, useRef, useState } from 'react';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import {
@@ -345,7 +349,7 @@ function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, onClose }:
 
   return (
     <div
-      role="dialog" aria-modal="true"
+      className="nf-om-dlg" role="dialog" aria-modal="true"
       style={{
         position: 'fixed', inset: 0, zIndex: 200,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -353,19 +357,15 @@ function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, onClose }:
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{
+      <div className="nf-om-card" style={{
         background: 'var(--panel)', border: '1px solid var(--line)',
         borderRadius: 12, padding: '24px 28px', width: 400, maxWidth: '95vw',
         boxShadow: '0 24px 48px rgba(0,0,0,.4)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
-            {title}
-          </h2>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}>
-            <X size={16} />
-          </button>
-        </div>
+        <h2 data-kind={danger ? 'warn' : 'edit'}>{title}</h2>
+        <button onClick={onClose} aria-label="Close" className="nf-om-x">
+          <X size={16} />
+        </button>
         <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.55 }}>{body}</p>
         {error && (
           <div role="alert" style={{
@@ -463,7 +463,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
       // Location names are alphabetic only — letters and spaces (for multi-word names like
       // "Chennai HQ"), no digits, no hyphens, no other special characters.
       if (!/^[A-Za-z]+( [A-Za-z]+)*$/.test(trimmed)) {
-        setError(`${primaryLabel} must contain only letters (spaces allowed between words) — no numbers or special characters`);
+        setError(`${primaryLabel} must contain only letters (spaces allowed between words) - no numbers or special characters`);
         return;
       }
     } else if (!/^(?=.*[A-Za-z])[^0-9]+$/.test(trimmed)) {
@@ -530,7 +530,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
 
   return (
     <div
-      role="dialog" aria-modal="true" aria-label={modalTitle}
+      className="nf-om-dlg" role="dialog" aria-modal="true" aria-label={modalTitle}
       style={{
         position: 'fixed', inset: 0, zIndex: 200,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -538,19 +538,15 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{
+      <div className="nf-om-card" style={{
         background: 'var(--panel)', border: '1px solid var(--line)',
         borderRadius: 12, padding: '24px 28px', width: 440, maxWidth: '95vw',
         boxShadow: '0 24px 48px rgba(0,0,0,.4)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
-            {modalTitle}
-          </h2>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}>
-            <X size={16} />
-          </button>
-        </div>
+        <h2 data-kind={isEdit ? 'edit' : 'add'}>{modalTitle}</h2>
+        <button onClick={onClose} aria-label="Close" className="nf-om-x">
+          <X size={16} />
+        </button>
 
         {error && (
           <div role="alert" style={{
@@ -585,7 +581,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
                 </span>
                 <select value={departmentId} onChange={e => setDepartmentId(e.target.value)}
                   style={{ ...inputStyle, appearance: 'none' as const, WebkitAppearance: 'none' as const }}>
-                  <option value="">— Select a department —</option>
+                  <option value="">– Select a department –</option>
                   {departments.filter(d => d.active || d.id === departmentId).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </label>
@@ -598,7 +594,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
                 <span style={labelTextStyle}>Level</span>
                 <select value={level} onChange={e => setLevel(e.target.value)}
                   style={{ ...inputStyle, appearance: 'none' as const, WebkitAppearance: 'none' as const }}>
-                  <option value="">— Not set —</option>
+                  <option value="">– Not set –</option>
                   {LEVEL_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
               </label>
@@ -635,11 +631,11 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
                   value={timezone} onChange={e => setTimezone(e.target.value)}
                   style={{ ...inputStyle, appearance: 'none' as const, WebkitAppearance: 'none' as const }}
                 >
-                  <option value="">— Select a timezone —</option>
+                  <option value="">– Select a timezone –</option>
                   {supportedTimezones.map(tz => <option key={tz} value={tz}>{tz}</option>)}
                 </select>
                 <span style={{ fontSize: 11, color: 'var(--txt-mut)', marginTop: 3 }}>
-                  Limited to this business's supported zones — every employee assigned to this
+                  Limited to this business's supported zones - every employee assigned to this
                   location uses it for check-in/out, lateness, and shift-day calculations, so it
                   can't be entered freely.
                 </span>
@@ -773,9 +769,9 @@ function DocTypeModal({ editRow, token, locationNames, onClose, onSaved }: DocTy
   }
 
   return (
-    <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto' }}>
-        <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Document Type' : 'Add Document Type'}</h2>
+    <div className="nf-om-dlg" role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div className="nf-om-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto' }}>
+        <h2 data-kind={isEdit ? 'edit' : 'add'}>{isEdit ? 'Edit Document Type' : 'Add Document Type'}</h2>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 14 }}>
             <label style={labelS}>Name *</label>
@@ -861,9 +857,9 @@ function LeaveTypeModal({ editRow, token, onClose, onSaved }: LeaveTypeModalProp
   const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
 
   return (
-    <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 420, maxWidth: '94vw' }}>
-        <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Leave Type' : 'Add Leave Type'}</h2>
+    <div className="nf-om-dlg" role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div className="nf-om-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 420, maxWidth: '94vw' }}>
+        <h2 data-kind={isEdit ? 'edit' : 'add'}>{isEdit ? 'Edit Leave Type' : 'Add Leave Type'}</h2>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 14 }}>
             <label style={labelS}>Leave Type Name *</label>
@@ -919,16 +915,6 @@ export function fmtShiftTime(t: string): string {
   return `${hour12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
-/** "All days" for the common case, otherwise abbreviated day names in Mon-Sun order regardless of the order the API happens to return them in. */
-function formatApplicableDays(workingDays: string[] | null | undefined): string {
-  // Defensive: ShiftRow#workingDays is documented as always-present (backend defaults it), but
-  // guard anyway so a stale backend response (missing the field) shows "All days" instead of
-  // throwing and blanking the whole app.
-  const days = workingDays ?? [];
-  if (days.length === 7) return 'All days';
-  return WEEKDAYS.filter(day => days.includes(day)).map(day => day.slice(0, 3)).join(', ');
-}
-
 interface ShiftFormModalProps {
   editRow?: ShiftRow;
   token: string;
@@ -976,26 +962,6 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
     (pending?.breakMinutes ?? editRow?.breakMinutes) != null ? String(pending?.breakMinutes ?? editRow?.breakMinutes) : '');
   const [lateGraceMinutes, setLateGraceMinutes] = useState(
     (pending?.lateGraceMinutes ?? editRow?.lateGraceMinutes) != null ? String(pending?.lateGraceMinutes ?? editRow?.lateGraceMinutes) : '10');
-  // Applicable Days — seeded from the existing Shift's current value when editing (unlike
-  // startTime/endTime/etc above, this is NOT versioned/future-effective: it changes immediately on
-  // save, since it's a plain Shift-row attribute never read by any attendance/workday calculation
-  // — see UpdateShiftRequest's own doc comment). Defaults to all 7 days selected for a brand-new
-  // Shift, per this feature's own requirement.
-  const [workingDays, setWorkingDays] = useState<string[]>(editRow?.workingDays ?? WEEKDAYS);
-  function toggleWorkingDay(day: string) {
-    setWorkingDays(prev => {
-      if (prev.includes(day)) {
-        // At least one applicable day must always remain selected — prevent removing the last one
-        // outright (per this feature's own requirement) rather than allow an invalid zero-day
-        // state and only catch it at submit time.
-        return prev.length === 1 ? prev : prev.filter(d => d !== day);
-      }
-      // Re-filtered against WEEKDAYS (rather than simply appended) so re-selecting a previously-
-      // deselected day lands back in canonical Monday-first order — the backend stores/returns
-      // whatever order is sent, and nothing should have to re-sort it after the fact.
-      return WEEKDAYS.filter(d => prev.includes(d) || d === day);
-    });
-  }
   // Shift changes are always future-effective — never today, never in the past (enforced
   // server-side regardless of what's picked here). Defaults to tomorrow; re-editing an
   // already-scheduled pending version keeps its own date instead of resetting to tomorrow.
@@ -1034,13 +1000,6 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
       setError('Effective From must be a future date (after today)');
       return;
     }
-    // Defense-in-depth: toggleWorkingDay already prevents reaching zero selected days, and the
-    // backend independently rejects an empty list too — this just keeps the same "never rely on
-    // frontend validation alone" double-check every other rule in this form already has.
-    if (workingDays.length === 0) {
-      setError('At least one applicable day is required');
-      return;
-    }
     if (exceedsMaxDuration) {
       setError(`Shift duration cannot exceed the organization's Maximum Shift Day Duration of ${maxDurationHours}h (this shift spans ${elapsedHours % 1 === 0 ? elapsedHours : elapsedHours.toFixed(1)}h)`);
       return;
@@ -1052,13 +1011,11 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
             name: name.trim(), code: code.trim() || undefined, description: description.trim() || undefined,
             startTime, endTime, breakMinutes: breakMinutes.trim() ? Number(breakMinutes) : undefined,
             lateGraceMinutes: lateGraceMinutes.trim() ? Number(lateGraceMinutes) : undefined, effectiveFrom,
-            workingDays,
           })
         : await orgApi.createShift(token, {
             name: name.trim(), code: code.trim() || undefined, description: description.trim() || undefined,
             startTime, endTime, breakMinutes: breakMinutes.trim() ? Number(breakMinutes) : undefined,
             lateGraceMinutes: lateGraceMinutes.trim() ? Number(lateGraceMinutes) : undefined,
-            workingDays,
           });
       onSaved(saved);
       onClose();
@@ -1087,12 +1044,12 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
   // (e.g. UserManagementPage's Add/Edit User, overlay z-index 500) it must outrank that modal's
   // own overlay or its backdrop swallows every click meant for this one.
   return createPortal(
-    <div role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Shift' : 'Add Shift'} style={{ position: 'fixed', inset: 0, zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Shift' : 'Add Shift'}</h2>
+    <div className="nf-om-dlg" role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Shift' : 'Add Shift'} style={{ position: 'fixed', inset: 0, zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div className="nf-om-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h2 data-kind={isEdit ? 'edit' : 'add'}>{isEdit ? 'Edit Shift' : 'Add Shift'}</h2>
         {isEdit && (
           <p style={{ margin: '0 0 16px', fontSize: 11.5, color: 'var(--txt-mut)' }}>
-            The current timing stays in effect through today exactly as it is — saving schedules a new timing
+            The current timing stays in effect through today exactly as it is - saving schedules a new timing
             to take over from the Effective From date below, it never changes today's timing retroactively.
           </p>
         )}
@@ -1142,43 +1099,12 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
               <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Minutes past Start Time forgiven before a check-in counts as Late</span>
             </div>
           </div>
-          <div style={{ marginBottom: 20 }}>
-            <label style={labelS} id="applicable-days-label">Applicable Days *</label>
-            <div role="group" aria-labelledby="applicable-days-label" style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-              {WEEKDAYS.map(day => {
-                const selected = workingDays.includes(day);
-                const dayLabel = day.charAt(0) + day.slice(1).toLowerCase();
-                return (
-                  <button
-                    key={day}
-                    type="button"
-                    aria-pressed={selected}
-                    aria-label={dayLabel}
-                    title={dayLabel}
-                    onClick={() => toggleWorkingDay(day)}
-                    style={{
-                      width: 34, height: 34, borderRadius: 6, cursor: 'pointer',
-                      border: selected ? '1px solid var(--brand)' : '1px solid var(--line2)',
-                      background: selected ? 'var(--brand)' : 'var(--raised)',
-                      color: selected ? '#fff' : 'var(--txt-mut)',
-                      fontSize: 12.5, fontWeight: 600,
-                    }}
-                  >
-                    {day.charAt(0)}
-                  </button>
-                );
-              })}
-            </div>
-            <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>
-              At least one day must remain selected{isEdit ? ' — unlike the timing below, this takes effect immediately on save' : ''}
-            </span>
-          </div>
           {isEdit && (
             <div style={{ marginBottom: 20 }}>
               <label style={labelS}>Effective From *</label>
               <input type="date" style={{ ...inputS, maxWidth: 200 }} value={effectiveFrom} min={tomorrow}
                 onChange={e => setEffectiveFrom(e.target.value)} required />
-              <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Tomorrow or any later date — never today or the past</span>
+              <span style={{ fontSize: 10.5, color: 'var(--txt-mut)' }}>Tomorrow or any later date - never today or the past</span>
             </div>
           )}
           {/* Blocks saving (see submit's own check) — the backend enforces the exact same limit
@@ -1323,11 +1249,10 @@ function ShiftSummaryPanel({ shift }: { shift: ShiftRow }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', fontSize: 13, maxWidth: 480 }}>
         <div style={rowS}><span style={labelS}>Timing</span><span style={valueS}>{fmtShiftTime(shift.startTime)} – {fmtShiftTime(shift.endTime)}</span></div>
-        <div style={rowS}><span style={labelS}>Break Duration</span><span style={valueS}>{shift.breakMinutes != null ? `${shift.breakMinutes} minutes` : '—'}</span></div>
-        <div style={rowS}><span style={labelS}>Grace Period</span><span style={valueS}>{shift.lateGraceMinutes != null ? `${shift.lateGraceMinutes} minutes` : '—'}</span></div>
+        <div style={rowS}><span style={labelS}>Break Duration</span><span style={valueS}>{shift.breakMinutes != null ? `${shift.breakMinutes} minutes` : '–'}</span></div>
+        <div style={rowS}><span style={labelS}>Grace Period</span><span style={valueS}>{shift.lateGraceMinutes != null ? `${shift.lateGraceMinutes} minutes` : '–'}</span></div>
         <div style={rowS}><span style={labelS}>Status</span><span style={valueS}><StatusBadge active={shift.active} /></span></div>
         <div style={rowS}><span style={labelS}>Employees Assigned</span><span style={valueS}><CountBadge count={shift.employeeCount} /></span></div>
-        <div style={rowS}><span style={labelS}>Applicable Days</span><span style={valueS}>{formatApplicableDays(shift.workingDays)}</span></div>
       </div>
       {shift.pendingEffectiveFrom && (
         <div style={{
@@ -1335,7 +1260,7 @@ function ShiftSummaryPanel({ shift }: { shift: ShiftRow }) {
           borderRadius: 8, padding: '10px 12px', fontSize: 12, color: 'var(--txt)', maxWidth: 480,
         }}>
           A change to {fmtShiftTime(shift.pendingStartTime!)}–{fmtShiftTime(shift.pendingEndTime!)} is scheduled to
-          take effect {shift.pendingEffectiveFrom} — see Track Shift Versions for the full history.
+          take effect {shift.pendingEffectiveFrom} – see Track Shift Versions for the full history.
         </div>
       )}
     </div>
@@ -1474,7 +1399,8 @@ export default function OrgSetupPage() {
   // only line of defense.
   const canManageShifts = hasPermission(permissions, 'organization_shifts', 'EDIT', 'ALL');
 
-  const [activeTab, setActiveTab] = useState<OrgTab>('departments');
+  // Opens on the first tab (Business Units), same order as the tab bar.
+  const [activeTab, setActiveTab] = useState<OrgTab>('businessunits');
   const [penalizationSubTab, setPenalizationSubTab] = useState<'policy' | 'allocation'>('policy');
   // Set when the Policy List's employee-count link is clicked — consumed once by
   // PenalizationPolicyAllocationSection to pre-select its Penalization Policy filter, then cleared
@@ -1574,6 +1500,18 @@ export default function OrgSetupPage() {
   );
   const visibleDocTypes = docTypes.filter(d => d.name.toLowerCase().includes(q));
   const visibleLeaveTypes = leaveTypes.filter(t => t.name.toLowerCase().includes(q));
+  const buPaged = usePaged(visibleBusinessUnits, [q, activeTab]);
+  const deptPaged = usePaged(visibleDepts, [q, activeTab]);
+  const desigPaged = usePaged(visibleDesigs, [q, activeTab]);
+  const locPaged = usePaged(visibleLocs, [q, activeTab]);
+  const docPaged = usePaged(visibleDocTypes, [q, activeTab]);
+  const leavePaged = usePaged(visibleLeaveTypes, [q, activeTab]);
+  const orgPagerProps = activeTab === 'businessunits' ? buPaged.pagerProps
+    : activeTab === 'departments' ? deptPaged.pagerProps
+    : activeTab === 'designations' ? desigPaged.pagerProps
+    : activeTab === 'locations' ? locPaged.pagerProps
+    : activeTab === 'doctypes' ? docPaged.pagerProps
+    : leavePaged.pagerProps;
   // Shifts no longer participates in the shared search/generic-table plumbing above — its master-
   // detail layout (ShiftsMasterDetail) filters the full, unfiltered `shifts` list with its own
   // internal search state instead (see the reference design's dedicated left-panel search box).
@@ -1833,11 +1771,67 @@ export default function OrgSetupPage() {
         />
       )}
 
-      <div>
-        <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
-          {copy.title}
-        </h1>
-        <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
+      {/* Header: title on the left, the active tab's search + add controls on the right (above the tabs). */}
+      <div className="nf-page-hdr" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={Building2}>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, marginBottom: 4 }}>
+            {copy.title}
+          </h1>
+          <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
+        </PageTitleBlock>
+        {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
+          && activeTab !== 'ai-assistant' && (
+          // Right of the page title, above the tabs.
+          <div className="nf-org-toolbar-actions" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+            flexWrap: 'wrap',
+          }}>
+            <div className="nf-org-search-wrap" style={{ position: 'relative' }}>
+              <Search size={12} aria-hidden="true" style={{
+                position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
+                color: 'var(--txt-dim)', pointerEvents: 'none',
+              }} />
+              <input
+                className="nf-org-search-input"
+                type="search" value={search} onChange={e => setSearch(e.target.value)}
+                placeholder={`Search ${tab.label.toLowerCase()}…`}
+                aria-label={`Search ${tab.label}`}
+                style={{
+                  background: 'var(--raised)', border: '1px solid var(--line2)',
+                  borderRadius: 6, padding: '5px 10px 5px 26px',
+                  fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196,
+                }}
+              />
+            </div>
+            <button onClick={openAdd} aria-label={tab.addLabel} style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+              background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+              <Plus size={13} aria-hidden="true" />
+              {tab.addLabel}
+            </button>
+          </div>
+        )}
+        {/* Add Shift stays the primary top-right action (matching the approved reference), but
+            only while the Shifts sub-tab itself is active — Weekly Offs/Shift and Weekly Off
+            Rules manage their own add actions internally (see their own sections below). No
+            shared search box here: the master-detail layout has its own, in the left panel. */}
+        {activeTab === 'shiftweeklyoff' && shiftWeeklyOffSubTab === 'shifts' && canManageShifts && (
+          <div className="nf-org-toolbar-actions" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
+            flexWrap: 'wrap',
+          }}>
+            <button onClick={openAdd} aria-label="Add Shift" style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+              background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+              <Plus size={13} aria-hidden="true" />
+              Add Shift
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Scoped to the tabs that actually consume fetchAll()'s data — Penalization Policy (and
@@ -1890,61 +1884,6 @@ export default function OrgSetupPage() {
             />
             <div aria-hidden="true" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 28, pointerEvents: 'none', background: 'linear-gradient(to right, transparent, var(--panel))' }} />
           </div>
-          {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
-            && activeTab !== 'ai-assistant' && (
-            // Its own row directly under the tabs, right-aligned, with a divider + vertical
-            // breathing room so it reads as a clearly separate toolbar strip rather than
-            // crowding — or at some widths visually overlapping — the section tabs above it.
-            <div className="nf-org-toolbar-actions" style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
-              padding: '10px 12px', borderTop: '1px solid var(--line)',
-            }}>
-              <div className="nf-org-search-wrap" style={{ position: 'relative' }}>
-                <Search size={12} aria-hidden="true" style={{
-                  position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
-                  color: 'var(--txt-dim)', pointerEvents: 'none',
-                }} />
-                <input
-                  className="nf-org-search-input"
-                  type="search" value={search} onChange={e => setSearch(e.target.value)}
-                  placeholder={`Search ${tab.label.toLowerCase()}…`}
-                  aria-label={`Search ${tab.label}`}
-                  style={{
-                    background: 'var(--raised)', border: '1px solid var(--line2)',
-                    borderRadius: 6, padding: '5px 10px 5px 26px',
-                    fontSize: 12, color: 'var(--txt)', outline: 'none', width: 196,
-                  }}
-                />
-              </div>
-              <button onClick={openAdd} aria-label={tab.addLabel} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
-                fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-              }}>
-                <Plus size={13} aria-hidden="true" />
-                {tab.addLabel}
-              </button>
-            </div>
-          )}
-          {/* Add Shift stays the primary top-right action (matching the approved reference), but
-              only while the Shifts sub-tab itself is active — Weekly Offs/Shift and Weekly Off
-              Rules manage their own add actions internally (see their own sections below). No
-              shared search box here: the master-detail layout has its own, in the left panel. */}
-          {activeTab === 'shiftweeklyoff' && shiftWeeklyOffSubTab === 'shifts' && canManageShifts && (
-            <div className="nf-org-toolbar-actions" style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
-              padding: '10px 12px', borderTop: '1px solid var(--line)',
-            }}>
-              <button onClick={openAdd} aria-label="Add Shift" style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
-                fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-              }}>
-                <Plus size={13} aria-hidden="true" />
-                Add Shift
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Penalization Policy is a Policy List (Section 5), not a row-per-item table like the
@@ -2068,7 +2007,7 @@ export default function OrgSetupPage() {
                   </td>
                 </tr>
               ) : activeTab === 'businessunits' ? (
-                visibleBusinessUnits.map(b => (
+                buPaged.pageRows.map(b => (
                   <tr key={b.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2084,7 +2023,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'departments' ? (
-                visibleDepts.map(d => (
+                deptPaged.pageRows.map(d => (
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2100,7 +2039,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'designations' ? (
-                visibleDesigs.map(d => (
+                desigPaged.pageRows.map(d => (
                   <tr key={d.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2108,9 +2047,9 @@ export default function OrgSetupPage() {
                         {d.title}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.departmentName ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.grade ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.departmentName ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{d.grade ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', fontFamily: 'Inter, sans-serif', fontSize: 12, color: 'var(--txt-mut)' }}>{d.level ?? '–'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={d.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={d.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -2119,7 +2058,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'locations' ? (
-                visibleLocs.map(l => (
+                locPaged.pageRows.map(l => (
                   <tr key={l.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2127,10 +2066,10 @@ export default function OrgSetupPage() {
                         {l.name}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.city ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.state ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.country ?? '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{l.timezone ?? '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.city ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.state ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>{l.country ?? '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{l.timezone ?? '–'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={l.employeeCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={l.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -2139,7 +2078,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : activeTab === 'doctypes' ? (
-                visibleDocTypes.map(dt => (
+                docPaged.pageRows.map(dt => (
                   <tr key={dt.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2147,8 +2086,8 @@ export default function OrgSetupPage() {
                         {dt.name}
                       </div>
                     </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresVerification ? '✓ Yes' : '—'}</td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresExpiryDate ? '✓ Yes' : '—'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresVerification ? '✓ Yes' : '–'}</td>
+                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12 }}>{dt.requiresExpiryDate ? '✓ Yes' : '–'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableEmploymentTypes || 'All'}</td>
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 11 }}>{dt.applicableLocations || 'All'}</td>
                     <td style={{ padding: '10px 16px' }}><CountBadge count={dt.usageCount} /></td>
@@ -2163,7 +2102,7 @@ export default function OrgSetupPage() {
                   </tr>
                 ))
               ) : (
-                visibleLeaveTypes.map(lt => (
+                leavePaged.pageRows.map(lt => (
                   <tr key={lt.id} style={{ borderBottom: '1px solid var(--line)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2183,6 +2122,7 @@ export default function OrgSetupPage() {
               )}
             </tbody>
           </table>
+          <TablePagination {...orgPagerProps} noun="records" />
         </div>
         )}
       </div>
@@ -2191,8 +2131,9 @@ export default function OrgSetupPage() {
 }
 
 // ── Weekly Offs ──────────────────────────────────────────────────────────────
-// WeeklyOffPolicy is the sole source of truth for weekly-off (Shift carries no working-days
-// concept — see the backend's own comment on Shift.workingDays' removal from this surface).
+// WeeklyOffPolicy is the sole source of truth for weekly-off, including which days a leave
+// request may span (Phase 4 — Shift's old "Applicable Days" field is gone; LeaveService resolves
+// this through WorkingDayService's shared weekly-off resolver instead, same as attendance does).
 // Full-day-only for P1, matching the offDays model already in place; no active/inactive concept
 // (not requested for P1, and the product's own Weekly Off reference screens don't show one).
 // Self-contained, mirroring how the Penalization Policy tab manages its own state/fetch rather
@@ -2242,9 +2183,9 @@ function WeeklyOffFormModal({ editRow, token, onClose, onSaved }: WeeklyOffFormM
   const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Weekly Off Policy' : 'Add Weekly Off Policy'} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 440, maxWidth: '94vw' }}>
-        <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Weekly Off Policy' : 'Add Weekly Off Policy'}</h2>
+    <div className="nf-om-dlg" role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Weekly Off Policy' : 'Add Weekly Off Policy'} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div className="nf-om-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 440, maxWidth: '94vw' }}>
+        <h2 data-kind={isEdit ? 'edit' : 'add'}>{isEdit ? 'Edit Weekly Off Policy' : 'Add Weekly Off Policy'}</h2>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 16 }}>
             <label style={labelS}>Policy Name *</label>
@@ -2368,7 +2309,7 @@ function WeeklyOffSection({ token }: { token: string }) {
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--line)' }}>
                   <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>{p.name}</td>
                   <td style={{ padding: '10px 16px', color: 'var(--txt-mut)' }}>
-                    {p.offDays.map(d => d.slice(0, 3).charAt(0) + d.slice(1, 3).toLowerCase()).join(', ') || '—'}
+                    {p.offDays.map(d => d.slice(0, 3).charAt(0) + d.slice(1, 3).toLowerCase()).join(', ') || '–'}
                   </td>
                   <td style={{ padding: '10px 16px' }}><CountBadge count={p.employeeCount} /></td>
                   <td style={{ padding: '10px 16px', textAlign: 'right' }}>
@@ -2597,7 +2538,7 @@ function AttendanceRulesSection({ token }: { token: string }) {
       <p style={{ margin: '0 0 18px', fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.55 }}>
         Org-wide fallback IANA zone id, used only for an employee who has no Location assigned at
         all. Every employee's attendance timezone otherwise comes entirely from their assigned
-        Location (see the Locations tab) — employees have no timezone setting of their own.
+        Location (see the Locations tab) - employees have no timezone setting of their own.
         Changing this never reinterprets any existing attendance record.
       </p>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12 }}>
@@ -2747,7 +2688,7 @@ function AiRateLimitSettingsSection({ token }: { token: string }) {
       </div>
       {requests.trim() !== '' && windowMinutes.trim() !== '' && (
         <p style={{ margin: '14px 0 0', fontSize: 11.5, color: 'var(--txt-dim)' }}>
-          Each employee can send up to {requests || '—'} assistant {Number(requests) === 1 ? 'message' : 'messages'} every {windowMinutes || '—'} {Number(windowMinutes) === 1 ? 'minute' : 'minutes'}.
+          Each employee can send up to {requests || '–'} assistant {Number(requests) === 1 ? 'message' : 'messages'} every {windowMinutes || '–'} {Number(windowMinutes) === 1 ? 'minute' : 'minutes'}.
         </p>
       )}
       {error && <div role="alert" style={{ color: 'var(--risk)', fontSize: 12, marginTop: 12 }}>{error}</div>}

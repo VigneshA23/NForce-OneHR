@@ -1,22 +1,24 @@
 import { X } from 'lucide-react';
+import { AlarmClock, Hourglass, CheckCircle2, Boxes, Receipt, ClipboardList, Package } from 'lucide-react';
+import DashTile from '../../components/DashTile';
 
 // ── Shared styles ─────────────────────────────────────────
 
-export const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-export const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-export const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+export const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' };
+export const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', whiteSpace: 'nowrap', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+export const tdStyle: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 export const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 export const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
 export const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 export const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
 
 export function fmtCurrency(n?: number | null) {
-  if (n == null) return '—';
+  if (n == null) return '–';
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n);
 }
 
 export function fmtDate(s?: string | null) {
-  if (!s) return '—';
+  if (!s) return '–';
   return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
@@ -39,14 +41,18 @@ const STATUS_TONE: Record<string, string> = {
   IN_REPAIR: 'var(--warn)',
   RETIRED: 'var(--txt-dim)',
   FULFILLED: 'var(--ok)',
+  GOOD: 'var(--ok)',
+  NEW: 'var(--info)',
+  FAIR: 'var(--warn)',
+  DAMAGED: 'var(--risk)',
 };
 
 export function StatusBadge({ status }: { status: string }) {
   const tone = STATUS_TONE[status] ?? 'var(--txt-dim)';
   return (
-    <span style={{
-      fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20,
-      background: `color-mix(in srgb, ${tone} 15%, transparent)`, color: tone,
+    <span className="nf-asset-pill" style={{
+      background: `color-mix(in srgb, ${tone} 13%, transparent)`, color: tone,
+      border: `1px solid color-mix(in srgb, ${tone} 30%, transparent)`,
     }}>
       {status.replace(/_/g, ' ')}
     </span>
@@ -61,31 +67,31 @@ export interface TileProps {
   onClick?: () => void;
   clickHint?: string;
 }
+// Icon + colour for a tile, chosen from its label so every call site stays as it was.
+function tileLook(label: string): { icon: React.ReactNode; accent: string } {
+  const l = label.toLowerCase();
+  if (l.includes('overdue')) return { icon: <AlarmClock size={20} />, accent: 'var(--risk)' };
+  if (l.includes('pending')) return { icon: <Hourglass size={20} />, accent: 'var(--warn)' };
+  if (l.includes('approved')) return { icon: <CheckCircle2 size={20} />, accent: 'var(--ok)' };
+  if (l.includes('available') || l.includes('inventory')) return { icon: <Boxes size={20} />, accent: 'var(--info)' };
+  if (l.includes('expense') || l.includes('claim')) return { icon: <Receipt size={20} />, accent: 'var(--om-purple)' };
+  if (l.includes('request')) return { icon: <ClipboardList size={20} />, accent: 'var(--brand)' };
+  return { icon: <Package size={20} />, accent: 'var(--info)' };
+}
+
+// Same tile as the Home dashboard (components/DashTile). Click behaviour is unchanged: only a tile marked
+// `clickable` with an `onClick` is a button.
 export function Tile({ label, value, sub, clickable, onClick, clickHint }: TileProps) {
-  return (
-    <div
-      onClick={clickable ? onClick : undefined}
-      style={{
-        background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 18px',
-        cursor: clickable ? 'pointer' : 'default',
-        transition: clickable ? 'border-color .15s' : undefined,
-        minWidth: 0,
-      }}
-      onMouseEnter={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--brand)') : undefined}
-      onMouseLeave={clickable && onClick ? e => (e.currentTarget.style.borderColor = 'var(--line)') : undefined}
-    >
-      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{value}</div>
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3, fontWeight: 600 }}>{label}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>{sub}</div>}
-      {clickable && onClick && clickHint && <div style={{ fontSize: 10, color: 'var(--brand)', marginTop: 6, fontWeight: 600 }}>{clickHint}</div>}
-    </div>
-  );
+  const { icon, accent } = tileLook(label);
+  const isClick = !!(clickable && onClick);
+  const subText = [sub, isClick ? clickHint : undefined].filter(Boolean).join(' · ') || undefined;
+  return <DashTile icon={icon} accent={accent} label={label} value={String(value)} sub={subText} onClick={isClick ? onClick : undefined} />;
 }
 
 export function SectionHead({ title, action }: { title: string; action?: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{title}</h2>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, letterSpacing: '-.01em', fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{title}</h2>
       {action}
     </div>
   );

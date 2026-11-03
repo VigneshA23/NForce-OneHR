@@ -59,6 +59,8 @@ export interface SkillRequestEntry {
   status: 'Pending' | 'Approved' | 'Rejected' | 'Mapped';
   mappedSkillName: string | null;
   createdAt: string;
+  // Already returned by the backend (SkillRequestResponse) — null until HR approves/maps/rejects.
+  reviewedAt: string | null;
 }
 
 export interface SkillRequestPayload {

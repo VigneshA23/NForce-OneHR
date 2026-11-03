@@ -90,7 +90,7 @@ export function LearningEntryModal({ token, existing, statusOptions = LEARNING_S
         </div>
 
         <TextAreaField label="Description" value={description} onChange={setDescription} rows={3}
-          placeholder="What did this cover — locators, waits, Page Object Model, etc.?" />
+          placeholder="What did this cover - locators, waits, Page Object Model, etc.?" />
 
         <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <FieldLabel>Certificate / Evidence (optional)</FieldLabel>

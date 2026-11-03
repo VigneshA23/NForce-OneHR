@@ -26,6 +26,9 @@ public interface AssetAssignmentRepository extends JpaRepository<AssetAssignment
 
     long countByEffectiveToIsNull();
 
+    // Any assignment row at all (open or closed): an asset with custody history must be retired, never deleted.
+    boolean existsByAssetId(Long assetId);
+
     @Query("SELECT COUNT(DISTINCT a.employeeUserId) FROM AssetAssignment a " +
            "WHERE a.employeeUserId IN :employeeIds AND a.effectiveTo IS NULL")
     long countDistinctEmployeesWithAssignments(List<UUID> employeeIds);

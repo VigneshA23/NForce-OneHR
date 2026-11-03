@@ -18,9 +18,10 @@ public class BulkAssignmentRequest {
     @NotNull(message = "A policy id is required")
     private UUID policyId;
 
-    // Shift assignment ONLY (see EmployeeAssignmentService#bulkUpdateShift) — required there;
-    // today or any future date is accepted, a past date is rejected. Ignored by the
-    // weekly-off/penalisation-policy bulk endpoints, which remain effective-today, open-ended,
-    // exactly as before.
+    // Required for shift (EmployeeAssignmentService#bulkUpdateShift) and, as of Phase 3, weekly-off
+    // (#bulkUpdateWeeklyOff) assignment — today or any future date is accepted, a past date is
+    // rejected. Still ignored by the penalisation-policy bulk endpoint, which remains
+    // effective-today, open-ended, exactly as before — penalisation allocation has its own
+    // separate effective-dating via PenalizationPolicyAllocationService, not this field.
     private LocalDate effectiveFrom;
 }

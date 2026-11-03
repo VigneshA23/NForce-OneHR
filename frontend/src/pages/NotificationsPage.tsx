@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { useNavigate } from 'react-router-dom';
 import {
   Bell, CheckCheck, Search, RefreshCw, Inbox, ArrowUpRight, Check,
@@ -483,8 +484,8 @@ export default function NotificationsPage() {
     <div style={{ display: 'flex', flexDirection: 'column' }} className="nf-notif-page">
 
       {/* Header */}
-      <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div>
+      <div className="nf-page-hdr" style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={Bell}>
           <h1 style={{
             fontFamily: 'Inter, sans-serif',
             fontSize: 22, fontWeight: 700, color: 'var(--txt)',
@@ -508,7 +509,7 @@ export default function NotificationsPage() {
           <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', margin: 0 }}>
             {total > 0 ? `${total} total notification${total !== 1 ? 's' : ''}` : 'All caught up'}
           </p>
-        </div>
+        </PageTitleBlock>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <button
@@ -558,10 +559,7 @@ export default function NotificationsPage() {
         padding: '10px 12px', background: 'var(--panel)',
         border: '1px solid var(--line)', borderRadius: 10,
       }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 180px', maxWidth: 300,
-          background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 10px',
-        }}>
+        <div className="nf-filter-search" style={{ flex: '1 1 260px', maxWidth: 360 }}>
           <Search size={13} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} aria-hidden="true" />
           <input
             type="text"
@@ -569,7 +567,7 @@ export default function NotificationsPage() {
             onChange={e => setSearch(e.target.value)}
             placeholder="Search notifications…"
             aria-label="Search notifications"
-            style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', color: 'var(--txt)', fontSize: 12, fontFamily: 'Inter, sans-serif' }}
+            
           />
         </div>
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ActionDock } from '../../../components/ActionDock';
 import { Trash2, Pencil, Plus, IdCard, Mail, MapPin, GraduationCap, ShieldCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
@@ -73,19 +74,13 @@ function EducationCard({ token }: { token: string }) {
                 <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{e.degree}{e.fieldOfStudy ? ` · ${e.fieldOfStudy}` : ''}</div>
                 <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>{e.institutionName}</div>
                 <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>
-                  {e.startDate ?? '—'} – {e.endDate ?? 'Present'}
+                  {e.startDate ?? '–'} – {e.endDate ?? 'Present'}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <button onClick={() => setModalTarget(e)} aria-label="Edit"
-                  style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: 6, cursor: 'pointer', color: 'var(--txt-mut)', display: 'flex' }}>
-                  <Pencil size={13} />
-                </button>
-                <button onClick={() => handleDelete(e.id)} aria-label="Delete"
-                  style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: 6, cursor: 'pointer', color: 'var(--risk)', display: 'flex' }}>
-                  <Trash2 size={13} />
-                </button>
-              </div>
+              <ActionDock items={[
+                { label: 'Edit', icon: Pencil, onClick: () => setModalTarget(e) },
+                { label: 'Delete', icon: Trash2, onClick: () => handleDelete(e.id), danger: true },
+              ]} />
             </div>
           ))}
         </div>

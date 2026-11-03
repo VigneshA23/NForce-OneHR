@@ -85,7 +85,7 @@ export default function ProfileCoverPreviewPage() {
     reader.onload = () => {
       setCoverDataUrl(typeof reader.result === 'string' ? reader.result : null);
       setUploading(false);
-      setLastAction(`Uploaded "${file.name}" (${Math.round(file.size / 1024)} KB) — read locally, never sent anywhere`);
+      setLastAction(`Uploaded "${file.name}" (${Math.round(file.size / 1024)} KB) - read locally, never sent anywhere`);
     };
     reader.onerror = () => setUploading(false);
     reader.readAsDataURL(file);
@@ -96,7 +96,7 @@ export default function ProfileCoverPreviewPage() {
     setTimeout(() => {
       setCoverDataUrl(null);
       setRemoving(false);
-      setLastAction('Removed custom cover — restored the default theme banner');
+      setLastAction('Removed custom cover - restored the default theme banner');
     }, 200);
   }
 
@@ -139,7 +139,7 @@ export default function ProfileCoverPreviewPage() {
 
         <div style={{ padding: 24, maxWidth: 980, width: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ background: '#15171c', border: '1px solid #23262f', borderRadius: 10, padding: '10px 16px', fontSize: 12.5, color: '#9CA3AF' }}>
-            Production component reused unmodified: <code style={{ color: '#E8EAED' }}>pages/profile/shared.tsx</code> (<code style={{ color: '#E8EAED' }}>ProfileCoverBanner</code>). Everything around it (sidebar/topbar/identity row) is a static visual replica for layout context only — no network requests, no real profile data.
+            Production component reused unmodified: <code style={{ color: '#E8EAED' }}>pages/profile/shared.tsx</code> (<code style={{ color: '#E8EAED' }}>ProfileCoverBanner</code>). Everything around it (sidebar/topbar/identity row) is a static visual replica for layout context only - no network requests, no real profile data.
             {lastAction && <div style={{ marginTop: 6, color: '#6EE7B7' }}>Last action: {lastAction}</div>}
           </div>
 
@@ -205,7 +205,7 @@ export default function ProfileCoverPreviewPage() {
           </div>
 
           <div style={{ background: '#15171c', border: '1px solid #23262f', borderRadius: 10, padding: 16, fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }}>
-            Try it: click the pencil to pick an image from your device — it becomes the cover immediately, cropped/filled with <code>object-fit: cover</code> behavior (no stretching). Click the pencil again to change it, or the restore icon next to it to drop back to the default theme banner. The avatar circle above never changes regardless of what you do to the cover.
+            Try it: click the pencil to pick an image from your device - it becomes the cover immediately, cropped/filled with <code>object-fit: cover</code> behavior (no stretching). Click the pencil again to change it, or the restore icon next to it to drop back to the default theme banner. The avatar circle above never changes regardless of what you do to the cover.
           </div>
         </div>
       </div>

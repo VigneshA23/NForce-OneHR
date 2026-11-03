@@ -264,3 +264,110 @@
   transform: translateY(-1px); z-index: 2; outline: none;
 }
 @media (prefers-reduced-motion: reduce) { .mt-metric { transition: none; } .mt-metric:hover { transform: none; } }
+
+
+/* ══ v2 visual polish — richer cards, tile metrics, coloured quick actions, themed calendar ══
+ * Appended on purpose: same class names, so the production page and /my-team-preview both pick it up. */
+.mt-root { gap: 20px; }
+.mt-card {
+  border-radius: 16px; box-shadow: 0 6px 22px rgba(16, 24, 40, .07);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 4%, var(--panel)) 0%, var(--panel) 96px);
+}
+.mt-card-title { font-size: 16px; font-weight: 800; letter-spacing: -.01em; }
+.mt-card-sub { font-size: 12px; color: var(--txt-mut); margin-top: 3px; }
+.mt-iconchip {
+  width: 38px; height: 38px; border-radius: 11px; color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
+}
+.mt-iconchip svg { width: 18px; height: 18px; }
+.mt-cardhead { gap: 12px; margin-bottom: 18px; }
+
+/* hero */
+.mt-hero {
+  border-radius: 20px; padding: 26px 30px; gap: 24px; box-shadow: 0 10px 30px rgba(16, 24, 40, .08);
+  background:
+    radial-gradient(600px circle at 100% 0%, color-mix(in srgb, var(--brand) 20%, transparent) 0%, transparent 70%),
+    radial-gradient(420px circle at 0% 100%, color-mix(in srgb, var(--brand) 9%, transparent) 0%, transparent 70%),
+    linear-gradient(120deg, color-mix(in srgb, var(--brand) 7%, var(--panel)) 0%, var(--panel) 62%);
+}
+.mt-hero-hello { font-size: 13.5px; }
+.mt-hero-title { font-size: 34px; letter-spacing: -.02em; margin: 4px 0 6px; }
+.mt-hero-sub { font-size: 13.5px; }
+.mt-strip { gap: 12px; background: none; border: none; box-shadow: none; flex-wrap: wrap; }
+.mt-metric {
+  --mc: var(--brand-bright);
+  min-width: 156px; padding: 14px 18px; gap: 13px; border-radius: 16px;
+  background: linear-gradient(160deg, var(--panel) 0%, color-mix(in srgb, var(--mc) 9%, var(--panel)) 100%);
+  border: 1px solid color-mix(in srgb, var(--mc) 26%, var(--line)); border-top: 3px solid var(--mc);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--mc) 12%, transparent);
+}
+.mt-metric + .mt-metric { border-left: 1px solid color-mix(in srgb, var(--mc) 26%, var(--line)); }
+.mt-metric:hover, .mt-metric:focus-visible {
+  box-shadow: 0 12px 26px color-mix(in srgb, var(--mc) 22%, transparent);
+  background: linear-gradient(160deg, var(--panel) 0%, color-mix(in srgb, var(--mc) 14%, var(--panel)) 100%);
+}
+.mt-metric-ico { width: 42px; height: 42px; border-radius: 13px; background: color-mix(in srgb, var(--mc) 16%, var(--panel)) !important; color: var(--mc) !important; border: 1px solid color-mix(in srgb, var(--mc) 30%, transparent); }
+.mt-metric-ico svg { width: 19px; height: 19px; }
+.mt-metric-val { font-size: 28px; letter-spacing: -.02em; }
+.mt-metric-lbl { font-size: 11.5px; font-weight: 600; margin-top: 4px; }
+
+/* trio cards */
+.mt-trio { gap: 20px; }
+.mt-trio > .mt-card { padding: 22px 24px; transition: transform .18s, box-shadow .18s; }
+.mt-trio > .mt-card:hover { transform: translateY(-2px); box-shadow: 0 14px 30px color-mix(in srgb, var(--brand) 12%, transparent); }
+.mt-donut { width: 132px; height: 132px; filter: drop-shadow(0 6px 12px color-mix(in srgb, var(--ok) 26%, transparent)); }
+.mt-donut-num { font-size: 26px; }
+.mt-legend { gap: 8px; }
+.mt-legend-row { padding: 8px 12px; border-radius: 11px; background: var(--raised); border: 1px solid var(--line); font-weight: 600; }
+.mt-legend-row b { font-size: 15px; }
+.mt-dot { width: 10px; height: 10px; }
+.mt-sumgrid { gap: 10px; }
+.mt-sum { padding: 12px 14px; border: 1px solid var(--line); border-radius: 13px; background: var(--raised); }
+.mt-sum:first-child { padding-left: 14px; }
+.mt-sum + .mt-sum { border-left: 1px solid var(--line); }
+.mt-sum-num { font-size: 24px; }
+.mt-sum-lbl { font-weight: 600; }
+.mt-note { margin-top: 16px; }
+
+/* quick actions */
+.mt-actions { gap: 12px; }
+.mt-action { --ac: var(--brand); min-height: 104px; border-radius: 14px; gap: 10px; background: linear-gradient(180deg, var(--raised), var(--panel)); font-size: 12.5px; font-weight: 700; }
+.mt-action:nth-child(1) { --ac: var(--info); }
+.mt-action:nth-child(2) { --ac: #818CF8; }
+.mt-action:nth-child(3) { --ac: var(--ok); }
+.mt-action:nth-child(4) { --ac: var(--warn); }
+.mt-action svg { box-sizing: content-box; width: 20px; height: 20px; padding: 9px; border-radius: 13px; color: var(--ac); background: color-mix(in srgb, var(--ac) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--ac) 28%, transparent); transition: transform .15s, background .15s, color .15s; }
+.mt-action:hover, .mt-action:focus-visible { border-color: var(--ac); background: color-mix(in srgb, var(--ac) 7%, var(--panel)); box-shadow: 0 10px 22px color-mix(in srgb, var(--ac) 18%, transparent); transform: translateY(-3px); }
+.mt-action:hover svg, .mt-action:focus-visible svg { color: #fff; background: var(--ac); transform: scale(1.06); }
+
+/* calendar */
+.mt-cal-head { padding: 20px 24px 14px; }
+.mt-legend-bar { padding: 0 24px 16px; gap: 8px; }
+.mt-legend-item { padding: 5px 12px 5px 6px; border-radius: 999px; background: var(--raised); }
+.mt-monthnav { border-radius: 12px; padding: 4px; box-shadow: 0 4px 12px rgba(16, 24, 40, .06); background: var(--panel); }
+.mt-iconbtn { width: 30px; height: 30px; border-radius: 9px; color: var(--brand); }
+.mt-iconbtn:hover { background: color-mix(in srgb, var(--brand) 10%, var(--raised)); color: var(--brand); }
+.mt-monthlbl { font-weight: 800; }
+.mt-seg { border-radius: 12px; }
+.mt-seg span { border-radius: 9px; background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 68%, #000)); box-shadow: 0 4px 10px color-mix(in srgb, var(--brand) 30%, transparent); }
+.mt-table thead th { background: color-mix(in srgb, var(--brand) 7%, var(--raised)); color: var(--txt-mut); padding: 10px 0; }
+.mt-table thead .mt-sticky { background: color-mix(in srgb, var(--brand) 7%, var(--raised)); color: var(--brand); font-weight: 800; letter-spacing: .08em; }
+.mt-table thead th.mt-today { color: var(--brand); background: color-mix(in srgb, var(--brand) 16%, var(--raised)); }
+.mt-who { padding: 10px 12px 10px 24px; gap: 12px; }
+.mt-who-name { font-size: 13.5px; }
+.mt-who-role { font-size: 11.5px; }
+.mt-cell:hover { background: color-mix(in srgb, var(--brand) 10%, var(--raised)); }
+
+/* member cards used on the other tabs */
+.mt-member { border-radius: 16px; padding: 16px; box-shadow: 0 4px 14px rgba(16, 24, 40, .05); }
+.mt-member:hover { transform: translateY(-2px); box-shadow: 0 12px 26px color-mix(in srgb, var(--brand) 12%, transparent); }
+.mt-chip[aria-pressed="true"] { background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 68%, #000)); box-shadow: 0 4px 10px color-mix(in srgb, var(--brand) 28%, transparent); }
+
+@media (max-width: 760px) {
+  .mt-hero { padding: 18px; }
+  .mt-hero-title { font-size: 26px; }
+  .mt-metric { flex: 1 1 calc(50% - 6px); min-width: 0; padding: 12px 14px; }
+  .mt-metric:nth-child(n+3) { border-top: 3px solid var(--mc); }
+  .mt-metric:nth-child(3) { border-left: 1px solid color-mix(in srgb, var(--mc) 26%, var(--line)); }
+  .mt-trio > .mt-card { padding: 18px; }
+}

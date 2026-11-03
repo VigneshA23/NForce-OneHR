@@ -20,6 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.Year;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -42,6 +43,9 @@ public class HelpdeskService {
     private static final String TICKET_NUMBER_PREFIX = "HR";
     private static final String LINK_EMPLOYEE_HELP = "/help";
     private static final String LINK_ADMIN_QUEUE = "/requests";
+    // Same lookback convention already used elsewhere in this app (e.g. regularization's own
+    // employee-initiated lookback window) — not a value with any special significance of its own.
+    private static final int REOPEN_WINDOW_DAYS = 7;
 
     private final HelpdeskTicketRepository ticketRepo;
     private final HelpdeskReplyRepository replyRepo;
@@ -300,6 +304,112 @@ public class HelpdeskService {
         return toDetail(ticket, !isAdmin);
     }
 
+    // ── Reopen (CLOSED -> OPEN; owning employee only, within REOPEN_WINDOW_DAYS) ────
+
+    /**
+     * The one exception to {@link TicketStatus}'s otherwise strictly-linear, no-reopening
+     * lifecycle (see that class's own Javadoc on why CLOSED is normally terminal) — deliberately
+     * NOT a loosening of {@link TicketStatus#canTransitionTo}, which HR's generic
+     * {@link #updateStatus} still goes through unchanged. This is a separate, explicit,
+     * employee-only action for the one real-world case that matters: the issue wasn't actually
+     * fixed. Resets resolvedAt/resolvedBy and any satisfaction rating already given — the ticket
+     * is being re-worked from scratch, so whatever it eventually closes as again should be judged
+     * on its own merits, not the previous round's.
+     */
+    @Transactional
+    public TicketDetailDto reopenTicket(UUID ticketId, String reason, String actorEmail) {
+        User actor = requireUser(actorEmail);
+        HelpdeskTicket ticket = ticketRepo.findById(ticketId)
+                .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
+
+        if (!ticket.getEmployeeUserId().equals(actor.getId())) {
+            throw new AccessDeniedException("You may only reopen your own tickets");
+        }
+        if (!canReopen(ticket)) {
+            throw new IllegalStateException("This ticket can no longer be reopened — only a ticket "
+                    + "closed within the last " + REOPEN_WINDOW_DAYS + " days can be reopened");
+        }
+
+        TicketStatus before = TicketStatus.from(ticket.getStatus());
+        ticket.setStatus(TicketStatus.OPEN.name());
+        ticket.setResolvedAt(null);
+        ticket.setResolvedBy(null);
+        ticket.setSatisfactionRating(null);
+        ticket.setSatisfactionComment(null);
+        ticket.setSatisfactionSubmittedAt(null);
+        ticketRepo.save(ticket);
+
+        if (reason != null && !reason.isBlank()) {
+            replyRepo.save(HelpdeskReply.builder()
+                    .ticketId(ticket.getId())
+                    .senderId(actor.getId())
+                    .senderRole(SenderRole.EMPLOYEE.name())
+                    .message(reason.trim())
+                    .internal(false)
+                    .build());
+        }
+
+        String beforeJson = auditSnapshot.toJson(Map.of("status", before.name()));
+        String afterJson = auditSnapshot.toJson(Map.of("status", TicketStatus.OPEN.name()));
+        // Self-submitted (same reasoning as TICKET_CREATED/TICKET_REPLIED) — intentionally not
+        // added to AuditActionCategory, so it won't surface in the personal Activity History
+        // feature, matching those two actions' treatment exactly.
+        auditService.log(actor.getId(), "HELPDESK_TICKET_REOPENED", ticket.getId(), beforeJson, afterJson);
+
+        // Same fan-out precedent as createTicket/addReply's unassigned branch.
+        if (ticket.getAssignedTo() != null) {
+            notificationService.send(ticket.getAssignedTo(), "HELPDESK_TICKET_REOPENED",
+                    "Ticket reopened",
+                    "Ticket " + ticket.getTicketNumber() + " was reopened by the employee", LINK_ADMIN_QUEUE);
+        } else {
+            for (UUID hrUserId : userRepo.findActiveAdminUserIds()) {
+                notificationService.send(hrUserId, "HELPDESK_TICKET_REOPENED",
+                        "Ticket reopened",
+                        "Ticket " + ticket.getTicketNumber() + " was reopened by the employee", LINK_ADMIN_QUEUE);
+            }
+        }
+
+        return toDetail(ticket, true);
+    }
+
+    /** CLOSED, and closed within the window — {@code updatedAt} is effectively "closedAt" here:
+     *  nothing else touches a CLOSED ticket's fields (replies are blocked once CLOSED) until
+     *  this exact method runs, so the last update timestamp IS the moment it was closed. */
+    private boolean canReopen(HelpdeskTicket ticket) {
+        if (!TicketStatus.CLOSED.name().equals(ticket.getStatus())) return false;
+        return ticket.getUpdatedAt().isAfter(Instant.now().minus(REOPEN_WINDOW_DAYS, ChronoUnit.DAYS));
+    }
+
+    // ── Satisfaction rating (CLOSED only; owning employee only; once) ────
+
+    @Transactional
+    public TicketDetailDto submitSatisfaction(UUID ticketId, SubmitSatisfactionRequest req, String actorEmail) {
+        User actor = requireUser(actorEmail);
+        HelpdeskTicket ticket = ticketRepo.findById(ticketId)
+                .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
+
+        if (!ticket.getEmployeeUserId().equals(actor.getId())) {
+            throw new AccessDeniedException("You may only rate your own tickets");
+        }
+        if (!TicketStatus.CLOSED.name().equals(ticket.getStatus())) {
+            throw new IllegalStateException("Only a closed ticket can be rated");
+        }
+        if (ticket.getSatisfactionSubmittedAt() != null) {
+            throw new IllegalStateException("You've already rated this ticket");
+        }
+
+        ticket.setSatisfactionRating(req.getRating());
+        ticket.setSatisfactionComment(req.getComment() != null && !req.getComment().isBlank() ? req.getComment().trim() : null);
+        ticket.setSatisfactionSubmittedAt(Instant.now());
+        ticketRepo.save(ticket);
+
+        // Self-submitted feedback, not an operational decision — intentionally not added to
+        // AuditActionCategory (same treatment as TICKET_CREATED/TICKET_REPLIED/TICKET_REOPENED).
+        auditService.log(actor.getId(), "HELPDESK_TICKET_SATISFACTION_SUBMITTED", ticket.getId());
+
+        return toDetail(ticket, true);
+    }
+
     // ── Assign (HR only) ─────────────────────────────────────
 
     @Transactional
@@ -441,6 +551,7 @@ public class HelpdeskService {
                 .assignedTo(t.getAssignedTo())
                 .assignedToName(t.getAssignedTo() != null ? employeeOrEmailName(t.getAssignedTo()) : null)
                 .replyCount(replyRepo.countByTicketId(t.getId()))
+                .satisfactionRating(t.getSatisfactionRating())
                 .createdAt(t.getCreatedAt())
                 .updatedAt(t.getUpdatedAt())
                 .build();
@@ -466,6 +577,10 @@ public class HelpdeskService {
                 .assignedToName(t.getAssignedTo() != null ? employeeOrEmailName(t.getAssignedTo()) : null)
                 .resolvedAt(t.getResolvedAt())
                 .resolvedByName(t.getResolvedBy() != null ? employeeOrEmailName(t.getResolvedBy()) : null)
+                .satisfactionRating(t.getSatisfactionRating())
+                .satisfactionComment(t.getSatisfactionComment())
+                .satisfactionSubmittedAt(t.getSatisfactionSubmittedAt())
+                .reopenable(canReopen(t))
                 .createdAt(t.getCreatedAt())
                 .updatedAt(t.getUpdatedAt())
                 .replies(replies)

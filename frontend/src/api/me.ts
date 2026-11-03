@@ -1,8 +1,8 @@
 import { API_ORIGIN } from './config';
 const BASE = `${API_ORIGIN}/api`;
 
-/** Mirrors backend's MyPermissionsResponse — module -> action -> every scope actually granted
- *  (already cascaded server-side, e.g. an ALL grant also lists OWN/TEAM/DEPARTMENT/LOCATION). */
+/** Mirrors backend's MyPermissionsResponse — module -> action -> the scopes actually granted
+ *  (NOT cascaded: an ALL grant lists only "ALL" — see hasPermission's SCOPE_COVERAGE). */
 export interface MyPermissionsResponse {
   primaryRole: string;
   roles: string[];
