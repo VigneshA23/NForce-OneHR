@@ -1,6 +1,7 @@
+import { API_ORIGIN } from './config';
 import type { EmployeeRecord } from './employees';
 
-const BASE = '/api/onboarding';
+const BASE = `${API_ORIGIN}/api/onboarding`;
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
