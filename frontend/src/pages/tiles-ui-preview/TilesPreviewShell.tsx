@@ -354,6 +354,11 @@ function PoliciesMock() {
     window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input).split('?')[0];
       if (url.endsWith('/api/policies/pending-ack-count')) return json(547);
+      if (/\/api\/policies\/\d+\/versions$/.test(url)) return json([pol(1, 'Test_PolicyVeeraa', '1.0', true, true, '2026-10-22T10:00:00')]);
+      if (/\/api\/policies\/\d+\/acknowledgments$/.test(url)) {
+        const names = ['Vyshnavi Guthala', 'Sri vidya', 'Sanjukta', 'Praveen Gurram', 'chandu shyam', 'Nikhila Reddy Mandhadi', 'Anil Ramtenki'];
+        return json(names.map((n, i) => ({ id: i + 1, policyId: 1, policyTitle: 'Test_PolicyVeeraa', policyVersion: '1.0', employeeUserId: 'u' + i, employeeName: n, acknowledgedAt: i % 3 === 0 ? '2026-10-23T10:00:00' : null, pending: i % 3 !== 0 })));
+      }
       if (url.endsWith('/api/policies')) {
         return json([
           pol(1, 'Test_PolicyVeeraa', '1.0', true, true, '2026-10-22T10:00:00'),

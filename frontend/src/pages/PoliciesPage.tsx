@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip, FileCheck2, ClipboardCheck, CopyPlus, Pencil, Power, PowerOff, Send, Trash2 } from 'lucide-react';
+import { Plus, Megaphone, CheckCircle, Clock, Search, X, Users, Info, Paperclip, FileCheck2, ClipboardCheck, CopyPlus, Pencil, Power, PowerOff, Send, Trash2 } from 'lucide-react';
 import DashTile from '../components/DashTile';
 import { KebabMenu } from '../components/KebabMenu';
+import { PersonCellById } from '../components/PersonCell';
+import './policyAck.css';
+import './policyForms.css';
 import { ActionDock } from '../components/ActionDock';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -68,7 +72,7 @@ function AudiencePicker({ value, onChange }: { value: string[]; onChange(v: stri
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="nf-pf-aud" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--txt)', fontWeight: 600 }}>
         <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ width: 15, height: 15, cursor: 'pointer' }} />
         All (every role)
@@ -90,6 +94,22 @@ function AudiencePicker({ value, onChange }: { value: string[]; onChange(v: stri
 // same backdrop+panel+form+Cancel/Submit-footer shape wrapped around a different field set and
 // submit handler — that shape now lives once here instead of four times.
 
+function modalIconFor(title: string) {
+  const t = title.toLowerCase();
+  if (t.includes('announcement')) return Megaphone;
+  if (t.includes('new version')) return CopyPlus;
+  if (t.startsWith('edit')) return Pencil;
+  return FileCheck2;
+}
+
+function modalSubtitleFor(title: string): string {
+  const t = title.toLowerCase();
+  if (t.includes('announcement')) return t.startsWith('edit') ? 'Update the message employees see.' : 'Broadcast a message to the roles you choose.';
+  if (t.includes('new version')) return 'Replace the current version and ask employees to acknowledge again.';
+  if (t.startsWith('edit')) return 'Correct the title, description or audience.';
+  return 'Publish a company policy for employees to read and acknowledge.';
+}
+
 function PolicyFormModal({ title, subtitle, submitLabel, loadingLabel, loading, onSubmit, onClose, children }: {
   title: string;
   subtitle?: string;
@@ -100,14 +120,24 @@ function PolicyFormModal({ title, subtitle, submitLabel, loadingLabel, loading, 
   onClose(): void;
   children: React.ReactNode;
 }) {
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} className="nf-modal-overlay-in">
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 500, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }} className="nf-modal-panel-in">
-        <h3 style={{ margin: subtitle ? '0 0 6px' : '0 0 20px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{title}</h3>
-        {subtitle && <p style={{ margin: '0 0 20px', fontSize: 12, color: '#eab308' }}>{subtitle}</p>}
-        <form onSubmit={onSubmit}>
-          {children}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+  const Icon = modalIconFor(title);
+  return createPortal(
+    <div className="nf-pf-dlg nf-modal-overlay-in">
+      <div className="nf-pf-card nf-modal-panel-in" role="dialog" aria-label={title}>
+        <div className="nf-pf-head">
+          <span className="nf-pf-ico"><Icon size={20} /></span>
+          <div className="nf-pf-titles">
+            <div className="nf-pf-title">{title}</div>
+            <div className="nf-pf-sub">{modalSubtitleFor(title)}</div>
+          </div>
+          <button type="button" onClick={onClose} className="nf-pf-x" aria-label="Close"><X size={16} /></button>
+        </div>
+        <form onSubmit={onSubmit} className="nf-pf-form">
+          <div className="nf-pf-body">
+            {subtitle && <div className="nf-pf-callout"><Info size={15} /><span>{subtitle}</span></div>}
+            {children}
+          </div>
+          <div className="nf-pf-foot">
             <button type="button" onClick={onClose} disabled={loading}
               style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>Cancel</button>
             <button type="submit" disabled={loading}
@@ -117,7 +147,8 @@ function PolicyFormModal({ title, subtitle, submitLabel, loadingLabel, loading, 
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -174,7 +205,7 @@ function AttachmentField({ file, onFileChange, hint }: {
 
 function RequiredAckCheckbox({ id, checked, onChange }: { id: string; checked: boolean; onChange(v: boolean): void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+    <div className="nf-pf-check" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
       <input type="checkbox" id={id} checked={checked} onChange={e => onChange(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
       <label htmlFor={id} style={{ fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>Required acknowledgment</label>
     </div>
@@ -413,7 +444,7 @@ function AnnounceModal({ initial, onClose, onSaved }: {
       </FormField>
       <AudienceField value={audience} onChange={setAudience} />
       {!isEdit && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+        <div className="nf-pf-check" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
           <input type="checkbox" id="now" checked={publishNow} onChange={e => setPublishNow(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
           <label htmlFor="now" style={{ fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>Publish immediately</label>
         </div>
@@ -477,44 +508,47 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
   const q = search.trim().toLowerCase();
   const filtered = q ? acks.filter(a => (a.employeeName ?? '').toLowerCase().includes(q)) : acks;
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }} className="nf-modal-overlay-in">
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 600, maxWidth: '94vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} className="nf-modal-panel-in">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{selected.title} – v{selected.version}</h3>
-            {!loading && (
-              <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--txt-dim)' }}>
-                {acknowledged}/{total} acknowledged
-                {total > 0 && <span style={{ marginLeft: 8, color: '#22c55e', fontWeight: 600 }}>{Math.round(acknowledged / total * 100)}% read rate</span>}
-              </p>
-            )}
+  const pending = total - acknowledged;
+  const rate = total > 0 ? Math.round(acknowledged / total * 100) : 0;
+
+  return createPortal(
+    <div className="nf-ack-dlg nf-modal-overlay-in" onClick={onClose}>
+      <div className="nf-ack-card nf-modal-panel-in" role="dialog" aria-label="Acknowledgments" onClick={e => e.stopPropagation()}>
+        <div className="nf-ack-head">
+          <span className="nf-ack-ico"><ClipboardCheck size={20} /></span>
+          <div className="nf-ack-titles">
+            <div className="nf-ack-title">{selected.title}</div>
+            <div className="nf-ack-sub">Version {selected.version} · who has acknowledged this policy</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', fontSize: 20, lineHeight: 1 }}>×</button>
+          <button onClick={onClose} className="nf-ack-x" aria-label="Close"><X size={16} /></button>
         </div>
+        {!loading && (
+          <div className="nf-ack-stats">
+            <div className="nf-ack-stat is-ok"><b>{acknowledged}</b><span>Acknowledged</span></div>
+            <div className="nf-ack-stat is-warn"><b>{pending}</b><span>Pending</span></div>
+            <div className="nf-ack-stat nf-ack-rate">
+              <div className="nf-ack-rate-top"><span>Read rate</span><b>{rate}%</b></div>
+              <div className="nf-ack-bar"><i style={{ width: `${rate}%` }} /></div>
+              <div className="nf-ack-rate-sub"><Users size={12} />{acknowledged} of {total} employees</div>
+            </div>
+          </div>
+        )}
         {versions.length > 1 && (
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+          <div className="nf-ack-versions">
             {versions.map(v => (
-              <button key={v.id} onClick={() => setSelected(v)}
-                style={{
-                  padding: '4px 12px', borderRadius: 12, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                  border: v.id === selected.id ? '1px solid #A01418' : '1px solid var(--line)',
-                  background: v.id === selected.id ? 'rgba(160,20,24,.12)' : 'var(--shell)',
-                  color: v.id === selected.id ? '#A01418' : 'var(--txt-dim)',
-                }}>
+              <button key={v.id} onClick={() => setSelected(v)} className={`nf-ack-ver${v.id === selected.id ? ' is-on' : ''}`}>
                 v{v.version}{v.active ? ' · Current' : ''}
               </button>
             ))}
           </div>
         )}
-        <div style={{ marginBottom: 12, position: 'relative' }}>
-          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name…"
-            style={{ width: '100%', paddingLeft: 30, padding: '7px 12px 7px 30px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' }} />
+        <div className="nf-ack-search">
+          <Search size={14} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name…" aria-label="Search by name" />
         </div>
-        <div style={{ overflowY: 'auto', overflowX: 'auto', flex: 1 }}>
-          {loading ? <p style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Loading…</p> : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className="nf-ack-scroll">
+          {loading ? <p className="nf-ack-empty">Loading…</p> : (
+            <table className="nf-ack-table">
               <thead>
                 <tr>
                   <th style={thS}>Employee</th>
@@ -525,18 +559,18 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={4} style={{ ...tdS, textAlign: 'center', padding: 24, color: 'var(--txt-dim)' }}>No results.</td></tr>
+                  <tr><td colSpan={4} className="nf-ack-empty">No results.</td></tr>
                 ) : filtered.map(a => (
                   <tr key={a.id}>
-                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)' }}>
-                      {a.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'var(--txt-dim)' }}>{a.employeeUserId.slice(0, 8)}…</span>}
+                    <td style={tdS}>
+                      <PersonCellById userId={a.employeeUserId} name={a.employeeName ?? `${a.employeeUserId.slice(0, 8)}…`} />
                     </td>
                     <td style={tdS}>
                       {a.pending
-                        ? <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#eab308', fontSize: 12, fontWeight: 600 }}><Clock size={12} /> Pending</span>
-                        : <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#22c55e', fontSize: 12, fontWeight: 600 }}><CheckCircle size={12} /> Acknowledged</span>}
+                        ? <span className="nf-ack-pill is-warn"><Clock size={12} />Pending</span>
+                        : <span className="nf-ack-pill is-ok"><CheckCircle size={12} />Acknowledged</span>}
                     </td>
-                    <td style={tdS}>{a.acknowledgedAt ? new Date(a.acknowledgedAt).toLocaleDateString() : '–'}</td>
+                    <td style={tdS}>{a.acknowledgedAt ? new Date(a.acknowledgedAt).toLocaleDateString() : '-'}</td>
                     <td style={{ ...tdS, width: 48 }}>
                       <KebabMenu items={[
                         ...(!a.pending ? [{ label: 'Reset Acknowledgment', onClick: () => doReset(a.employeeUserId) }] : []),
@@ -550,7 +584,8 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
