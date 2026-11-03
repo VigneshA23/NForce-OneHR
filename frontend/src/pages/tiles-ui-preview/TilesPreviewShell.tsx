@@ -43,6 +43,7 @@ import ApiUsagePage, { KpiCard as ApiKpi } from '../ApiUsagePage';
 import { useAuthStore } from '../../store/authStore';
 import { HRView } from '../AssetsExpensesPage';
 import BenchOpportunitiesPage from '../BenchOpportunitiesPage';
+import NotificationsPage from '../NotificationsPage';
 import PoliciesPage from '../PoliciesPage';
 import DocumentsPage from '../DocumentsPage';
 import HelpDeskPage from '../HelpDeskPage';
@@ -75,6 +76,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'api-page', label: 'API Usage (full page)', title: 'API Usage', subtitle: 'The whole page with sample data: billing, knowledge base, period switch and charts.' },
   { key: 'assets-page', label: 'Assets (full page)', title: 'Assets & Expenses', subtitle: 'The HR view with sample data: pill tabs, filters, inventory table and inline row actions.' },
   { key: 'opps-page', label: 'Opportunities (full page)', title: 'Internal Opportunities', subtitle: 'HR view with sample data: post form with skill chips and opportunity cards.' },
+  { key: 'notifications-page', label: 'Notifications (full page)', title: 'Notifications', subtitle: 'Sample data: filter bar, grouped list and the detail pane (select a notification).' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
@@ -335,6 +337,40 @@ function OppsMock() {
     };
   }, []);
   return ready ? <BenchOpportunitiesPage /> : null;
+}
+
+function NotificationsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample notifications and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+    const n = (id: number, type: string, title: string, message: string, h: number, read: boolean, linkPath: string | null, priority = 'MEDIUM') =>
+      ({ id, type, title, message, linkPath, read, priority, createdAt: hoursAgo(h) });
+    const list = [
+      n(1, 'LEAVE_REQUEST_SUBMITTED', 'Leave request from Sri vidya', 'Sri vidya has requested 2 days of Casual Leave (12 Nov – 13 Nov). Please review and approve or reject.', 1, false, '/approvals', 'HIGH'),
+      n(2, 'HELPDESK_TICKET_CREATED', 'New Help Desk ticket', 'Ticket HR-2026-000038 (Employee Documents) raised by Vyshnavi Guthala.', 5, false, '/help'),
+      n(3, 'POLICY_PUBLISHED', 'New Policy: Test_PolicyVeeraa', 'Please review and acknowledge version 1.0.', 30, true, '/policies'),
+      n(4, 'HELPDESK_TICKET_RESOLVED', 'Your ticket was resolved', 'Ticket HR-2026-000036 is now RESOLVED', 200, true, '/help'),
+      n(5, 'EXPENSE_FINAL_APPROVED', 'Expense claim approved', 'Your claim EXP-1042 for 2,400 has been approved and will be paid this cycle.', 220, true, null, 'LOW'),
+    ];
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/notifications')) return json({ content: list, totalElements: 240, totalPages: 12, number: 0, size: 20 });
+      if (url.endsWith('/api/notifications/unread-count')) return json({ count: 2 });
+      if (url.includes('/api/notifications/')) return json({});
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <NotificationsPage /> : null;
 }
 
 function PoliciesMock() {
@@ -1075,6 +1111,8 @@ function Tiles({ page }: { page: string }) {
       return <OppsMock />;
     case 'policies-page':
       return <PoliciesMock />;
+    case 'notifications-page':
+      return <NotificationsMock />;
     case 'documents-page':
       return <DocumentsMock />;
     case 'help-page':
