@@ -323,6 +323,7 @@ function OppsMock() {
           opp('o3', 'Backend help for payroll (QA sample)', 4, 'CLOSED', ['Java', 'SQL'], 'Suresh Kumar Hanumalla', 1, 'Suresh Kumar Hanumalla'),
         ]);
       }
+      if (url.endsWith('/api/projects')) return json([{ id: 'p1', name: 'Payroll Automation', active: true }, { id: 'p2', name: 'Customer Portal Revamp', active: true }]);
       if (url.includes('/api/opportunities/') && url.endsWith('/interests')) return json([{ employeeId: 'e1', employeeName: 'Chandrasekhar G', expressedAt: '' }, { employeeId: 'e2', employeeName: 'Nikitha Toom', expressedAt: '' }]);
       return prevFetch(input, init);
     }) as typeof window.fetch;
