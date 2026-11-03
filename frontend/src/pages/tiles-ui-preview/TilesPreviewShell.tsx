@@ -46,6 +46,7 @@ import BenchOpportunitiesPage from '../BenchOpportunitiesPage';
 import NotificationsPage from '../NotificationsPage';
 import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
+import ChangePasswordPage from '../ChangePasswordPage';
 import PoliciesPage from '../PoliciesPage';
 import DocumentsPage from '../DocumentsPage';
 import HelpDeskPage from '../HelpDeskPage';
@@ -81,6 +82,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'notifications-page', label: 'Notifications (full page)', title: 'Notifications', subtitle: 'Sample data: filter bar, grouped list and the detail pane (select a notification).' },
   { key: 'profile-page', label: 'My Profile (full page)', title: 'My Profile', subtitle: 'Sample data: About, Profile, Job and Assets tabs with the Edit popups. Use ?role=employee for the employee view.' },
   { key: 'prefs-page', label: 'User Preferences (full page)', title: 'User Preferences', subtitle: 'Appearance, Notifications and Accessibility. Changes here apply to this preview only.' },
+  { key: 'change-password-page', label: 'Change Password (full page)', title: 'Change Password', subtitle: 'Add &forced=1 for the first-login version. Nothing is submitted to a server here.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
@@ -424,6 +426,19 @@ function ProfileMock() {
     };
   }, [role]);
   return ready ? <ProfilePage /> : null;
+}
+
+function ChangePasswordMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: a sample signed-in user (add &forced=1 for the first-login version); restored on leave.
+    const prevAuth = useAuthStore.getState();
+    const forced = new URLSearchParams(window.location.search).get('forced') === '1';
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'superadmin@nforceone.com', mustChangePassword: forced, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => { useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user }); };
+  }, []);
+  return ready ? <ChangePasswordPage /> : null;
 }
 
 function PoliciesMock() {
@@ -1170,6 +1185,8 @@ function Tiles({ page }: { page: string }) {
       return <ProfileMock />;
     case 'prefs-page':
       return <UserPreferencesPage />;
+    case 'change-password-page':
+      return <ChangePasswordMock />;
     case 'documents-page':
       return <DocumentsMock />;
     case 'help-page':
