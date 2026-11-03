@@ -44,6 +44,7 @@ import { useAuthStore } from '../../store/authStore';
 import { HRView } from '../AssetsExpensesPage';
 import BenchOpportunitiesPage from '../BenchOpportunitiesPage';
 import NotificationsPage from '../NotificationsPage';
+import ProfilePage from '../ProfilePage';
 import PoliciesPage from '../PoliciesPage';
 import DocumentsPage from '../DocumentsPage';
 import HelpDeskPage from '../HelpDeskPage';
@@ -77,6 +78,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'assets-page', label: 'Assets (full page)', title: 'Assets & Expenses', subtitle: 'The HR view with sample data: pill tabs, filters, inventory table and inline row actions.' },
   { key: 'opps-page', label: 'Opportunities (full page)', title: 'Internal Opportunities', subtitle: 'HR view with sample data: post form with skill chips and opportunity cards.' },
   { key: 'notifications-page', label: 'Notifications (full page)', title: 'Notifications', subtitle: 'Sample data: filter bar, grouped list and the detail pane (select a notification).' },
+  { key: 'profile-page', label: 'My Profile (full page)', title: 'My Profile', subtitle: 'Sample data: About, Profile, Job and Assets tabs with the Edit popups. Use ?role=employee for the employee view.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
@@ -371,6 +373,55 @@ function NotificationsMock() {
     };
   }, []);
   return ready ? <NotificationsPage /> : null;
+}
+
+function ProfileMock() {
+  const [ready, setReady] = useState(false);
+  const role = (new URLSearchParams(window.location.search).get('role') ?? 'super').toLowerCase();
+  useEffect(() => {
+    // Mock only: a sample employee profile and session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const isEmployee = role === 'employee';
+    const profile = {
+      userId: 'u-me', email: 'naveen.kumar@nforceone.com', fullName: 'Naveen Kumar R', role: isEmployee ? 'EMPLOYEE' : 'SUPER_ADMIN', photoDataUrl: null, coverDataUrl: null,
+      phone: '9876543210', dateOfBirth: '1990-05-14', gender: 'Male', personalEmail: null, address: '12, MG Road, Bangalore', emergencyContactName: 'Asha R', emergencyContactPhone: '9812345678',
+      workMode: 'HYBRID', employeeCode: 'NF-20261001', departmentName: 'Executive', designationName: 'Chief Executive', locationName: 'Bangalore', employmentType: 'FULL_TIME', joiningDate: '2021-04-01',
+      managerName: 'Suresh Kumar Hanumalla', managerEmail: null, active: true, hasEmployeeRecord: true,
+      firstName: 'Naveen', middleName: 'Kumar', lastName: 'R', preferredName: null, bio: null, maritalStatus: 'Married', emergencyContactRelationship: 'Spouse', permanentAddress: null,
+      passportNumber: 'P*****45', passportExpiry: '2031-08-02', bankAccountNumber: '•••• •••• 5591', bankName: 'HDFC Bank', bankIfsc: 'HDFC0001234', nationalId: '•••• •••• 4821',
+      jobCode: 'EX-01', probationEndDate: '2021-10-01', confirmationDate: '2021-10-01', businessUnitName: 'NForce One', shiftName: 'Morning shift', weeklyOffPolicyName: 'Sat-Sun', attendancePenalizationPolicyName: 'Standard', attendanceStatus: 'OUT',
+    };
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if ((init?.method ?? 'GET') === 'GET') {
+        if (url.endsWith('/api/profile')) return json(profile);
+        if (url.endsWith('/api/profile/education')) return json([{ id: 'e1', institutionName: 'IIT Madras', degree: 'B.Tech', fieldOfStudy: 'Computer Science', startDate: '2008-08-01', endDate: '2012-05-30', createdAt: '', updatedAt: '' }]);
+        if (url.endsWith('/api/profile/timeline')) return json([
+          { type: 'JOINED_COMPANY', date: '2021-04-01', timestamp: '2021-04-01T09:00:00', description: 'Joined NForce One as Chief Executive' },
+          { type: 'DESIGNATION_CHANGED', date: '2023-01-01', timestamp: '2023-01-01T09:00:00', description: 'Designation changed to Chief Executive' },
+        ]);
+        if (url.includes('/api/hierarchy/context/') || url.includes('/context/')) return json({ manager: null, peers: [], reports: [] });
+        if (url.endsWith('/api/employees/my-reports')) return json({ directReportCount: 2, directReports: [
+          { userId: 'r1', employeeCode: 'NF-20261012', fullName: 'Sri vidya', designationName: 'Product Designer', departmentName: 'Design', active: true },
+          { userId: 'r2', employeeCode: 'NF-20261015', fullName: 'Praveen Gurram', designationName: 'Engineering Manager', departmentName: 'Engineering', active: true },
+        ], teamJoiners: [] });
+        if (url.endsWith('/api/attendance/config')) return json({ weeklyOffDays: ['SATURDAY', 'SUNDAY'] });
+        if (url.endsWith('/my-location')) return json([]);
+        if (url.includes('/api/assets/my') || url.includes('/api/asset')) return json([]);
+        if (url.includes('/api/expenses')) return json([]);
+      }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: profile.email, mustChangePassword: false, role: profile.role as never } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, [role]);
+  return ready ? <ProfilePage /> : null;
 }
 
 function PoliciesMock() {
@@ -1113,6 +1164,8 @@ function Tiles({ page }: { page: string }) {
       return <PoliciesMock />;
     case 'notifications-page':
       return <NotificationsMock />;
+    case 'profile-page':
+      return <ProfileMock />;
     case 'documents-page':
       return <DocumentsMock />;
     case 'help-page':
