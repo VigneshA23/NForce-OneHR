@@ -40,6 +40,16 @@ public class EmployeeAssignmentRow {
     private LocalDate pendingShiftEffectiveFrom;
     private UUID weeklyOffPolicyId;
     private String weeklyOffPolicyName;
+    // The CURRENTLY-effective EmployeeWeeklyOffPolicyAssignment's own effectiveFrom (resolved via
+    // EmployeeWeeklyOffPolicyAssignmentResolver, as of today — never Employee.weeklyOffPolicy, a
+    // best-effort display cache) — null when the employee has no effective assignment at all.
+    // Mirrors shiftEffectiveSince's identical convention.
+    private LocalDate weeklyOffPolicyEffectiveSince;
+    // A SCHEDULED future Weekly Off Policy assignment (effectiveFrom strictly after today), if one
+    // exists — mirrors pendingShiftId's identical convention.
+    private UUID pendingWeeklyOffPolicyId;
+    private String pendingWeeklyOffPolicyName;
+    private LocalDate pendingWeeklyOffPolicyEffectiveFrom;
     private UUID penalisationPolicyId;
     private String penalisationPolicyName;
 }

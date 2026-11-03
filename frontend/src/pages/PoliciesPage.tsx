@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { Plus, Megaphone, CheckCircle, Clock, Search, Paperclip, FileCheck2, ClipboardCheck, CopyPlus, Pencil, Power, PowerOff, Send, Trash2 } from 'lucide-react';
 import DashTile from '../components/DashTile';
@@ -697,6 +699,8 @@ export default function PoliciesPage() {
     if (aq && !a.title.toLowerCase().includes(aq)) return false;
     return true;
   });
+  const polPaged = usePaged(filteredPolicies, [policySearch, policyFilter, policyAudienceFilter]);
+  const annPaged = usePaged(filteredAnn, [annSearch, annStatusFilter, annAudienceFilter]);
 
   if (loading) return <p style={{ color: 'var(--txt-dim)', padding: 20 }}>Loading…</p>;
 
@@ -771,7 +775,7 @@ export default function PoliciesPage() {
                     <tr><td colSpan={7} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
                       {pq || policyFilter !== 'all' || policyAudienceFilter ? 'No policies match the filter.' : 'No policies yet.'}
                     </td></tr>
-                  ) : filteredPolicies.map(p => (
+                  ) : polPaged.pageRows.map(p => (
                     <tr key={p.id}>
                       <td style={{ ...tdS, fontWeight: 700, color: 'var(--txt)' }}>
                         {p.title}
@@ -809,6 +813,7 @@ export default function PoliciesPage() {
                 </tbody>
               </table>
             </div>
+            <TablePagination {...polPaged.pagerProps} noun="policies" />
           </div>
         </>
       )}
@@ -851,7 +856,7 @@ export default function PoliciesPage() {
                     <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
                       {aq || annStatusFilter !== 'all' || annAudienceFilter ? 'No announcements match the filter.' : 'No announcements yet.'}
                     </td></tr>
-                  ) : filteredAnn.map(a => (
+                  ) : annPaged.pageRows.map(a => (
                     <tr key={a.id}>
                       <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)', maxWidth: 220 }}>
                         <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</div>
@@ -879,6 +884,7 @@ export default function PoliciesPage() {
                 </tbody>
               </table>
             </div>
+            <TablePagination {...annPaged.pagerProps} noun="announcements" />
           </div>
         </>
       )}

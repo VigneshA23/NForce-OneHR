@@ -344,6 +344,24 @@ public class AssetService {
         return toAssetResponse(asset);
     }
 
+    /**
+     * Permanently removes an asset record. Only allowed while the asset has never been assigned: once it has
+     * custody history the record is part of the audit trail, so it can only be retired (see retireAsset).
+     * Same HR Admin / Super Admin gate as every other inventory action.
+     */
+    @Transactional
+    public void deleteAsset(Long assetId, String actorEmail) {
+        requireAdmin(actorEmail);
+        User actor = requireActor(actorEmail);
+        Asset asset = requireAsset(assetId);
+        if (assignmentRepo.existsByAssetId(assetId)) {
+            throw new IllegalStateException("This asset has assignment history and can't be deleted. Retire it instead.");
+        }
+        String before = auditSnapshot.toJson(Map.of("assetTag", asset.getAssetTag(), "status", asset.getStatus()));
+        assetRepo.delete(asset);
+        auditService.log(actor.getId(), "ASSET_DELETED", actor.getId(), before, null);
+    }
+
     // ── HR: Fulfill approved asset request ───────────────
 
     @Transactional

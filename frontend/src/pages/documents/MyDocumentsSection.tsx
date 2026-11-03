@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Upload, AlertTriangle, Search, FileText } from 'lucide-react';
 import { type EmployeeDocument, type RequiredDocument } from '../../api/documents';
 import { card, thS, tdS, StatusBadge, UploadModal, ViewButton, WithdrawButton, bucketRequiredDocuments } from './shared';
+import { usePaged } from '../../components/usePaged';
+import { TablePagination } from '../../components/TablePagination';
 import { TabBar } from '../../components/TabBar';
 
 type Section = 'verified' | 'pending' | 'rejected' | 'missing';
@@ -49,6 +51,7 @@ export function MyDocumentsSection({
   const sectionDocs = section === 'verified' ? verified : section === 'pending' ? pending : section === 'rejected' ? rejected : missing;
   const q = search.trim().toLowerCase();
   const filteredDocs = q ? sectionDocs.filter(r => r.documentTypeName.toLowerCase().includes(q)) : sectionDocs;
+  const docsPaged = usePaged(filteredDocs, [q, section]);
 
   return (
     <>
@@ -91,7 +94,7 @@ export function MyDocumentsSection({
                 <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
                   {q ? 'No results.' : section === 'verified' ? 'No verified documents yet.' : section === 'pending' ? 'No documents pending review.' : section === 'rejected' ? 'No rejected documents.' : 'All required documents submitted!'}
                 </td></tr>
-              ) : filteredDocs.map(r => {
+              ) : docsPaged.pageRows.map(r => {
                 const doc = docForType(r.documentTypeId);
                 return (
                   <tr key={r.documentTypeId}>
@@ -136,6 +139,7 @@ export function MyDocumentsSection({
             </tbody>
           </table>
         </div>
+        <TablePagination {...docsPaged.pagerProps} noun="documents" />
       </div>
 
       {uploadTarget && (

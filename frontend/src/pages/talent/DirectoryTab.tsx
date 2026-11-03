@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { usePaged } from '../../components/usePaged';
+import { TablePagination } from '../../components/TablePagination';
 import { Search, Download, Award } from 'lucide-react';
 import { PersonAvatar } from '../../components/PersonCell';
 import { useAuthStore } from '../../store/authStore';
@@ -40,6 +42,8 @@ export function DirectoryTab() {
     });
   }, [rows, search, departmentFilter]);
 
+  const dirPaged = usePaged(filtered, [search, departmentFilter]);
+
   if (loading) return <div style={{ color: 'var(--txt-mut)', fontSize: 13, padding: '20px 0' }}>Loading…</div>;
 
   return (
@@ -71,7 +75,7 @@ export function DirectoryTab() {
         {filtered.length === 0 ? (
           <div style={{ padding: 20, color: 'var(--txt-dim)', fontSize: 13 }}>No employees match.</div>
         ) : (
-          filtered.map((r, i) => (
+          dirPaged.pageRows.map((r, i) => (
             <button key={r.employeeUserId} onClick={() => openDetail(r.employeeUserId)} className="nf-dir-row" style={{
               width: '100%', textAlign: 'left', border: 'none', font: 'inherit',
               borderTop: i === 0 ? 'none' : '1px solid var(--line)',
@@ -94,6 +98,7 @@ export function DirectoryTab() {
             </button>
           ))
         )}
+        <TablePagination {...dirPaged.pagerProps} noun="employees" />
       </div>
 
       {(detail || detailLoading) && (

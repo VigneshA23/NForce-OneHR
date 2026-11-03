@@ -458,6 +458,12 @@ public class ExceptionService {
         }
         Map<UUID, Set<LocalDate>> holidaysByLocation = loadHolidayDatesByLocation(employees, from, to);
         Map<String, Boolean> halfDayByEmployeeDate = loadHalfDayLeaveByEmployeeDate(employees, from, to);
+        // Phase 3: the SAME batch-resolved, effective-dated weekly-off path schedules (above) was
+        // built from — resolved per date below, never once for the whole range, so a policy
+        // reassignment or definition edit partway through [from, to] is reflected exactly where it
+        // takes effect. See WorkingDayService#weeklyOffDaysResolver's own Javadoc.
+        WorkingDayService.WeeklyOffBatchResolver offDaysResolver = workingDayService.weeklyOffDaysResolver(
+                employees.stream().map(Employee::getUserId).collect(Collectors.toSet()));
 
         for (Employee employee : employees) {
             WorkingDaySchedule schedule = schedules.get(employee.getUserId());
@@ -470,18 +476,18 @@ public class ExceptionService {
             }
             Set<LocalDate> holidayDates = employee.getLocation() != null
                     ? holidaysByLocation.getOrDefault(employee.getLocation().getId(), Set.of()) : Set.of();
-            Set<DayOfWeek> offDays = weeklyOffDaysOf(employee);
 
             for (LocalDate date : from.datesUntil(to.plusDays(1)).toList()) {
+                Set<DayOfWeek> offDaysOnDate = offDaysResolver.offDaysOn(employee.getUserId(), date);
                 if (version.isNaAdjoiningHolidayEnabled() && holidayDates.contains(date)) {
                     evaluateAdjoiningDay(employee, version, date, version.getNaAdjoiningHolidayCondition(),
                             version.getNaAdjoiningHolidayCalendarDayThreshold(), version.isNaAdjoiningHolidayIgnoreHalfDayLeave(),
-                            byEmployeeDate, holidayDates, offDays, halfDayByEmployeeDate);
+                            byEmployeeDate, holidayDates, offDaysResolver, halfDayByEmployeeDate);
                 }
-                if (version.isNaAdjoiningWeekoffEnabled() && offDays.contains(date.getDayOfWeek()) && !holidayDates.contains(date)) {
+                if (version.isNaAdjoiningWeekoffEnabled() && offDaysOnDate.contains(date.getDayOfWeek()) && !holidayDates.contains(date)) {
                     evaluateAdjoiningDay(employee, version, date, version.getNaAdjoiningWeekoffCondition(),
                             version.getNaAdjoiningWeekoffCalendarDayThreshold(), version.isNaAdjoiningWeekoffIgnoreHalfDayLeave(),
-                            byEmployeeDate, holidayDates, offDays, halfDayByEmployeeDate);
+                            byEmployeeDate, holidayDates, offDaysResolver, halfDayByEmployeeDate);
                 }
             }
         }
@@ -490,12 +496,12 @@ public class ExceptionService {
     private void evaluateAdjoiningDay(Employee employee, PenalizationPolicyVersion version, LocalDate specialDate,
                                        String condition, Integer thresholdConfig, boolean ignoreHalfDayLeave,
                                        Map<String, Attendance> byEmployeeDate, Set<LocalDate> holidayDates,
-                                       Set<DayOfWeek> offDays, Map<String, Boolean> halfDayByEmployeeDate) {
+                                       WorkingDayService.WeeklyOffBatchResolver offDaysResolver, Map<String, Boolean> halfDayByEmployeeDate) {
         int threshold = thresholdConfig != null && thresholdConfig > 0 ? thresholdConfig : 1;
         boolean beforeSatisfied = isConsecutiveNoAttendanceRun(employee, specialDate.minusDays(1), -1, threshold,
-                byEmployeeDate, holidayDates, offDays, halfDayByEmployeeDate, ignoreHalfDayLeave);
+                byEmployeeDate, holidayDates, offDaysResolver, halfDayByEmployeeDate, ignoreHalfDayLeave);
         boolean afterSatisfied = isConsecutiveNoAttendanceRun(employee, specialDate.plusDays(1), 1, threshold,
-                byEmployeeDate, holidayDates, offDays, halfDayByEmployeeDate, ignoreHalfDayLeave);
+                byEmployeeDate, holidayDates, offDaysResolver, halfDayByEmployeeDate, ignoreHalfDayLeave);
 
         boolean triggered = switch (condition == null ? "ANY" : condition) {
             case "SANDWICHED" -> beforeSatisfied && afterSatisfied;
@@ -513,17 +519,23 @@ public class ExceptionService {
         upsertException(synthetic, ExceptionType.NO_ATTENDANCE, null, null, null);
     }
 
-    /** {@code count} consecutive calendar days starting at {@code start}, stepping by {@code direction}, that all qualify as "no attendance" for adjoining-rule purposes. */
+    /**
+     * {@code count} consecutive calendar days starting at {@code start}, stepping by {@code
+     * direction}, that all qualify as "no attendance" for adjoining-rule purposes. Each day's own
+     * weekly-off status is resolved independently via {@code offDaysResolver} (Phase 3) — a policy
+     * reassignment within this short run window is honored exactly where it takes effect, never
+     * assumed constant across the whole run.
+     */
     private boolean isConsecutiveNoAttendanceRun(Employee employee, LocalDate start, int direction, int count,
                                                   Map<String, Attendance> byEmployeeDate, Set<LocalDate> holidayDates,
-                                                  Set<DayOfWeek> offDays, Map<String, Boolean> halfDayByEmployeeDate,
+                                                  WorkingDayService.WeeklyOffBatchResolver offDaysResolver, Map<String, Boolean> halfDayByEmployeeDate,
                                                   boolean ignoreHalfDayLeave) {
         LocalDate date = start;
         for (int i = 0; i < count; i++) {
             if (employee.getJoiningDate() != null && date.isBefore(employee.getJoiningDate())) {
                 return false;
             }
-            if (holidayDates.contains(date) || offDays.contains(date.getDayOfWeek())) {
+            if (holidayDates.contains(date) || offDaysResolver.offDaysOn(employee.getUserId(), date).contains(date.getDayOfWeek())) {
                 return false; // another holiday/week-off breaks the run, not a no-attendance day itself
             }
             String key = employee.getUserId() + "|" + date;
@@ -581,16 +593,10 @@ public class ExceptionService {
         return result;
     }
 
-    /** Comma-separated DayOfWeek names on the assigned policy, else the Saturday/Sunday fallback — same convention as WorkingDayService. */
-    private Set<DayOfWeek> weeklyOffDaysOf(Employee employee) {
-        com.nforce.onehr.entity.WeeklyOffPolicy policy = employee.getWeeklyOffPolicy();
-        if (policy == null || policy.getOffDays() == null || policy.getOffDays().isBlank()) {
-            return Set.of(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY);
-        }
-        return java.util.Arrays.stream(policy.getOffDays().split(","))
-                .map(String::trim).filter(s -> !s.isEmpty()).map(DayOfWeek::valueOf)
-                .collect(Collectors.toSet());
-    }
+    // weeklyOffDaysOf was removed (Phase 3) — detectAdjoiningPenalties now resolves weekly-off
+    // exclusively through WorkingDayService#weeklyOffDaysResolver, the single shared effective-
+    // dated path, instead of a second, independently-duplicated implementation reading
+    // Employee.weeklyOffPolicy (a non-authoritative display cache) directly.
 
     /**
      * Resolves the Shift referenced by {@code record}'s own snapshotted {@code shiftId} — never

@@ -47,7 +47,7 @@ public enum AuditActionCategory {
             // AssetService — ASSET_REQUEST_SUBMITTED (self-submitted) intentionally omitted
             "ASSET_REQUEST_APPROVED", "ASSET_REQUEST_REJECTED",
             "ASSET_CREATED", "ASSET_ASSIGNED", "ASSET_REASSIGNED", "ASSET_RETURNED",
-            "ASSET_RETIRED", "ASSET_REQUEST_FULFILLED",
+            "ASSET_RETIRED", "ASSET_DELETED", "ASSET_REQUEST_FULFILLED",
             // EmployeeService — HR Admin's employee create/update path
             "EMPLOYEE_CREATED", "EMPLOYEE_UPDATED",
             // UserManagementService — Super Admin's parallel *update* path for the same kind of

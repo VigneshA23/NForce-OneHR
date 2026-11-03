@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Copy, Pencil, Power, Trash2, Plus, X, Star } from 'lucide-react';
+import { ActionDock } from '../../components/ActionDock';
+import { Copy, Pencil, Power, Trash2, Plus, X, Star, PowerOff } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { penalisationPoliciesApi, type PenalisationPolicySummary, type PenalizationFallbackStrategy } from '../../api/penalisationPolicies';
+import { usePaged } from '../../components/usePaged';
+import { TablePagination } from '../../components/TablePagination';
 import PenalizationPolicySection, { ConfirmDiscardModal } from './PenalizationPolicySection';
 
 const inputStyle: React.CSSProperties = {
@@ -203,6 +206,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
 }) {
   const { showToast } = useToast();
   const [policies, setPolicies] = useState<PenalisationPolicySummary[]>([]);
+  const policiesPaged = usePaged(policies);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -299,7 +303,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
             </tr>
           </thead>
           <tbody>
-            {policies.map(p => (
+            {policiesPaged.pageRows.map(p => (
               <tr key={p.id} style={{ borderBottom: '1px solid var(--line)' }}>
                 <td style={{ padding: '10px 14px', color: 'var(--txt)', fontWeight: 500 }}>{p.name}</td>
                 <td style={{ padding: '10px 14px' }}>
@@ -351,15 +355,12 @@ export default function PolicyListSection({ token, onViewAllocations }: {
                         </button>
                       );
                     })()}
-                    <button aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)} title="Edit" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Pencil size={13} /></button>
-                    <button aria-label={`Clone ${p.name}`} onClick={() => setCloning(p)} title="Clone" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--txt-mut)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Copy size={13} /></button>
-                    <button aria-label={p.status === 'ACTIVE' ? `Deactivate ${p.name}` : `Activate ${p.name}`}
-                      onClick={() => handleToggleActive(p)} disabled={togglingId === p.id}
-                      title={p.status === 'ACTIVE' ? 'Deactivate - hides it from new allocations, keeps existing history' : 'Activate'}
-                      style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: p.status === 'ACTIVE' ? 'var(--txt-mut)' : 'var(--ok)', cursor: togglingId === p.id ? 'not-allowed' : 'pointer', opacity: togglingId === p.id ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Power size={13} />
-                    </button>
-                    <button aria-label={`Delete ${p.name}`} onClick={() => setDeleting(p)} title="Delete" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 30, height: 30, color: 'var(--risk)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Trash2 size={13} /></button>
+                    <ActionDock items={[
+                      { label: 'Edit', icon: Pencil, onClick: () => setEditing(p) },
+                      { label: 'Clone', icon: Copy, onClick: () => setCloning(p) },
+                      { label: p.status === 'ACTIVE' ? 'Deactivate' : 'Activate', icon: p.status === 'ACTIVE' ? PowerOff : Power, onClick: () => handleToggleActive(p), disabled: togglingId === p.id },
+                      { label: 'Delete', icon: Trash2, onClick: () => setDeleting(p), danger: true },
+                    ]} />
                   </div>
                 </td>
               </tr>
@@ -370,6 +371,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
           </tbody>
         </table>
       </div>
+      <TablePagination {...policiesPaged.pagerProps} noun="policies" />
 
       {creating && (
         <NamePromptModal title="New Penalization Policy" initialName="" initialDescription="" confirmLabel="Create"

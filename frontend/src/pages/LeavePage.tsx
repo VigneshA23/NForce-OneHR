@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import {
-  CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Hourglass, Pencil, Search,
+  CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, History, Hourglass, Pencil, Search,
   Wallet, X, CalendarDays
 } from 'lucide-react';
+import { ActionDock } from '../components/ActionDock';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { useToast } from '../context/ToastContext';
@@ -23,11 +24,11 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 // color: var(--txt-mut), not var(--txt-dim) — higher-contrast in both themes (see index.css's
 // token table), so headers read as clearly bold/prominent rather than washed out. Same weight/
 // size/uppercase/letter-spacing convention used app-wide (AttendancePage/ApprovalsPage/etc).
-const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+const tdStyle: React.CSSProperties = { padding: '14px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 
 // Primary add-action button for this page — "Request Leave".
-const primaryButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
+const primaryButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 28%, transparent)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer' };
 
 const PAGE_SIZE = 5;
 const BALANCE_ACCENTS = ['var(--brand)', 'var(--info)', 'var(--ok)', 'var(--warn)'];
@@ -77,6 +78,15 @@ export function KpiTile({ icon: Icon, label, value, sub, accent }: {
   return <DashTile className="nf-section-enter" icon={<Icon size={20} />} label={label} value={value} sub={sub} accent={accent} />;
 }
 
+function SectionHeading({ icon: Icon, title }: { icon: React.ComponentType<{ size?: number }>; title: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <span className="nf-opp-ico"><Icon size={18} /></span>
+      <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 18, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)', margin: 0 }}>{title}</h2>
+    </div>
+  );
+}
+
 // Radial-progress balance card — draws an SVG circle via stroke-dasharray/offset, reusing the
 // same .nf-ring-progress/.nf-section-enter entrance animation already defined in index.css for
 // the Attendance "Today" ring (both already respect prefers-reduced-motion, see index.css). The
@@ -101,8 +111,8 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
   return (
     <div className="nf-section-enter nf-leave-balance-card" style={{
       background: `linear-gradient(160deg, var(--panel) 0%, color-mix(in srgb, ${accent} 5%, var(--panel)) 100%)`,
-      border: '1px solid var(--line)', borderTop: `2px solid ${ringColor}`, borderRadius: 10,
-      padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 16,
+      border: '1px solid var(--line)', borderTop: `3px solid ${ringColor}`, borderRadius: 16, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)',
+      padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 18,
     }}>
       <div style={{ position: 'relative', width: 72, height: 72, flexShrink: 0 }}>
         <svg width={72} height={72} viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)' }}>
@@ -112,7 +122,7 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
           )}
         </svg>
         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{available}</span>
+          <span style={{ fontSize: 19, fontWeight: 800, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{available}</span>
           <span style={{ fontSize: 8.5, color: 'var(--txt-dim)', marginTop: 1 }}>of {total}d</span>
         </div>
       </div>
@@ -443,7 +453,7 @@ export default function LeavePage() {
 
       {!loading && (
         <div style={{ marginBottom: 22 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Leave Balances</div>
+          <div style={{ marginBottom: 14 }}><SectionHeading icon={Wallet} title="Leave Balances" /></div>
           {balances.length === 0 ? (
             <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 40, textAlign: 'center' }}>
               <Wallet size={26} style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
@@ -458,18 +468,18 @@ export default function LeavePage() {
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Leave History</div>
+        <SectionHeading icon={History} title="Leave History" />
         {!loading && requests.length > 0 && (
           <div className="nf-leave-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)' }} />
-              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search reason or type…" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px 7px 28px', fontSize: 12.5, color: 'var(--txt)', width: 190 }} />
-            </div>
-            <select value={typeFilter} onChange={e => updateFilterAndResetPage(setTypeFilter, e.target.value)} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', fontSize: 12.5, color: 'var(--txt)' }}>
+            <label className="nf-filter-search">
+              <Search size={15} />
+              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search reason or type…" />
+            </label>
+            <select className="nf-filter-select" value={typeFilter} onChange={e => updateFilterAndResetPage(setTypeFilter, e.target.value)}>
               <option value="">All Types</option>
               {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
             </select>
-            <select value={statusFilter} onChange={e => updateFilterAndResetPage(setStatusFilter, e.target.value)} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', fontSize: 12.5, color: 'var(--txt)' }}>
+            <select className="nf-filter-select" value={statusFilter} onChange={e => updateFilterAndResetPage(setStatusFilter, e.target.value)}>
               <option value="">All Statuses</option>
               <option value="PENDING">Pending</option>
               <option value="APPROVED">Approved</option>
@@ -479,7 +489,7 @@ export default function LeavePage() {
         )}
       </div>
 
-      <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+      <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
         ) : requests.length === 0 ? (
@@ -495,7 +505,7 @@ export default function LeavePage() {
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
                   {['Type', 'Dates', 'Days', 'Status', 'Reason', 'Approved/Rejected By', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
@@ -504,16 +514,21 @@ export default function LeavePage() {
               <tbody>
                 {pageRows.map(r => (
                   <tr key={r.id} className="nf-leave-row">
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
-                      {r.leaveTypeName}
-                      {r.leaveTypeClassification === 'UNPAID' && (
-                        <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em' }}>
-                          (Unpaid)
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 700 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span className="nf-opp-ico"><CalendarDays size={17} /></span>
+                        <span>
+                          {r.leaveTypeName}
+                          {r.leaveTypeClassification === 'UNPAID' && (
+                            <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em' }}>
+                              (Unpaid)
+                            </span>
+                          )}
                         </span>
-                      )}
+                      </div>
                     </td>
-                    <td style={tdStyle}>{r.startDate}{r.startDate !== r.endDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}</td>
-                    <td style={tdStyle}>{r.totalDays}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.startDate}{r.startDate !== r.endDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}</td>
+                    <td style={tdStyle}><span className="nf-rep-code">{r.totalDays}</span></td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.employeeReason}>{r.employeeReason}</div>
@@ -541,15 +556,7 @@ export default function LeavePage() {
                     </td>
                     <td style={tdStyle}>
                       {r.status === 'PENDING' && (
-                        <button
-                          type="button"
-                          onClick={() => setEditingRequest(r)}
-                          aria-label={`Edit leave request for ${r.leaveTypeName}`}
-                          title="Edit request"
-                          style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '5px 10px', fontSize: 12, color: 'var(--txt-mut)', cursor: 'pointer' }}
-                        >
-                          <Pencil size={12} /> Edit
-                        </button>
+                        <ActionDock items={[{ label: 'Edit', icon: Pencil, onClick: () => setEditingRequest(r) }]} />
                       )}
                     </td>
                   </tr>
@@ -559,11 +566,11 @@ export default function LeavePage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--txt-dim)' }}>
               <span>Showing {(pageSafe - 1) * PAGE_SIZE + 1}–{Math.min(pageSafe * PAGE_SIZE, filteredRequests.length)} of {filteredRequests.length}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageSafe <= 1} aria-label="Previous page" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: pageSafe <= 1 ? 'not-allowed' : 'pointer', color: 'var(--txt-mut)', opacity: pageSafe <= 1 ? 0.5 : 1 }}>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageSafe <= 1} aria-label="Previous page" className="nf-act-btn">
                   <ChevronLeft size={13} />
                 </button>
                 <span style={{ fontWeight: 600, color: 'var(--txt-mut)' }}>Page {pageSafe} of {totalPages}</span>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageSafe >= totalPages} aria-label="Next page" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: pageSafe >= totalPages ? 'not-allowed' : 'pointer', color: 'var(--txt-mut)', opacity: pageSafe >= totalPages ? 0.5 : 1 }}>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageSafe >= totalPages} aria-label="Next page" className="nf-act-btn">
                   <ChevronRight size={13} />
                 </button>
               </div>

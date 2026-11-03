@@ -825,7 +825,7 @@ export function Shell() {
                 <CloseIcon size={18} aria-hidden="true" />
               </button>
               <div ref={searchRef} style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-                <div style={{ background: '#1E2128', border: '1px solid #2A2E37', borderRadius: 8, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ background: '#1E2128', border: '1px solid #2A2E37', boxSizing: 'border-box', height: 40, borderRadius: 12, padding: '0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Search size={13} aria-hidden="true" style={{ color: '#6B7280', flexShrink: 0 }} />
                   <input
                     ref={searchInputRef}
@@ -865,7 +865,7 @@ export function Shell() {
               <div style={{ flex: 1, minWidth: 0 }} />
               {/* Global search — People + Navigation */}
               <div ref={searchRef} className="nf-topbar-search" style={{ position: 'relative', maxWidth: 260, width: 260 }}>
-                <div style={{ background: '#1E2128', border: '1px solid #2A2E37', borderRadius: 8, padding: '7px 11px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ background: '#1E2128', border: '1px solid #2A2E37', boxSizing: 'border-box', height: 40, borderRadius: 12, padding: '0 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Search size={13} aria-hidden="true" style={{ color: '#6B7280', flexShrink: 0 }} />
                   <input
                     ref={searchInputRef}
@@ -875,7 +875,7 @@ export function Shell() {
                     onKeyDown={handleSearchKey}
                     placeholder="Search this workspace…"
                     aria-label="Search people and navigation"
-                    style={{ background: 'none', border: 'none', outline: 'none', color: '#E8EAED', fontSize: 12, flex: 1, minWidth: 0 }}
+                    style={{ background: 'none', border: 'none', outline: 'none', color: '#E8EAED', fontSize: 13, flex: 1, minWidth: 0 }}
                   />
                   {searchQuery && (
                     <button onClick={() => { setSearchQuery(''); setSearchOpen(false); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: 0, display: 'flex', alignItems: 'center' }}>

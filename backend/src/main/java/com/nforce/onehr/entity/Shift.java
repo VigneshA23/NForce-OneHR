@@ -3,23 +3,13 @@ package com.nforce.onehr.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.time.DayOfWeek;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Entity
 @Table(name = "shifts")
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Shift {
-
-    // All 7 days, Monday-first, in the same comma-separated form workingDays itself is stored in
-    // — the single source of truth both a brand-new Shift's default (OrgService#createShift) and
-    // a pre-existing Shift's "never set" read-back (ShiftResponse#from) derive from, so the two
-    // never risk independently drifting out of sync.
-    public static final String ALL_WORKING_DAYS =
-            Arrays.stream(DayOfWeek.values()).map(Enum::name).collect(Collectors.joining(","));
 
     // The organization's default/seeded shift, still offered as an ordinary pickable option
     // wherever any other Shift is (Add User's shift dropdown, Bulk-Edit Team Assignment, etc.).
@@ -59,22 +49,21 @@ public class Shift {
     @Builder.Default
     private boolean flexible = false;
 
-    // "Applicable Days" in the UI — comma-separated java.time.DayOfWeek names, e.g.
-    // "MONDAY,TUESDAY", same convention as WeeklyOffPolicy.offDays. Set at creation (see
-    // OrgService#createShift; defaults to ALL_WORKING_DAYS) and optionally replaced immediately
-    // by updateShift — never versioned/effective-dated, unlike startTime/endTime/etc.
-    // Read by LeaveService (via #worksOn) to count only the employee's working days in a leave
-    // request — a change here affects future submissions only, since each request stores its own
-    // totalDays. Still deliberately NOT read by ShiftDayPolicy, WorkingDayService, or any other
-    // attendance workday/weekly-off computation, which remain sourced from the employee's own
-    // WeeklyOffPolicy. Null only for a shift created before this field existed (treated as "all
-    // 7 days" — see #worksOn and ShiftResponse#from).
-    @Column(name = "working_days", length = 60)
-    private String workingDays;
-
     @Column(nullable = false)
     @Builder.Default
     private boolean active = true;
+
+    // Stable, non-name-based identity marker for the organization's Default Shift (see
+    // DEFAULT_SHIFT_NAME's own Javadoc) — set once by migration V232 (backfilled onto the row
+    // whose name was "Default Shift" at that time) and never written by the ordinary Shift
+    // create/update API, so no other shift can ever acquire it through normal use. A DB-level
+    // partial unique index caps this to at most one TRUE row. OrgService's rename/deactivate/
+    // delete guards check this flag in addition to (never instead of) the legacy name match — see
+    // OrgService#isDefaultShift — so renaming this row away still leaves it fully protected,
+    // unlike the name-only check that preceded this column.
+    @Column(name = "is_default", nullable = false)
+    @Builder.Default
+    private boolean isDefault = false;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -82,11 +71,5 @@ public class Shift {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
-    }
-
-    /** Whether {@code day} is one of this shift's Applicable Days; null/blank means all 7. */
-    public boolean worksOn(DayOfWeek day) {
-        return workingDays == null || workingDays.isBlank()
-                || Arrays.stream(workingDays.split(",")).map(String::trim).anyMatch(day.name()::equals);
     }
 }

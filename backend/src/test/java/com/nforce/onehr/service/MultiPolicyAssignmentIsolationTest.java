@@ -85,7 +85,8 @@ class MultiPolicyAssignmentIsolationTest {
         AttendancePenaltyEvaluationService penaltyEvaluationService =
                 new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService,
                         notificationService, employeeService, employeeRepository, emailService, auditService, snapshotSerializer);
-        WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository);
+        WorkingDayService workingDayService = new WorkingDayService(holidayRepository, leaveRequestRepository,
+                mock(EmployeeWeeklyOffPolicyAssignmentResolver.class), mock(WeeklyOffPolicyVersionResolver.class));
         PenalizationPolicyService penalizationPolicyService = new PenalizationPolicyService(versionRepository, tierRepository,
                 lateHoursTierRepository, penalisationPolicyRepository, userRepository, auditService, snapshotSerializer,
                 attendanceProperties, employeeRepository, notificationService);

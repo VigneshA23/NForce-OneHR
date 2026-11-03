@@ -84,7 +84,10 @@ public class LeaveService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
     private final AttendanceProperties attendanceProperties;
-    private final EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    // Phase 4: weekly-off (not Shift.workingDays, now removed) is the sole source of truth for
+    // which days a leave request may span — resolved per date via the same batch resolver
+    // WorkingDayService/ExceptionService already share, never Employee.weeklyOffPolicy directly.
+    private final WorkingDayService workingDayService;
     private final HolidayRepository holidayRepository;
     // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
     // AttendancePenaltyEvaluationService -> EmployeeService -> LeaveService (EmployeeService has
@@ -403,31 +406,34 @@ public class LeaveService {
 
     /**
      * Rejects the request at the first date in [start, end] that is an active holiday of the
-     * employee's Location or an off day of the Shift governing that date — the shift is resolved
-     * per date via {@link EmployeeShiftAssignmentResolver}, since a reassignment can land inside
-     * the range. A date with no effective assignment (a valid no-shift state) is treated as a
-     * working day, i.e. the pre-shift behaviour; an employee with no Location has no holidays.
+     * employee's Location or a weekly-off day under the Weekly Off Policy governing that date.
+     * Resolved per date (never once for the whole range) via {@link WorkingDayService}'s shared
+     * batch resolver — the same one {@code WorkingDayService}/{@code ExceptionService} already use
+     * — since a policy reassignment or policy-definition edit can land inside the requested range.
+     * One assignment-history query and one policy-version-history query back the whole range
+     * (built once below), not a query per date. No effective Weekly Off Policy assignment at all
+     * falls back to Saturday/Sunday — the same explicit, pre-existing no-assignment behaviour this
+     * preserves (D1: never a silently-assigned default policy). Shift.workingDays ("Applicable
+     * Days") no longer has any bearing here — removed in Phase 4; WeeklyOffPolicy is now the sole
+     * source of truth for an employee's working days.
      */
-    // ponytail: one assignment lookup per date — fine for leave-sized ranges; batch-fetch the
-    // employee's assignments if multi-month requests ever become common.
     private void requireOnlyWorkingDays(UUID employeeUserId, LocalDate start, LocalDate end) {
         Map<LocalDate, String> holidayNames = employeeRepository.findById(employeeUserId)
                 .map(Employee::getLocation)
                 .map(location -> holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(location.getId())
                         .stream().collect(Collectors.toMap(Holiday::getHolidayDate, Holiday::getHolidayName, (a, b) -> a)))
                 .orElse(Map.of());
+        WorkingDayService.WeeklyOffBatchResolver offDaysResolver =
+                workingDayService.weeklyOffDaysResolver(List.of(employeeUserId));
         for (LocalDate date : start.datesUntil(end.plusDays(1)).toList()) {
             String holiday = holidayNames.get(date);
             if (holiday != null) {
                 throw new IllegalArgumentException("Leave cannot be applied for " + date.format(LEAVE_DATE_FMT)
                         + " — it is a holiday (" + holiday + "). Please choose only your working days.");
             }
-            boolean worksThatDay = employeeShiftAssignmentResolver.resolveIfPresent(employeeUserId, date)
-                    .map(a -> a.getShift().worksOn(date.getDayOfWeek()))
-                    .orElse(true);
-            if (!worksThatDay) {
+            if (offDaysResolver.offDaysOn(employeeUserId, date).contains(date.getDayOfWeek())) {
                 throw new IllegalArgumentException("Leave cannot be applied for " + date.format(LEAVE_DATE_FMT)
-                        + " — it is a non-working day for your shift. Please choose only your working days.");
+                        + " — it is a weekly-off day under your Weekly Off Policy. Please choose only your working days.");
             }
         }
     }

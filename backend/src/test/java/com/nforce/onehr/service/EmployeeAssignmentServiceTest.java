@@ -4,17 +4,20 @@ import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.assignments.AssignmentBulkResultResponse;
 import com.nforce.onehr.dto.penalization.BulkAllocationRequest;
 import com.nforce.onehr.dto.assignments.EmployeeAssignmentRow;
+import com.nforce.onehr.dto.assignments.ImportResultResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeShiftAssignment;
 import com.nforce.onehr.entity.PenalisationPolicy;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.entity.WeeklyOffPolicy;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.EmployeeShiftAssignmentRepository;
 import com.nforce.onehr.repository.PenalisationPolicyRepository;
 import com.nforce.onehr.repository.ShiftRepository;
 import com.nforce.onehr.repository.WeeklyOffPolicyRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,7 +25,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.mock.web.MockMultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -53,6 +62,8 @@ class EmployeeAssignmentServiceTest {
     @Mock private AttendanceProperties attendanceProperties;
     @Mock private ShiftVersionResolver shiftVersionResolver;
     @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    @Mock private com.nforce.onehr.repository.EmployeeWeeklyOffPolicyAssignmentRepository employeeWeeklyOffPolicyAssignmentRepository;
+    @Mock private EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
 
     @InjectMocks private EmployeeAssignmentService service;
 
@@ -73,6 +84,23 @@ class EmployeeAssignmentServiceTest {
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
     }
 
+    @AfterEach
+    void tearDown() {
+        // Every ALL-scope test below sets this explicitly — cleared so no authentication ever
+        // leaks across tests sharing this thread (JUnit/Surefire reuses threads across methods).
+        SecurityContextHolder.clearContext();
+    }
+
+    /** Grants the CURRENT thread's SecurityContext a single ALL-scope authority for this module+action. */
+    private void grantCompanyWideScope(String action) {
+        Authentication authentication = mock(Authentication.class);
+        doReturn(List.of(new SimpleGrantedAuthority("employee_assignments:" + action + ":ALL")))
+                .when(authentication).getAuthorities();
+        SecurityContext context = mock(SecurityContext.class);
+        when(context.getAuthentication()).thenReturn(authentication);
+        SecurityContextHolder.setContext(context);
+    }
+
     private final LocalDate today = LocalDate.now(ZoneId.of("Asia/Kolkata"));
     private final LocalDate tomorrow = today.plusDays(1);
 
@@ -81,7 +109,7 @@ class EmployeeAssignmentServiceTest {
         UUID shiftId = UUID.randomUUID();
         Shift shift = Shift.builder().id(shiftId).name("Regular Shift").active(true).build();
         when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(shift));
-        when(employeeRepository.existsById(directReportId)).thenReturn(true);
+        when(employeeRepository.findById(directReportId)).thenReturn(Optional.of(Employee.builder().userId(directReportId).build()));
 
         AssignmentBulkResultResponse result = service.bulkUpdateShift(managerEmail, List.of(directReportId), shiftId, tomorrow);
 
@@ -112,7 +140,10 @@ class EmployeeAssignmentServiceTest {
 
     private void stubShiftAssignable(Shift shift) {
         when(shiftRepository.findById(shift.getId())).thenReturn(Optional.of(shift));
-        when(employeeRepository.existsById(directReportId)).thenReturn(true);
+        // No joiningDate set (null) — passes the D2 floor check unconditionally for these tests,
+        // which are about pending/current-assignment replacement semantics, not D2 itself (see
+        // EmployeeAssignmentServiceTest's own D2-specific tests below).
+        when(employeeRepository.findById(directReportId)).thenReturn(Optional.of(Employee.builder().userId(directReportId).build()));
     }
 
     @Test
@@ -216,7 +247,7 @@ class EmployeeAssignmentServiceTest {
         when(managerHistoryRepository.findCurrentDirectReportIds(managerId)).thenReturn(employeeIds);
         Shift shift = newShift("Night Shift");
         when(shiftRepository.findById(shift.getId())).thenReturn(Optional.of(shift));
-        when(employeeRepository.existsById(any())).thenReturn(true);
+        when(employeeRepository.findById(any())).thenReturn(Optional.of(Employee.builder().build()));
 
         service.bulkUpdateShift(managerEmail, employeeIds, shift.getId(), tomorrow);
 
@@ -239,7 +270,7 @@ class EmployeeAssignmentServiceTest {
         UUID shiftId = UUID.randomUUID();
         Shift shift = Shift.builder().id(shiftId).name("Regular Shift").active(true).build();
         when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(shift));
-        when(employeeRepository.existsById(directReportId)).thenReturn(true);
+        when(employeeRepository.findById(directReportId)).thenReturn(Optional.of(Employee.builder().userId(directReportId).build()));
         LocalDate today = LocalDate.now();
 
         AssignmentBulkResultResponse result = assertDoesNotThrow(() ->
@@ -261,7 +292,7 @@ class EmployeeAssignmentServiceTest {
         UUID shiftId = UUID.randomUUID();
         Shift shift = Shift.builder().id(shiftId).name("Regular Shift").active(true).build();
         when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(shift));
-        when(employeeRepository.existsById(directReportId)).thenReturn(true);
+        when(employeeRepository.findById(directReportId)).thenReturn(Optional.of(Employee.builder().userId(directReportId).build()));
 
         service.bulkUpdateShift(managerEmail, List.of(directReportId), shiftId, tomorrow);
 
@@ -301,7 +332,7 @@ class EmployeeAssignmentServiceTest {
         assertTrue(result.getSucceededIds().isEmpty());
         assertEquals(1, result.getFailed().size());
         assertEquals(strangerId, result.getFailed().get(0).getEmployeeUserId());
-        verify(employeeRepository, never()).existsById(strangerId);
+        verify(employeeRepository, never()).findById(strangerId);
         verifyNoInteractions(employeeShiftAssignmentRepository);
     }
 
@@ -310,7 +341,7 @@ class EmployeeAssignmentServiceTest {
         UUID shiftId = UUID.randomUUID();
         Shift shift = Shift.builder().id(shiftId).name("Regular Shift").active(true).build();
         when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(shift));
-        when(employeeRepository.existsById(directReportId)).thenReturn(true);
+        when(employeeRepository.findById(directReportId)).thenReturn(Optional.of(Employee.builder().userId(directReportId).build()));
 
         AssignmentBulkResultResponse result =
                 service.bulkUpdateShift(managerEmail, List.of(directReportId, strangerId), shiftId, tomorrow);
@@ -328,7 +359,7 @@ class EmployeeAssignmentServiceTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.bulkUpdateShift(managerEmail, List.of(directReportId), unknownShiftId, tomorrow));
-        verify(employeeRepository, never()).existsById(any());
+        verify(employeeRepository, never()).findById(any());
     }
 
     @Test
@@ -340,6 +371,115 @@ class EmployeeAssignmentServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> service.bulkUpdateShift(managerEmail, List.of(directReportId), shiftId, tomorrow));
         verifyNoInteractions(employeeShiftAssignmentRepository);
+    }
+
+    // ── Phase 3: Weekly Off Policy bulk-assign is now effective-dated, mirroring bulkUpdateShift's
+    //    identical design (new EmployeeWeeklyOffPolicyAssignment row, never Employee.weeklyOffPolicy). ──
+
+    private WeeklyOffPolicy newWeeklyOffPolicy(String name) {
+        return WeeklyOffPolicy.builder().id(UUID.randomUUID()).name(name).offDays("SATURDAY,SUNDAY").build();
+    }
+
+    @Test
+    void bulkUpdateWeeklyOff_succeeds_withExplicitEffectiveFrom() {
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+        when(employeeRepository.findById(directReportId)).thenReturn(Optional.of(Employee.builder().userId(directReportId).build()));
+
+        AssignmentBulkResultResponse result = service.bulkUpdateWeeklyOff(managerEmail, List.of(directReportId), policy.getId(), tomorrow);
+
+        assertEquals(1, result.getSucceededIds().size());
+        assertTrue(result.getFailed().isEmpty());
+        ArgumentCaptor<com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment> captor =
+                ArgumentCaptor.forClass(com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment.class);
+        verify(employeeWeeklyOffPolicyAssignmentRepository).save(captor.capture());
+        assertEquals(directReportId, captor.getValue().getEmployeeUserId());
+        assertEquals(policy, captor.getValue().getWeeklyOffPolicy());
+        assertEquals(tomorrow, captor.getValue().getEffectiveFrom());
+        verify(employeeRepository, never()).save(any());
+    }
+
+    @Test
+    void bulkUpdateWeeklyOff_rejectsMissingEffectiveFrom() {
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.bulkUpdateWeeklyOff(managerEmail, List.of(directReportId), policy.getId(), null));
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
+    @Test
+    void bulkUpdateWeeklyOff_rejectsPastEffectiveFrom() {
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.bulkUpdateWeeklyOff(managerEmail, List.of(directReportId), policy.getId(), today.minusDays(1)));
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
+    @Test
+    void bulkUpdateWeeklyOff_rejectsEffectiveFromBeforeEmployeesJoiningDate() {
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+        LocalDate futureJoining = tomorrow.plusDays(10);
+        when(employeeRepository.findById(directReportId))
+                .thenReturn(Optional.of(Employee.builder().userId(directReportId).joiningDate(futureJoining).build()));
+
+        AssignmentBulkResultResponse result =
+                service.bulkUpdateWeeklyOff(managerEmail, List.of(directReportId), policy.getId(), tomorrow);
+
+        assertTrue(result.getSucceededIds().isEmpty());
+        assertEquals(1, result.getFailed().size());
+        assertTrue(result.getFailed().get(0).getReason().contains("joining date"));
+        verify(employeeWeeklyOffPolicyAssignmentRepository, never()).save(any());
+    }
+
+    @Test
+    void bulkUpdateWeeklyOff_fails_forEmployeeNotACurrentDirectReport() {
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+
+        AssignmentBulkResultResponse result = service.bulkUpdateWeeklyOff(managerEmail, List.of(strangerId), policy.getId(), tomorrow);
+
+        assertTrue(result.getSucceededIds().isEmpty());
+        assertEquals(1, result.getFailed().size());
+        assertEquals("Not a current direct report", result.getFailed().get(0).getReason());
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
+    @Test
+    void bulkUpdateWeeklyOff_replacesAnyExistingPendingAssignment() {
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+        when(employeeRepository.findById(directReportId)).thenReturn(Optional.of(Employee.builder().userId(directReportId).build()));
+        com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment existingPending =
+                com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment.builder()
+                        .id(UUID.randomUUID()).employeeUserId(directReportId).effectiveFrom(today.plusDays(5)).build();
+        when(employeeWeeklyOffPolicyAssignmentRepository
+                .findByEmployeeUserIdInAndEffectiveFromGreaterThanOrderByEmployeeUserIdAscEffectiveFromAsc(List.of(directReportId), today))
+                .thenReturn(List.of(existingPending));
+
+        service.bulkUpdateWeeklyOff(managerEmail, List.of(directReportId), policy.getId(), today.plusDays(10));
+
+        verify(employeeWeeklyOffPolicyAssignmentRepository).delete(existingPending);
+        verify(employeeWeeklyOffPolicyAssignmentRepository).save(argThat(a -> today.plusDays(10).equals(a.getEffectiveFrom())));
+    }
+
+    @Test
+    void bulkUpdateWeeklyOff_succeeds_forNonDirectReport_whenActorHasCompanyWideAllScope() {
+        grantCompanyWideScope("EDIT");
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+        when(employeeRepository.findAll()).thenReturn(List.of(Employee.builder().userId(strangerId).build()));
+        when(employeeRepository.findById(strangerId)).thenReturn(Optional.of(Employee.builder().userId(strangerId).build()));
+
+        AssignmentBulkResultResponse result = service.bulkUpdateWeeklyOff(managerEmail, List.of(strangerId), policy.getId(), tomorrow);
+
+        assertEquals(1, result.getSucceededIds().size());
+        assertTrue(result.getFailed().isEmpty());
+        verifyNoInteractions(managerHistoryRepository);
     }
 
     // ── Section 26: Penalisation Policy bulk-assign routes through the Allocation service ────
@@ -575,5 +715,251 @@ class EmployeeAssignmentServiceTest {
         assertEquals(today.minusDays(30), rows.get(0).getShiftEffectiveSince());
         assertEquals("Night Shift", rows.get(0).getPendingShiftName());
         assertEquals(today.plusDays(3), rows.get(0).getPendingShiftEffectiveFrom());
+    }
+
+    // ── Authorization scope fix (F3/§4): HR_ADMIN/SUPER_ADMIN get the company-wide ALL scope
+    // V225 actually grants, instead of being bugged down to direct-reports-only like Manager. ──
+
+    @Test
+    void bulkUpdateShift_succeeds_forNonDirectReport_whenActorHasCompanyWideAllScope() {
+        grantCompanyWideScope("EDIT");
+        UUID shiftId = UUID.randomUUID();
+        Shift shift = Shift.builder().id(shiftId).name("Regular Shift").active(true).build();
+        when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(shift));
+        // strangerId is NOT a current direct report of this manager — only reachable at all
+        // because ALL-scope bypasses the direct-report filter entirely and sources authorized ids
+        // from the whole company instead.
+        when(employeeRepository.findAll()).thenReturn(List.of(Employee.builder().userId(strangerId).build()));
+        when(employeeRepository.findById(strangerId)).thenReturn(Optional.of(Employee.builder().userId(strangerId).build()));
+
+        AssignmentBulkResultResponse result = service.bulkUpdateShift(managerEmail, List.of(strangerId), shiftId, tomorrow);
+
+        assertEquals(1, result.getSucceededIds().size());
+        assertTrue(result.getFailed().isEmpty());
+        verifyNoInteractions(managerHistoryRepository);
+    }
+
+    @Test
+    void bulkUpdateShift_stillRestrictedToDirectReports_whenActorHasOnlyTeamScope() {
+        // No grantCompanyWideScope call — the default (no authentication set) exercises the exact
+        // same TEAM-only path every other test in this class already relies on.
+        UUID shiftId = UUID.randomUUID();
+        when(shiftRepository.findById(shiftId))
+                .thenReturn(Optional.of(Shift.builder().id(shiftId).name("Regular Shift").active(true).build()));
+
+        AssignmentBulkResultResponse result = service.bulkUpdateShift(managerEmail, List.of(strangerId), shiftId, tomorrow);
+
+        assertTrue(result.getSucceededIds().isEmpty());
+        assertEquals(1, result.getFailed().size());
+        assertEquals("Not a current direct report", result.getFailed().get(0).getReason());
+    }
+
+    @Test
+    void listTeamAssignments_includesCompanyWideEmployees_whenActorHasAllScope() {
+        grantCompanyWideScope("VIEW");
+        Employee anyEmployee = Employee.builder().userId(strangerId).fullName("Anyone")
+                .user(User.builder().id(strangerId).build()).build();
+        when(employeeRepository.findAll()).thenReturn(List.of(anyEmployee));
+        when(employeeRepository.findAllById(List.of(strangerId))).thenReturn(List.of(anyEmployee));
+        when(penalizationPolicyResolutionService.resolveCurrentPolicyIdsByEmployee(any())).thenReturn(Map.of());
+
+        List<EmployeeAssignmentRow> rows =
+                service.listTeamAssignments(managerEmail, null, null, null, null, null, null);
+
+        assertEquals(1, rows.size());
+        assertEquals(strangerId, rows.get(0).getEmployeeUserId());
+        // Never falls back to the manager's own direct-report list once ALL scope is granted.
+        verifyNoInteractions(managerHistoryRepository);
+    }
+
+    // ── D2: shift effective-date floor — cannot predate the employee's own joining date ──────
+
+    @Test
+    void bulkUpdateShift_rejectsEffectiveFromBeforeEmployeesJoiningDate() {
+        UUID shiftId = UUID.randomUUID();
+        Shift shift = Shift.builder().id(shiftId).name("Regular Shift").active(true).build();
+        when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(shift));
+        LocalDate futureJoining = tomorrow.plusDays(10);
+        when(employeeRepository.findById(directReportId))
+                .thenReturn(Optional.of(Employee.builder().userId(directReportId).joiningDate(futureJoining).build()));
+
+        AssignmentBulkResultResponse result =
+                service.bulkUpdateShift(managerEmail, List.of(directReportId), shiftId, tomorrow);
+
+        assertTrue(result.getSucceededIds().isEmpty());
+        assertEquals(1, result.getFailed().size());
+        assertTrue(result.getFailed().get(0).getReason().contains("joining date"));
+        verify(employeeShiftAssignmentRepository, never()).save(any());
+    }
+
+    @Test
+    void bulkUpdateShift_acceptsEffectiveFromOnOrAfterEmployeesJoiningDate() {
+        UUID shiftId = UUID.randomUUID();
+        Shift shift = Shift.builder().id(shiftId).name("Regular Shift").active(true).build();
+        when(shiftRepository.findById(shiftId)).thenReturn(Optional.of(shift));
+        when(employeeRepository.findById(directReportId))
+                .thenReturn(Optional.of(Employee.builder().userId(directReportId).joiningDate(tomorrow).build()));
+
+        AssignmentBulkResultResponse result =
+                service.bulkUpdateShift(managerEmail, List.of(directReportId), shiftId, tomorrow);
+
+        assertEquals(1, result.getSucceededIds().size());
+        assertTrue(result.getFailed().isEmpty());
+    }
+
+    // ── Phase 3: listTeamAssignments' weekly-off column/filter must read the authoritative,
+    //    effective-dated assignment — never the stale Employee.weeklyOffPolicy display cache. ──
+
+    @Test
+    void listTeamAssignments_resolvesWeeklyOffFromAuthoritativeAssignment_notStaleEmployeeCache() {
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        WeeklyOffPolicy staleCachedPolicy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Stale Cache Policy").build();
+        WeeklyOffPolicy authoritativePolicy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Actual Current Policy").build();
+        // Employee.weeklyOffPolicy still points at the OLD policy — a reassignment via
+        // bulkUpdateWeeklyOff/CSV import never updates this display-cache field anymore.
+        Employee employee = Employee.builder().userId(directReportId).fullName("Report One")
+                .user(User.builder().id(directReportId).build()).weeklyOffPolicy(staleCachedPolicy).build();
+        when(employeeRepository.findAllById(List.of(directReportId))).thenReturn(List.of(employee));
+        when(penalizationPolicyResolutionService.resolveCurrentPolicyIdsByEmployee(any())).thenReturn(Map.of());
+        com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment currentAssignment =
+                com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment.builder()
+                        .employeeUserId(directReportId).weeklyOffPolicy(authoritativePolicy).effectiveFrom(LocalDate.now().minusDays(5)).build();
+        when(employeeWeeklyOffPolicyAssignmentRepository
+                .findByEmployeeUserIdInAndEffectiveFromLessThanEqualOrderByEmployeeUserIdAscEffectiveFromDesc(any(), any()))
+                .thenReturn(List.of(currentAssignment));
+        com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment pendingAssignment =
+                com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment.builder()
+                        .employeeUserId(directReportId).weeklyOffPolicy(staleCachedPolicy).effectiveFrom(today.plusDays(10)).build();
+        when(employeeWeeklyOffPolicyAssignmentRepository
+                .findByEmployeeUserIdInAndEffectiveFromGreaterThanOrderByEmployeeUserIdAscEffectiveFromAsc(any(), any()))
+                .thenReturn(List.of(pendingAssignment));
+
+        List<EmployeeAssignmentRow> matching =
+                service.listTeamAssignments(managerEmail, null, authoritativePolicy.getId(), null, null, null, null);
+        assertEquals(1, matching.size());
+        assertEquals("Actual Current Policy", matching.get(0).getWeeklyOffPolicyName());
+        assertEquals(LocalDate.now().minusDays(5), matching.get(0).getWeeklyOffPolicyEffectiveSince());
+        assertEquals("Stale Cache Policy", matching.get(0).getPendingWeeklyOffPolicyName());
+        assertEquals(today.plusDays(10), matching.get(0).getPendingWeeklyOffPolicyEffectiveFrom());
+
+        // Filtering by the STALE Employee.weeklyOffPolicy cache value does not match, since it no
+        // longer reflects what actually governs this employee.
+        List<EmployeeAssignmentRow> stale =
+                service.listTeamAssignments(managerEmail, null, staleCachedPolicy.getId(), null, null, null, null);
+        assertTrue(stale.isEmpty(), "filter must not match the stale Employee.weeklyOffPolicy display cache");
+    }
+
+    // ── Phase 3 verification audit: CSV import had zero test coverage — covering the 5-column
+    //    schema (employee_code,shift_name,shift_effective_from,weekly_off_policy_name,
+    //    weekly_off_effective_from), including the "old 4-column CSV" compatibility scenario. ──
+
+    private MockMultipartFile csv(String... rows) {
+        String content = "employee_code,shift_name,shift_effective_from,weekly_off_policy_name,weekly_off_effective_from\n"
+                + String.join("\n", rows);
+        return new MockMultipartFile("file", "import.csv", "text/csv", content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void importShiftsAndWeeklyOffs_succeeds_forShiftAndWeeklyOffWithBothEffectiveDates() throws Exception {
+        Employee employee = Employee.builder().userId(directReportId).employeeCode("NF-1").build();
+        when(employeeRepository.findByEmployeeCode("NF-1")).thenReturn(Optional.of(employee));
+        Shift shift = newShift("Night Shift");
+        when(shiftRepository.findByName("Night Shift")).thenReturn(Optional.of(shift));
+        WeeklyOffPolicy policy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Standard").offDays("SATURDAY,SUNDAY").build();
+        when(weeklyOffPolicyRepository.findByName("Standard")).thenReturn(Optional.of(policy));
+
+        ImportResultResponse result = service.importShiftsAndWeeklyOffs(managerEmail,
+                csv("NF-1,Night Shift," + tomorrow + ",Standard," + tomorrow));
+
+        assertEquals(1, result.getSucceeded());
+        assertEquals(0, result.getFailed());
+        verify(employeeShiftAssignmentRepository).save(argThat(a -> a.getEffectiveFrom().equals(tomorrow)));
+        verify(employeeWeeklyOffPolicyAssignmentRepository).save(argThat(a -> a.getEffectiveFrom().equals(tomorrow)));
+    }
+
+    @Test
+    void importShiftsAndWeeklyOffs_rejectsRow_whenWeeklyOffPolicyNameSetButEffectiveDateMissing() throws Exception {
+        // The exact "old 4-column CSV" compatibility scenario: a pre-Phase-3 template that sets
+        // weekly_off_policy_name with no 5th column at all.
+        Employee employee = Employee.builder().userId(directReportId).employeeCode("NF-1").build();
+        when(employeeRepository.findByEmployeeCode("NF-1")).thenReturn(Optional.of(employee));
+        WeeklyOffPolicy policy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Standard").offDays("SATURDAY,SUNDAY").build();
+        when(weeklyOffPolicyRepository.findByName("Standard")).thenReturn(Optional.of(policy));
+
+        ImportResultResponse result = service.importShiftsAndWeeklyOffs(managerEmail, csv("NF-1,,,Standard"));
+
+        assertEquals(0, result.getSucceeded());
+        assertEquals(1, result.getFailed());
+        assertTrue(result.getResults().get(0).getError().contains("weekly_off_effective_from is required"));
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
+    @Test
+    void importShiftsAndWeeklyOffs_blankWeeklyOffColumn_leavesItUntouched_evenWithAStrayEffectiveDateValue() throws Exception {
+        // A blank name column means "leave untouched" regardless of what's in the paired date
+        // column — mirrors the existing shift_name/shift_effective_from convention exactly.
+        Employee employee = Employee.builder().userId(directReportId).employeeCode("NF-1").build();
+        when(employeeRepository.findByEmployeeCode("NF-1")).thenReturn(Optional.of(employee));
+
+        ImportResultResponse result = service.importShiftsAndWeeklyOffs(managerEmail, csv("NF-1,,,," + tomorrow));
+
+        assertEquals(1, result.getSucceeded());
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
+    @Test
+    void importShiftsAndWeeklyOffs_rejectsUnknownWeeklyOffPolicyName() throws Exception {
+        Employee employee = Employee.builder().userId(directReportId).employeeCode("NF-1").build();
+        when(employeeRepository.findByEmployeeCode("NF-1")).thenReturn(Optional.of(employee));
+        when(weeklyOffPolicyRepository.findByName("Ghost Policy")).thenReturn(Optional.empty());
+
+        ImportResultResponse result = service.importShiftsAndWeeklyOffs(managerEmail,
+                csv("NF-1,,,Ghost Policy," + tomorrow));
+
+        assertEquals(1, result.getFailed());
+        assertTrue(result.getResults().get(0).getError().contains("Unknown weekly off policy"));
+    }
+
+    @Test
+    void importShiftsAndWeeklyOffs_rejectsPastWeeklyOffEffectiveDate() throws Exception {
+        Employee employee = Employee.builder().userId(directReportId).employeeCode("NF-1").build();
+        when(employeeRepository.findByEmployeeCode("NF-1")).thenReturn(Optional.of(employee));
+        WeeklyOffPolicy policy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Standard").offDays("SATURDAY,SUNDAY").build();
+        when(weeklyOffPolicyRepository.findByName("Standard")).thenReturn(Optional.of(policy));
+
+        ImportResultResponse result = service.importShiftsAndWeeklyOffs(managerEmail,
+                csv("NF-1,,,Standard," + today.minusDays(1)));
+
+        assertEquals(1, result.getFailed());
+        assertTrue(result.getResults().get(0).getError().contains("cannot be in the past"));
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
+    @Test
+    void importShiftsAndWeeklyOffs_rejectsWeeklyOffEffectiveDateBeforeJoiningDate() throws Exception {
+        LocalDate futureJoining = tomorrow.plusDays(10);
+        Employee employee = Employee.builder().userId(directReportId).employeeCode("NF-1").joiningDate(futureJoining).build();
+        when(employeeRepository.findByEmployeeCode("NF-1")).thenReturn(Optional.of(employee));
+        WeeklyOffPolicy policy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Standard").offDays("SATURDAY,SUNDAY").build();
+        when(weeklyOffPolicyRepository.findByName("Standard")).thenReturn(Optional.of(policy));
+
+        ImportResultResponse result = service.importShiftsAndWeeklyOffs(managerEmail,
+                csv("NF-1,,,Standard," + tomorrow));
+
+        assertEquals(1, result.getFailed());
+        assertTrue(result.getResults().get(0).getError().contains("joining date"));
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
+    @Test
+    void importShiftsAndWeeklyOffs_rejectsEmployeeNotACurrentDirectReport() throws Exception {
+        Employee stranger = Employee.builder().userId(strangerId).employeeCode("NF-9").build();
+        when(employeeRepository.findByEmployeeCode("NF-9")).thenReturn(Optional.of(stranger));
+
+        ImportResultResponse result = service.importShiftsAndWeeklyOffs(managerEmail,
+                csv("NF-9,,,Standard," + tomorrow));
+
+        assertEquals(1, result.getFailed());
+        assertTrue(result.getResults().get(0).getError().contains("Not a current direct report"));
     }
 }

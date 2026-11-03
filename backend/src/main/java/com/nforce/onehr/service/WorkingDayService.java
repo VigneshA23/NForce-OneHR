@@ -2,9 +2,10 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment;
 import com.nforce.onehr.entity.Holiday;
 import com.nforce.onehr.entity.LeaveRequest;
-import com.nforce.onehr.entity.WeeklyOffPolicy;
+import com.nforce.onehr.entity.WeeklyOffPolicyVersion;
 import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import lombok.RequiredArgsConstructor;
@@ -12,7 +13,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -27,18 +27,28 @@ import java.util.stream.Collectors;
 /**
  * Single source of truth for "how many days was this employee expected to work" over a date
  * range — joining date, weekly-off policy (falling back to Saturday/Sunday when none is
- * assigned), location holidays, and approved leave all count against the expected days.
- * Deliberately NOT a simple attendance-row count: an employee with zero punches in a range still
- * has a non-zero expected-working-days denominator whenever they had working days on file.
+ * effectively assigned on a given date), location holidays, and approved leave all count against
+ * the expected days. Deliberately NOT a simple attendance-row count: an employee with zero
+ * punches in a range still has a non-zero expected-working-days denominator whenever they had
+ * working days on file.
+ *
+ * <p>Weekly-off resolution is effective-dated (Phase 3) — see {@link #weeklyOffDaysResolver},
+ * the single reusable batch-resolution path this class and {@code ExceptionService} both use.
+ * WHICH Weekly Off Policy governs an employee, and WHAT that policy defined, are each resolved
+ * for the SPECIFIC date being evaluated (never once for a whole range, and never from {@code
+ * Employee.weeklyOffPolicy}, a best-effort display cache) via {@link
+ * EmployeeWeeklyOffPolicyAssignmentResolver}/{@link WeeklyOffPolicyVersionResolver}. No effective
+ * assignment at all falls back to Saturday/Sunday — the same explicit, pre-existing behavior this
+ * phase preserves rather than replaces (D1: never a silently-assigned default policy).
  *
  * <p>Approved leave — full-day or half-day — removes the whole date from the schedule. Every
  * consumer of this service (Team Effort, Team Punctuality) operates at whole-day granularity, so
  * a half-day leave is not split into a fractional working day.
  *
- * <p>Bulk callers must pass {@link Employee} rows already fetched with {@code location} and
- * {@code weeklyOffPolicy} joined (see {@code EmployeeRepository.findAllByIdWithScheduleDetails})
- * — this service issues exactly one holiday query and one leave query for the whole batch,
- * regardless of team size.
+ * <p>Bulk callers must pass {@link Employee} rows already fetched with {@code location} joined
+ * (see {@code EmployeeRepository.findAllByIdWithScheduleDetails}) — this service issues exactly
+ * one holiday query, one leave query, one weekly-off-assignment query and one policy-version
+ * query for the whole batch, regardless of team size or date-range length.
  */
 @Service
 @RequiredArgsConstructor
@@ -49,6 +59,8 @@ public class WorkingDayService {
 
     private final HolidayRepository holidayRepository;
     private final LeaveRequestRepository leaveRequestRepository;
+    private final EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
+    private final WeeklyOffPolicyVersionResolver weeklyOffPolicyVersionResolver;
 
     public WorkingDaySchedule computeExpectedWorkingDays(Employee employee, LocalDate from, LocalDate to) {
         return computeExpectedWorkingDaysBulk(List.of(employee), from, to).get(employee.getUserId());
@@ -56,11 +68,11 @@ public class WorkingDayService {
 
     /**
      * The first working day strictly after {@code from} — the earliest date afterward that is
-     * neither a weekly off (per {@code employee}'s own {@link WeeklyOffPolicy}, falling back to
-     * Saturday/Sunday exactly like {@link #computeExpectedWorkingDaysBulk}) nor a {@code
-     * employee}'s Location holiday. Reuses this class's own weekly-off/holiday resolution
-     * ({@link #weeklyOffDaysOf}/{@link #loadHolidaysByLocation}) rather than a second,
-     * independently-duplicated implementation.
+     * neither a weekly off (per {@code employee}'s own effective-dated Policy assignment, resolved
+     * fresh for each candidate date — falling back to Saturday/Sunday exactly like {@link
+     * #computeExpectedWorkingDaysBulk}) nor a {@code employee}'s Location holiday. Reuses this
+     * class's own weekly-off/holiday resolution ({@link #weeklyOffDaysResolver}/{@link
+     * #loadHolidaysByLocation}) rather than a second, independently-duplicated implementation.
      *
      * <p><b>Not currently called by any production code.</b> This was written to compute a
      * brand-new {@code EmployeeShiftAssignment}'s {@code effectiveFrom} automatically, but the
@@ -83,13 +95,14 @@ public class WorkingDayService {
     private static final int NEXT_WORKING_DAY_SEARCH_LIMIT_DAYS = 366;
 
     public LocalDate nextWorkingDay(Employee employee, LocalDate from) {
-        Set<DayOfWeek> offDays = weeklyOffDaysOf(employee);
+        WeeklyOffBatchResolver offDaysResolver = weeklyOffDaysResolver(List.of(employee.getUserId()));
         Set<LocalDate> holidays = employee.getLocation() != null
                 ? loadHolidaysByLocation(List.of(employee)).getOrDefault(employee.getLocation().getId(), Set.of())
                 : Set.of();
         LocalDate candidate = from.plusDays(1);
         int daysChecked = 0;
-        while (offDays.contains(candidate.getDayOfWeek()) || holidays.contains(candidate)) {
+        while (offDaysResolver.offDaysOn(employee.getUserId(), candidate).contains(candidate.getDayOfWeek())
+                || holidays.contains(candidate)) {
             if (++daysChecked > NEXT_WORKING_DAY_SEARCH_LIMIT_DAYS) {
                 throw new IllegalStateException(
                         "No working day found within " + NEXT_WORKING_DAY_SEARCH_LIMIT_DAYS + " days of " + from
@@ -109,6 +122,8 @@ public class WorkingDayService {
 
         Map<UUID, Set<LocalDate>> holidaysByLocation = loadHolidaysByLocation(employees);
         Map<UUID, Set<LocalDate>> leaveDatesByEmployee = loadApprovedLeaveDates(employees, from, to);
+        WeeklyOffBatchResolver offDaysResolver = weeklyOffDaysResolver(
+                employees.stream().map(Employee::getUserId).collect(Collectors.toSet()));
 
         Map<UUID, WorkingDaySchedule> result = new HashMap<>(employees.size());
         for (Employee employee : employees) {
@@ -116,13 +131,15 @@ public class WorkingDayService {
                     ? holidaysByLocation.getOrDefault(employee.getLocation().getId(), Set.of())
                     : Set.of();
             Set<LocalDate> leaveDates = leaveDatesByEmployee.getOrDefault(employee.getUserId(), Set.of());
-            Set<DayOfWeek> offDays = weeklyOffDaysOf(employee);
 
             LocalDate rangeStart = clampToJoiningDate(employee, from);
             Set<LocalDate> workingDates = new TreeSet<>();
             if (!rangeStart.isAfter(to)) {
                 rangeStart.datesUntil(to.plusDays(1)).forEach(date -> {
-                    if (offDays.contains(date.getDayOfWeek())) return;
+                    // Resolved PER DATE, not once for the whole range — a policy reassignment or a
+                    // policy-definition edit partway through the range must only affect the dates
+                    // from its own effective date onward (see WeeklyOffBatchResolver's own Javadoc).
+                    if (offDaysResolver.offDaysOn(employee.getUserId(), date).contains(date.getDayOfWeek())) return;
                     if (holidays.contains(date)) return;
                     if (leaveDates.contains(date)) return;
                     workingDates.add(date);
@@ -142,17 +159,53 @@ public class WorkingDayService {
         return joiningDate != null && joiningDate.isAfter(from) ? joiningDate : from;
     }
 
-    /** Comma-separated DayOfWeek names on the assigned policy, else the Saturday/Sunday fallback. */
-    private Set<DayOfWeek> weeklyOffDaysOf(Employee employee) {
-        WeeklyOffPolicy policy = employee.getWeeklyOffPolicy();
-        if (policy == null || policy.getOffDays() == null || policy.getOffDays().isBlank()) {
-            return DEFAULT_WEEKLY_OFF;
-        }
-        return Arrays.stream(policy.getOffDays().split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(DayOfWeek::valueOf)
+    /**
+     * The single reusable, batch-resolved weekly-off resolution path every multi-date/multi-
+     * employee consumer (this class, {@code ExceptionService}) uses — one assignment-history query
+     * and one policy-version-history query for the WHOLE batch, regardless of how many employees
+     * or dates are ultimately resolved against it, instead of a query per employee per date.
+     * {@link WeeklyOffBatchResolver#offDaysOn} then resolves purely in-memory.
+     */
+    public WeeklyOffBatchResolver weeklyOffDaysResolver(Collection<UUID> employeeUserIds) {
+        Map<UUID, List<EmployeeWeeklyOffPolicyAssignment>> assignmentsByEmployee =
+                employeeWeeklyOffPolicyAssignmentResolver.resolveHistoryBatch(employeeUserIds);
+        Set<UUID> policyIds = assignmentsByEmployee.values().stream()
+                .flatMap(List::stream)
+                .map(a -> a.getWeeklyOffPolicy().getId())
                 .collect(Collectors.toSet());
+        Map<UUID, List<WeeklyOffPolicyVersion>> versionsByPolicy = weeklyOffPolicyVersionResolver.resolveHistoryBatch(policyIds);
+        return new WeeklyOffBatchResolver(assignmentsByEmployee, versionsByPolicy);
+    }
+
+    /**
+     * An in-memory, per-(employee, date) weekly-off resolution closure over a batch already
+     * fetched by {@link #weeklyOffDaysResolver} — no further database access. Resolves the
+     * Policy assignment governing {@code date} for {@code employeeUserId}, then that Policy's own
+     * version governing {@code date}; no effective assignment (or, as an invariant-violation
+     * fallback, no effective version on an assignment that does exist) falls back to Saturday/
+     * Sunday — the same explicit, pre-existing no-assignment behavior this phase preserves.
+     */
+    public static final class WeeklyOffBatchResolver {
+        private final Map<UUID, List<EmployeeWeeklyOffPolicyAssignment>> assignmentsByEmployee;
+        private final Map<UUID, List<WeeklyOffPolicyVersion>> versionsByPolicy;
+
+        private WeeklyOffBatchResolver(Map<UUID, List<EmployeeWeeklyOffPolicyAssignment>> assignmentsByEmployee,
+                                        Map<UUID, List<WeeklyOffPolicyVersion>> versionsByPolicy) {
+            this.assignmentsByEmployee = assignmentsByEmployee;
+            this.versionsByPolicy = versionsByPolicy;
+        }
+
+        public Set<DayOfWeek> offDaysOn(UUID employeeUserId, LocalDate date) {
+            List<EmployeeWeeklyOffPolicyAssignment> history = assignmentsByEmployee.getOrDefault(employeeUserId, List.of());
+            return EmployeeWeeklyOffPolicyAssignmentResolver.governingAssignment(history, date)
+                    .flatMap(assignment -> {
+                        List<WeeklyOffPolicyVersion> versions = versionsByPolicy.getOrDefault(assignment.getWeeklyOffPolicy().getId(), List.of());
+                        return WeeklyOffPolicyVersionResolver.governingVersion(versions, date);
+                    })
+                    .map(WeeklyOffPolicyVersion::offDaysSet)
+                    .filter(offDays -> !offDays.isEmpty())
+                    .orElse(DEFAULT_WEEKLY_OFF);
+        }
     }
 
     private Map<UUID, Set<LocalDate>> loadHolidaysByLocation(List<Employee> employees) {

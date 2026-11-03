@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Plus, Check, X, RotateCcw, Pencil } from 'lucide-react';
+import { usePaged } from '../../components/usePaged';
+import { TablePagination } from '../../components/TablePagination';
+import { ActionDock } from '../../components/ActionDock';
+import { Plus, Check, X, Pencil, Power, PowerOff } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import type { SkillMasterOption } from '../../api/talentMasterData';
@@ -37,6 +40,7 @@ function SubSection({ title, action, children }: { title: string; action?: React
 function SkillsSection({ token }: { token: string }) {
   const { showToast } = useToast();
   const [skills, setSkills] = useState<SkillMasterSettingsEntry[]>([]);
+  const skillPaged = usePaged(skills);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -76,7 +80,7 @@ function SkillsSection({ token }: { token: string }) {
             <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center' }}>Loading…</td></tr>
           ) : skills.length === 0 ? (
             <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center' }}>No skills yet.</td></tr>
-          ) : skills.map(s => (
+          ) : skillPaged.pageRows.map(s => (
             <tr key={s.id}>
               <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{s.name}</td>
               <td style={tdS}>{s.category ?? '–'}</td>
@@ -84,14 +88,13 @@ function SkillsSection({ token }: { token: string }) {
               <td style={tdS}>{s.usageCount}</td>
               <td style={tdS}><Pill active={s.active} /></td>
               <td style={{ ...tdS, textAlign: 'right' }}>
-                <button onClick={() => toggle(s)} className="nf-act-btn">
-                  {s.active ? <><X size={11} /> Deactivate</> : <><RotateCcw size={11} /> Reactivate</>}
-                </button>
+                <ActionDock items={[{ label: s.active ? 'Deactivate' : 'Reactivate', icon: s.active ? PowerOff : Power, onClick: () => toggle(s) }]} />
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      <TablePagination {...skillPaged.pagerProps} noun="skills" />
     </SubSection>
   );
 }
@@ -144,9 +147,7 @@ function ProficiencyLevelsSection({ token }: { token: string }) {
               <td style={tdS}>{l.usageCount}</td>
               <td style={tdS}><Pill active={l.active} /></td>
               <td style={{ ...tdS, textAlign: 'right' }}>
-                <button onClick={() => toggle(l)} className="nf-act-btn">
-                  {l.active ? <><X size={11} /> Deactivate</> : <><RotateCcw size={11} /> Reactivate</>}
-                </button>
+                <ActionDock items={[{ label: l.active ? 'Deactivate' : 'Reactivate', icon: l.active ? PowerOff : Power, onClick: () => toggle(l) }]} />
               </td>
             </tr>
           ))}
@@ -255,12 +256,10 @@ function CertificateCategoriesSection({ token }: { token: string }) {
               <td style={tdS}>{c.usageCount}</td>
               <td style={tdS}><Pill active={c.active} /></td>
               <td style={{ ...tdS, textAlign: 'right' }}>
-                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                  <button onClick={() => startEdit(c)} className="nf-act-btn"><Pencil size={11} /> Edit</button>
-                  <button onClick={() => toggle(c)} className="nf-act-btn">
-                    {c.active ? <><X size={11} /> Deactivate</> : <><RotateCcw size={11} /> Reactivate</>}
-                  </button>
-                </div>
+                <ActionDock items={[
+                  { label: 'Edit', icon: Pencil, onClick: () => startEdit(c) },
+                  { label: c.active ? 'Deactivate' : 'Reactivate', icon: c.active ? PowerOff : Power, onClick: () => toggle(c) },
+                ]} />
               </td>
             </tr>
           ))}

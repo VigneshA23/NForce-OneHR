@@ -2,11 +2,13 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment;
 import com.nforce.onehr.entity.Holiday;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.entity.WeeklyOffPolicy;
+import com.nforce.onehr.entity.WeeklyOffPolicyVersion;
 import com.nforce.onehr.repository.HolidayRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,12 +29,20 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
-/** WorkingDayService — the shared expected-working-days calculation behind Team Effort and Team Punctuality. */
+/**
+ * WorkingDayService — the shared expected-working-days calculation behind Team Effort and Team
+ * Punctuality. Weekly-off resolution is effective-dated (Phase 3): "which policy applies" is
+ * mocked via {@link EmployeeWeeklyOffPolicyAssignmentResolver}/{@link
+ * WeeklyOffPolicyVersionResolver} rather than set directly on the {@link Employee} fixture (that
+ * field is now a non-authoritative display cache only — see its own Javadoc).
+ */
 @ExtendWith(MockitoExtension.class)
 class WorkingDayServiceTest {
 
     @Mock private HolidayRepository holidayRepository;
     @Mock private LeaveRequestRepository leaveRequestRepository;
+    @Mock private EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
+    @Mock private WeeklyOffPolicyVersionResolver weeklyOffPolicyVersionResolver;
 
     private WorkingDayService service;
 
@@ -46,16 +56,38 @@ class WorkingDayServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new WorkingDayService(holidayRepository, leaveRequestRepository);
+        service = new WorkingDayService(holidayRepository, leaveRequestRepository,
+                employeeWeeklyOffPolicyAssignmentResolver, weeklyOffPolicyVersionResolver);
         lenient().when(holidayRepository.findByLocation_IdInAndActiveTrue(any())).thenReturn(List.of());
         lenient().when(leaveRequestRepository
                 .findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(any(), any(), any(), any()))
                 .thenReturn(List.of());
+        // Defaults (no stubbing below) resolve to empty batches via Mockito's own
+        // empty-collection default answer — i.e. "no effective assignment," exactly the
+        // Saturday/Sunday-fallback case every test exercises unless it calls stubPolicy itself.
     }
 
     private Employee employee(Location location, WeeklyOffPolicy policy, LocalDate joiningDate) {
-        return Employee.builder().userId(empId).fullName("Test Employee")
-                .location(location).weeklyOffPolicy(policy).joiningDate(joiningDate).build();
+        Employee emp = Employee.builder().userId(empId).fullName("Test Employee")
+                .location(location).joiningDate(joiningDate).build();
+        if (policy != null) {
+            stubPolicy(empId, policy, LocalDate.of(2000, 1, 1));
+        }
+        return emp;
+    }
+
+    /** Stubs {@code employeeUserId} as effectively assigned to {@code policy} (and its current off days) from {@code effectiveFrom}. */
+    private void stubPolicy(UUID employeeUserId, WeeklyOffPolicy policy, LocalDate effectiveFrom) {
+        UUID policyId = policy.getId() != null ? policy.getId() : UUID.randomUUID();
+        policy.setId(policyId);
+        EmployeeWeeklyOffPolicyAssignment assignment = EmployeeWeeklyOffPolicyAssignment.builder()
+                .employeeUserId(employeeUserId).weeklyOffPolicy(policy).effectiveFrom(effectiveFrom).build();
+        lenient().when(employeeWeeklyOffPolicyAssignmentResolver.resolveHistoryBatch(any()))
+                .thenReturn(Map.of(employeeUserId, List.of(assignment)));
+        WeeklyOffPolicyVersion version = WeeklyOffPolicyVersion.builder()
+                .weeklyOffPolicy(policy).offDays(policy.getOffDays()).effectiveFrom(effectiveFrom).build();
+        lenient().when(weeklyOffPolicyVersionResolver.resolveHistoryBatch(any()))
+                .thenReturn(Map.of(policyId, List.of(version)));
     }
 
     @Test
@@ -206,6 +238,37 @@ class WorkingDayServiceTest {
         Map<UUID, WorkingDaySchedule> result = service.computeExpectedWorkingDaysBulk(List.of(), monday, sunday);
 
         assertTrue(result.isEmpty());
+    }
+
+    // ── Phase 3: a policy change partway through the range must only affect dates from its own
+    //    effective date onward — never resolved once for the whole range. ──────────────────────
+
+    @Test
+    void policyReassignment_withinRange_onlyAffectsDatesFromItsOwnEffectiveDateOnward() {
+        // Default (Sat/Sun) through Wednesday, then Friday/Saturday-off from Thursday onward.
+        LocalDate thursday = monday.plusDays(3);
+        WeeklyOffPolicy fridaySaturdayOff = WeeklyOffPolicy.builder().id(UUID.randomUUID()).offDays("FRIDAY,SATURDAY").build();
+        EmployeeWeeklyOffPolicyAssignment assignment = EmployeeWeeklyOffPolicyAssignment.builder()
+                .employeeUserId(empId).weeklyOffPolicy(fridaySaturdayOff).effectiveFrom(thursday).build();
+        when(employeeWeeklyOffPolicyAssignmentResolver.resolveHistoryBatch(any()))
+                .thenReturn(Map.of(empId, List.of(assignment)));
+        WeeklyOffPolicyVersion version = WeeklyOffPolicyVersion.builder()
+                .weeklyOffPolicy(fridaySaturdayOff).offDays("FRIDAY,SATURDAY").effectiveFrom(thursday).build();
+        when(weeklyOffPolicyVersionResolver.resolveHistoryBatch(any()))
+                .thenReturn(Map.of(fridaySaturdayOff.getId(), List.of(version)));
+        Employee employee = Employee.builder().userId(empId).fullName("Test Employee").build();
+
+        WorkingDaySchedule schedule = service.computeExpectedWorkingDays(employee, monday, sunday);
+
+        // Before Thursday: default Sat/Sun weekend (not yet effective) — Mon/Tue/Wed are working.
+        assertTrue(schedule.getWorkingDates().contains(monday));
+        assertTrue(schedule.getWorkingDates().contains(monday.plusDays(1)));
+        assertTrue(schedule.getWorkingDates().contains(monday.plusDays(2)));
+        // From Thursday onward: Friday/Saturday off under the new policy, Sunday now works.
+        assertTrue(schedule.getWorkingDates().contains(thursday));
+        assertFalse(schedule.getWorkingDates().contains(monday.plusDays(4))); // Friday
+        assertFalse(schedule.getWorkingDates().contains(monday.plusDays(5))); // Saturday
+        assertTrue(schedule.getWorkingDates().contains(sunday));
     }
 
     // ── nextWorkingDay (not currently called by production code — see its own Javadoc; covered

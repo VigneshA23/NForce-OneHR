@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
+import { ActionDock } from '../components/ActionDock';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -307,6 +310,7 @@ export default function HolidaysPage() {
   const role = useAuthStore(s => s.user?.role);
   const isAdmin = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
+  const holPaged = usePaged(holidays);
   const [holidayError, setHolidayError] = useState('');
   const [showAddHoliday, setShowAddHoliday] = useState(false);
   const [editingHoliday, setEditingHoliday] = useState<HolidayRow | null>(null);
@@ -470,7 +474,7 @@ export default function HolidaysPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {holidays.map(h => (
+                  {holPaged.pageRows.map(h => (
                     <tr key={h.id} className="nf-leave-row">
                       <td style={{ ...holidayTdStyle, color: 'var(--txt)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.holidayName}>{h.holidayName}</td>
                       <td style={holidayTdStyle}>{formatHolidayDate(h.holidayDate)}</td>
@@ -478,29 +482,17 @@ export default function HolidaysPage() {
                       <td style={holidayTdStyle}>{HOLIDAY_STATUS_BADGE(h.active)}</td>
                       {isAdmin && (
                         <td style={holidayTdStyle}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                            <button
-                              onClick={() => setEditingHoliday(h)}
-                              aria-label={`Edit ${h.holidayName}`}
-                              style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--txt-mut)' }}
-                            >
-                              <Pencil size={12} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteHoliday(h)}
-                              disabled={deletingId === h.id}
-                              aria-label={`Delete ${h.holidayName}`}
-                              style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: deletingId === h.id ? 'not-allowed' : 'pointer', color: 'var(--risk)', opacity: deletingId === h.id ? 0.5 : 1 }}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
+                          <ActionDock items={[
+                            { label: 'Edit', icon: Pencil, onClick: () => setEditingHoliday(h) },
+                            { label: 'Delete', icon: Trash2, onClick: () => handleDeleteHoliday(h), danger: true, disabled: deletingId === h.id },
+                          ]} />
                         </td>
                       )}
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <TablePagination {...holPaged.pagerProps} noun="holidays" />
             </div>
           )}
         </div>

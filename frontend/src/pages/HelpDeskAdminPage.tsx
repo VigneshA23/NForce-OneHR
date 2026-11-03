@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { EmpCode } from '../components/EmpCode';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { useSearchParams } from 'react-router-dom';
@@ -60,13 +61,16 @@ function initials(name?: string | null) {
   return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?';
 }
 
-function Person({ name, fallback, large }: { name?: string | null; fallback?: string; large?: boolean }) {
+function Person({ name, fallback, large, userId }: { name?: string | null; fallback?: string; large?: boolean; userId?: string | null }) {
   return (
     <div className="nf-rq-person">
       <span className={`nf-rq-avatar${large ? ' nf-rq-avatar--lg' : ''}${name ? '' : ' nf-rq-avatar--muted'}`} aria-hidden="true">
         {name ? initials(name) : '–'}
       </span>
-      <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '–'}</span>
+      <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '–'}</span>
+        {userId && <EmpCode userId={userId} />}
+      </span>
     </div>
   );
 }
@@ -411,7 +415,7 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
             <div className="nf-rq-fields">
               <div>
                 <div className="nf-rq-field-label">Requested By</div>
-                <Person name={ticket.employeeName} />
+                <Person name={ticket.employeeName} userId={ticket.employeeUserId} />
               </div>
               <div>
                 <div className="nf-rq-field-label">Created</div>
@@ -699,7 +703,7 @@ export default function HelpDeskAdminPage() {
                 {tickets.map(t => (
                   <tr key={t.id} onClick={() => setPreviewId(t.id)}>
                     <td className="nf-rq-td-lead" data-label="Ticket Number"><span className="nf-rq-ticket-no">{t.ticketNumber}</span></td>
-                    <td data-label="Employee"><Person name={t.employeeName} /></td>
+                    <td data-label="Employee"><Person name={t.employeeName} userId={t.employeeUserId} /></td>
                     <td data-label="Topic">{t.categoryName}</td>
                     <td data-label="Status"><StatusBadge status={t.status} /></td>
                     <td data-label="Assigned To">{t.assignedToName ? <Person name={t.assignedToName} /> : <span className="nf-rq-dim">–</span>}</td>
