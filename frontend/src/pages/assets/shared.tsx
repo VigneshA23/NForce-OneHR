@@ -1,12 +1,14 @@
 import { X } from 'lucide-react';
-import { AlarmClock, Hourglass, CheckCircle2, Boxes, Receipt, ClipboardList, Package } from 'lucide-react';
+import { AlarmClock, Hourglass, CheckCircle2, Boxes, Receipt, ClipboardList, Package, Pencil, Undo2, UserPlus, PackagePlus } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import './assetsModals.css';
 import DashTile from '../../components/DashTile';
 
 // ── Shared styles ─────────────────────────────────────────
 
-export const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-export const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-export const tdStyle: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+export const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' };
+export const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', whiteSpace: 'nowrap', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+export const tdStyle: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 export const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
 export const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
 export const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
@@ -41,14 +43,18 @@ const STATUS_TONE: Record<string, string> = {
   IN_REPAIR: 'var(--warn)',
   RETIRED: 'var(--txt-dim)',
   FULFILLED: 'var(--ok)',
+  GOOD: 'var(--ok)',
+  NEW: 'var(--info)',
+  FAIR: 'var(--warn)',
+  DAMAGED: 'var(--risk)',
 };
 
 export function StatusBadge({ status }: { status: string }) {
   const tone = STATUS_TONE[status] ?? 'var(--txt-dim)';
   return (
-    <span style={{
-      fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20,
-      background: `color-mix(in srgb, ${tone} 15%, transparent)`, color: tone,
+    <span className="nf-asset-pill" style={{
+      background: `color-mix(in srgb, ${tone} 13%, transparent)`, color: tone,
+      border: `1px solid color-mix(in srgb, ${tone} 30%, transparent)`,
     }}>
       {status.replace(/_/g, ' ')}
     </span>
@@ -86,8 +92,8 @@ export function Tile({ label, value, sub, clickable, onClick, clickHint }: TileP
 
 export function SectionHead({ title, action }: { title: string; action?: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{title}</h2>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, letterSpacing: '-.01em', fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{title}</h2>
       {action}
     </div>
   );
@@ -103,15 +109,43 @@ export function EmptyRow({ cols, msg }: { cols: number; msg: string }) {
 
 // ── Modal wrapper ─────────────────────────────────────────
 
+function modalIconFor(title: string): LucideIcon {
+  const t = title.toLowerCase();
+  if (t.includes('expense')) return Receipt;
+  if (t.startsWith('add asset')) return PackagePlus;
+  if (t.startsWith('assign') || t.startsWith('reassign')) return UserPlus;
+  if (t.includes('returned')) return Undo2;
+  if (t.startsWith('fulfill')) return CheckCircle2;
+  if (t.startsWith('edit')) return Pencil;
+  return Package;
+}
+
+function modalSubtitleFor(title: string): string | null {
+  const t = title.toLowerCase();
+  if (t.startsWith('add asset')) return 'Register a new company asset in the inventory.';
+  if (t.startsWith('assign')) return 'Choose who this asset goes to.';
+  if (t.startsWith('reassign')) return 'Move this asset to another employee.';
+  if (t.includes('returned')) return 'Record that this asset is back with the company.';
+  if (t.startsWith('request asset')) return 'Ask for an asset you need for your work.';
+  if (t.startsWith('submit expense')) return 'Add the details and receipt for your claim.';
+  return null;
+}
+
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const Icon = modalIconFor(title);
+  const sub = modalSubtitleFor(title);
   return (
-    <div style={overlayStyle} className="nf-modal-overlay-in">
-      <div style={modalStyle} className="nf-modal-panel-in">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'flex' }}><X size={16} /></button>
+    <div style={overlayStyle} className="nf-modal-overlay-in nf-as-dlg">
+      <div style={modalStyle} className="nf-modal-panel-in nf-as-card">
+        <div className="nf-as-head">
+          <span className="nf-as-ico"><Icon size={20} /></span>
+          <div className="nf-as-titles">
+            <div className="nf-as-title">{title}</div>
+            {sub && <div className="nf-as-sub">{sub}</div>}
+          </div>
+          <button onClick={onClose} className="nf-as-x" aria-label="Close"><X size={16} /></button>
         </div>
-        <div style={{ padding: 20 }}>{children}</div>
+        <div className="nf-as-body">{children}</div>
       </div>
     </div>
   );

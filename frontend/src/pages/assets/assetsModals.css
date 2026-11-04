@@ -1,0 +1,43 @@
+/* Assets & Expenses popups — Add Asset, Assign / Reassign, Mark Returned, Fulfill Request, Request Asset,
+ * Submit Expense Claim, Expense Category. They all share the `Modal` in shared.tsx, so this restyles them
+ * together. Presentation only; theme tokens throughout. */
+
+.nf-as-dlg { background: rgba(8, 10, 16, .6) !important; backdrop-filter: blur(3px); }
+.nf-as-card {
+  max-width: 560px !important; border-radius: 20px !important; border-color: var(--line2) !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important;
+}
+
+.nf-as-head {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 18px 22px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line);
+}
+.nf-as-ico { flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-as-titles { flex: 1; min-width: 0; }
+.nf-as-title { font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); overflow-wrap: anywhere; }
+.nf-as-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-as-x { flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; padding: 0; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 11px; transition: color .15s, background .15s; }
+.nf-as-x:hover { color: var(--txt); background: var(--raised2); }
+
+.nf-as-body { padding: 20px 22px 22px; }
+
+/* fields */
+.nf-as-card label { color: var(--txt-mut) !important; font-weight: 600 !important; letter-spacing: .04em !important; }
+.nf-as-card input:not([type='checkbox']):not([type='radio']):not([type='file']),
+.nf-as-card select,
+.nf-as-card textarea {
+  background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 11px !important; padding: 10px 13px !important; transition: border-color .15s, box-shadow .15s;
+}
+.nf-as-card input:not([type='checkbox']):not([type='radio']):not([type='file']):hover,
+.nf-as-card select:hover, .nf-as-card textarea:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-as-card input:not([type='checkbox']):not([type='radio']):not([type='file']):focus,
+.nf-as-card select:focus, .nf-as-card textarea:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.nf-as-card input:disabled, .nf-as-card select:disabled { background: var(--raised) !important; opacity: .75; cursor: not-allowed; }
+.nf-as-card input[type='checkbox'], .nf-as-card input[type='radio'] { accent-color: var(--brand); }
+
+/* the Cancel / primary row at the end of each popup: a bar that stays visible while the form scrolls */
+.nf-as-body > div:last-child:has(> button) {
+  position: sticky; bottom: 0; z-index: 2; margin: 8px -22px -22px !important; padding: 14px 22px;
+  background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -8px 18px rgba(16, 24, 40, .06);
+}
+.nf-as-body > div:last-child:has(> button) > button { border-radius: 11px !important; padding: 9px 22px !important; font-weight: 700 !important; }
+.nf-as-body > div:last-child:has(> button) > button:last-child:not(:first-child):not(:disabled) { box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 28%, transparent); }

@@ -3,6 +3,8 @@ import PageTitleBlock from '../components/PageTitleBlock';
 import { Search, Users, FolderKanban } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord } from '../api/employees';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import { projectsApi, projectAllocationsApi, type ProjectRecord, type AllocationResult } from '../api/projectAllocations';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10 };
@@ -15,6 +17,7 @@ const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 
 function ResultsTable({ results, employees }: { results: AllocationResult[]; employees: EmployeeRecord[] }) {
   const nameFor = (id: string) => employees.find(e => e.userId === id)?.fullName ?? id;
   const successCount = results.filter(r => r.status === 'SUCCESS').length;
+  const resultsPaged = usePaged(results);
   return (
     <div style={{ ...card, padding: '14px 16px', marginTop: 16 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 10 }}>
@@ -29,7 +32,7 @@ function ResultsTable({ results, employees }: { results: AllocationResult[]; emp
           </tr>
         </thead>
         <tbody>
-          {results.map(r => (
+          {resultsPaged.pageRows.map(r => (
             <tr key={r.employeeId}>
               <td style={{ padding: '7px 8px', fontSize: 12.5, color: 'var(--txt)', borderBottom: '1px solid var(--line)' }}>{nameFor(r.employeeId)}</td>
               <td style={{ padding: '7px 8px', borderBottom: '1px solid var(--line)' }}>
@@ -44,6 +47,7 @@ function ResultsTable({ results, employees }: { results: AllocationResult[]; emp
           ))}
         </tbody>
       </table>
+      <TablePagination {...resultsPaged.pagerProps} noun="results" />
     </div>
   );
 }

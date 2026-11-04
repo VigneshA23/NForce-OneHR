@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Paperclip, Plus, Package, ClipboardList, Wallet } from 'lucide-react';
+import { Paperclip, Plus, Package, ClipboardList, Wallet, Check } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import { assetsApi, type AssetAssignmentResponse, type AssetRequestResponse } from '../../../api/assets';
 import { expensesApi, type ExpenseCategory, type ExpenseClaimResponse } from '../../../api/expenses';
@@ -7,29 +7,37 @@ import { KebabMenu } from '../../../components/KebabMenu';
 import { ReceiptViewerModal } from '../../../components/expenses/ReceiptViewerModal';
 import { useAuthStore } from '../../../store/authStore';
 import { assetsExpensesView } from '../../../lib/permissions';
-import { panelStyle, thStyle, tdStyle, StatusBadge, fmtDate, fmtCurrency, EmptyRow } from '../../assets/shared';
+import { panelStyle, thStyle, tdStyle, StatusBadge, fmtDate, fmtCurrency, EmptyRow, Modal } from '../../assets/shared';
 import { useEmployeeAssetsData } from '../../assets/useEmployeeAssetsData';
 import { RequestAssetModal } from '../../assets/RequestAssetModal';
 import { ManagerView, HRView, SubmitExpenseModal } from '../../AssetsExpensesPage';
 import { SectionHeader } from '../shared';
 import { TabBar } from '../../../components/TabBar';
 
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="nf-ps-field">
+      <div className="nf-ps-label">{label}</div>
+      <div className="nf-ps-value">{children}</div>
+    </div>
+  );
+}
+
 function AssetDetailsModal({ asset, onClose }: { asset: AssetAssignmentResponse; onClose: () => void }) {
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 24, width: 420, maxWidth: '94vw' }}>
-        <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>Asset Details</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 20px', marginBottom: 20 }}>
-          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Asset Tag</div><div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{asset.assetTag ?? '–'}</div></div>
-          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Category</div><div style={{ fontSize: 13, color: 'var(--txt)' }}>{asset.categoryName ?? '–'}</div></div>
-          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Make / Model</div><div style={{ fontSize: 13, color: 'var(--txt)' }}>{[asset.brand, asset.model].filter(Boolean).join(' ') || '–'}</div></div>
-          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Condition</div><div>{asset.condition ? <StatusBadge status={asset.condition} /> : '–'}</div></div>
-          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Allocated Date</div><div style={{ fontSize: 13, color: 'var(--txt)' }}>{fmtDate(asset.effectiveFrom)}</div></div>
-          <div><div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Acknowledged</div><div style={{ fontSize: 13, color: 'var(--txt)' }}>{asset.acknowledgedAt ? fmtDate(asset.acknowledgedAt) : 'Pending'}</div></div>
-        </div>
-        <button onClick={onClose} style={{ width: '100%', padding: '9px 0', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, color: 'var(--txt-mut)', cursor: 'pointer', fontSize: 13 }}>Close</button>
+    <Modal title="Asset Details" onClose={onClose}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }} className="nf-grid-2col-collapse">
+        <Fact label="Asset Tag">{asset.assetTag ?? '-'}</Fact>
+        <Fact label="Category">{asset.categoryName ?? '-'}</Fact>
+        <Fact label="Make / Model">{[asset.brand, asset.model].filter(Boolean).join(' ') || '-'}</Fact>
+        <Fact label="Condition">{asset.condition ? <StatusBadge status={asset.condition} /> : '-'}</Fact>
+        <Fact label="Allocated Date">{fmtDate(asset.effectiveFrom)}</Fact>
+        <Fact label="Acknowledged">{asset.acknowledgedAt ? fmtDate(asset.acknowledgedAt) : 'Pending'}</Fact>
       </div>
-    </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+        <button type="button" onClick={onClose} style={{ padding: '9px 22px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 11, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Close</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -40,24 +48,29 @@ function RequestTrackingModal({ request, onClose }: { request: AssetRequestRespo
     { label: 'Fulfilled', at: request.fulfilledAt, done: !!request.fulfilledAt },
   ];
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600 }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 24, width: 420, maxWidth: '94vw' }}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>Track Fulfillment</h3>
-        <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 18 }}>{request.categoryName} · Request #{request.id}</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
-          {steps.map((s, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: s.done ? 'var(--ok)' : 'var(--line2)', flexShrink: 0 }} />
-              <div style={{ fontSize: 13, color: s.done ? 'var(--txt)' : 'var(--txt-dim)' }}>{s.label}{s.at ? ` - ${fmtDate(s.at)}` : ''}</div>
-            </div>
-          ))}
-          {request.rejectionReason && (
-            <div style={{ fontSize: 12, color: 'var(--risk)' }}>Reason: {request.rejectionReason}</div>
-          )}
-        </div>
-        <button onClick={onClose} style={{ width: '100%', padding: '9px 0', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, color: 'var(--txt-mut)', cursor: 'pointer', fontSize: 13 }}>Close</button>
+    <Modal title="Track Fulfillment" onClose={onClose}>
+      <div className="nf-ps-field" style={{ marginBottom: 14 }}>
+        <div className="nf-ps-label">Request</div>
+        <div className="nf-ps-value">{request.categoryName} · #{request.id}</div>
       </div>
-    </div>
+      <div className="nf-trk">
+        {steps.map((s, i) => (
+          <div key={i} className={`nf-trk-step${s.done ? ' is-done' : ''}`}>
+            <span className="nf-trk-dot">{s.done && <Check size={11} />}</span>
+            <div>
+              <div className="nf-trk-label">{s.label}</div>
+              <div className="nf-trk-at">{s.at ? fmtDate(s.at) : 'Waiting'}</div>
+            </div>
+          </div>
+        ))}
+        {request.rejectionReason && (
+          <div style={{ fontSize: 12.5, color: 'var(--risk)', marginTop: 4 }}>Reason: {request.rejectionReason}</div>
+        )}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+        <button type="button" onClick={onClose} style={{ padding: '9px 22px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 11, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Close</button>
+      </div>
+    </Modal>
   );
 }
 

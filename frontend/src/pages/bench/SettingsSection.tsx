@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
+import { EmpCode } from '../../components/EmpCode';
 import { employeesApi, type EmployeeRecord } from '../../api/employees';
 import { benchApi, type BandAssignment, type BucketInput, type CompensationBand } from '../../api/bench';
 import { skillsApi, type Skill } from '../../api/skills';
+import { usePaged } from '../../components/usePaged';
+import { TablePagination } from '../../components/TablePagination';
 import { card, CardTitle, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, money, primaryBtn, td, th } from './ui';
 
 /** US-A04/US-A05: HR edits the aging buckets and the notification threshold. */
@@ -116,6 +119,7 @@ function TaxonomyCard({ token }: { token: string }) {
 function BandsCard({ token }: { token: string }) {
   const [bands, setBands] = useState<CompensationBand[]>([]);
   const [assignments, setAssignments] = useState<BandAssignment[]>([]);
+  const assignmentsPaged = usePaged(assignments);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [label, setLabel] = useState('');
   const [avgCtc, setAvgCtc] = useState('');
@@ -174,10 +178,13 @@ function BandsCard({ token }: { token: string }) {
       </div>
       <ErrorBox message={error} />
       {assignments.length > 0 && (
+        <>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr><th style={th}>Employee</th><th style={th}>Band</th></tr></thead>
-          <tbody>{assignments.map(a => <tr key={a.employeeId}><td style={td}>{a.employeeName}</td><td style={td}>{a.bandLabel}</td></tr>)}</tbody>
+          <tbody>{assignmentsPaged.pageRows.map(a => <tr key={a.employeeId}><td style={td}><div>{a.employeeName}</div><EmpCode userId={a.employeeId} /></td><td style={td}>{a.bandLabel}</td></tr>)}</tbody>
         </table>
+        <TablePagination {...assignmentsPaged.pagerProps} noun="assignments" />
+        </>
       )}
     </div>
   );

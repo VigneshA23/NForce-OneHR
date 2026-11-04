@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import PageTitleBlock from '../PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { ChevronLeft, ChevronRight, ScrollText } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ScrollText, Shield } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { auditApi, type ActionGroup, type AuditLogFilters, type AuditLogStats, type PagedAuditLogs } from '../../api/audit';
@@ -183,10 +183,13 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
         showAccess={config.showAccessCategory}
       />
 
-      <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>
-        {loading ? 'Loading…' : `${totalElements} record(s) found`}
+      <div className="nf-audit-meta">
+        <span className="nf-audit-count">
+          <ScrollText size={14} />
+          {loading ? 'Loading…' : <><b>{totalElements}</b> record(s) found</>}
+        </span>
         {config.showAccessCategory && !loading && (
-          <span style={{ color: 'var(--risk)', marginLeft: 6 }}>• Includes access-control events</span>
+          <span className="nf-audit-note"><Shield size={13} />Includes access-control events</span>
         )}
       </div>
 

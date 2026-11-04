@@ -23,7 +23,6 @@ import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.EmployeeShiftAssignment;
 import com.nforce.onehr.entity.Shift;
 import com.nforce.onehr.entity.User;
-import com.nforce.onehr.entity.WeeklyOffPolicy;
 import com.nforce.onehr.entity.WebClockInRequest;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
@@ -127,6 +126,12 @@ public class AttendanceService {
     // Only for historyFor's PENALIZED badge lookup — see its own comment. Added last for the same
     // explicit-constructor-test reason as the others above.
     private final AttendancePenaltyRepository attendancePenaltyRepository;
+    // Phase 3: getConfig's own "live what applies today" weeklyOffDays display, resolved for
+    // configDay exactly like employeeShiftAssignmentResolver already resolves shift timing for the
+    // same date — never Employee.weeklyOffPolicy, a best-effort display cache. Added last for the
+    // same explicit-constructor-test reason as the others above.
+    private final EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
+    private final WeeklyOffPolicyVersionResolver weeklyOffPolicyVersionResolver;
 
     // ---------------------------------------------------------------- self-service
 
@@ -292,18 +297,23 @@ public class AttendanceService {
     @Transactional(readOnly = true)
     public AttendanceConfigResponse getConfig(String actorEmail) {
         Employee employee = resolveEmployee(actorEmail);
-        WeeklyOffPolicy weeklyOffPolicy = employee.getWeeklyOffPolicy();
         // A live "what applies today" display, not tied to any specific historical Attendance
         // record — resolves the Shift Version effective right now, same as the Shifts tab itself.
         // Resolved in THIS employee's own zone (see AttendanceRulesService.resolveEmployeeZoneId)
         // — not the bare org-wide default — so the displayed shift start/end matches what their
         // own Check-In would actually compute.
         LocalDate configDay = LocalDate.now(attendanceRulesService.resolveEmployeeZoneId(employee));
+        // Phase 3: resolved for configDay via the effective-dated Policy assignment, never
+        // Employee.weeklyOffPolicy (a best-effort display cache) — same fallback (Saturday/Sunday)
+        // as every other consumer when no effective assignment exists.
+        List<String> weeklyOffDays = employeeWeeklyOffPolicyAssignmentResolver.resolveIfPresent(employee.getUserId(), configDay)
+                .flatMap(assignment -> weeklyOffPolicyVersionResolver.resolveIfPresent(assignment.getWeeklyOffPolicy(), configDay))
+                .map(version -> version.offDaysSet().stream().map(Enum::name).sorted().toList())
+                .filter(days -> !days.isEmpty())
+                .orElse(List.of("SATURDAY", "SUNDAY"));
         AttendanceConfigResponse.AttendanceConfigResponseBuilder builder = AttendanceConfigResponse.builder()
                 .halfDayMaxHours(attendanceRulesService.getHalfDayMaxHours())
-                .weeklyOffDays(weeklyOffPolicy != null
-                        ? Arrays.stream(weeklyOffPolicy.getOffDays().split(",")).map(String::trim).toList()
-                        : List.of("SATURDAY", "SUNDAY"));
+                .weeklyOffDays(weeklyOffDays);
 
         // Resolved from the Shift Assignment effective TODAY (never employee.getShift(), a
         // best-effort display cache — see that field's own Javadoc), then pinned so
@@ -384,6 +394,16 @@ public class AttendanceService {
         AttendanceInterpretation interpretation = attendanceInterpretationService.interpretFreshAction(
                 employee, new AttendanceContext(employee.getUserId(), now, freshZone));
         LocalDate today = interpretation.getWorkDate();
+
+        // D2: no attendance may be recorded before the employee's own employment start date — a
+        // data-integrity rule, not a business policy (mirrors
+        // RegularizationService#assertNotBeforeJoiningDate), closing the gap where an account
+        // activated ahead of its joiningDate could otherwise self-check-in before employment
+        // actually begins.
+        if (employee.getJoiningDate() != null && today.isBefore(employee.getJoiningDate())) {
+            throw new IllegalArgumentException(
+                    "You cannot check in before your joining date (" + employee.getJoiningDate() + ").");
+        }
 
         Optional<Attendance> existing = attendanceRepository.findByEmployeeUserIdAndWorkDate(employee.getUserId(), today);
 
@@ -1541,14 +1561,27 @@ public class AttendanceService {
                         employee.getUserId(), start, end)
                 .stream()
                 .map(record -> toResponse(record, employee))
-                .toList();
-        if (!responses.isEmpty()) {
-            Set<LocalDate> penalizedDates = attendancePenaltyRepository
-                    .findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
-                            employee.getUserId(), start, end, AttendancePenaltyStatus.PENDING_REVIEW)
-                    .stream().map(AttendancePenalty::getIncidentDate).collect(Collectors.toSet());
-            responses.forEach(r -> r.setPenalized(penalizedDates.contains(r.getWorkDate())));
-        }
+                .collect(Collectors.toCollection(ArrayList::new));
+        Set<LocalDate> penalizedDates = attendancePenaltyRepository
+                .findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
+                        employee.getUserId(), start, end, AttendancePenaltyStatus.PENDING_REVIEW)
+                .stream().map(AttendancePenalty::getIncidentDate).collect(Collectors.toSet());
+        responses.forEach(r -> r.setPenalized(penalizedDates.contains(r.getWorkDate())));
+        // ONEHR-645: a "No attendance" penalty lands on a day with no Attendance row at all, so the
+        // flag above had nothing to attach to. Same record-less row shape joinRoster uses.
+        Set<LocalDate> recordedDates = responses.stream().map(AttendanceResponse::getWorkDate).collect(Collectors.toSet());
+        penalizedDates.stream().filter(d -> !recordedDates.contains(d)).forEach(d -> {
+            AttendanceResponse placeholder = AttendanceResponse.builder()
+                    .employeeUserId(employee.getUserId())
+                    .employeeCode(employee.getEmployeeCode())
+                    .fullName(employee.getFullName())
+                    .workDate(d)
+                    .workMode(employee.getWorkMode())
+                    .build();
+            placeholder.setPenalized(true);
+            responses.add(placeholder);
+        });
+        responses.sort(Comparator.comparing(AttendanceResponse::getWorkDate).reversed());
         return responses;
     }
 

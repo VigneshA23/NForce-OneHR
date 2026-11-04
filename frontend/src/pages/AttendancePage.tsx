@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, forwardRef } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { PersonCell } from '../components/PersonCell';
+import { PersonCell, PersonCellById } from '../components/PersonCell';
 import { createPortal } from 'react-dom';
+import './attendanceModals.css';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, XCircle, Mountain, MapPin, PartyPopper, Building2, UsersRound, Search, Moon, Plane, TriangleAlert, CircleCheck, BadgeCheck, Hourglass, Target, type LucideIcon } from 'lucide-react';
@@ -641,20 +642,29 @@ function modalIconFor(title: string): LucideIcon {
   return FileText;
 }
 
+/** One-line helper under a popup title — presentation only. */
+function modalSubtitleFor(title: string): string | null {
+  const t = title.toLowerCase();
+  if (t.startsWith('request attendance regularization')) return 'Correct a missed or wrong punch for a past day.';
+  if (t.startsWith('edit regularization')) return 'Update your pending regularization request.';
+  if (t === 'work from home') return 'Request remote work for one or more days.';
+  if (t.startsWith('request partial day')) return 'Late arrival, early leaving or time off during the shift.';
+  if (t.startsWith('web clock-in')) return 'Add a short note about where you are working from.';
+  if (t.startsWith('check out')) return 'This closes out your working day.';
+  return null;
+}
+
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   const Icon = modalIconFor(title);
+  const sub = modalSubtitleFor(title);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '18px 22px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-        <Icon size={18} style={{ color: 'var(--brand)', flexShrink: 0 }} />
-        <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15.5, color: 'var(--txt)', overflowWrap: 'anywhere' }}>{title}</span>
-      </span>
-      <button
-        onClick={onClose}
-        aria-label="Close"
-        className="nf-modal-close"
-        style={{ width: 30, height: 30, flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >
+    <div className="nf-am-head">
+      <span className="nf-am-ico"><Icon size={19} /></span>
+      <div className="nf-am-titles">
+        <div className="nf-am-title">{title}</div>
+        {sub && <div className="nf-am-sub">{sub}</div>}
+      </div>
+      <button onClick={onClose} aria-label="Close" className="nf-modal-close nf-am-x">
         <X size={16} />
       </button>
     </div>
@@ -1037,7 +1047,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <div className="nf-am-callout" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
             <input type="radio" checked readOnly style={{ marginTop: 3 }} />
             <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>
               Raise regularization request to exempt this day from penalization policy.
@@ -1045,7 +1055,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
           </div>
 
           <div ref={balanceDetailsRef} style={{ position: 'relative' }}>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className="nf-am-balance" style={{ fontSize: 12, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Info size={13} />
               {balance ? (
                 balance.unlimited
@@ -2411,7 +2421,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                 </div>
               )}
               <div ref={wfhBalanceRef} style={{ position: 'relative' }}>
-                <div style={{ fontSize: 12, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="nf-am-balance" style={{ fontSize: 12, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Info size={13} />
                   Remaining balance: <strong style={{ color: 'var(--txt)' }}>{wfhBalance ? wfhBalance.remainingDays : '–'}</strong> days
                   <button type="button" onClick={() => setShowWfhBalance((v) => !v)}
@@ -5929,9 +5939,8 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                             />
                           )}
                         </td>
-                        <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>
-                          {r.employeeName}
-                          <TruncatedText text={r.employeeEmail} style={{ fontSize: 10, fontWeight: 400, color: 'var(--txt-dim)' }} />
+                        <td data-label="Employee" style={reqTdStyle}>
+                          <PersonCellById userId={r.employeeUserId} name={r.employeeName} extra={r.employeeEmail} />
                         </td>
                         <td data-label="Date" style={reqTdStyle}>{r.attendanceDate}</td>
                         <td data-label="Requested In / Out" style={reqTdStyle}>
@@ -6215,7 +6224,7 @@ function AttendanceRequestsSection({ token, canApprove, isPreview = false }: { t
                     : dash;
                   return (
                     <tr key={first.id}>
-                      {showActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{first.employeeName}</td>}
+                      {showActions && <td data-label="Employee" style={reqTdStyle}><PersonCellById userId={first.employeeUserId} name={first.employeeName} /></td>}
                       <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <Home size={13} style={{ color: 'var(--brand)', flexShrink: 0 }} />
@@ -6281,7 +6290,7 @@ function AttendanceRequestsSection({ token, canApprove, isPreview = false }: { t
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    {showActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
+                    {showActions && <td data-label="Employee" style={reqTdStyle}><PersonCellById userId={r.employeeUserId} name={r.employeeName} /></td>}
                     <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.requestDate)}</td>
                     <td data-label="Mode" style={reqTdStyle}>{partialDayModeLabel(r)}</td>
                     {/* partialDayHours is a decimal (e.g. 3.33 for 3h 20m) — round-trip through
@@ -6905,7 +6914,7 @@ function OvertimeRequestsSection({ token, canApprove, isPreview = false }: { tok
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    {showApprovalActions && <td data-label="Employee" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>}
+                    {showApprovalActions && <td data-label="Employee" style={reqTdStyle}><PersonCellById userId={r.employeeUserId} name={r.employeeName} /></td>}
                     <td data-label="Date" style={{ ...reqTdStyle, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(r.workDate)}</td>
                     <td data-label="Overtime Hours" style={reqTdStyle}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>

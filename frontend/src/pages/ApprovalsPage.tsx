@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
+import { useEmployeeCodes } from '../lib/useEmployeeCodes';
+import { TablePagination, clampPage, paginate } from '../components/TablePagination';
 import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
 import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApproval';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
@@ -197,41 +199,28 @@ function ActionIconButton({
   label,
   title,
   color,
-  background,
-  border,
   onClick,
   children,
 }: {
   label: string;
   title: string;
   color: string;
-  background: string;
-  border: string;
+  background?: string;
+  border?: string;
   onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
   children: React.ReactNode;
 }) {
+  // Same labelled row-action buttons as the rest of the app: icon + the word, tinted by outcome.
+  const word = title.replace(/ request$/i, '');
   return (
     <button
       type="button"
       aria-label={label}
       title={title}
       onClick={onClick}
-      style={{
-        width: 30,
-        height: 30,
-        borderRadius: '50%',
-        border,
-        background,
-        color,
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        padding: 0,
-        flexShrink: 0,
-      }}
+      className={`nf-act-btn ${color === '#2FB67C' ? 'nf-act-btn--ok' : 'nf-act-btn--danger'}`}
     >
-      {children}
+      {children}{word}
     </button>
   );
 }
@@ -405,17 +394,15 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
     <div ref={overlayRef} className="apv-overlay" role="dialog" aria-modal="true" aria-label={`${TYPE_LABELS[item.requestType]} request from ${item.employeeName}`}>
       <div className="apv-modal">
         <div className="apv-modal-head">
-          <EmployeeAvatar userId={item.employeeUserId} name={item.employeeName} size={38} fontSize={13} />
+          <span className="apv-head-av"><EmployeeAvatar userId={item.employeeUserId} name={item.employeeName} size={48} fontSize={16} /></span>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {item.employeeName}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+            <div className="apv-head-name">{item.employeeName}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
               <TypeBadge type={item.requestType} />
-              <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Submitted {fmtDate(item.createdAt)}</span>
+              <span className="apv-head-sub">Submitted {fmtDate(item.createdAt)}</span>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignSelf: 'flex-start' }}><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close" className="apv-head-x"><X size={16} /></button>
         </div>
 
         <div className="apv-modal-body">
@@ -631,11 +618,24 @@ function BulkActionModal({ items, mode, onClose, onDone, token }: {
   );
 }
 
+/** Icon for a detail row, picked from its label — presentation only. */
+function rowIcon(label: string): LucideIcon {
+  const l = label.toLowerCase();
+  if (l.includes('date') || l.includes('dates')) return CalendarDays;
+  if (l.includes('check-in') || l.includes('check-out') || l.includes('duration') || l.includes('hours') || l.includes('days')) return Clock;
+  if (l.includes('amount') || l.includes('category') || l.includes('stage')) return Wallet;
+  return FileText;
+}
+
 function Row({ label, value, span }: { label: string; value?: string | null; span?: boolean }) {
+  const Icon = rowIcon(label);
   return (
-    <div className={span ? 'apv-span' : undefined}>
-      <div style={labelStyle}>{label}</div>
-      <div style={{ fontSize: 13, color: 'var(--txt)' }}>{value ?? EMPTY_VALUE}</div>
+    <div className={`apv-fact${span ? ' apv-span' : ''}`}>
+      <span className="apv-fact-ico"><Icon size={15} /></span>
+      <div className="apv-fact-main">
+        <div className="apv-fact-lbl">{label}</div>
+        <div className="apv-fact-val">{value ?? EMPTY_VALUE}</div>
+      </div>
     </div>
   );
 }
@@ -679,6 +679,15 @@ export default function ApprovalsPage() {
   const searchTerm = employeeSearch.trim().toLowerCase();
   const searched = searchTerm ? items.filter(i => i.employeeName.toLowerCase().includes(searchTerm)) : items;
   const filtered = typeFilter === 'ALL' ? searched : searched.filter(i => i.requestType === typeFilter);
+
+  // Display paging only: the queue, search, category filter and "select all" still work over the whole
+  // filtered list; this just limits how many rows are drawn at once.
+  const codeFor = useEmployeeCodes();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+  useEffect(() => { setPage(1); }, [typeFilter, employeeSearch]);
+  const currentPage = clampPage(page, filtered.length, pageSize);
+  const pagedItems = paginate(filtered, currentPage, pageSize);
 
   // Badge counts are totals over the full pending queue (`items`), not the search-narrowed
   // `searched`/`filtered` subsets — typing in the employee search box should narrow the visible
@@ -825,8 +834,28 @@ export default function ApprovalsPage() {
             </div>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
+          <div>
             <table className="apv-table">
+              {/* table-layout: fixed + width: 100% (see ApprovalsPage.css's .apv-table) with every
+                  column given an explicit PERCENTAGE here — not pixels. Percentages always sum to
+                  100% of whatever the card's actual width is, so the table can never end up wider
+                  than its container (no horizontal scrollbar, Actions never pushed off-screen),
+                  regardless of zoom level or how much room the sidebar leaves. Each column still
+                  gets a deliberate, content-proportional share (Reason the most, since it's the
+                  free-text column) instead of one single column absorbing 100% of any leftover
+                  space, which is what produced the very visible dead gaps in both earlier passes
+                  at this (fixed-px columns either came up short of 100%, or — when stretched to
+                  fill — dumped all the slack into whichever one column was left unset). */}
+              <colgroup>
+                <col style={{ width: '3%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '14%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '18%' }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th className="apv-check">
@@ -842,7 +871,7 @@ export default function ApprovalsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(item => {
+                {pagedItems.map(item => {
                   const requestedDates = getRequestedDates(item);
                   const reason = getReason(item);
                   const key = rowKey(item);
@@ -874,13 +903,16 @@ export default function ApprovalsPage() {
                           <span className="apv-type-icon" style={{ background: TYPE_COLORS[item.requestType], color: TYPE_TEXT[item.requestType] }} aria-hidden="true">
                             <TypeIcon size={16} />
                           </span>
-                          <span className="apv-type-label">{TYPE_LABELS[item.requestType]}</span>
+                          <span className="apv-type-label" title={TYPE_LABELS[item.requestType]}>{TYPE_LABELS[item.requestType]}</span>
                         </div>
                       </td>
                       <td className="apv-cell-emp" data-label="Employee">
                         <div className="apv-emp">
                           <EmployeeAvatar userId={item.employeeUserId} name={item.employeeName} size={32} fontSize={11.5} />
-                          <span className="apv-emp-name">{item.employeeName}</span>
+                          <div className="apv-emp-text">
+                            <span className="apv-emp-name" title={item.employeeName}>{item.employeeName}</span>
+                            {codeFor(item.employeeUserId) && <span className="apv-emp-code">{codeFor(item.employeeUserId)}</span>}
+                          </div>
                         </div>
                       </td>
                       <td className="apv-cell-dates apv-dates" data-label="Requested Dates">{requestedDates}</td>
@@ -935,6 +967,12 @@ export default function ApprovalsPage() {
               </tbody>
             </table>
           </div>
+        )}
+        {filtered.length > 0 && (
+          <TablePagination
+            page={currentPage} pageSize={pageSize} total={filtered.length} noun="requests"
+            onPageChange={setPage} onPageSizeChange={n => { setPageSize(n); setPage(1); }}
+          />
         )}
       </div>
 

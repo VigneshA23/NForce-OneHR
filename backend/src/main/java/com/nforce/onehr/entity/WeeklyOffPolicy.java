@@ -18,7 +18,13 @@ public class WeeklyOffPolicy {
     @Column(nullable = false, unique = true)
     private String name;
 
-    // Comma-separated java.time.DayOfWeek names, e.g. "SATURDAY,SUNDAY".
+    // Comma-separated java.time.DayOfWeek names, e.g. "SATURDAY,SUNDAY". Since
+    // WeeklyOffPolicyVersion was introduced, this is a best-effort, non-authoritative display
+    // cache of the CURRENT version's off days only (dropdowns, the Organization Masters list) —
+    // kept in sync on every create/update (see OrgService#createWeeklyOffPolicy/
+    // #updateWeeklyOffPolicy) but never read for a date-aware calculation; every
+    // correctness-critical read resolves through WeeklyOffPolicyVersionResolver instead, exactly
+    // mirroring Employee.shiftId's identical relationship to EmployeeShiftAssignment.
     @Column(name = "off_days", nullable = false)
     private String offDays;
 

@@ -5,6 +5,11 @@ import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.LeaveTypeResponse;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nforce.onehr.entity.AttendancePenalty;
+import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Holiday;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
@@ -14,6 +19,7 @@ import com.nforce.onehr.entity.LeaveHalfDaySession;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.HolidayRepository;
@@ -34,7 +40,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -86,9 +94,14 @@ public class LeaveService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
     private final AttendanceProperties attendanceProperties;
-    private final EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
+    // Phase 4: weekly-off (not Shift.workingDays, now removed) is the sole source of truth for
+    // which days a leave request may span — resolved per date via the same batch resolver
+    // WorkingDayService/ExceptionService already share, never Employee.weeklyOffPolicy directly.
+    private final WorkingDayService workingDayService;
     private final HolidayRepository holidayRepository;
     private final EffectivePermissionService effectivePermissionService;
+    private final AttendancePenaltyRepository attendancePenaltyRepository;
+    private static final ObjectMapper PENALTY_JSON = new ObjectMapper();
     // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
     // AttendancePenaltyEvaluationService -> EmployeeService -> LeaveService (EmployeeService has
     // depended on LeaveService since before this change). A lazy proxy defers resolving the real
@@ -291,32 +304,149 @@ public class LeaveService {
     }
 
     /**
-     * Rejects the request at the first date in [start, end] that is an active holiday of the
-     * employee's Location or an off day of the Shift governing that date — the shift is resolved
-     * per date via {@link EmployeeShiftAssignmentResolver}, since a reassignment can land inside
-     * the range. A date with no effective assignment (a valid no-shift state) is treated as a
-     * working day, i.e. the pre-shift behaviour; an employee with no Location has no holidays.
+     * Edit a still-pending leave request. Only the submitting employee may edit, and only while
+     * status is PENDING — approved/rejected requests are immutable history (mirrors
+     * RegularizationService#update's precedent). Re-runs every validation {@link #submitRequest}
+     * enforces (working days, overlap, balance, unpaid-vs-paid rule), excluding this request's own
+     * reservation from each check — see {@link #availableBalance(LeaveBalance, UUID)} — so editing
+     * a request never counts its own pre-edit reservation against itself. No notification is sent
+     * (same as RegularizationService#update); the approver sees the new details next time they open it.
      */
-    // ponytail: one assignment lookup per date — fine for leave-sized ranges; batch-fetch the
-    // employee's assignments if multi-month requests ever become common.
+    @Transactional
+    public LeaveRequestResponse update(UUID requestId, CreateLeaveRequestRequest req, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        LeaveRequest existing = leaveRequestRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
+        if (!existing.getEmployeeUserId().equals(actor.getId())) {
+            throw new AccessDeniedException("You can only edit your own requests");
+        }
+        if (!"PENDING".equals(existing.getStatus())) {
+            throw new IllegalStateException("Only pending requests can be edited");
+        }
+        // Captured once, before `existing` is reassigned by save() below — reassignment means
+        // existing.getId() itself isn't effectively final and can't be referenced from the lambda
+        // further down (the balance-sum stream).
+        final UUID existingId = existing.getId();
+
+        LeaveType type = leaveTypeRepository.findByCode(req.getLeaveTypeCode())
+                .orElseThrow(() -> new IllegalArgumentException("Unknown leave type: " + req.getLeaveTypeCode()));
+
+        if (req.getEndDate().isBefore(req.getStartDate())) {
+            throw new IllegalArgumentException("End date cannot be before start date");
+        }
+        if (req.isHalfDay() && !req.getEndDate().isEqual(req.getStartDate())) {
+            throw new IllegalArgumentException("A half-day request must use the same start and end date");
+        }
+        if (req.isHalfDay() && !(LeaveHalfDaySession.FIRST_HALF.equals(req.getHalfDaySession())
+                || LeaveHalfDaySession.SECOND_HALF.equals(req.getHalfDaySession()))) {
+            throw new IllegalArgumentException("A half-day request must specify First Half or Second Half");
+        }
+
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        if (req.getStartDate().isBefore(today)) {
+            throw new IllegalArgumentException("Leave cannot be requested for a date before today");
+        }
+        requireOnlyWorkingDays(actor.getId(), req.getStartDate(), req.getEndDate());
+
+        if (leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
+                actor.getId(), OVERLAP_BLOCKING_STATUSES, req.getEndDate(), req.getStartDate(), existingId)) {
+            throw new IllegalArgumentException("You already have a pending or approved leave request that overlaps these dates.");
+        }
+
+        BigDecimal totalDays = req.isHalfDay()
+                ? new BigDecimal("0.5")
+                : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
+
+        if (!type.isPaid() && hasAnyPositivePaidBalance(actor.getId(), req.getStartDate().getYear(), existingId)) {
+            throw new IllegalArgumentException(
+                    "You cannot apply for unpaid leave while you have an available paid leave balance.");
+        }
+
+        if (type.isPaid()) {
+            int year = req.getStartDate().getYear();
+            LeaveType balanceType = isAnnualBalanceLeaveType(type) ? annualLeaveType() : type;
+            LeaveBalance balance = leaveBalanceRepository
+                    .findByEmployeeUserIdAndLeaveTypeIdAndYear(actor.getId(), balanceType.getId(), year)
+                    .orElseThrow(() -> new IllegalArgumentException("No " + balanceType.getName() + " balance configured for " + year));
+
+            BigDecimal remaining = availableBalance(balance, existingId);
+            if (remaining.compareTo(totalDays) < 0) {
+                throw new IllegalArgumentException("Leave request exceeds your available " + balanceType.getName()
+                        + " balance of " + formatDays(remaining) + " days.");
+            }
+        } else {
+            int year = req.getStartDate().getYear();
+            BigDecimal availablePaidDays = leaveBalanceRepository.findByEmployeeUserIdAndYear(actor.getId(), year).stream()
+                    .filter(b -> b.getLeaveType().isPaid())
+                    .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
+                            || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
+                    .map(b -> availableBalance(b, existingId))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            if (availablePaidDays.signum() > 0) {
+                throw new IllegalArgumentException("You have " + formatDays(availablePaidDays)
+                        + " day(s) of paid leave available — use that before applying for " + type.getName() + ".");
+            }
+        }
+
+        String before = auditSnapshot.toJson(Map.of(
+                "leaveTypeCode", existing.getLeaveType().getCode(),
+                "startDate", existing.getStartDate().toString(),
+                "endDate", existing.getEndDate().toString(),
+                "halfDay", existing.isHalfDay(),
+                "totalDays", existing.getTotalDays(),
+                "reason", existing.getEmployeeReason()));
+
+        existing.setLeaveType(type);
+        existing.setStartDate(req.getStartDate());
+        existing.setEndDate(req.getEndDate());
+        existing.setHalfDay(req.isHalfDay());
+        existing.setHalfDaySession(req.isHalfDay() ? req.getHalfDaySession() : null);
+        existing.setTotalDays(totalDays);
+        existing.setEmployeeReason(req.getReason().trim());
+        existing.setDurationType(req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY);
+        existing = leaveRequestRepository.save(existing);
+
+        String after = auditSnapshot.toJson(Map.of(
+                "leaveTypeCode", existing.getLeaveType().getCode(),
+                "startDate", existing.getStartDate().toString(),
+                "endDate", existing.getEndDate().toString(),
+                "halfDay", existing.isHalfDay(),
+                "totalDays", existing.getTotalDays(),
+                "reason", existing.getEmployeeReason()));
+        auditService.log(actor.getId(), "LEAVE_REQUEST_UPDATED", existing.getId(), before, after);
+        return toRequestResponse(existing);
+    }
+
+    /**
+     * Rejects the request at the first date in [start, end] that is an active holiday of the
+     * employee's Location or a weekly-off day under the Weekly Off Policy governing that date.
+     * Resolved per date (never once for the whole range) via {@link WorkingDayService}'s shared
+     * batch resolver — the same one {@code WorkingDayService}/{@code ExceptionService} already use
+     * — since a policy reassignment or policy-definition edit can land inside the requested range.
+     * One assignment-history query and one policy-version-history query back the whole range
+     * (built once below), not a query per date. No effective Weekly Off Policy assignment at all
+     * falls back to Saturday/Sunday — the same explicit, pre-existing no-assignment behaviour this
+     * preserves (D1: never a silently-assigned default policy). Shift.workingDays ("Applicable
+     * Days") no longer has any bearing here — removed in Phase 4; WeeklyOffPolicy is now the sole
+     * source of truth for an employee's working days.
+     */
     private void requireOnlyWorkingDays(UUID employeeUserId, LocalDate start, LocalDate end) {
         Map<LocalDate, String> holidayNames = employeeRepository.findById(employeeUserId)
                 .map(Employee::getLocation)
                 .map(location -> holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(location.getId())
                         .stream().collect(Collectors.toMap(Holiday::getHolidayDate, Holiday::getHolidayName, (a, b) -> a)))
                 .orElse(Map.of());
+        WorkingDayService.WeeklyOffBatchResolver offDaysResolver =
+                workingDayService.weeklyOffDaysResolver(List.of(employeeUserId));
         for (LocalDate date : start.datesUntil(end.plusDays(1)).toList()) {
             String holiday = holidayNames.get(date);
             if (holiday != null) {
                 throw new IllegalArgumentException("Leave cannot be applied for " + date.format(LEAVE_DATE_FMT)
                         + " — it is a holiday (" + holiday + "). Please choose only your working days.");
             }
-            boolean worksThatDay = employeeShiftAssignmentResolver.resolveIfPresent(employeeUserId, date)
-                    .map(a -> a.getShift().worksOn(date.getDayOfWeek()))
-                    .orElse(true);
-            if (!worksThatDay) {
+            if (offDaysResolver.offDaysOn(employeeUserId, date).contains(date.getDayOfWeek())) {
                 throw new IllegalArgumentException("Leave cannot be applied for " + date.format(LEAVE_DATE_FMT)
-                        + " — it is a non-working day for your shift. Please choose only your working days.");
+                        + " — it is a weekly-off day under your Weekly Off Policy. Please choose only your working days.");
             }
         }
     }
@@ -327,9 +457,58 @@ public class LeaveService {
         List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId());
         Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
         Map<UUID, String> codesById = codesByUserIds(Set.of(actor.getId()));
-        return requests.stream()
+        List<LeaveRequestResponse> rows = requests.stream()
                 .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
+        rows.addAll(penaltyDeductionRows(actor.getId(), employeeName(actor.getId()), codesById.get(actor.getId())));
+        rows.sort(Comparator.comparing(LeaveRequestResponse::getCreatedAt,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return rows;
+    }
+
+    /**
+     * ONEHR-645: a PAID_LEAVE attendance penalty debits {@code LeaveBalance.usedDays} directly
+     * (PenaltyDeductionService) without any LeaveRequest, so the deduction was invisible in Leave
+     * history, My Requests and My Attendance (whose Leave day-tag reads this same list). Surfaces
+     * each still-active penalty as a read-only, already-APPROVED row per debited leave type —
+     * synthesized, never persisted, so the balance isn't debited twice and no leave-approval side
+     * effects (penalty re-evaluation/reversal) fire. A cancelled/reversed penalty drops out
+     * automatically, matching AttendancePenaltyService#restoreLeaveBalance crediting it back.
+     */
+    private List<LeaveRequestResponse> penaltyDeductionRows(UUID employeeUserId, String employeeName, String employeeCode) {
+        List<LeaveRequestResponse> rows = new ArrayList<>();
+        for (AttendancePenalty p : attendancePenaltyRepository.findByEmployeeUserIdAndStatusAndLeaveDeductionDaysGreaterThan(
+                employeeUserId, AttendancePenaltyStatus.PENDING_REVIEW, BigDecimal.ZERO)) {
+            Map<String, BigDecimal> breakdown;
+            try {
+                breakdown = p.getLeaveBreakdown() == null ? Map.of()
+                        : PENALTY_JSON.readValue(p.getLeaveBreakdown(), new TypeReference<Map<String, BigDecimal>>() {});
+            } catch (JsonProcessingException e) {
+                continue;
+            }
+            String reason = "Attendance penalty: " + AttendancePenaltyEvaluationService.humanizeDiscrepancyType(p.getDiscrepancyType());
+            breakdown.forEach((code, days) -> leaveTypeRepository.findByCode(code).ifPresent(type -> rows.add(
+                    LeaveRequestResponse.builder()
+                            // Stable and unique per (penalty, leave type) — a cascade across types yields several rows.
+                            .id(UUID.nameUUIDFromBytes((p.getId() + ":" + code).getBytes()))
+                            .employeeUserId(employeeUserId)
+                            .employeeName(employeeName)
+                            .employeeCode(employeeCode)
+                            .leaveTypeCode(type.getCode())
+                            .leaveTypeName(type.getName())
+                            .leaveTypeClassification(type.getClassification())
+                            .startDate(p.getIncidentDate())
+                            .endDate(p.getIncidentDate())
+                            .totalDays(days)
+                            .status("APPROVED")
+                            .employeeReason(reason)
+                            .decisionReason("Deducted automatically by attendance penalty")
+                            .decidedByName("System")
+                            .decidedAt(p.getCreatedAt())
+                            .createdAt(p.getCreatedAt())
+                            .build())));
+        }
+        return rows;
     }
 
     /**
@@ -776,12 +955,25 @@ public class LeaveService {
      * they all draw from this one row (see {@link #annualBalanceGroupTypeIds}).
      */
     private BigDecimal availableBalance(LeaveBalance b) {
+        return availableBalance(b, null);
+    }
+
+    /**
+     * {@code excludeRequestId} variant used by {@link #update}: a request being edited is still
+     * PENDING in the DB at validation time, so without exclusion its own (pre-edit) reservation
+     * would be double-counted against itself, making the balance look smaller than it really is.
+     */
+    private BigDecimal availableBalance(LeaveBalance b, UUID excludeRequestId) {
         Collection<UUID> pendingTypeIds = isAnnualBalanceLeaveType(b.getLeaveType())
                 ? annualBalanceGroupTypeIds()
                 : Set.of(b.getLeaveType().getId());
-        BigDecimal pendingReserved = leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
-                b.getEmployeeUserId(), pendingTypeIds, "PENDING",
-                LocalDate.of(b.getYear(), 1, 1), LocalDate.of(b.getYear(), 12, 31));
+        BigDecimal pendingReserved = excludeRequestId == null
+                ? leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
+                        b.getEmployeeUserId(), pendingTypeIds, "PENDING",
+                        LocalDate.of(b.getYear(), 1, 1), LocalDate.of(b.getYear(), 12, 31))
+                : leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetweenAndIdNot(
+                        b.getEmployeeUserId(), pendingTypeIds, "PENDING",
+                        LocalDate.of(b.getYear(), 1, 1), LocalDate.of(b.getYear(), 12, 31), excludeRequestId);
         if (pendingReserved == null) pendingReserved = BigDecimal.ZERO;
         return b.getTotalDays().subtract(b.getUsedDays()).subtract(pendingReserved);
     }
@@ -794,11 +986,16 @@ public class LeaveService {
      * sees, reusing #availableBalance rather than a duplicate calculation.
      */
     private boolean hasAnyPositivePaidBalance(UUID employeeUserId, int year) {
+        return hasAnyPositivePaidBalance(employeeUserId, year, null);
+    }
+
+    /** {@code excludeRequestId} variant used by {@link #update} — see {@link #availableBalance(LeaveBalance, UUID)}. */
+    private boolean hasAnyPositivePaidBalance(UUID employeeUserId, int year, UUID excludeRequestId) {
         return leaveBalanceRepository.findByEmployeeUserIdAndYear(employeeUserId, year).stream()
                 .filter(b -> b.getLeaveType().isPaid())
                 .filter(b -> !isAnnualBalanceLeaveType(b.getLeaveType())
                         || ANNUAL_LEAVE_TYPE_CODE.equals(b.getLeaveType().getCode()))
-                .anyMatch(b -> availableBalance(b).compareTo(BigDecimal.ZERO) > 0);
+                .anyMatch(b -> availableBalance(b, excludeRequestId).compareTo(BigDecimal.ZERO) > 0);
     }
 
     private boolean isAnnualBalanceLeaveType(LeaveType type) {

@@ -97,6 +97,10 @@ export const leaveApi = {
   submit: (payload: SubmitLeaveRequestPayload, token: string) =>
     fetch(`${BASE}/requests`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),
 
+  /** Edit a still-pending request — own requests only, PENDING status only (server-enforced). */
+  update: (id: string, payload: SubmitLeaveRequestPayload, token: string) =>
+    fetch(`${BASE}/requests/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),
+
   listMine: (token: string) =>
     fetch(`${BASE}/requests/mine`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
 

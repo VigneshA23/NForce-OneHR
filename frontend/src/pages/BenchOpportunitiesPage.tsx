@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { Briefcase } from 'lucide-react';
+import { Briefcase, CalendarRange, Check, Clock, Gauge, Info, Megaphone, Send, UserCheck, UserRound, Users } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { hasPermission } from '../lib/permissions';
 import { opportunitiesApi, type InterestedEmployee, type Opportunity } from '../api/opportunities';
 import { skillsApi, type Skill } from '../api/skills';
 import { projectsApi, type ProjectRecord } from '../api/projectAllocations';
-import { card, CardTitle, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, Pill, primaryBtn, todayLocal } from './bench/ui';
+import { card, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, primaryBtn, todayLocal } from './bench/ui';
+import './benchOpportunities.css';
 
 function PostForm({ token, skills, onPosted }: { token: string; skills: Skill[]; onPosted: () => void }) {
   const [title, setTitle] = useState('');
@@ -28,24 +29,32 @@ function PostForm({ token, skills, onPosted }: { token: string; skills: Skill[];
 
   return (
     <div style={{ ...card, marginBottom: 16 }}>
-      <CardTitle>Post an internal opportunity</CardTitle>
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12, marginBottom: 10 }}>
-        <div><label style={labelStyle}>Role needed</label><input value={title} onChange={e => setTitle(e.target.value)} style={inputStyle} /></div>
+      <div className="nf-opp-head">
+        <span className="nf-opp-ico"><Megaphone size={18} /></span>
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Post an internal opportunity</div>
+          <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>Describe the role, how long it runs and the skills it needs.</div>
+        </div>
+      </div>
+      <div className="nf-opp-grid" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
+        <div><label style={labelStyle}>Role needed</label><input value={title} onChange={e => setTitle(e.target.value)} style={inputStyle} placeholder="e.g. Java developer for report automation" /></div>
         <div><label style={labelStyle}>Duration (weeks)</label><input type="number" min={1} value={weeks} onChange={e => setWeeks(Number(e.target.value))} style={inputStyle} /></div>
       </div>
       <label style={labelStyle}>Required skills</label>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
         {skills.length === 0 && <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>The skill taxonomy is empty — HR can add skills under Bench → Settings.</span>}
         {skills.map(s => {
           const on = skillIds.includes(s.id);
           return (
-            <button key={s.id} type="button" aria-pressed={on} onClick={() => setSkillIds(p => (on ? p.filter(x => x !== s.id) : [...p, s.id]))}
-              style={{ ...ghostBtn, background: on ? 'var(--brand)' : 'var(--raised)', color: on ? '#fff' : 'var(--txt)' }}>{s.skill}</button>
+            <button key={s.id} type="button" aria-pressed={on} className={`nf-skill-chip${on ? ' is-on' : ''}`}
+              onClick={() => setSkillIds(p => (on ? p.filter(x => x !== s.id) : [...p, s.id]))}>
+              {on && <Check size={13} />}{s.skill}
+            </button>
           );
         })}
       </div>
       <ErrorBox message={error} />
-      <button type="button" style={primaryBtn()} onClick={submit}>Post opportunity</button>
+      <button type="button" style={{ ...primaryBtn(), display: 'inline-flex', alignItems: 'center', gap: 8 }} onClick={submit}><Send size={14} />Post opportunity</button>
     </div>
   );
 }
@@ -80,37 +89,63 @@ function AssignPanel({ token, opp, onDone, onCancel }: { token: string; opp: Opp
     }
   }
 
+  const spanDays = start && end && end >= start ? Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000) + 1 : null;
+
   return (
-    <div style={{ ...card, marginTop: 10, borderColor: 'var(--brand)' }}>
-      <CardTitle>Assign — {opp.title}</CardTitle>
-      <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginBottom: 10 }}>
-        This creates the project allocation, ends the employee's bench status and closes the opportunity together — if any step fails, none of them happen.
+    <div className="nf-asg">
+      <div className="nf-asg-head">
+        <span className="nf-asg-ico"><UserCheck size={19} /></span>
+        <div className="nf-asg-titles">
+          <div className="nf-asg-title">Assign this opportunity</div>
+          <div className="nf-asg-sub">{opp.title}</div>
+        </div>
+        <span className="nf-asg-count"><Users size={13} />{interested.length} interested</span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 10 }}>
-        <div>
-          <label style={labelStyle}>Employee (interested)</label>
-          <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
-            <option value="">{interested.length ? 'Select an employee' : 'Nobody has expressed interest yet'}</option>
-            {interested.map(i => <option key={i.employeeId} value={i.employeeId}>{i.employeeName}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={labelStyle}>Project</label>
-          <select value={projectId} onChange={e => setProjectId(e.target.value)} style={inputStyle}>
-            <option value="">Select a project</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-        <div><label style={labelStyle}>Capacity %</label><input type="number" min={1} max={100} value={capacity} onChange={e => setCapacity(Number(e.target.value))} style={inputStyle} /></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={labelStyle}>Start</label><input type="date" value={start} onChange={e => setStart(e.target.value)} style={inputStyle} /></div>
-          <div style={{ flex: 1 }}><label style={labelStyle}>End</label><input type="date" value={end} onChange={e => setEnd(e.target.value)} style={inputStyle} /></div>
-        </div>
+      <div className="nf-asg-note">
+        <Info size={15} />
+        <span>This creates the project allocation, ends the employee's bench status and closes the opportunity together — if any step fails, none of them happen.</span>
       </div>
-      <ErrorBox message={error} />
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button type="button" style={primaryBtn(saving)} disabled={saving} onClick={submit}>{saving ? 'Assigning…' : 'Assign & close'}</button>
+      <div className="nf-asg-body">
+        <div className="nf-asg-sec">
+          <div className="nf-asg-sec-h"><Users size={14} />Who and where</div>
+          <div className="nf-asg-grid">
+            <div>
+              <label style={labelStyle}>Employee (interested)</label>
+              <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
+                <option value="">{interested.length ? 'Select an employee' : 'Nobody has expressed interest yet'}</option>
+                {interested.map(i => <option key={i.employeeId} value={i.employeeId}>{i.employeeName}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Project</label>
+              <select value={projectId} onChange={e => setProjectId(e.target.value)} style={inputStyle}>
+                <option value="">Select a project</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="nf-asg-sec">
+          <div className="nf-asg-sec-h"><CalendarRange size={14} />Allocation</div>
+          <div className="nf-asg-grid nf-asg-grid--3">
+            <div>
+              <label style={labelStyle}>Capacity %</label>
+              <input type="number" min={1} max={100} value={capacity} onChange={e => setCapacity(Number(e.target.value))} style={inputStyle} />
+            </div>
+            <div><label style={labelStyle}>Start</label><input type="date" value={start} onChange={e => setStart(e.target.value)} style={inputStyle} /></div>
+            <div><label style={labelStyle}>End</label><input type="date" value={end} onChange={e => setEnd(e.target.value)} style={inputStyle} /></div>
+          </div>
+          <div className="nf-asg-chips">
+            <span><Gauge size={13} />{capacity || 0}% of their time</span>
+            <span><Clock size={13} />Opportunity runs {opp.durationWeeks} week{opp.durationWeeks === 1 ? '' : 's'}</span>
+            {spanDays !== null && <span><CalendarRange size={13} />{spanDays} day{spanDays === 1 ? '' : 's'} selected</span>}
+          </div>
+        </div>
+        <ErrorBox message={error} />
+      </div>
+      <div className="nf-asg-foot">
         <button type="button" style={ghostBtn} onClick={onCancel}>Cancel</button>
+        <button type="button" style={primaryBtn(saving)} disabled={saving} onClick={submit}>{saving ? 'Assigning…' : 'Assign & close'}</button>
       </div>
     </div>
   );
@@ -167,21 +202,25 @@ export default function BenchOpportunitiesPage() {
       ) : (
         <div style={{ display: 'grid', gap: 12 }}>
           {opps.map(o => (
-            <div key={o.id} style={card}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{o.title}</div>
-                  <div style={{ fontSize: 12, color: 'var(--txt-mut)', margin: '3px 0 8px' }}>
-                    {o.durationWeeks} week{o.durationWeeks === 1 ? '' : 's'} · posted by {o.postedBy ?? 'unknown'}
-                    {o.assignedEmployee ? ` · assigned to ${o.assignedEmployee}` : ''}
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {o.requiredSkills.map(s => <Pill key={s} tone="muted">{s}</Pill>)}
+            <div key={o.id} style={card} className="nf-opp-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 14, minWidth: 0, flex: 1 }}>
+                  <span className="nf-opp-ico nf-opp-ico--lg"><Briefcase size={20} /></span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>{o.title}</div>
+                    <div className="nf-opp-meta">
+                      <span><Clock size={13} />{o.durationWeeks} week{o.durationWeeks === 1 ? '' : 's'}</span>
+                      <span><UserRound size={13} />posted by {o.postedBy ?? 'unknown'}</span>
+                      {o.assignedEmployee && <span><UserCheck size={13} />assigned to {o.assignedEmployee}</span>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {o.requiredSkills.map(s => <span key={s} className="nf-skill-tag">{s}</span>)}
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Pill tone={o.status === 'OPEN' ? 'ok' : 'muted'}>{o.status}</Pill>
-                  {canPost && <button type="button" style={ghostBtn} onClick={() => toggleInterests(o.id)}>{o.interestCount} interested</button>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span className={`nf-opp-status${o.status === 'OPEN' ? ' is-open' : ''}`}>{o.status}</span>
+                  {canPost && <button type="button" style={{ ...ghostBtn, display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => toggleInterests(o.id)}><Users size={14} />{o.interestCount} interested</button>}
                   {!canPost && o.status === 'OPEN' && (
                     <button type="button" style={primaryBtn(o.interested)} disabled={o.interested} onClick={() => interest(o.id)}>
                       {o.interested ? 'Interest sent' : "I'm interested"}
@@ -191,9 +230,9 @@ export default function BenchOpportunitiesPage() {
                 </div>
               </div>
               {expanded === o.id && (
-                <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--txt)' }}>
+                <div className="nf-opp-interests">
                   {interests.length === 0 ? <span style={{ color: 'var(--txt-dim)' }}>Nobody has expressed interest yet.</span>
-                    : interests.map(i => <div key={i.employeeId}>{i.employeeName}</div>)}
+                    : interests.map(i => <div key={i.employeeId} className="nf-opp-person"><Users size={13} />{i.employeeName}</div>)}
                 </div>
               )}
               {assigning === o.id && <AssignPanel token={token} opp={o} onCancel={() => setAssigning(null)} onDone={() => { setAssigning(null); load(); }} />}

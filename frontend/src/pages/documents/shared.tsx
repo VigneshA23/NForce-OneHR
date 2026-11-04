@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { CheckCircle, Clock, Eye, XCircle } from 'lucide-react';
+import { Eye, Undo2 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import {
@@ -7,9 +7,9 @@ import {
   type EmployeeDocument, type RequiredDocument, type DocumentType,
 } from '../../api/documents';
 
-export const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-export const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)' };
-export const tdS: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+export const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' };
+export const thS: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+export const tdS: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 
 export interface RequiredDocumentBuckets {
   verified: RequiredDocument[];
@@ -40,11 +40,9 @@ export function StatusBadge({ status }: { status: string | null }) {
     REJECTED: { label: 'Rejected', color: 'var(--risk)' },
   };
   const cfg = map[status] ?? { label: status, color: 'var(--txt-dim)' };
+  const tone = status === 'PENDING_VERIFICATION' ? ' is-warn' : status === 'REJECTED' ? ' is-bad' : status === 'VERIFIED' ? '' : ' is-off';
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: cfg.color }}>
-      {status === 'VERIFIED' && <CheckCircle size={12} />}
-      {status === 'PENDING_VERIFICATION' && <Clock size={12} />}
-      {status === 'REJECTED' && <XCircle size={12} />}
+    <span className={`nf-rep-pill${tone}`}>
       {cfg.label}
     </span>
   );
@@ -169,9 +167,8 @@ export function WithdrawButton({ doc, onWithdrawn }: {
 
   return (
     <>
-      <button onClick={() => setConfirming(true)}
-        style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 5, color: 'var(--txt)', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-        Withdraw
+      <button type="button" className="nf-act-btn" onClick={() => setConfirming(true)}>
+        <Undo2 size={13} />Withdraw
       </button>
       {confirming && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
@@ -217,9 +214,8 @@ export function ViewButton({ docId }: { docId: string }) {
   }
 
   return (
-    <button onClick={open} disabled={loading}
-      style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 5, color: 'var(--txt)', cursor: 'pointer', fontSize: 12 }}>
-      <Eye size={12} /> {loading ? '…' : 'View'}
+    <button type="button" className="nf-act-btn" onClick={open} disabled={loading}>
+      <Eye size={13} /> {loading ? '…' : 'View'}
     </button>
   );
 }

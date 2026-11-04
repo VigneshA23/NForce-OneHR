@@ -57,12 +57,15 @@ class OrgServiceLocationTest {
     @Mock private HolidayRepository holidayRepo;
     @Mock private AssetRepository assetRepo;
     @Mock private com.nforce.onehr.repository.AttendanceRepository attendanceRepo;
+    @Mock private com.nforce.onehr.repository.EmployeeShiftAssignmentRepository employeeShiftAssignmentRepo;
+    @Mock private com.nforce.onehr.repository.WeeklyOffPolicyVersionRepository weeklyOffPolicyVersionRepo;
+    @Mock private com.nforce.onehr.repository.EmployeeWeeklyOffPolicyAssignmentRepository employeeWeeklyOffPolicyAssignmentRepo;
 
     private OrgService service;
 
     @BeforeEach
     void setUp() {
-        service = new OrgService(businessUnitRepo, departmentRepo, designationRepo, locationRepo, shiftRepo, shiftVersionRepository, shiftVersionResolver, shiftWeeklyOffRulesService, weeklyOffPolicyRepo, employeeRepo, historyRepo, holidayRepo, assetRepo, attendanceRepo);
+        service = new OrgService(businessUnitRepo, departmentRepo, designationRepo, locationRepo, shiftRepo, shiftVersionRepository, shiftVersionResolver, shiftWeeklyOffRulesService, weeklyOffPolicyRepo, employeeRepo, historyRepo, holidayRepo, assetRepo, attendanceRepo, employeeShiftAssignmentRepo, weeklyOffPolicyVersionRepo, employeeWeeklyOffPolicyAssignmentRepo);
         lenient().when(locationRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(employeeRepo.countByLocationId(any())).thenReturn(0L);
     }

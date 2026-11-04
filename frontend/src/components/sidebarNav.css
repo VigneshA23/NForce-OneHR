@@ -1,0 +1,30 @@
+/* Left menu polish — spacing, a guide line for expanded groups, clearer active state, long labels wrap instead of
+ * being cut off. Presentation only; which items appear is decided by nav.config / permissions, not here. */
+
+.nf-nav-scroll { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .16) transparent; }
+.nf-nav-scroll::-webkit-scrollbar { width: 6px; }
+.nf-nav-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .16); border-radius: 999px; }
+
+.nf-nav-leaf, .nf-nav-group { border-radius: 10px !important; padding: 9px 12px !important; font-weight: 500; border: 1px solid transparent; }
+.nf-nav-leaf svg, .nf-nav-group > svg { flex-shrink: 0; color: #8A91A0; transition: color .12s; }
+.nf-nav-leaf:hover svg, .nf-nav-group:hover > svg { color: #fff; }
+
+/* top-level groups: a touch bolder; the group holding the current page is lit */
+.nf-nav-group { font-weight: 600 !important; }
+.nf-nav-group.is-path { background: rgba(255, 255, 255, .045) !important; }
+.nf-nav-group.is-path > svg { color: var(--brand-bright); }
+.nf-nav-chev { display: inline-flex; margin-left: 4px; color: #6B7280; transition: transform .15s; }
+.nf-nav-group:hover .nf-nav-chev { color: #fff; }
+
+/* expanded children hang off a guide line */
+.nf-nav-sub { position: relative; margin: 2px 0 6px 20px; padding-left: 2px; border-left: 1px solid rgba(255, 255, 255, .09); }
+.nf-nav-sub .nf-sidebar-item { margin-left: 8px !important; }
+.nf-nav-sub .nf-nav-leaf { font-size: 12.5px !important; padding: 8px 11px !important; }
+.nf-nav-sub .nf-nav-bar { left: -9px !important; }
+
+/* current page */
+.nf-nav-leaf[aria-current='page'] { border-color: color-mix(in srgb, var(--brand-bright) 34%, transparent); box-shadow: 0 6px 16px rgba(0, 0, 0, .28); font-weight: 600; }
+.nf-nav-leaf[aria-current='page'] svg { color: var(--brand-bright); }
+
+/* long names such as "Policies & Announcements" wrap onto a second line instead of being clipped */
+.nf-nav-lbl { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; line-height: 1.3; overflow-wrap: anywhere; }

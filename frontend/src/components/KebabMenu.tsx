@@ -1,152 +1,55 @@
-import { useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { MoreVertical, type LucideIcon } from 'lucide-react';
+import {
+  Archive, ArchiveRestore, Check, Copy, Download, Eye, EyeOff, FileText, History, Pencil, Power, PowerOff, Repeat,
+  RotateCcw, Send, Trash2, Undo2, UserPlus, X, type LucideIcon,
+} from 'lucide-react';
+import { ActionDock } from './ActionDock';
 
 export interface KebabItem {
   label: string;
   onClick: () => void;
   danger?: boolean;
   dividerBefore?: boolean;
-  // Optional — items without one still render label-only exactly as before. Never used to
-  // replace the label (menu items stay text-visible), only to make them faster to scan.
+  // Optional — when absent an icon is picked from the label (see iconFor); an action whose label matches
+  // nothing still renders, as a small text button, so every action stays visible and labelled.
   icon?: LucideIcon;
 }
 
-const ITEM_HEIGHT = 36; // approx px per item (9px top + 9px bottom padding + ~16px text)
+// Label keyword -> icon, so every module's row actions look the same without touching each call site.
+const ICON_BY_KEYWORD: Array<[RegExp, LucideIcon]> = [
+  [/^(delete|remove|discard)/i, Trash2],
+  [/^(edit|rename|update|change)/i, Pencil],
+  [/^(deactivate|disable|suspend)/i, PowerOff],
+  [/^(activate|reactivate|enable)/i, Power],
+  [/^(unpublish|hide)/i, EyeOff],
+  [/^publish/i, Send],
+  [/history/i, History],
+  [/^(view|open|show|details)/i, Eye],
+  [/^(archive)/i, Archive],
+  [/^(restore|unarchive)/i, ArchiveRestore],
+  [/^(reassign)/i, Repeat],
+  [/^(assign|add)/i, UserPlus],
+  [/^(return|withdraw|revoke)/i, Undo2],
+  [/^(copy|duplicate|clone)/i, Copy],
+  [/^(download|export)/i, Download],
+  [/^(approve|accept|verify)/i, Check],
+  [/^(reject|decline|cancel)/i, X],
+  [/^(reset|retry)/i, RotateCcw],
+  [/(document|policy|file)/i, FileText],
+];
 
-export function KebabMenu({
-  items,
-  minWidth = 160,
-}: {
-  items: KebabItem[];
-  minWidth?: number;
-}) {
-  const [open, setOpen] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number }>({
-    top: 0,
-    right: 0,
-  });
-  const btnRef = useRef<HTMLButtonElement>(null);
+function iconFor(label: string): LucideIcon | undefined {
+  return ICON_BY_KEYWORD.find(([re]) => re.test(label))?.[1];
+}
 
+/**
+ * Kept under its old name so every existing call site (same `items` shape) now renders the app's one
+ * row-actions control, the ActionDock, instead of a 3-dots popup menu. Display only.
+ */
+export function KebabMenu({ items }: { items: KebabItem[]; minWidth?: number }) {
   if (items.length === 0) return null;
-
-  function handleOpen(e: React.MouseEvent) {
-    e.stopPropagation();
-    if (!open && btnRef.current) {
-      const rect = btnRef.current.getBoundingClientRect();
-      const menuHeight = items.length * ITEM_HEIGHT + 8;
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const viewportMargin = 8;
-      // `right` is normally measured from the trigger button's own right edge,
-      // which works when the button sits near the right side of the screen.
-      // On narrow/mobile widths a button nearer the left would push a
-      // right-anchored menu past the left edge of the viewport, so clamp it
-      // to the widest right-offset that still keeps the menu's minWidth
-      // fully on-screen.
-      const maxRight = Math.max(viewportMargin, window.innerWidth - minWidth - viewportMargin);
-      const right = Math.min(window.innerWidth - rect.right, maxRight);
-      if (spaceBelow < menuHeight) {
-        setPos({ bottom: window.innerHeight - rect.top + 4, right });
-      } else {
-        setPos({ top: rect.bottom + 4, right });
-      }
-    }
-    setOpen(o => !o);
-  }
-
-  const lit = open || hovered;
-
   return (
-    <>
-      <button
-        ref={btnRef}
-        onClick={handleOpen}
-        aria-label="Actions"
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          background: lit ? 'var(--raised2)' : 'transparent',
-          border: `1px solid ${lit ? 'var(--line2)' : 'transparent'}`,
-          borderRadius: 6,
-          width: 30,
-          height: 30,
-          cursor: 'pointer',
-          color: lit ? 'var(--txt)' : 'var(--txt-mut)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          transition: 'background .15s, border-color .15s, color .15s',
-        }}
-      >
-        <MoreVertical size={14} />
-      </button>
-
-      {open &&
-        createPortal(
-          <>
-            <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
-            <div
-              style={{
-                position: 'fixed',
-                top: pos.top,
-                bottom: pos.bottom,
-                right: pos.right,
-                background: 'var(--panel)',
-                border: '1px solid var(--line)',
-                borderRadius: 8,
-                boxShadow: '0 12px 32px rgba(0,0,0,.55)',
-                zIndex: 1000,
-                minWidth,
-                maxWidth: 'calc(100vw - 16px)',
-                boxSizing: 'border-box',
-                overflow: 'hidden',
-              }}
-            >
-              {items.map((item, i) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={i}
-                    onClick={e => {
-                      e.stopPropagation();
-                      item.onClick();
-                      setOpen(false);
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 9,
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '9px 14px',
-                      fontSize: 12.5,
-                      fontWeight: 500,
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: item.danger ? '#E4373D' : 'var(--txt)',
-                      borderTop: item.dividerBefore ? '1px solid var(--line)' : 'none',
-                      transition: 'background .1s',
-                    }}
-                    onMouseEnter={e => {
-                      (e.currentTarget as HTMLButtonElement).style.background = item.danger
-                        ? 'rgba(228,55,61,.08)'
-                        : 'var(--raised)';
-                    }}
-                    onMouseLeave={e => {
-                      (e.currentTarget as HTMLButtonElement).style.background = 'none';
-                    }}
-                  >
-                    {Icon && <Icon size={13} style={{ flexShrink: 0, opacity: 0.85 }} />}
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          </>,
-          document.body
-        )}
-    </>
+    <ActionDock
+      items={items.map(i => ({ label: i.label, icon: i.icon ?? iconFor(i.label), onClick: i.onClick, danger: i.danger }))}
+    />
   );
 }

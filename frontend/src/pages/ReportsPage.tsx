@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePaged } from '../components/usePaged';
+import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
-import { Users, CalendarCheck, Clock, Download, ShieldAlert, BarChart3 } from 'lucide-react';
+import { Users, CalendarCheck, Clock, Download, ShieldAlert, BarChart3, X } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -12,12 +14,14 @@ import { hasOrgWorkforceView, hasPermission } from '../lib/permissions';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import { attendanceApi, type AttendanceRecord } from '../api/attendance';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
+import { PersonCell, PersonCellById } from '../components/PersonCell';
+import './reportsDetails.css';
 
 // ── Shared styles (matches the rest of the app — plain style objects, no CSS framework) ──
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', background: 'var(--raised)' };
-const tdS: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const thS: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+const tdS: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 const inputStyle: React.CSSProperties = { padding: '7px 10px', borderRadius: 6, border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)', fontSize: 12.5, fontFamily: 'inherit' };
 const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginRight: 6 };
 
@@ -173,8 +177,112 @@ function exportDashboardToExcel(opts: {
 // ── Small presentational bits ───────────────────────────────
 
 // Same tile as the Home dashboard (components/DashTile); display only.
-export function KpiCard({ icon, label, value, note, danger, accent }: { icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean; accent?: string }) {
-  return <DashTile icon={icon} label={label} value={String(value)} sub={note} accent={danger ? 'var(--risk)' : (accent ?? 'var(--brand)')} />;
+export function KpiCard({ icon, label, value, note, danger, accent, onClick }: {
+  icon: React.ReactNode; label: string; value: string | number; note?: string; danger?: boolean; accent?: string; onClick?: () => void;
+}) {
+  return <DashTile icon={icon} label={label} value={String(value)} sub={note} accent={danger ? 'var(--risk)' : (accent ?? 'var(--brand)')} onClick={onClick} />;
+}
+
+// ── Stat-card drill-down modal ───────────────────────────────────────────────
+// Each KPI card above only ever shows one aggregate number — clicking it opens the per-employee
+// detail that number was computed from, so "Present Today: 58" or "Late/Absent: 2/0" is never a
+// dead end. Reuses the exact same loaded data (filteredReports/attendanceRecords/leaveRecords/
+// pendingLeaveRecords) the cards and charts above already computed from — no extra API calls.
+type DetailsView = 'headcount' | 'present' | 'lateAbsent' | 'leave' | null;
+
+function StatusPill({ label, color }: { label: string; color: string }) {
+  return (
+    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, color, background: `color-mix(in srgb, ${color} 15%, transparent)` }}>
+      {label}
+    </span>
+  );
+}
+
+function DetailsModal({ view, onClose, reports, attendance, attendanceDate, leave, pendingLeave }: {
+  view: Exclude<DetailsView, null>;
+  onClose: () => void;
+  reports: DirectReport[];
+  attendance: AttendanceRecord[];
+  attendanceDate: string;
+  leave: LeaveRequestRecord[];
+  pendingLeave: LeaveRequestRecord[];
+}) {
+  const presentStatuses = new Set(['PRESENT', 'HALF_DAY', 'MISSING_CHECKOUT']);
+  const config: Record<Exclude<DetailsView, null>, { title: string; note?: string; noun: string; icon: typeof Users; headers: string[]; rows: React.ReactNode[] }> = {
+    headcount: {
+      title: 'Employees', noun: 'employee', icon: Users,
+      headers: ['Employee', 'Department', 'Designation', 'Status'],
+      rows: reports.map(r => (
+        <tr key={r.userId}>
+          <td style={tdS}><PersonCell userId={r.userId} name={r.fullName} code={r.employeeCode} /></td>
+          <td style={tdS}>{r.departmentName ?? '-'}</td>
+          <td style={tdS}>{r.designationName ?? '-'}</td>
+          <td style={tdS}><StatusPill label={r.active ? 'Active' : 'Inactive'} color={r.active ? '#2FB67C' : 'var(--txt-dim)'} /></td>
+        </tr>
+      )),
+    },
+    present: {
+      title: 'Present', note: attendanceDate, noun: 'employee', icon: CalendarCheck,
+      headers: ['Employee', 'Check-In', 'Status'],
+      rows: attendance.filter(a => presentStatuses.has(a.status ?? '')).map(a => (
+        <tr key={a.employeeUserId}>
+          <td style={tdS}><PersonCell userId={a.employeeUserId} name={a.fullName} code={a.employeeCode} /></td>
+          <td style={tdS}>{a.checkInAt ? new Date(a.checkInAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '-'}</td>
+          <td style={tdS}><StatusPill label={a.status ?? '-'} color="#2FB67C" /></td>
+        </tr>
+      )),
+    },
+    lateAbsent: {
+      title: 'Late / Absent', note: attendanceDate, noun: 'employee', icon: Clock,
+      headers: ['Employee', 'Status', 'Late By'],
+      rows: attendance.filter(a => a.status === 'LATE' || a.status === 'ABSENT').map(a => (
+        <tr key={a.employeeUserId}>
+          <td style={tdS}><PersonCell userId={a.employeeUserId} name={a.fullName} code={a.employeeCode} /></td>
+          <td style={tdS}><StatusPill label={a.status === 'LATE' ? 'Late' : 'Absent'} color={a.status === 'LATE' ? 'var(--warn)' : '#E4373D'} /></td>
+          <td style={tdS}>{a.lateByMinutes ? `${a.lateByMinutes}m` : '-'}</td>
+        </tr>
+      )),
+    },
+    leave: {
+      title: 'Leave in period', noun: 'request', icon: CalendarCheck,
+      headers: ['Employee', 'Type', 'Dates', 'Days', 'Status'],
+      rows: [...leave, ...pendingLeave].map(r => (
+        <tr key={r.id}>
+          <td style={tdS}><PersonCell userId={r.employeeUserId ?? r.employeeName} name={r.employeeName} /></td>
+          <td style={tdS}>{r.leaveTypeName}</td>
+          <td style={tdS}>{r.startDate}{r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ' (half day)' : ''}</td>
+          <td style={tdS}>{r.totalDays}</td>
+          <td style={tdS}><StatusPill label={r.status} color={r.status === 'APPROVED' ? '#2FB67C' : r.status === 'PENDING' ? 'var(--warn)' : '#E4373D'} /></td>
+        </tr>
+      )),
+    },
+  };
+  const { title, note, noun, icon: Icon, headers, rows } = config[view];
+
+  return (
+    <div className="nf-rd-overlay" onClick={onClose}>
+      <div className="nf-rd-card" role="dialog" aria-label={title} onClick={e => e.stopPropagation()}>
+        <div className="nf-rd-head">
+          <span className="nf-rd-ico"><Icon size={20} /></span>
+          <div className="nf-rd-titles">
+            <div className="nf-rd-title">{title}</div>
+            <div className="nf-rd-sub">{rows.length} {noun}{rows.length === 1 ? '' : 's'}{note ? ` · ${note}` : ''}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="nf-rd-x"><X size={16} /></button>
+        </div>
+        <div className="nf-rd-scroll">
+          <table className="nf-rep-table nf-rd-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr>{headers.map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
+            <tbody>
+              {rows.length === 0
+                ? <tr><td colSpan={headers.length} style={{ ...tdS, textAlign: 'center', padding: 30 }}>Nothing to show.</td></tr>
+                : rows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -210,9 +318,10 @@ export default function ReportsPage() {
   const [directReports, setDirectReports] = useState<DirectReport[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [leaveRecords, setLeaveRecords] = useState<LeaveRequestRecord[]>([]);
-  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
+  const [pendingLeaveRecords, setPendingLeaveRecords] = useState<LeaveRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [detailsView, setDetailsView] = useState<DetailsView>(null);
 
   const [attendanceDate, setAttendanceDate] = useState(todayIsoDate());
   const [leaveFrom, setLeaveFrom] = useState(monthStartIso());
@@ -237,7 +346,7 @@ export default function ReportsPage() {
         setDirectReports(headcount.directReports);
         setAttendanceRecords(attendance);
         setLeaveRecords(leave);
-        setPendingLeaveCount(pending.length);
+        setPendingLeaveRecords(pending);
       })
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load dashboard'))
       .finally(() => setLoading(false));
@@ -258,11 +367,13 @@ export default function ReportsPage() {
   );
 
   const headcountSummary = useMemo(() => computeHeadcountSummary(filteredReports), [filteredReports]);
+  const empPaged = usePaged(filteredReports);
+  const leavePaged = usePaged(leaveRecords);
   const attendanceSummary = useMemo(
     () => computeAttendanceSummary(attendanceRecords, headcountSummary.total),
     [attendanceRecords, headcountSummary.total]
   );
-  const leaveSummary = useMemo(() => computeLeaveSummary(leaveRecords, pendingLeaveCount), [leaveRecords, pendingLeaveCount]);
+  const leaveSummary = useMemo(() => computeLeaveSummary(leaveRecords, pendingLeaveRecords.length), [leaveRecords, pendingLeaveRecords]);
 
   // After every hook: `authorized` now comes from permissions, which can arrive after first render.
   if (!authorized) return <AccessDenied />;
@@ -342,10 +453,10 @@ export default function ReportsPage() {
         <>
           {/* KPI cards */}
           <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
-            <KpiCard icon={<Users size={20} />} label={isHr ? 'Total Headcount' : 'Direct Reports'} value={headcountSummary.total} accent="var(--info)" note={`${headcountSummary.active} active · ${headcountSummary.inactive} inactive`} />
-            <KpiCard icon={<CalendarCheck size={20} />} label="Present Today" value={attendanceSummary.present} accent="var(--ok)" note={`of ${headcountSummary.total} for ${attendanceDate}`} />
-            <KpiCard icon={<Clock size={20} />} label="Late / Absent" value={`${attendanceSummary.late} / ${attendanceSummary.absent}`} accent="var(--warn)" note="on the selected date" danger={attendanceSummary.absent > 0} />
-            <KpiCard icon={<CalendarCheck size={20} />} label="Leave (period)" value={leaveSummary.approvedCount} accent="var(--om-purple)" note={`${leaveSummary.totalDaysApproved}d approved · ${leaveSummary.pendingCount} pending`} />
+            <KpiCard icon={<Users size={20} />} label={isHr ? 'Total Headcount' : 'Direct Reports'} value={headcountSummary.total} accent="var(--info)" note={`${headcountSummary.active} active · ${headcountSummary.inactive} inactive`} onClick={() => setDetailsView('headcount')} />
+            <KpiCard icon={<CalendarCheck size={20} />} label="Present Today" value={attendanceSummary.present} accent="var(--ok)" note={`of ${headcountSummary.total} for ${attendanceDate}`} onClick={() => setDetailsView('present')} />
+            <KpiCard icon={<Clock size={20} />} label="Late / Absent" value={`${attendanceSummary.late} / ${attendanceSummary.absent}`} accent="var(--warn)" note="on the selected date" danger={attendanceSummary.absent > 0} onClick={() => setDetailsView('lateAbsent')} />
+            <KpiCard icon={<CalendarCheck size={20} />} label="Leave (period)" value={leaveSummary.approvedCount} accent="var(--om-purple)" note={`${leaveSummary.totalDaysApproved}d approved · ${leaveSummary.pendingCount} pending`} onClick={() => setDetailsView('leave')} />
           </div>
 
           {/* Charts */}
@@ -389,38 +500,20 @@ export default function ReportsPage() {
 
           {/* Headcount table */}
           <Section title={isHr ? 'Employees' : 'Direct reports'} count={`${filteredReports.length}`}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>{['Name', 'Code', 'Department', 'Designation', 'Status'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
-              <tbody>
-                {filteredReports.length === 0 ? (
-                  <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 30 }}>No employees to show.</td></tr>
-                ) : filteredReports.map(r => (
-                  <tr key={r.userId}>
-                    <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</td>
-                    <td style={{ ...tdS, fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</td>
-                    <td style={tdS}>{r.departmentName ?? '–'}</td>
-                    <td style={tdS}>{r.designationName ?? '–'}</td>
-                    <td style={tdS}>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20, color: r.active ? '#2FB67C' : 'var(--txt-dim)', background: r.active ? 'rgba(47,182,124,.15)' : 'var(--raised2)' }}>
-                        {r.active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <HeadcountRows rows={empPaged.pageRows} />
+            <TablePagination {...empPaged.pagerProps} noun="employees" />
           </Section>
 
           {/* Leave table */}
           <Section title="Approved leave in period" count={`${leaveSummary.approvedCount} · ${leaveSummary.pendingCount} pending`}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>{['Employee', 'Type', 'Dates', 'Days', 'Status'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
               <tbody>
                 {leaveRecords.length === 0 ? (
                   <tr><td colSpan={5} style={{ ...tdS, textAlign: 'center', padding: 30 }}>No approved leave in this period.</td></tr>
-                ) : leaveRecords.map(r => (
+                ) : leavePaged.pageRows.map(r => (
                   <tr key={r.id}>
-                    <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{r.employeeName}</td>
+                    <td style={tdS}><PersonCellById userId={r.employeeUserId} name={r.employeeName} /></td>
                     <td style={tdS}>{r.leaveTypeName}</td>
                     <td style={tdS}>{r.startDate}{r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ' (half day)' : ''}</td>
                     <td style={tdS}>{r.totalDays}</td>
@@ -429,19 +522,54 @@ export default function ReportsPage() {
                 ))}
               </tbody>
             </table>
+            <TablePagination {...leavePaged.pagerProps} noun="requests" />
           </Section>
         </>
+      )}
+
+      {detailsView && (
+        <DetailsModal
+          view={detailsView}
+          onClose={() => setDetailsView(null)}
+          reports={filteredReports}
+          attendance={attendanceRecords}
+          attendanceDate={attendanceDate}
+          leave={leaveRecords}
+          pendingLeave={pendingLeaveRecords}
+        />
       )}
     </div>
   );
 }
 
-function Section({ title, count, children }: { title: string; count?: string; children: React.ReactNode }) {
+export function HeadcountRows({ rows }: { rows: DirectReport[] }) {
   return (
-    <div style={{ ...card, marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '12px 18px', borderBottom: '1px solid var(--line)', background: 'var(--raised)' }}>
-        <h3 style={{ fontSize: 13, flex: 1, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>{title}</h3>
-        {count && <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{count}</span>}
+    <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <thead><tr>{['Employee', 'Department', 'Designation', 'Status'].map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
+      <tbody>
+        {rows.length === 0 ? (
+          <tr><td colSpan={4} style={{ ...tdS, textAlign: 'center', padding: 30, color: 'var(--txt-mut)' }}>No employees to show.</td></tr>
+        ) : rows.map(r => (
+          <tr key={r.userId}>
+            <td style={tdS}><PersonCell userId={r.userId} name={r.fullName} code={r.employeeCode} /></td>
+            <td style={{ ...tdS, color: 'var(--txt-mut)' }}>{r.departmentName ?? '-'}</td>
+            <td style={{ ...tdS, color: 'var(--txt-mut)' }}>{r.designationName ?? '-'}</td>
+            <td style={tdS}>
+              <span className={`nf-rep-pill${r.active ? '' : ' is-off'}`}>{r.active ? 'Active' : 'Inactive'}</span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export function Section({ title, count, children }: { title: string; count?: string; children: React.ReactNode }) {
+  return (
+    <div style={{ ...card, marginBottom: 16, borderRadius: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(90deg, color-mix(in srgb, var(--brand) 9%, var(--panel)), var(--panel))' }}>
+        <h3 style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-.01em', flex: 1, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>{title}</h3>
+        {count && <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', padding: '3px 12px', borderRadius: 999, background: 'color-mix(in srgb, var(--brand) 11%, var(--panel))', border: '1px solid color-mix(in srgb, var(--brand) 28%, var(--line))' }}>{count}</span>}
       </div>
       <div style={{ overflowX: 'auto' }}>{children}</div>
     </div>

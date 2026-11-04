@@ -55,7 +55,7 @@ public class EmployeeAssignmentController {
     @PostMapping("/bulk-update-weekly-off")
     @PreAuthorize("hasAuthority('employee_assignments:EDIT:TEAM')")
     public AssignmentBulkResultResponse bulkUpdateWeeklyOff(@Valid @RequestBody BulkAssignmentRequest req, Principal principal) {
-        return service.bulkUpdateWeeklyOff(principal.getName(), req.getEmployeeUserIds(), req.getPolicyId());
+        return service.bulkUpdateWeeklyOff(principal.getName(), req.getEmployeeUserIds(), req.getPolicyId(), req.getEffectiveFrom());
     }
 
     @PostMapping("/bulk-update-penalisation-policy")

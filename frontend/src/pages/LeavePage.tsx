@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import {
-  CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, Hourglass, Search,
+  CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, History, Hourglass, Pencil, Search,
   Wallet, X, CalendarDays
 } from 'lucide-react';
+import './leaveModal.css';
+import { ActionDock } from '../components/ActionDock';
 import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { useToast } from '../context/ToastContext';
@@ -23,26 +25,30 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWe
 // color: var(--txt-mut), not var(--txt-dim) — higher-contrast in both themes (see index.css's
 // token table), so headers read as clearly bold/prominent rather than washed out. Same weight/
 // size/uppercase/letter-spacing convention used app-wide (AttendancePage/ApprovalsPage/etc).
-const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
-const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', whiteSpace: 'nowrap', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
+const tdStyle: React.CSSProperties = { padding: '14px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 
 // Primary add-action button for this page — "Request Leave".
-const primaryButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
+const primaryButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 28%, transparent)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer' };
 
 const PAGE_SIZE = 5;
 const BALANCE_ACCENTS = ['var(--brand)', 'var(--info)', 'var(--ok)', 'var(--warn)'];
 
-function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+function ModalHeader({ title, subtitle, icon: Icon = CalendarPlus, onClose }: { title: string; subtitle?: string; icon?: React.ComponentType<{ size?: number }>; onClose: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+    <div className="nf-lv-head">
+      <span className="nf-lv-ico"><Icon size={20} /></span>
+      <div className="nf-lv-titles">
+        <div className="nf-lv-title">{title}</div>
+        {subtitle && <div className="nf-lv-sub">{subtitle}</div>}
+      </div>
+      <button onClick={onClose} className="nf-lv-x" aria-label="Close"><X size={16} /></button>
     </div>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label style={labelStyle}>{label}</label>{children}</div>;
+  return <div><label style={labelStyle} className="nf-lv-lbl">{label}</label>{children}</div>;
 }
 
 // Mirrors LeaveService#isAnnualBalanceLeaveType — Annual/Sick/Casual are independently
@@ -77,6 +83,15 @@ export function KpiTile({ icon: Icon, label, value, sub, accent }: {
   return <DashTile className="nf-section-enter" icon={<Icon size={20} />} label={label} value={value} sub={sub} accent={accent} />;
 }
 
+function SectionHeading({ icon: Icon, title }: { icon: React.ComponentType<{ size?: number }>; title: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <span className="nf-opp-ico"><Icon size={18} /></span>
+      <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 18, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)', margin: 0 }}>{title}</h2>
+    </div>
+  );
+}
+
 // Radial-progress balance card — draws an SVG circle via stroke-dasharray/offset, reusing the
 // same .nf-ring-progress/.nf-section-enter entrance animation already defined in index.css for
 // the Attendance "Today" ring (both already respect prefers-reduced-motion, see index.css). The
@@ -101,8 +116,8 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
   return (
     <div className="nf-section-enter nf-leave-balance-card" style={{
       background: `linear-gradient(160deg, var(--panel) 0%, color-mix(in srgb, ${accent} 5%, var(--panel)) 100%)`,
-      border: '1px solid var(--line)', borderTop: `2px solid ${ringColor}`, borderRadius: 10,
-      padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 16,
+      border: '1px solid var(--line)', borderTop: `3px solid ${ringColor}`, borderRadius: 16, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)',
+      padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 18,
     }}>
       <div style={{ position: 'relative', width: 72, height: 72, flexShrink: 0 }}>
         <svg width={72} height={72} viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)' }}>
@@ -112,7 +127,7 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
           )}
         </svg>
         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{available}</span>
+          <span style={{ fontSize: 19, fontWeight: 800, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{available}</span>
           <span style={{ fontSize: 8.5, color: 'var(--txt-dim)', marginTop: 1 }}>of {total}d</span>
         </div>
       </div>
@@ -139,23 +154,52 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
   );
 }
 
-function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { types: LeaveType[]; balances: LeaveBalance[]; onClose: () => void; onCreated: (r: LeaveRequestRecord) => void; token: string }) {
+// True if both leave-type codes draw from the same balance row — either literally the same
+// type, or both members of the consolidated Annual/Sick/Casual group (see
+// LeaveService#isAnnualBalanceLeaveType).
+function sameBalanceGroup(a: string, b: string): boolean {
+  return a === b || (isAnnualBalanceLeaveType(a) && isAnnualBalanceLeaveType(b));
+}
+
+function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, token }: {
+  types: LeaveType[]; balances: LeaveBalance[]; editingRequest?: LeaveRequestRecord | null;
+  onClose: () => void; onSaved: (r: LeaveRequestRecord, wasEdit: boolean) => void; token: string;
+}) {
   const { showToast } = useToast();
+  const isEdit = !!editingRequest;
   // Local calendar date, not new Date().toISOString().slice(0, 10) — the ISO/UTC form can land
   // on the wrong side of midnight relative to the user's actual local day, which would let the
   // date picker's min slip a day off from what "today" really is.
   const now = new Date();
   const today = toISODate(now.getFullYear(), now.getMonth(), now.getDate());
-  const [form, setForm] = useState<SubmitLeaveRequestPayload>({ leaveTypeCode: types[0]?.code ?? '', startDate: today, endDate: today, halfDay: false, halfDaySession: undefined, reason: '' });
+  const [form, setForm] = useState<SubmitLeaveRequestPayload>(editingRequest ? {
+    leaveTypeCode: editingRequest.leaveTypeCode,
+    startDate: editingRequest.startDate,
+    endDate: editingRequest.endDate,
+    halfDay: editingRequest.halfDay,
+    halfDaySession: editingRequest.halfDaySession ?? undefined,
+    reason: editingRequest.employeeReason,
+  } : { leaveTypeCode: types[0]?.code ?? '', startDate: today, endDate: today, halfDay: false, halfDaySession: undefined, reason: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // While editing, the request being edited is still PENDING in the DB and already reserved
+  // against its own balance row (see LeaveService#availableBalance) — add its own days back here
+  // so editing a request that already consumes its full balance isn't wrongly flagged as
+  // over-limit by this early-UX check. Mirrors the backend's own exclusion (LeaveService#update)
+  // and is keyed off the request's ORIGINAL type/days, independent of whatever type is currently
+  // selected in the form. A no-op for an originally-Unpaid request, which never reserved against
+  // any balance row to begin with.
+  const effectiveBalances = editingRequest && editingRequest.leaveTypeClassification === 'PAID'
+    ? balances.map(b => sameBalanceGroup(b.leaveTypeCode, editingRequest.leaveTypeCode)
+        ? { ...b, remainingDays: b.remainingDays + Number(editingRequest.totalDays) }
+        : b)
+    : balances;
 
   // Early-UX only, mirroring the backend's own day-count formula (LeaveService#submitRequest) —
   // the backend independently re-validates against the same status-aware balance regardless of
   // what's computed here, so this can never be relied on to enforce the limit by itself.
-  const selectedBalance = balances.find(b =>
-    b.leaveTypeCode === form.leaveTypeCode
-    || (isAnnualBalanceLeaveType(form.leaveTypeCode) && isAnnualBalanceLeaveType(b.leaveTypeCode)));
+  const selectedBalance = effectiveBalances.find(b => sameBalanceGroup(b.leaveTypeCode, form.leaveTypeCode));
   const effectiveEndDate = form.halfDay ? form.startDate : form.endDate;
   const requestedDays = form.halfDay
     ? 0.5
@@ -166,7 +210,7 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
   // — the backend independently re-validates against ALL of the employee's paid balances regardless
   // of what's checked here, so this can never be relied on to enforce the rule by itself.
   const selectedType = types.find(t => t.code === form.leaveTypeCode);
-  const hasAnyPaidBalance = balances.some(b => b.remainingDays > 0);
+  const hasAnyPaidBalance = effectiveBalances.some(b => b.remainingDays > 0);
   const blockedUnpaidWithPaidBalance = selectedType?.classification === 'UNPAID' && hasAnyPaidBalance;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -186,9 +230,12 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
     }
     setSubmitting(true); setError(null);
     try {
-      const created = await leaveApi.submit({ ...form, endDate: form.halfDay ? form.startDate : form.endDate }, token);
-      onCreated(created);
-      showToast('success', 'Leave request submitted');
+      const payload = { ...form, endDate: form.halfDay ? form.startDate : form.endDate };
+      const saved = editingRequest
+        ? await leaveApi.update(editingRequest.id, payload, token)
+        : await leaveApi.submit(payload, token);
+      onSaved(saved, isEdit);
+      showToast('success', isEdit ? 'Leave request updated' : 'Leave request submitted');
       onClose();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Submit failed';
@@ -197,60 +244,85 @@ function RequestLeaveModal({ types, balances, onClose, onCreated, token }: { typ
     } finally { setSubmitting(false); }
   }
 
+  const dayCount = Number.isFinite(requestedDays) && requestedDays > 0 ? requestedDays : null;
+
   return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
-        <ModalHeader title="Request Leave" onClose={onClose} />
-        <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Leave Type *">
-              <select style={inputStyle} value={form.leaveTypeCode} onChange={e => setForm(f => ({ ...f, leaveTypeCode: e.target.value }))}>
-                {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
-              </select>
-            </Field>
-            {selectedBalance && (
-              <div style={{ fontSize: 11.5, color: exceedsBalance ? 'var(--risk)' : 'var(--txt-dim)', marginTop: 5 }}>
-                Available: {selectedBalance.remainingDays} day{selectedBalance.remainingDays === 1 ? '' : 's'}
-                {exceedsBalance && ' - this request exceeds your available balance'}
+    <div className="nf-lv-dlg" style={overlayStyle}>
+      <div className="nf-lv-card" style={modalStyle}>
+        <ModalHeader
+          title={isEdit ? 'Edit Leave Request' : 'Request Leave'}
+          subtitle={isEdit ? 'Update your pending leave request.' : 'Pick the leave type, dates and a short reason.'}
+          icon={isEdit ? Pencil : CalendarPlus}
+          onClose={onClose}
+        />
+        <form onSubmit={handleSubmit}>
+          <div className="nf-lv-form">
+            {error && <div className="nf-lv-err">{error}</div>}
+
+            <section className="nf-lv-sec">
+              <div className="nf-lv-sec-hd"><span className="nf-lv-sec-ico"><Wallet size={15} /></span><span className="nf-lv-sec-title">Leave type</span></div>
+              <Field label="Leave Type *">
+                <select style={inputStyle} value={form.leaveTypeCode} onChange={e => setForm(f => ({ ...f, leaveTypeCode: e.target.value }))}>
+                  {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
+                </select>
+              </Field>
+              {selectedBalance && (
+                <div className={`nf-lv-bal${exceedsBalance ? ' over' : ''}`}>
+                  Available: {selectedBalance.remainingDays} day{selectedBalance.remainingDays === 1 ? '' : 's'}
+                  {exceedsBalance && ' - this request exceeds your available balance'}
+                </div>
+              )}
+              {blockedUnpaidWithPaidBalance && (
+                <div className="nf-lv-warn">
+                  You cannot apply for unpaid leave while you have an available paid leave balance.
+                </div>
+              )}
+            </section>
+
+            <section className="nf-lv-sec">
+              <div className="nf-lv-sec-hd">
+                <span className="nf-lv-sec-ico"><CalendarDays size={15} /></span><span className="nf-lv-sec-title">Dates</span>
+                {dayCount != null && <span className="nf-lv-days">{dayCount} day{dayCount === 1 ? '' : 's'}</span>}
               </div>
-            )}
-            {blockedUnpaidWithPaidBalance && (
-              <div style={{ fontSize: 11.5, color: 'var(--risk)', marginTop: 5 }}>
-                You cannot apply for unpaid leave while you have an available paid leave balance.
+              <div className="nf-lv-grid">
+                <Field label="Start Date *">
+                  <input type="date" min={today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay ? e.target.value : f.endDate }))} />
+                </Field>
+                <Field label="End Date *">
+                  <input type="date" style={inputStyle} value={form.halfDay ? form.startDate : form.endDate} disabled={form.halfDay} min={form.startDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+                </Field>
               </div>
-            )}
-          </div>
-          <Field label="Start Date *">
-            <input type="date" min={today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay ? e.target.value : f.endDate }))} />
-          </Field>
-          <Field label="End Date *">
-            <input type="date" style={inputStyle} value={form.halfDay ? form.startDate : form.endDate} disabled={form.halfDay} min={form.startDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
-          </Field>
-          <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input id="halfDay" type="checkbox" checked={form.halfDay} onChange={e => setForm(f => ({ ...f, halfDay: e.target.checked, halfDaySession: e.target.checked ? f.halfDaySession : undefined, endDate: e.target.checked ? f.startDate : f.endDate }))} />
-            <label htmlFor="halfDay" style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Half day</label>
-          </div>
-          {form.halfDay && (
-            <div style={{ gridColumn: '1/-1', display: 'flex', gap: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-                <input type="radio" name="halfDaySession" checked={form.halfDaySession === 'FIRST_HALF'} onChange={() => setForm(f => ({ ...f, halfDaySession: 'FIRST_HALF' }))} />
-                First Half
+              <label htmlFor="halfDay" className={`nf-lv-half${form.halfDay ? ' on' : ''}`} style={{ marginTop: 12, marginBottom: 0 }}>
+                <input id="halfDay" type="checkbox" checked={form.halfDay} onChange={e => setForm(f => ({ ...f, halfDay: e.target.checked, halfDaySession: e.target.checked ? f.halfDaySession : undefined, endDate: e.target.checked ? f.startDate : f.endDate }))} />
+                <span style={{ display: 'block' }}><b>Half day</b><span>Take only the first or second half of the day.</span></span>
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-                <input type="radio" name="halfDaySession" checked={form.halfDaySession === 'SECOND_HALF'} onChange={() => setForm(f => ({ ...f, halfDaySession: 'SECOND_HALF' }))} />
-                Second Half
-              </label>
-            </div>
-          )}
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Reason *">
-              <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for leave" />
-            </Field>
+              {form.halfDay && (
+                <div className="nf-lv-sessions">
+                  <label>
+                    <input type="radio" name="halfDaySession" checked={form.halfDaySession === 'FIRST_HALF'} onChange={() => setForm(f => ({ ...f, halfDaySession: 'FIRST_HALF' }))} />
+                    First Half
+                  </label>
+                  <label>
+                    <input type="radio" name="halfDaySession" checked={form.halfDaySession === 'SECOND_HALF'} onChange={() => setForm(f => ({ ...f, halfDaySession: 'SECOND_HALF' }))} />
+                    Second Half
+                  </label>
+                </div>
+              )}
+            </section>
+
+            <section className="nf-lv-sec">
+              <div className="nf-lv-sec-hd"><span className="nf-lv-sec-ico"><Pencil size={15} /></span><span className="nf-lv-sec-title">Reason</span></div>
+              <Field label="Reason *">
+                <textarea style={{ ...inputStyle, minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }} value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for leave" />
+              </Field>
+            </section>
           </div>
-          <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+
+          <div className="nf-lv-foot">
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || exceedsBalance || blockedUnpaidWithPaidBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 0.6 : 1 }}>{submitting ? 'Submitting…' : 'Submit Request'}</button>
+            <button type="submit" disabled={submitting || exceedsBalance || blockedUnpaidWithPaidBalance} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 'not-allowed' : 'pointer', opacity: (submitting || exceedsBalance || blockedUnpaidWithPaidBalance) ? 0.6 : 1 }}>
+              {submitting ? (isEdit ? 'Saving…' : 'Submitting…') : (isEdit ? 'Save Changes' : 'Submit Request')}
+            </button>
           </div>
         </form>
       </div>
@@ -276,6 +348,7 @@ export default function LeavePage() {
   const [loading, setLoading] = useState(true);
   const [leaveError, setLeaveError] = useState('');
   const [showRequest, setShowRequest] = useState(false);
+  const [editingRequest, setEditingRequest] = useState<LeaveRequestRecord | null>(null);
 
   useEffect(() => {
     setLeaveError('');
@@ -336,8 +409,8 @@ export default function LeavePage() {
   // The optimistic prepend shows the new request instantly; refreshLeaveData then reconciles
   // both the requests list and the balances against the server (and safely coalesces with any
   // notification-triggered refresh that happens to land around the same time — see its comment).
-  async function handleCreated(r: LeaveRequestRecord) {
-    setRequests(prev => [r, ...prev]);
+  async function handleSaved(r: LeaveRequestRecord, wasEdit: boolean) {
+    setRequests(prev => wasEdit ? prev.map(x => x.id === r.id ? r : x) : [r, ...prev]);
     await refreshLeaveData();
   }
 
@@ -408,7 +481,7 @@ export default function LeavePage() {
 
       {!loading && (
         <div style={{ marginBottom: 22 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Leave Balances</div>
+          <div style={{ marginBottom: 14 }}><SectionHeading icon={Wallet} title="Leave Balances" /></div>
           {balances.length === 0 ? (
             <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 40, textAlign: 'center' }}>
               <Wallet size={26} style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
@@ -423,18 +496,18 @@ export default function LeavePage() {
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Leave History</div>
+        <SectionHeading icon={History} title="Leave History" />
         {!loading && requests.length > 0 && (
           <div className="nf-leave-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ position: 'relative' }}>
-              <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)' }} />
-              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search reason or type…" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px 7px 28px', fontSize: 12.5, color: 'var(--txt)', width: 190 }} />
-            </div>
-            <select value={typeFilter} onChange={e => updateFilterAndResetPage(setTypeFilter, e.target.value)} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', fontSize: 12.5, color: 'var(--txt)' }}>
+            <label className="nf-filter-search">
+              <Search size={15} />
+              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search reason or type…" />
+            </label>
+            <select className="nf-filter-select" value={typeFilter} onChange={e => updateFilterAndResetPage(setTypeFilter, e.target.value)}>
               <option value="">All Types</option>
               {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
             </select>
-            <select value={statusFilter} onChange={e => updateFilterAndResetPage(setStatusFilter, e.target.value)} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', fontSize: 12.5, color: 'var(--txt)' }}>
+            <select className="nf-filter-select" value={statusFilter} onChange={e => updateFilterAndResetPage(setStatusFilter, e.target.value)}>
               <option value="">All Statuses</option>
               <option value="PENDING">Pending</option>
               <option value="APPROVED">Approved</option>
@@ -444,7 +517,7 @@ export default function LeavePage() {
         )}
       </div>
 
-      <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+      <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
         ) : requests.length === 0 ? (
@@ -460,25 +533,30 @@ export default function LeavePage() {
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Type', 'Dates', 'Days', 'Status', 'Reason', 'Approved/Rejected By'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {['Type', 'Dates', 'Days', 'Status', 'Reason', 'Approved/Rejected By', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {pageRows.map(r => (
                   <tr key={r.id} className="nf-leave-row">
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>
-                      {r.leaveTypeName}
-                      {r.leaveTypeClassification === 'UNPAID' && (
-                        <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em' }}>
-                          (Unpaid)
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 700 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span className="nf-opp-ico"><CalendarDays size={17} /></span>
+                        <span>
+                          {r.leaveTypeName}
+                          {r.leaveTypeClassification === 'UNPAID' && (
+                            <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em' }}>
+                              (Unpaid)
+                            </span>
+                          )}
                         </span>
-                      )}
+                      </div>
                     </td>
-                    <td style={tdStyle}>{r.startDate}{r.startDate !== r.endDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}</td>
-                    <td style={tdStyle}>{r.totalDays}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.startDate}{r.startDate !== r.endDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}</td>
+                    <td style={tdStyle}><span className="nf-rep-code">{r.totalDays}</span></td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.employeeReason}>{r.employeeReason}</div>
@@ -504,6 +582,11 @@ export default function LeavePage() {
                         </div>
                       )}
                     </td>
+                    <td style={tdStyle}>
+                      {r.status === 'PENDING' && (
+                        <ActionDock items={[{ label: 'Edit', icon: Pencil, onClick: () => setEditingRequest(r) }]} />
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -511,11 +594,11 @@ export default function LeavePage() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--txt-dim)' }}>
               <span>Showing {(pageSafe - 1) * PAGE_SIZE + 1}–{Math.min(pageSafe * PAGE_SIZE, filteredRequests.length)} of {filteredRequests.length}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageSafe <= 1} aria-label="Previous page" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: pageSafe <= 1 ? 'not-allowed' : 'pointer', color: 'var(--txt-mut)', opacity: pageSafe <= 1 ? 0.5 : 1 }}>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageSafe <= 1} aria-label="Previous page" className="nf-act-btn">
                   <ChevronLeft size={13} />
                 </button>
                 <span style={{ fontWeight: 600, color: 'var(--txt-mut)' }}>Page {pageSafe} of {totalPages}</span>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageSafe >= totalPages} aria-label="Next page" style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: pageSafe >= totalPages ? 'not-allowed' : 'pointer', color: 'var(--txt-mut)', opacity: pageSafe >= totalPages ? 0.5 : 1 }}>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageSafe >= totalPages} aria-label="Next page" className="nf-act-btn">
                   <ChevronRight size={13} />
                 </button>
               </div>
@@ -525,7 +608,10 @@ export default function LeavePage() {
       </div>
 
       {showRequest && (
-        <RequestLeaveModal types={types} balances={balances} token={token} onClose={() => setShowRequest(false)} onCreated={handleCreated} />
+        <RequestLeaveModal types={types} balances={balances} token={token} onClose={() => setShowRequest(false)} onSaved={handleSaved} />
+      )}
+      {editingRequest && (
+        <RequestLeaveModal types={types} balances={balances} editingRequest={editingRequest} token={token} onClose={() => setEditingRequest(null)} onSaved={handleSaved} />
       )}
     </div>
   );

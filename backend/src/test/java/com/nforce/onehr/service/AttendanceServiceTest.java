@@ -66,6 +66,8 @@ class AttendanceServiceTest {
     @Mock private com.nforce.onehr.repository.AttendanceRulesRepository attendanceRulesRepository;
     @Mock private com.nforce.onehr.repository.ShiftRepository shiftRepository;
     @Mock private com.nforce.onehr.repository.AttendancePenaltyRepository attendancePenaltyRepository;
+    @Mock private EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
+    @Mock private WeeklyOffPolicyVersionResolver weeklyOffPolicyVersionResolver;
 
     private AttendanceService service;
 
@@ -166,7 +168,7 @@ class AttendanceServiceTest {
                 attendanceExceptionRepository, employeeRepository, managerHistoryRepository,
                 auditService, auditSnapshot, latePenaltyService, workingDayService, expectedWorkHoursService,
                 shiftDayPolicy, attendanceRulesService, attendanceInterpretationService, employeeShiftAssignmentResolver,
-                attendancePenaltyRepository);
+                attendancePenaltyRepository, employeeWeeklyOffPolicyAssignmentResolver, weeklyOffPolicyVersionResolver);
 
         defaultShift = shift("Regular", LocalTime.of(15, 30), LocalTime.of(0, 30));
         currentEmployeeShift = defaultShift;
@@ -1592,5 +1594,22 @@ class AttendanceServiceTest {
         assertTrue(response.getBreakUsedMinutes() >= 0,
                 "break-used minutes must never be negative, was " + response.getBreakUsedMinutes());
         assertEquals(0, response.getBreakUsedMinutes());
+    }
+
+    @Test
+    void myHistory_penaltyOnDayWithNoRecord_returnsPenalizedPlaceholder_ONEHR645() {
+        LocalDate from = LocalDate.of(2026, 10, 1), to = LocalDate.of(2026, 10, 7), incident = LocalDate.of(2026, 10, 2);
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDateBetweenOrderByWorkDateDesc(employeeId, from, to))
+                .thenReturn(List.of());
+        when(attendancePenaltyRepository.findByEmployeeUserIdAndIncidentDateBetweenAndStatus(employeeId, from, to, "PENDING_REVIEW"))
+                .thenReturn(List.of(com.nforce.onehr.entity.AttendancePenalty.builder()
+                        .employeeUserId(employeeId).incidentDate(incident).build()));
+
+        List<AttendanceResponse> rows = service.getMyHistory(employeeEmail, from, to);
+
+        assertEquals(1, rows.size());
+        assertEquals(incident, rows.get(0).getWorkDate());
+        assertTrue(rows.get(0).isPenalized());
+        assertNull(rows.get(0).getStatus());
     }
 }
