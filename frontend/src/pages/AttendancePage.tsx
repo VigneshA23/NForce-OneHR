@@ -993,7 +993,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
     } finally { setSubmitting(false); }
   }
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={modalStyle}>
         <ModalHeader title={editing ? 'Edit Regularization Request' : 'Request Attendance Regularization'} onClose={onClose} />
@@ -1045,8 +1045,8 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
             )}
           </div>
 
-          <div className="nf-am-callout" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <input type="radio" checked readOnly style={{ marginTop: 3 }} />
+          <div className="nf-am-callout" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="radio" checked readOnly aria-label="Raise regularization request" />
             <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>
               Raise regularization request to exempt this day from penalization policy.
             </span>
@@ -1118,7 +1118,8 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1149,7 +1150,7 @@ function RequestDetailsModal({ request, onClose }: { request: RegularizationReco
   const approverName = request.status === 'PENDING' || request.status === 'PARTIALLY_APPROVED'
     ? request.assignedApproverName : request.reviewedByName;
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 460, overflowX: 'hidden' }}>
         <ModalHeader title="Regularization Request Details" onClose={onClose} />
@@ -1221,7 +1222,8 @@ function RequestDetailsModal({ request, onClose }: { request: RegularizationReco
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1247,7 +1249,7 @@ function ConfirmApproveModal({ request, onClose, onApproved, token }: {
     }
   }
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 420 }}>
         <ModalHeader title={`Approve · ${request.employeeName}`} onClose={onClose} />
@@ -1271,7 +1273,8 @@ function ConfirmApproveModal({ request, onClose, onApproved, token }: {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1297,7 +1300,7 @@ function RejectModal({ request, onClose, onRejected, token }: { request: Regular
     } finally { setSubmitting(false); }
   }
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 420 }}>
         <ModalHeader title={`Reject · ${request.employeeName}`} onClose={onClose} />
@@ -1319,7 +1322,8 @@ function RejectModal({ request, onClose, onRejected, token }: { request: Regular
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1365,7 +1369,7 @@ function BulkActionModal({ action, ids, token, onClose, onDone }: {
   }
 
   const isReject = action === 'REJECT';
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 420 }}>
         <ModalHeader title={`${isReject ? 'Reject' : 'Approve'} ${ids.length} Request${ids.length === 1 ? '' : 's'}`} onClose={onClose} />
@@ -1394,7 +1398,8 @@ function BulkActionModal({ action, ids, token, onClose, onDone }: {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -2339,7 +2344,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
     && (requestType !== 'PARTIAL_DAY' || (!timeRequiredError && Number(partialDayMinutes) > 0
       && Number(partialDayMinutes) <= PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60));
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 440 }}>
         <ModalHeader title={presetType === 'WFH' ? 'Work From Home' : presetType === 'PARTIAL_DAY' ? 'Request Partial Day' : 'New Attendance Request'} onClose={onClose} />
@@ -2588,7 +2593,8 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -7178,7 +7184,7 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
     }
   }
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 460 }}>
         <ModalHeader title="Request Overtime (OT)" onClose={onClose} />
@@ -7270,7 +7276,8 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
