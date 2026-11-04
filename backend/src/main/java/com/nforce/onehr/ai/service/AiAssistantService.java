@@ -27,6 +27,7 @@ import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -74,6 +75,7 @@ public class AiAssistantService {
     private final AssistantDataService dataService;
     private final AiInteractionLogger interactionLogger;
     private final AiProperties properties;
+    private final EffectivePermissionService effectivePermissionService;
 
     /**
      * @param message       the user's question
@@ -335,9 +337,11 @@ public class AiAssistantService {
     /**
      * Builds the caller's context entirely from the database.
      *
-     * <p>Note the two different role concepts, which are not interchangeable: audiences come from
-     * every role the user actually holds and gate knowledge retrieval, while the shell role is the
-     * single role their sidebar is keyed by and gates navigation. See {@link ShellRole}.
+     * <p>Note the different role concepts, which are not interchangeable: audiences come from
+     * every role the user actually holds and target knowledge retrieval; the shell role is the
+     * single role their sidebar is keyed by (and its labels); and the authorities - the same
+     * permissions Spring Security checks - decide live data and navigation, so a custom role's
+     * grants count. See {@link ShellRole}.
      */
     private AssistantRequestContext buildContext(String actorEmail) {
         User actor = userRepository.findByEmail(actorEmail)
@@ -357,6 +361,9 @@ public class AiAssistantService {
                 .primaryRoleCode(primaryRoleCode)
                 .shellRole(ShellRole.fromPrimaryRoleCode(primaryRoleCode))
                 .audiences(audiences)
+                .authorities(effectivePermissionService.coverage(actor.getRoles()))
+                .customAuthorities(effectivePermissionService.coverage(
+                        actor.getRoles().stream().filter(r -> !r.isSystem()).toList()))
                 .build();
     }
 
@@ -369,6 +376,8 @@ public class AiAssistantService {
                 .primaryRoleCode(context.getPrimaryRoleCode())
                 .shellRole(context.getShellRole())
                 .audiences(context.getAudiences())
+                .authorities(context.getAuthorities())
+                .customAuthorities(context.getCustomAuthorities())
                 .currentPageId(page.get().getPageId())
                 .currentModule(page.get().getModule())
                 .build();

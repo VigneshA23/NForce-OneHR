@@ -1,5 +1,7 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.dto.helpdesk.HelpdeskAnalyticsDto;
 import com.nforce.onehr.entity.HelpContent;
 import com.nforce.onehr.entity.Role;
@@ -12,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -31,6 +34,9 @@ class HelpdeskAnalyticsServiceTest {
     @Mock private UserRepository userRepo;
     @Mock private EmployeeRepository employeeRepo;
 
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(java.util.Map.of(
+            "CUSTOM_DESK_VIEWER", java.util.Map.of("helpdesk:VIEW", "ALL"),
+            "CUSTOM_OTHER", java.util.Map.of("helpdesk:EDIT", "ALL")));
     @InjectMocks private HelpdeskAnalyticsService service;
 
     private final String hrAdminEmail = "hr@test.com";
@@ -55,6 +61,29 @@ class HelpdeskAnalyticsServiceTest {
                         .roles(Set.of(Role.builder().code("EMPLOYEE").build())).build()));
 
         assertThrows(AccessDeniedException.class, () -> service.getAnalytics(employeeEmail));
+        verifyNoInteractions(ticketRepo, helpContentRepo);
+    }
+
+    private static User customUser(String code) {
+        return User.builder().id(UUID.randomUUID()).email(code.toLowerCase() + "@test.com")
+                .roles(Set.of(Role.builder().id(100).code(code).displayName(code).build())).build();
+    }
+
+    @Test
+    void getAnalytics_byCustomRoleWithHelpdeskView_isAllowed() {
+        User viewer = customUser("CUSTOM_DESK_VIEWER");
+        when(userRepo.findByEmail(viewer.getEmail())).thenReturn(Optional.of(viewer));
+        stubEmptyAggregates();
+
+        assertNotNull(service.getAnalytics(viewer.getEmail()));
+    }
+
+    @Test
+    void getAnalytics_byCustomRoleWithoutHelpdeskView_isDenied() {
+        User other = customUser("CUSTOM_OTHER");
+        when(userRepo.findByEmail(other.getEmail())).thenReturn(Optional.of(other));
+
+        assertThrows(AccessDeniedException.class, () -> service.getAnalytics(other.getEmail()));
         verifyNoInteractions(ticketRepo, helpContentRepo);
     }
 

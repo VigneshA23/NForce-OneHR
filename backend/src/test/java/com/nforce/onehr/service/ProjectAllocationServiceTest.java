@@ -16,6 +16,8 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.ProjectAllocationRepository;
 import com.nforce.onehr.repository.ProjectRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +27,7 @@ import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +56,11 @@ class ProjectAllocationServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private DirectReportScopeService directReportScopeService;
 
+    // Real seed matrix (V241: project_allocations:VIEW is MANAGER TEAM, HR_ADMIN/SUPER_ADMIN ALL) plus two custom roles.
+    private final EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
+            "CUSTOM_CAPACITY_ALL", Map.of("project_allocations:VIEW", "ALL"),
+            "CUSTOM_CAPACITY_TEAM", Map.of("project_allocations:VIEW", "TEAM")));
+
     private ProjectAllocationService service;
 
     private final UUID projectId = UUID.randomUUID();
@@ -67,7 +75,7 @@ class ProjectAllocationServiceTest {
     @BeforeEach
     void setUp() {
         service = new ProjectAllocationService(allocationRepository, employeeRepository, projectRepository,
-                userRepository, directReportScopeService);
+                userRepository, directReportScopeService, effectivePermissionService);
         lenient().when(userRepository.findByEmail(HR_EMAIL)).thenReturn(Optional.of(User.builder()
                 .id(UUID.randomUUID()).email(HR_EMAIL).roles(Set.of(Role.builder().code("HR_ADMIN").build())).build()));
         lenient().when(userRepository.findByEmail(OWNER_EMAIL)).thenReturn(Optional.of(User.builder()
@@ -88,8 +96,10 @@ class ProjectAllocationServiceTest {
     }
 
     private User userWithRole(String roleCode) {
+        Role role = roleCode.startsWith("CUSTOM_")
+                ? Role.builder().id(99).code(roleCode).displayName(roleCode).build() : SeedMatrix.role(roleCode);
         return User.builder().id(UUID.randomUUID()).email("actor@test.com")
-                .roles(Set.of(Role.builder().code(roleCode).build())).build();
+                .roles(Set.of(SeedMatrix.role("EMPLOYEE"), role)).build();
     }
 
     private Project activeProject() {
@@ -390,5 +400,28 @@ class ProjectAllocationServiceTest {
 
         assertEquals(1, res.size());
         verifyNoInteractions(directReportScopeService);
+    }
+
+    @Test
+    void capacityView_superAdminAndACustomRoleWithViewAll_seeOrgWide() {
+        for (String code : List.of("SUPER_ADMIN", "CUSTOM_CAPACITY_ALL")) {
+            String email = code + "@test.com";
+            when(userRepository.findByEmail(email)).thenReturn(Optional.of(userWithRole(code)));
+            when(employeeRepository.findAll()).thenReturn(List.of(employee(UUID.randomUUID())));
+            when(allocationRepository.findByEmployeeUserIdIn(any())).thenReturn(List.of());
+
+            assertEquals(1, service.capacityView(email, null, null).size(), code);
+        }
+        verifyNoInteractions(directReportScopeService);
+    }
+
+    @Test
+    void capacityView_aCustomRoleWithOnlyTeamScope_staysWithinItsDirectReports() {
+        String email = "custom@test.com";
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(userWithRole("CUSTOM_CAPACITY_TEAM")));
+        when(directReportScopeService.directReportIds(email)).thenReturn(Set.of());
+
+        assertTrue(service.capacityView(email, null, null).isEmpty());
+        verify(employeeRepository, never()).findAll();
     }
 }

@@ -9,11 +9,14 @@ import com.nforce.onehr.entity.ExpenseClaim;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
@@ -48,6 +51,13 @@ class ExpenseServiceTest {
     @Mock private NotificationService notificationService;
     @Mock private AttendanceProperties attendanceProperties;
     @Mock private ApprovalRuleEvaluationService approvalRuleEvaluationService;
+    @Mock private RoleRepository roleRepo;
+    // The REAL permission matrix from the migrations, plus test-only custom roles.
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
+            "CUSTOM_APPROVER", Map.of("expenses:APPROVE", "ALL"),
+            "CUSTOM_CONFIG", Map.of("expenses:CONFIGURE", "ALL"),
+            "CUSTOM_VIEWER", Map.of("expenses:VIEW", "ALL"),
+            "CUSTOM_OVERRIDE", Map.of("expenses_override:APPROVE", "ALL")));
 
     @InjectMocks
     private ExpenseService expenseService;
@@ -303,15 +313,20 @@ class ExpenseServiceTest {
     }
 
     private User hrAdminUser() {
-        return User.builder().id(UUID.randomUUID()).email("hr@test.com")
-                .roles(Set.of(Role.builder().id(1).code("HR_ADMIN").displayName("HR Admin").build()))
-                .build();
+        return userWith("hr@test.com", SeedMatrix.role("HR_ADMIN"));
     }
 
     private User superAdminUser() {
-        return User.builder().id(UUID.randomUUID()).email("superadmin@test.com")
-                .roles(Set.of(Role.builder().id(2).code("SUPER_ADMIN").displayName("Super Admin").build()))
-                .build();
+        return userWith("superadmin@test.com", SeedMatrix.role("SUPER_ADMIN"));
+    }
+
+    private static User userWith(String email, Role... roles) {
+        return User.builder().id(UUID.randomUUID()).email(email).roles(new java.util.HashSet<>(List.of(roles))).build();
+    }
+
+    private static Role custom(String code) {
+        return Role.builder().id(100 + Math.abs(code.hashCode() % 100)).code(code).displayName("Custom " + code)
+                .system(false).active(true).build();
     }
 
     @Test
@@ -552,5 +567,265 @@ class ExpenseServiceTest {
         stubFinalStage(hr, claim);
 
         assertEquals("CLEARED_FOR_PAYROLL", expenseService.finalApprove(claim.getId(), hr.getEmail()).getStatus());
+    }
+
+    // ── Permission migration (V236): system roles unchanged, custom roles by permission ─────────
+
+    private com.nforce.onehr.dto.expense.CreateExpenseCategoryRequest categoryRequest() {
+        com.nforce.onehr.dto.expense.CreateExpenseCategoryRequest req = new com.nforce.onehr.dto.expense.CreateExpenseCategoryRequest();
+        req.setName("Meals");
+        req.setRequiresReceiptAbove(new BigDecimal("100"));
+        return req;
+    }
+
+    private void assertCreateCategory(User actor, boolean allowed) {
+        when(userRepo.findByEmail(actor.getEmail())).thenReturn(Optional.of(actor));
+        if (allowed) {
+            when(categoryRepo.save(any(ExpenseCategory.class))).thenAnswer(inv -> inv.getArgument(0));
+            assertDoesNotThrow(() -> expenseService.createCategory(categoryRequest(), actor.getEmail()));
+        } else {
+            assertThrows(AccessDeniedException.class, () -> expenseService.createCategory(categoryRequest(), actor.getEmail()));
+            verify(categoryRepo, never()).save(any());
+        }
+    }
+
+    @Test void createCategory_hrAdmin_allowed() { assertCreateCategory(hrAdminUser(), true); }
+    @Test void createCategory_superAdmin_allowed() { assertCreateCategory(superAdminUser(), true); }
+    @Test void createCategory_manager_denied() { assertCreateCategory(userWith("m@test.com", SeedMatrix.role("MANAGER"), SeedMatrix.role("EMPLOYEE")), false); }
+    @Test void createCategory_employee_denied() { assertCreateCategory(userWith("e@test.com", SeedMatrix.role("EMPLOYEE")), false); }
+    @Test void createCategory_customRoleWithConfigure_allowed() { assertCreateCategory(userWith("c@test.com", custom("CUSTOM_CONFIG")), true); }
+    @Test void createCategory_customRoleWithoutConfigure_denied() { assertCreateCategory(userWith("c@test.com", custom("CUSTOM_APPROVER")), false); }
+
+    @Test
+    void markPaid_manager_denied_beforeAnyClaimLookup() {
+        User manager = userWith("m@test.com", SeedMatrix.role("MANAGER"));
+        when(userRepo.findByEmail(manager.getEmail())).thenReturn(Optional.of(manager));
+
+        assertThrows(AccessDeniedException.class, () -> expenseService.markPaid(UUID.randomUUID(), manager.getEmail()));
+        verify(claimRepo, never()).findById(any());
+    }
+
+    @Test
+    void markPaid_customRoleWithApprove_allowed_viewOnlyCustomRoleDenied() {
+        ExpenseClaim claim = claimInStatus("CLEARED_FOR_PAYROLL", true);
+        User approver = userWith("a@test.com", custom("CUSTOM_APPROVER"));
+        stubFinalStage(approver, claim);
+        assertEquals("PAID", expenseService.markPaid(claim.getId(), approver.getEmail()).getStatus());
+
+        User viewer = userWith("v@test.com", custom("CUSTOM_VIEWER"));
+        when(userRepo.findByEmail(viewer.getEmail())).thenReturn(Optional.of(viewer));
+        assertThrows(AccessDeniedException.class, () -> expenseService.markPaid(claim.getId(), viewer.getEmail()));
+    }
+
+    @Test
+    void clearedForPayroll_hrAndCustomViewerAllowed_managerAndPlainCustomDenied() {
+        User hr = hrAdminUser();
+        User viewer = userWith("v@test.com", custom("CUSTOM_VIEWER"));
+        User manager = userWith("m@test.com", SeedMatrix.role("MANAGER"));
+        User plain = userWith("p@test.com", custom("CUSTOM_NONE"));
+        for (User u : List.of(hr, viewer, manager, plain)) when(userRepo.findByEmail(u.getEmail())).thenReturn(Optional.of(u));
+        when(claimRepo.findSummaryByStatus("CLEARED_FOR_PAYROLL")).thenReturn(List.of());
+
+        assertDoesNotThrow(() -> expenseService.clearedForPayroll(hr.getEmail()));
+        assertDoesNotThrow(() -> expenseService.clearedForPayroll(viewer.getEmail()));
+        assertThrows(AccessDeniedException.class, () -> expenseService.clearedForPayroll(manager.getEmail()));
+        assertThrows(AccessDeniedException.class, () -> expenseService.clearedForPayroll(plain.getEmail()));
+    }
+
+    @Test
+    void pendingForFinalApprover_managerAndEmployee_stillDenied() {
+        User manager = userWith("m@test.com", SeedMatrix.role("MANAGER"), SeedMatrix.role("EMPLOYEE"));
+        when(userRepo.findByEmail(manager.getEmail())).thenReturn(Optional.of(manager));
+
+        assertThrows(AccessDeniedException.class, () -> expenseService.pendingForFinalApprover(manager.getEmail()));
+        assertFalse(expenseService.hasFinalApproverQueue(manager.getEmail()));
+    }
+
+    @Test
+    void managerApprove_customRoleWithApproveAll_overridesManagerStage_likeHrAdmin() {
+        User approver = userWith("a@test.com", custom("CUSTOM_APPROVER"));
+        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
+        stubManagerOf(User.builder().id(UUID.randomUUID()).build(), claim.getEmployeeUserId());
+        stubFinalStage(approver, claim);
+
+        assertEquals("MANAGER_APPROVED", expenseService.managerApprove(claim.getId(), approver.getEmail()).getStatus());
+    }
+
+    @Test
+    void managerApprove_customRoleWithoutApprove_notTheManager_denied() {
+        User plain = userWith("p@test.com", custom("CUSTOM_VIEWER"));
+        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
+        stubManagerOf(User.builder().id(UUID.randomUUID()).build(), claim.getEmployeeUserId());
+        stubFinalStage(plain, claim);
+
+        assertThrows(AccessDeniedException.class, () -> expenseService.managerApprove(claim.getId(), plain.getEmail()));
+        assertEquals("SUBMITTED", claim.getStatus());
+    }
+
+    @Test
+    void finalApprove_customRoleWithApproveAll_actsAtHrStage_butNotSuperAdminStage() {
+        User approver = userWith("a@test.com", custom("CUSTOM_APPROVER"));
+        ExpenseClaim legacy = claimInStatus("MANAGER_APPROVED", true);
+        stubFinalStage(approver, legacy);
+        assertEquals("CLEARED_FOR_PAYROLL", expenseService.finalApprove(legacy.getId(), approver.getEmail()).getStatus());
+
+        ExpenseClaim atSa = threeStageClaimAwaiting("SUPER_ADMIN");
+        when(claimRepo.findById(atSa.getId())).thenReturn(Optional.of(atSa));
+        assertThrows(AccessDeniedException.class, () -> expenseService.finalApprove(atSa.getId(), approver.getEmail()));
+    }
+
+    @Test
+    void finalApprove_customRoleWithoutPermission_atHrStage_denied() {
+        User plain = userWith("p@test.com", custom("CUSTOM_VIEWER"));
+        ExpenseClaim claim = threeStageClaimAwaiting("HR_ADMIN");
+        stubFinalStage(plain, claim);
+
+        assertThrows(AccessDeniedException.class, () -> expenseService.finalApprove(claim.getId(), plain.getEmail()));
+        assertEquals("HR_ADMIN", claim.getPendingFinalStage());
+    }
+
+    @Test
+    void finalApprove_customRoleWithOverride_actsAtSuperAdminStage_likeSuperAdmin() {
+        User overrider = userWith("o@test.com", custom("CUSTOM_OVERRIDE"));
+        ExpenseClaim claim = threeStageClaimAwaiting("SUPER_ADMIN");
+        stubFinalStage(overrider, claim);
+
+        assertEquals("CLEARED_FOR_PAYROLL", expenseService.finalApprove(claim.getId(), overrider.getEmail()).getStatus());
+    }
+
+    @Test
+    void finalApprove_superAdminAtHrStage_alsoSatisfiesItsOwnLaterStage_unchanged() {
+        User sa = superAdminUser();
+        ExpenseClaim claim = threeStageClaimAwaiting("HR_ADMIN");
+        stubFinalStage(sa, claim);
+
+        assertEquals("CLEARED_FOR_PAYROLL", expenseService.finalApprove(claim.getId(), sa.getEmail()).getStatus());
+    }
+
+    @Test
+    void finalApprove_superAdminAtSuperAdminStage_doesNotSkipALaterHrStage_unchanged() {
+        // Pins the one role-code check deliberately kept (holdsStage for HR_ADMIN): before V236 a
+        // Super Admin without the HR_ADMIN role did not auto-clear a later HR Admin stage.
+        User sa = superAdminUser();
+        ExpenseClaim claim = claimInStatus("MANAGER_APPROVED", true);
+        claim.setApprovalStages("MANAGER,SUPER_ADMIN,HR_ADMIN");
+        claim.setPendingFinalStage("SUPER_ADMIN");
+        stubFinalStage(sa, claim);
+
+        ExpenseClaimResponse res = expenseService.finalApprove(claim.getId(), sa.getEmail());
+        assertEquals("MANAGER_APPROVED", res.getStatus());
+        assertEquals("HR_ADMIN", res.getPendingFinalStage());
+    }
+
+    // ── Custom role as a Workflow Studio stage (V236) ─────────
+
+    private ExpenseClaim customStageClaim(String stages, String pending) {
+        ExpenseClaim claim = claimInStatus("MANAGER_APPROVED", true);
+        claim.setApprovalStages(stages);
+        claim.setPendingFinalStage(pending);
+        return claim;
+    }
+
+    @Test
+    void managerApprove_customStageRule_awaitsTheCustomRole() {
+        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
+        claim.setApprovalStages("MANAGER,CUSTOM_FIN");
+        stubManagerOf(manager, claim.getEmployeeUserId());
+        stubFinalStage(manager, claim);
+
+        assertEquals("CUSTOM_FIN", expenseService.managerApprove(claim.getId(), manager.getEmail()).getPendingFinalStage());
+    }
+
+    @Test
+    void finalApprove_customStage_holderWithNoPermissionsClears() {
+        User holder = userWith("fin@test.com", custom("CUSTOM_FIN"));
+        ExpenseClaim claim = customStageClaim("MANAGER,CUSTOM_FIN", "CUSTOM_FIN");
+        stubFinalStage(holder, claim);
+
+        assertEquals("CLEARED_FOR_PAYROLL", expenseService.finalApprove(claim.getId(), holder.getEmail()).getStatus());
+    }
+
+    @Test
+    void finalApprove_customStage_hrAdminAndOtherCustomRoleDenied_superAdminOverrides() {
+        ExpenseClaim claim = customStageClaim("MANAGER,CUSTOM_FIN", "CUSTOM_FIN");
+        when(roleRepo.findByCode("CUSTOM_FIN")).thenReturn(Optional.of(custom("CUSTOM_FIN")));
+        User hr = hrAdminUser();
+        stubFinalStage(hr, claim);
+        AccessDeniedException ex = assertThrows(AccessDeniedException.class, () -> expenseService.finalReject(claim.getId(), "no", hr.getEmail()));
+        assertTrue(ex.getMessage().contains("Custom CUSTOM_FIN"), "labelled with the role's display name: " + ex.getMessage());
+
+        User other = userWith("other@test.com", custom("CUSTOM_OTHER"));
+        when(userRepo.findByEmail(other.getEmail())).thenReturn(Optional.of(other));
+        assertThrows(AccessDeniedException.class, () -> expenseService.finalApprove(claim.getId(), other.getEmail()));
+
+        User sa = superAdminUser();
+        when(userRepo.findByEmail(sa.getEmail())).thenReturn(Optional.of(sa));
+        assertEquals("CLEARED_FOR_PAYROLL", expenseService.finalApprove(claim.getId(), sa.getEmail()).getStatus());
+    }
+
+    @Test
+    void finalApprove_inactiveCustomRoleHolder_denied() {
+        Role inactive = custom("CUSTOM_FIN");
+        inactive.setActive(false);
+        User holder = userWith("fin@test.com", inactive);
+        ExpenseClaim claim = customStageClaim("MANAGER,CUSTOM_FIN", "CUSTOM_FIN");
+        when(userRepo.findByEmail(holder.getEmail())).thenReturn(Optional.of(holder));
+
+        assertThrows(AccessDeniedException.class, () -> expenseService.finalApprove(claim.getId(), holder.getEmail()));
+    }
+
+    @Test
+    void finalApprove_customStageThenSuperAdmin_movesOnToSuperAdmin() {
+        User holder = userWith("fin@test.com", custom("CUSTOM_FIN"));
+        ExpenseClaim claim = customStageClaim("MANAGER,CUSTOM_FIN,SUPER_ADMIN", "CUSTOM_FIN");
+        stubFinalStage(holder, claim);
+
+        ExpenseClaimResponse res = expenseService.finalApprove(claim.getId(), holder.getEmail());
+        assertEquals("MANAGER_APPROVED", res.getStatus());
+        assertEquals("SUPER_ADMIN", res.getPendingFinalStage());
+    }
+
+    @Test
+    void pendingForFinalApprover_customStageHolder_seesOnlyClaimsAtTheirStage() {
+        User holder = userWith("fin@test.com", custom("CUSTOM_FIN"));
+        when(userRepo.findByEmail(holder.getEmail())).thenReturn(Optional.of(holder));
+        ExpenseClaim mine = customStageClaim("MANAGER,CUSTOM_FIN", "CUSTOM_FIN");
+        ExpenseClaim hrStage = threeStageClaimAwaiting("HR_ADMIN");
+        ExpenseClaim submitted = claimInStatus("SUBMITTED", true);
+        when(claimRepo.findSummaryByStatusIn(any())).thenReturn(List.of(toSummary(mine), toSummary(hrStage), toSummary(submitted)));
+
+        List<ExpenseClaimResponse> res = expenseService.pendingForFinalApprover(holder.getEmail());
+        assertEquals(List.of(mine.getId()), res.stream().map(ExpenseClaimResponse::getId).toList());
+        assertTrue(expenseService.hasFinalApproverQueue(holder.getEmail()));
+    }
+
+    @Test
+    void pendingForFinalApprover_hrAdmin_stillSeesSubmittedAndHrStage_notCustomStage() {
+        User hr = hrAdminUser();
+        when(userRepo.findByEmail(hr.getEmail())).thenReturn(Optional.of(hr));
+        ExpenseClaim custom = customStageClaim("MANAGER,CUSTOM_FIN", "CUSTOM_FIN");
+        ExpenseClaim hrStage = threeStageClaimAwaiting("HR_ADMIN");
+        ExpenseClaim submitted = claimInStatus("SUBMITTED", true);
+        when(claimRepo.findSummaryByStatusIn(any())).thenReturn(List.of(toSummary(custom), toSummary(hrStage), toSummary(submitted)));
+
+        assertEquals(Set.of(hrStage.getId(), submitted.getId()),
+                expenseService.pendingForFinalApprover(hr.getEmail()).stream().map(ExpenseClaimResponse::getId).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    @Test
+    void getReceipt_customStageHolder_allowedAtTheirStageOnly() {
+        User holder = userWith("fin@test.com", custom("CUSTOM_FIN"));
+        when(userRepo.findByEmail(holder.getEmail())).thenReturn(Optional.of(holder));
+        ExpenseClaim atStage = claimWithReceipt(UUID.randomUUID(), "data:image/png;base64," + PNG_BASE64);
+        atStage.setStatus("MANAGER_APPROVED");
+        atStage.setPendingFinalStage("CUSTOM_FIN");
+        when(claimRepo.findById(atStage.getId())).thenReturn(Optional.of(atStage));
+        assertDoesNotThrow(() -> expenseService.getReceipt(atStage.getId(), holder.getEmail()));
+
+        ExpenseClaim submitted = claimWithReceipt(UUID.randomUUID(), "data:image/png;base64," + PNG_BASE64);
+        when(claimRepo.findById(submitted.getId())).thenReturn(Optional.of(submitted));
+        when(historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(submitted.getEmployeeUserId())).thenReturn(Optional.empty());
+        assertThrows(AccessDeniedException.class, () -> expenseService.getReceipt(submitted.getId(), holder.getEmail()));
     }
 }

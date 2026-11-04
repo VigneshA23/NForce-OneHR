@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.attendance.CreateOvertimeRequest;
 import com.nforce.onehr.dto.attendance.OvertimeRequestResponse;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.OvertimeRequest;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
@@ -10,19 +11,28 @@ import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.OvertimeRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,6 +54,12 @@ class OvertimeRequestServiceTest {
     @Mock private AuditService auditService;
     @Mock private NotificationService notificationService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
+    // The real seed, plus custom roles: one granted overtime:APPROVE at TEAM, one at ALL, and one
+    // granted only an unrelated module's APPROVE.
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
+            "CUSTOM_TEAM", Map.of("overtime:APPROVE", "TEAM"),
+            "CUSTOM_ALL", Map.of("overtime:APPROVE", "ALL"),
+            "CUSTOM_OTHER", Map.of("leave:APPROVE", "ALL")));
 
     @InjectMocks private OvertimeRequestService service;
 
@@ -166,5 +182,83 @@ class OvertimeRequestServiceTest {
 
         assertThrows(AccessDeniedException.class, () -> service.approve(req.getId(), null, "stranger@test.com"));
         verify(notificationService, never()).send(any(), any(), any(), any(), any());
+    }
+
+    // ---------------------------------------------------------------- permission-based access (custom roles)
+
+    private static final List<String> CUSTOM = List.of("CUSTOM_TEAM", "CUSTOM_ALL", "CUSTOM_OTHER");
+
+    /** "SUPER_ADMIN+MANAGER" -> those roles: system roles as seeded, custom roles with their own ids. */
+    private static Set<Role> roles(String codes) {
+        return Arrays.stream(codes.split("\\+"))
+                .map(c -> CUSTOM.contains(c)
+                        ? Role.builder().id(100 + CUSTOM.indexOf(c)).code(c).displayName(c).build()
+                        : SeedMatrix.role(c))
+                .collect(Collectors.toSet());
+    }
+
+    private User actorWith(String codes) {
+        User actor = User.builder().id(UUID.randomUUID()).email("actor@test.com").roles(roles(codes)).build();
+        when(userRepository.findByEmail("actor@test.com")).thenReturn(Optional.of(actor));
+        return actor;
+    }
+
+    private void assertReview(boolean allowed, OvertimeRequest req) {
+        if (allowed) {
+            assertEquals("APPROVED", service.approve(req.getId(), null, "actor@test.com").getStatus());
+        } else {
+            assertThrows(AccessDeniedException.class, () -> service.approve(req.getId(), null, "actor@test.com"));
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"HR_ADMIN,2", "SUPER_ADMIN,2", "CUSTOM_ALL,2", "MANAGER,1", "CUSTOM_TEAM,1", "CUSTOM_OTHER,1", "EMPLOYEE,1"})
+    void listPendingForApprover_everyPendingRequestOnlyForApproveAllHolders(String codes, int expected) {
+        User actor = actorWith(codes);
+        OvertimeRequest assignedToActor = pendingRequest();
+        assignedToActor.setAssignedApproverId(actor.getId());
+        when(requestRepository.findByStatus("PENDING")).thenReturn(List.of(assignedToActor, pendingRequest()));
+
+        assertEquals(expected, service.listPendingForApprover("actor@test.com").size());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"HR_ADMIN,true", "SUPER_ADMIN,true", "CUSTOM_ALL,true", "MANAGER,false", "CUSTOM_TEAM,false", "EMPLOYEE,false"})
+    void approve_unrelatedRequest_onlyApproveAllHoldersMayReview(String codes, boolean allowed) {
+        actorWith(codes);
+        OvertimeRequest req = pendingRequest(); // assigned to someone else; actor isn't the requester's manager
+        when(requestRepository.findById(req.getId())).thenReturn(Optional.of(req));
+        lenient().when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.empty());
+
+        assertReview(allowed, req);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"MANAGER,true", "CUSTOM_TEAM,true", "CUSTOM_OTHER,false", "EMPLOYEE,false"})
+    void approve_asRequestersCurrentManager_needsApproveTeam(String codes, boolean allowed) {
+        User actor = actorWith(codes);
+        OvertimeRequest req = pendingRequest();
+        when(requestRepository.findById(req.getId())).thenReturn(Optional.of(req));
+        lenient().when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.of(
+                EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(actor.getId()).build()));
+
+        assertReview(allowed, req);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"MANAGER,true", "HR_ADMIN,true", "SUPER_ADMIN,false", "EMPLOYEE,false", "SUPER_ADMIN+MANAGER,true",
+            "CUSTOM_TEAM,true", "CUSTOM_ALL,true", "CUSTOM_OTHER,false", "SUPER_ADMIN+CUSTOM_TEAM,true"})
+    void submit_explicitApprover_mustHoldApproveTeamOutsideSuperAdmin(String codes, boolean eligible) {
+        User candidate = User.builder().id(UUID.randomUUID()).email("approver@test.com").roles(roles(codes)).build();
+        when(userRepository.findById(candidate.getId())).thenReturn(Optional.of(candidate));
+        CreateOvertimeRequest req = overtimeRequest(LocalDate.of(2026, 8, 10));
+        req.setManagerUserId(candidate.getId());
+
+        if (eligible) {
+            assertEquals(candidate.getId(), service.submit(req, employeeEmail).getAssignedApproverId());
+        } else {
+            IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.submit(req, employeeEmail));
+            assertEquals("Selected user is not an eligible approver", ex.getMessage());
+        }
     }
 }
