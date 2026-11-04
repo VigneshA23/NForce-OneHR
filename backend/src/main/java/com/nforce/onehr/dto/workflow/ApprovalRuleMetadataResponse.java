@@ -18,5 +18,8 @@ public class ApprovalRuleMetadataResponse {
     /** Condition fields allowed per request type, e.g. {"EXPENSE": ["AMOUNT"]}. */
     private Map<String, List<String>> conditionFieldsByRequestType;
     private List<String> operators;
+    /** Every value a stage may hold: MANAGER, HR_ADMIN, SUPER_ADMIN, then active custom role codes. */
     private List<String> approvalRoles;
+    /** approvalRoles' code -> display name (a custom role's code isn't meant for display). */
+    private Map<String, String> approvalRoleLabels;
 }

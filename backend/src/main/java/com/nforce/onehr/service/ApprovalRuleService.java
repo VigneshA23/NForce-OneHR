@@ -3,9 +3,11 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.workflow.*;
 import com.nforce.onehr.entity.ApprovalRule;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.ApprovalRuleRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.RoleRepository;
 import com.nforce.onehr.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -47,22 +52,28 @@ public class ApprovalRuleService {
 
     public static final Set<String> SUPPORTED_OPERATORS = Set.of(">", ">=", "<", "<=", "=");
 
-    public static final Set<String> SUPPORTED_APPROVAL_ROLES = Set.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN");
+    /** The system stage values. Since V236 a stage may also name any ACTIVE custom role — see
+     * {@link #approvalStageLabels()}, the full list of what a stage may hold right now. */
+    public static final List<String> SUPPORTED_APPROVAL_ROLES = List.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN");
 
     private final ApprovalRuleRepository ruleRepository;
     private final ApprovalRuleEvaluationService evaluationService;
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
+    private final RoleRepository roleRepository;
 
     // ── Metadata (drives the rule-builder form's dropdowns) ──
 
+    @Transactional(readOnly = true)
     public ApprovalRuleMetadataResponse metadata() {
+        Map<String, String> stageLabels = approvalStageLabels();
         return ApprovalRuleMetadataResponse.builder()
                 .requestTypes(List.copyOf(SUPPORTED_REQUEST_TYPES))
                 .conditionFieldsByRequestType(CONDITION_FIELDS_BY_REQUEST_TYPE.entrySet().stream()
                         .collect(Collectors.toMap(Map.Entry::getKey, e -> List.copyOf(e.getValue()))))
                 .operators(List.copyOf(SUPPORTED_OPERATORS))
-                .approvalRoles(List.copyOf(SUPPORTED_APPROVAL_ROLES))
+                .approvalRoles(List.copyOf(stageLabels.keySet()))
+                .approvalRoleLabels(stageLabels)
                 .build();
     }
 
@@ -260,8 +271,14 @@ public class ApprovalRuleService {
         if (stages.isEmpty()) {
             throw new IllegalArgumentException("At least one approval stage is required");
         }
+        // ExpenseService#nextFinalStage looks a stage up by indexOf, so a repeated stage would send
+        // finalApprove round the same stage forever.
+        if (new HashSet<>(stages).size() != stages.size()) {
+            throw new IllegalArgumentException("Each approval stage can appear only once");
+        }
+        Set<String> allowedStages = approvalStageLabels().keySet();
         for (String stage : stages) {
-            if (!SUPPORTED_APPROVAL_ROLES.contains(stage)) {
+            if (!allowedStages.contains(stage)) {
                 throw new IllegalArgumentException("Invalid approval role: " + stage);
             }
         }
@@ -272,8 +289,26 @@ public class ApprovalRuleService {
         // with no HR_ADMIN/SUPER_ADMIN stage decides nothing except to skip HR final clearance
         // for every claim — whether or not its condition matches.
         if (stages.stream().allMatch(ApprovalRuleEvaluationService.ROLE_MANAGER::equals)) {
-            throw new IllegalArgumentException("At least one second-approval role (HR Admin or Super Admin) is required");
+            throw new IllegalArgumentException("At least one second-approval role (HR Admin, Super Admin or a custom role) is required");
         }
+    }
+
+    /**
+     * Every value a stage may hold right now -> its display name, in picker order: the system
+     * stages, then each ACTIVE custom role (V236) by name. A custom-role stage is acted on by that
+     * role's holders (see ExpenseService#canActAtFinalStage); an inactive one can't be newly picked.
+     */
+    private Map<String, String> approvalStageLabels() {
+        List<Role> roles = roleRepository.findAll();
+        Map<String, String> labels = new LinkedHashMap<>();
+        for (String code : SUPPORTED_APPROVAL_ROLES) {
+            labels.put(code, roles.stream().filter(r -> code.equals(r.getCode()))
+                    .map(Role::getDisplayName).findFirst().orElse(code));
+        }
+        roles.stream().filter(r -> !r.isSystem() && r.isActive())
+                .sorted(Comparator.comparing(Role::getDisplayName, String.CASE_INSENSITIVE_ORDER))
+                .forEach(r -> labels.put(r.getCode(), r.getDisplayName()));
+        return labels;
     }
 
     private List<String> normalizeStages(List<String> stages) {

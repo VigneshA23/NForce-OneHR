@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.data;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.ai.contract.ShellRole;
@@ -102,7 +103,7 @@ class LiveDataProvidersTest {
                 .actorEmail(EMAIL)
                 .primaryRoleCode(role.name())
                 .shellRole(role)
-                .audiences(Set.of(audiences))
+                .audiences(Set.of(audiences)).authorities(SeedAuthorities.of(Set.of(audiences)))
                 .build();
     }
 
@@ -131,8 +132,8 @@ class LiveDataProvidersTest {
     @Test
     @DisplayName("user accounts are Super Admin only, matching UserManagementController")
     void userAccountsAreSuperAdminOnly() {
-        assertThat(new OrganisationDataProviders.UserAccounts(null, null).audiences())
-                .containsExactly(AudienceBucket.ADMIN);
+        assertThat(new OrganisationDataProviders.UserAccounts(null, null).authorities())
+                .containsExactly("user_management:VIEW:ALL");
     }
 
     @Test

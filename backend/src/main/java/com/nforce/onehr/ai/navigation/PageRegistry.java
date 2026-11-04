@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.navigation;
 
+import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.PageReference;
 import com.nforce.onehr.ai.contract.ShellRole;
 import jakarta.annotation.PostConstruct;
@@ -11,12 +12,17 @@ import org.yaml.snakeyaml.Yaml;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * The authoritative set of pages the assistant is allowed to talk about and navigate to, loaded
@@ -35,6 +41,8 @@ import java.util.Set;
 public class PageRegistry {
 
     private static final String REGISTRY_PATH = "ai-knowledge/pages/registry.yaml";
+
+    private static final Pattern AUTHORITY = Pattern.compile("[a-z_]+:[A-Z]+:(OWN|TEAM|DEPARTMENT|LOCATION|ALL)");
 
     /** pageId to its variants, in declaration order. */
     private Map<String, List<PageReference>> byPageId = Map.of();
@@ -66,6 +74,7 @@ public class PageRegistry {
             String pageId = requireString(page.get("pageId"), "pageId", path);
             String module = requireString(page.get("module"), "module for page " + pageId, path);
             boolean placeholder = Boolean.TRUE.equals(page.get("placeholder"));
+            Set<String> permissions = parsePermissions(page.get("permissions"), pageId, path);
 
             if (!(page.get("variants") instanceof List<?> variants) || variants.isEmpty()) {
                 throw new IllegalStateException("Page " + pageId + " must declare at least one variant in " + path);
@@ -97,6 +106,7 @@ public class PageRegistry {
                         .description(requireString(variant.get("description"), "description for page " + pageId, path))
                         .roles(roles)
                         .placeholder(placeholder)
+                        .permissions(permissions)
                         .build());
             }
 
@@ -104,7 +114,26 @@ public class PageRegistry {
                 throw new IllegalStateException("Duplicate pageId " + pageId + " in " + path);
             }
         }
-        return Map.copyOf(parsed);
+        // Declaration order is kept: reachable() breaks ties between same-requirement pages by it.
+        return Collections.unmodifiableMap(parsed);
+    }
+
+    /** Optional page-level {@code permissions:} list, any one of which opens the page. */
+    private Set<String> parsePermissions(Object raw, String pageId, String path) {
+        if (raw == null) return Set.of();
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            throw new IllegalStateException("Page " + pageId + " has an empty or malformed permissions list in " + path);
+        }
+        Set<String> permissions = new LinkedHashSet<>();
+        for (Object p : list) {
+            String authority = String.valueOf(p);
+            if (!AUTHORITY.matcher(authority).matches()) {
+                throw new IllegalStateException("Page " + pageId + " has malformed permission '" + authority
+                        + "' (expected module:ACTION:SCOPE) in " + path);
+            }
+            permissions.add(authority);
+        }
+        return Collections.unmodifiableSet(permissions);
     }
 
     private Set<ShellRole> parseRoles(Object raw, String pageId, String path) {
@@ -136,6 +165,54 @@ public class PageRegistry {
         return byPageId.getOrDefault(pageId.trim(), List.of()).stream()
                 .filter(ref -> ref.getRoles().contains(role))
                 .findFirst();
+    }
+
+    /**
+     * Every page variant this caller's sidebar actually offers - the server-side mirror of
+     * {@code Shell.tsx}: their shell role's nav narrowed by their permissions
+     * ({@code permissions.ts#isNavItemVisible}), plus the gated pages outside it that their custom
+     * roles grant ({@code customRoleNavItems}). Labels stay per shell role; a custom-granted page
+     * uses the variant of the highest role that has it, as {@code ALL_NAV_ITEMS} does, and only the
+     * first of several pages sharing one requirement is added (organization / masters).
+     *
+     * <p>With the default roles this is exactly {@link #forRole}: every gated page in a role's nav
+     * is one its seeded permissions grant, and system roles contribute no custom authorities.
+     */
+    public List<PageReference> reachable(AssistantRequestContext context) {
+        if (context == null || context.getShellRole() == null) return List.of();
+        Set<String> all = context.getAuthorities() == null ? Set.of() : context.getAuthorities();
+        Set<String> custom = context.getCustomAuthorities() == null ? Set.of() : context.getCustomAuthorities();
+
+        List<PageReference> own = forRole(context.getShellRole());
+        List<PageReference> result = new ArrayList<>(own.stream().filter(ref -> grants(ref, all)).toList());
+        if (custom.isEmpty()) return result;
+
+        Set<String> have = new HashSet<>();
+        Set<Set<String>> seen = new HashSet<>();
+        for (PageReference ref : own) {
+            have.add(ref.getPageId());
+            if (!ref.getPermissions().isEmpty()) seen.add(ref.getPermissions());
+        }
+        for (List<PageReference> variants : byPageId.values()) {
+            PageReference ref = variants.stream()
+                    .max(Comparator.comparingInt(v -> v.getRoles().stream().mapToInt(Enum::ordinal).max().orElse(-1)))
+                    .orElseThrow();
+            if (have.contains(ref.getPageId()) || ref.isPlaceholder() || ref.getPermissions().isEmpty()
+                    || !grants(ref, custom) || !seen.add(ref.getPermissions())) continue;
+            result.add(ref);
+        }
+        return result;
+    }
+
+    /** The variant of {@code pageId} this caller's sidebar offers, or empty - see {@link #reachable}. */
+    public Optional<PageReference> find(String pageId, AssistantRequestContext context) {
+        if (pageId == null) return Optional.empty();
+        String id = pageId.trim();
+        return reachable(context).stream().filter(ref -> ref.getPageId().equals(id)).findFirst();
+    }
+
+    private static boolean grants(PageReference ref, Set<String> authorities) {
+        return ref.getPermissions().isEmpty() || ref.getPermissions().stream().anyMatch(authorities::contains);
     }
 
     /** True when the page exists at all, regardless of who can reach it. */

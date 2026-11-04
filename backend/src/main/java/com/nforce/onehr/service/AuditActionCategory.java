@@ -40,7 +40,11 @@ public enum AuditActionCategory {
             // ManagerRoleSyncService — MANAGER role auto-granted/revoked as reporting lines
             // change (not an admin's own action, but still access-control-sensitive; logged
             // against the actor who triggered the underlying manager-history change).
-            "ROLE_AUTO_GRANTED", "ROLE_AUTO_REVOKED"
+            "ROLE_AUTO_GRANTED", "ROLE_AUTO_REVOKED",
+            // RoleAdminService — Roles & Permissions administration (target_id is null: roles have
+            // no UUID; the role code/name is in the before/after snapshot).
+            "ROLE_CREATED", "ROLE_UPDATED", "ROLE_ACTIVATED", "ROLE_DEACTIVATED", "ROLE_DELETED",
+            "ROLE_PERMISSIONS_UPDATED"
     )),
 
     HR_OPERATIONAL(Set.of(

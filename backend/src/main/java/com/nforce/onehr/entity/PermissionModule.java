@@ -31,6 +31,12 @@ public class PermissionModule {
     @Column(name = "display_name", nullable = false, length = 80)
     private String displayName;
 
+    // Whether role permissions for this module can be configured in Roles & Permissions — TRUE only
+    // where access is decided purely by hasAuthority(...). See V232 for the rationale.
+    @Column(name = "custom_role_ready", nullable = false)
+    @Builder.Default
+    private boolean customRoleReady = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
