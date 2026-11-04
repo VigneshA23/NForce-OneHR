@@ -71,7 +71,7 @@ function AssignPanel({ token, opp, onDone, onCancel }: { token: string; opp: Opp
 
   useEffect(() => {
     opportunitiesApi.interests(token, opp.id).then(setInterested).catch(() => setInterested([]));
-    projectsApi.list(token).then(p => setProjects(p.filter(x => x.active))).catch(() => setProjects([]));
+    projectsApi.list(token).then(p => setProjects(p.filter(x => x.status === 'ACTIVE'))).catch(() => setProjects([]));
   }, [token, opp.id]);
 
   async function submit() {

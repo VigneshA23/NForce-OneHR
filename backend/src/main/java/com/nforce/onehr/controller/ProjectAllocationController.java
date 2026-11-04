@@ -23,19 +23,22 @@ public class ProjectAllocationController {
 
     private final ProjectAllocationService service;
 
-    /** US-B04: single-employee allocation — the baseline {@link ProjectAllocationService} validates for both this and bulk. */
+    /**
+     * US-B04: single-employee allocation — the baseline {@link ProjectAllocationService} validates for both this and bulk.
+     * Managers may call it, but the service only lets them through for projects they own (US-B03).
+     */
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
-    public ProjectAllocationResponse allocate(@Valid @RequestBody ProjectAllocationRequest req) {
-        return service.allocate(req);
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public ProjectAllocationResponse allocate(@Valid @RequestBody ProjectAllocationRequest req, Principal principal) {
+        return service.allocate(principal.getName(), req);
     }
 
     /** US-B10: bulk-allocate the same project/capacity/date-range to multiple employees, with per-employee partial success. */
     @PostMapping("/bulk")
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
-    public BulkAllocationResponse bulkAllocate(@Valid @RequestBody BulkProjectAllocationRequest req) {
-        return service.bulkAllocate(req);
+    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    public BulkAllocationResponse bulkAllocate(@Valid @RequestBody BulkProjectAllocationRequest req, Principal principal) {
+        return service.bulkAllocate(principal.getName(), req);
     }
 
     /**
