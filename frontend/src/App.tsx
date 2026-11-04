@@ -169,6 +169,8 @@ export default function App() {
         <Route path="/hierarchy-ui-preview" element={<HierarchyPreviewShell />} />
         {/* Design-review mock only: summary tiles of the module pages with invented numbers; no auth, no API calls. */}
         <Route path="/tiles-ui-preview" element={<TilesPreviewShell />} />
+        {/* Visual preview of the public landing page that does not redirect a signed-in user to the dashboard. */}
+        <Route path="/landing-preview" element={<LandingPage />} />
 
         {/* Design-review mock only — redesigned My Team page, no auth, no network, not linked from
             the app nav. ?role=manager|hr-admin|super-admin|employee picks the mock dataset only. */}
