@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.ai.dto.AiBillingResponse;
 import com.nforce.onehr.ai.dto.AiUsageStatsResponse;
 import com.nforce.onehr.ai.service.AiBillingSettingsService;
@@ -35,7 +34,7 @@ public final class AiUsageDataProviders {
         @Override public String id() { return "org-ai-usage.summary"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "AI assistant usage and estimated spend"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.ADMIN); }
+        @Override public Set<String> authorities() { return Set.of("ai_assistant:VIEW:ALL"); }
         @Override public Set<String> modules() { return Set.of("api-usage"); }
 
         @Override

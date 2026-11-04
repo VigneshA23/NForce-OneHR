@@ -33,6 +33,8 @@ export interface ApprovalRuleMetadata {
   conditionFieldsByRequestType: Record<string, string[]>;
   operators: string[];
   approvalRoles: string[];
+  /** Display name per approvalRoles code — custom roles can be stages (V236), so codes aren't presentable. */
+  approvalRoleLabels?: Record<string, string>;
 }
 
 export interface ApprovalRulePayload {
