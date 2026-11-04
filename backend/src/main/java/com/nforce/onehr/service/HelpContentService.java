@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.helpcontent.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.util.AttachmentValidator;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
@@ -36,13 +37,22 @@ import java.util.stream.Collectors;
  * <p>Every submission creates an immutable {@link HelpContentApproval} attempt (text + attachment
  * snapshot) — the permanent audit trail a rejection/withdrawal/approval is recorded against,
  * never deleted. Follows HelpdeskService's shape: {@code actorEmail} resolved from the JWT
- * principal, a {@code requireAdmin} guard for HR-only (authoring) operations.
+ * principal, a {@code requireAuthority} guard for authoring operations.
  */
 @Service
 @RequiredArgsConstructor
 public class HelpContentService {
 
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    // Authoring authorities — the same ones HrHelpContentController's @PreAuthorize gates use, all
+    // seeded to exactly HR_ADMIN + SUPER_ADMIN (V225), the role pair this service used to check by code.
+    private static final String CONTENT_VIEW = "hr_help_content:VIEW:ALL";
+    private static final String CONTENT_CREATE = "hr_help_content:CREATE:ALL";
+    private static final String CONTENT_EDIT = "hr_help_content:EDIT:ALL";
+    private static final String CONTENT_DELETE = "hr_help_content:DELETE:ALL";
+    // Fallback approval authority over every submission (decide/withdraw anyone's, see all pending,
+    // fallback approver when an author's chain has no active manager) — seeded SUPER_ADMIN-only
+    // (V238), exactly the role this service used to check by code.
+    private static final String CONTENT_APPROVE = "hr_help_content:APPROVE:ALL";
     // A DRAFT hasn't been through approval yet, so there's nothing worth retaining via archive —
     // Delete is the only retirement path. PENDING_APPROVAL is fully locked (withdraw first).
     private static final Set<String> ARCHIVABLE_STATUSES = Set.of("APPROVED", "PUBLISHED", "UNPUBLISHED");
@@ -71,6 +81,7 @@ public class HelpContentService {
     private final NotificationService notificationService;
     private final UserRepository userRepo;
     private final EmployeeRepository employeeRepo;
+    private final EffectivePermissionService effectivePermissionService;
 
     // ── Employee-facing reads (published only) ─────
 
@@ -164,7 +175,7 @@ public class HelpContentService {
     }
 
     private void requireVisible(HelpContent content, User actor) {
-        if (isAdmin(actor)) return; // HR/SA manage their own content regardless of status/audience
+        if (effectivePermissionService.hasAuthority(actor, CONTENT_VIEW)) return; // authors see their own content regardless of status/audience
         if (!"PUBLISHED".equals(content.getStatus()) || !isVisibleToViewer(content, actor)) {
             throw new AccessDeniedException("This content is not available");
         }
@@ -174,7 +185,7 @@ public class HelpContentService {
 
     @Transactional(readOnly = true)
     public Page<HelpContentSummaryDto> listAll(String actorEmail, String type, String category, String search, int page, int size) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_VIEW);
         Specification<HelpContent> spec = Specification
                 .allOf(HelpContentSpecifications.typeIs(type),
                         HelpContentSpecifications.categoryIs(category),
@@ -186,7 +197,7 @@ public class HelpContentService {
 
     @Transactional(readOnly = true)
     public HelpContentDetailDto getForAdmin(UUID id, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_VIEW);
         HelpContent content = findOrThrow(id);
         assertDraftOwner(content, actor);
         return toDetail(content);
@@ -218,7 +229,7 @@ public class HelpContentService {
 
     @Transactional
     public HelpContentDetailDto create(CreateHelpContentRequest req, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_CREATE);
         HelpContentType type = HelpContentType.from(req.getType());
         if (!CREATABLE_TYPES.contains(type.name())) {
             throw new IllegalArgumentException("Content type " + type.name() + " can no longer be created");
@@ -240,7 +251,7 @@ public class HelpContentService {
 
     @Transactional
     public HelpContentDetailDto update(UUID id, UpdateHelpContentRequest req, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent original = findOrThrow(id);
         assertDraftOwner(original, actor);
         HelpContent target = prepareForEdit(original, actor);
@@ -338,7 +349,7 @@ public class HelpContentService {
 
     @Transactional
     public HelpContentDetailDto addAttachment(UUID id, MultipartFile file, String actorEmail) throws IOException {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent original = findOrThrow(id);
         assertDraftOwner(original, actor);
         HelpContent target = prepareForEdit(original, actor);
@@ -376,7 +387,7 @@ public class HelpContentService {
      */
     @Transactional
     public HelpContentDetailDto addAttachments(UUID id, List<MultipartFile> files, String actorEmail) throws IOException {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         if (files == null || files.isEmpty()) {
             throw new IllegalArgumentException("At least one file is required");
         }
@@ -417,7 +428,7 @@ public class HelpContentService {
 
     @Transactional
     public HelpContentDetailDto removeAttachment(UUID id, UUID attachmentId, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent original = findOrThrow(id);
         assertDraftOwner(original, actor);
         HelpContent target = prepareForEdit(original, actor);
@@ -430,7 +441,7 @@ public class HelpContentService {
 
     @Transactional
     public HelpContentDetailDto replaceAttachment(UUID id, UUID attachmentId, MultipartFile file, String actorEmail) throws IOException {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent original = findOrThrow(id);
         assertDraftOwner(original, actor);
         HelpContent target = prepareForEdit(original, actor);
@@ -450,7 +461,7 @@ public class HelpContentService {
 
     @Transactional
     public HelpContentDetailDto reorderAttachments(UUID id, ReorderAttachmentsRequest req, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent original = findOrThrow(id);
         assertDraftOwner(original, actor);
         HelpContent target = prepareForEdit(original, actor);
@@ -477,7 +488,7 @@ public class HelpContentService {
 
     @Transactional
     public HelpContentDetailDto submit(UUID id, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent content = findOrThrow(id);
         assertDraftOwner(content, actor);
         if (!"DRAFT".equals(content.getStatus())) {
@@ -526,12 +537,12 @@ public class HelpContentService {
 
     @Transactional
     public HelpContentDetailDto withdraw(UUID id, WithdrawRequest req, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent content = findOrThrow(id);
         if (!"PENDING_APPROVAL".equals(content.getStatus())) {
             throw new AccessDeniedException("Only content pending approval can be withdrawn");
         }
-        if (!actor.getId().equals(content.getCreatedBy()) && !isSuperAdmin(actor)) {
+        if (!actor.getId().equals(content.getCreatedBy()) && !hasApprovalAuthority(actor)) {
             throw new AccessDeniedException("Only the author can withdraw this request");
         }
         HelpContentApproval attempt = approvalRepo.findByContentIdAndStatus(id, "PENDING")
@@ -606,7 +617,7 @@ public class HelpContentService {
      */
     @Transactional
     public HelpContentDetailDto publish(UUID id, PublishRequest req, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent content = findOrThrow(id);
         if (!PUBLISHABLE_STATUSES.contains(content.getStatus())) {
             throw new AccessDeniedException("Only approved or unpublished content can be published");
@@ -652,7 +663,7 @@ public class HelpContentService {
 
     @Transactional
     public HelpContentDetailDto unpublish(UUID id, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent content = findOrThrow(id);
         if (!"PUBLISHED".equals(content.getStatus())) {
             throw new AccessDeniedException("Only published content can be unpublished");
@@ -665,7 +676,7 @@ public class HelpContentService {
 
     @Transactional
     public HelpContentDetailDto archive(UUID id, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent content = findOrThrow(id);
         if (!ARCHIVABLE_STATUSES.contains(content.getStatus())) {
             throw new AccessDeniedException("Content in status " + content.getStatus() + " cannot be archived");
@@ -679,7 +690,7 @@ public class HelpContentService {
     /** Restore always returns to DRAFT — never straight to PUBLISHED; a fresh approval is required. */
     @Transactional
     public HelpContentDetailDto restore(UUID id, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_EDIT);
         HelpContent content = findOrThrow(id);
         if (!"ARCHIVED".equals(content.getStatus())) {
             throw new AccessDeniedException("Only archived content can be restored");
@@ -693,7 +704,7 @@ public class HelpContentService {
 
     @Transactional
     public void delete(UUID id, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, CONTENT_DELETE);
         HelpContent content = findOrThrow(id);
         assertDraftOwner(content, actor);
         if (!DELETABLE_STATUSES.contains(content.getStatus())) {
@@ -709,7 +720,8 @@ public class HelpContentService {
     /**
      * Walks the reporting hierarchy from the content author upward (cycle-guarded, same
      * pattern as {@code OrgHierarchyService.buildBreadcrumb}), returning the first active
-     * manager found. Falls back to the earliest-created active Super Admin if the chain is
+     * manager found. Falls back to the earliest-created active holder of hr_help_content:APPROVE
+     * (seeded: Super Admin) if the chain is
      * empty or every manager in it is inactive/deleted — submission is never blocked for lack
      * of an available manager.
      */
@@ -727,38 +739,40 @@ public class HelpContentService {
             }
             current = managerId;
         }
-        List<User> superAdmins = userRepo.findActiveSuperAdmins();
-        if (superAdmins.isEmpty()) {
-            throw new IllegalStateException("No active Super Admin available as fallback approver");
-        }
-        return superAdmins.get(0).getId();
+        // Earliest-created active holder of the fallback approval authority — the same pick
+        // findActiveSuperAdmins' ORDER BY createdAt made, over the same (seeded) set of users.
+        return userRepo.findAllById(effectivePermissionService.activeUserIdsWithAuthority("hr_help_content", "APPROVE", "ALL"))
+                .stream()
+                .min(Comparator.comparing(User::getCreatedAt))
+                .map(User::getId)
+                .orElseThrow(() -> new IllegalStateException("No active fallback approver (hr_help_content:APPROVE:ALL) available"));
     }
 
     private void assertIsApprover(HelpContentApproval attempt, User actor) {
-        // Author cannot decide their own submission — checked first so a Super Admin who
+        // Author cannot decide their own submission — checked first so an approval-authority holder who
         // authored (and submitted) this attempt themselves doesn't slip through the blanket
         // fallback-authority bypass below.
         if (actor.getId().equals(attempt.getSubmittedBy())) {
             throw new AccessDeniedException("You cannot approve or reject your own submission");
         }
         if (actor.getId().equals(attempt.getApproverId())) return;
-        if (isSuperAdmin(actor)) return;
+        if (hasApprovalAuthority(actor)) return;
         throw new AccessDeniedException("You are not authorized to decide this approval request");
     }
 
-    private boolean isSuperAdmin(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> "SUPER_ADMIN".equals(r.getCode()));
+    private boolean hasApprovalAuthority(User actor) {
+        return effectivePermissionService.hasAuthority(actor, CONTENT_APPROVE);
     }
 
     // ── Approval Center ──────────────────────────────────────────
 
-    /** SUPER_ADMIN sees every PENDING attempt (blanket fallback-authority visibility, same
+    /** hr_help_content:APPROVE holders (seeded: SUPER_ADMIN) see every PENDING attempt (blanket fallback-authority visibility, same
      * convention as every other approval-capable service in this codebase); everyone else sees
      * only attempts resolved to them. */
     @Transactional(readOnly = true)
     public List<ApprovalAttemptDto> listPendingApprovalsForApprover(String actorEmail) {
         User actor = requireUser(actorEmail);
-        List<HelpContentApproval> attempts = isSuperAdmin(actor)
+        List<HelpContentApproval> attempts = hasApprovalAuthority(actor)
                 ? approvalRepo.findByStatus("PENDING")
                 : approvalRepo.findByApproverIdAndStatus(actor.getId(), "PENDING");
         return attempts.stream().map(this::toAttemptDto).collect(Collectors.toList());
@@ -816,7 +830,7 @@ public class HelpContentService {
     }
 
     private void assertCanViewAttempt(HelpContentApproval attempt, User actor) {
-        if (isAdmin(actor)) return; // HR/SA authors can view their own content's approval history
+        if (effectivePermissionService.hasAuthority(actor, CONTENT_VIEW)) return; // authors can view their own content's approval history
         if (actor.getId().equals(attempt.getApproverId())) return;
         throw new AccessDeniedException("You are not authorized to view this approval request");
     }
@@ -1068,16 +1082,12 @@ public class HelpContentService {
                 .orElseThrow(() -> new NoSuchElementException("User not found: " + actorEmail));
     }
 
-    private User requireAdmin(String actorEmail) {
+    private User requireAuthority(String actorEmail, String authority) {
         User actor = requireUser(actorEmail);
-        if (!isAdmin(actor)) {
-            throw new AccessDeniedException("HR Admin or Super Admin role required");
+        if (!effectivePermissionService.hasAuthority(actor, authority)) {
+            throw new AccessDeniedException("Help content permission required: " + authority);
         }
         return actor;
-    }
-
-    private boolean isAdmin(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
     }
 
     private String employeeOrEmailName(UUID userId) {

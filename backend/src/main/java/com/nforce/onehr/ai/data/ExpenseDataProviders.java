@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.expense.ExpenseClaimResponse;
 import com.nforce.onehr.service.ExpenseService;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +33,7 @@ public final class ExpenseDataProviders {
         @Override public String id() { return "expense.my-claims"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your recent expense claims"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("assets", "requests"); }
 
         @Override
@@ -92,9 +91,7 @@ public final class ExpenseDataProviders {
         @Override public String title() { return "Expense claims waiting for your decision"; }
 
         @Override
-        public Set<AudienceBucket> audiences() {
-            return Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
-        }
+        public Set<String> authorities() { return Set.of("expenses:APPROVE:TEAM"); }
 
         @Override public Set<String> modules() { return Set.of("assets", "approvals"); }
 
@@ -104,8 +101,7 @@ public final class ExpenseDataProviders {
             // Admin decides claims at both stages, organisation-wide, while a Manager sees only their
             // reports' SUBMITTED claims. Reading pendingForManager for everyone under-reported the
             // admin queue - it missed every claim already past the manager stage.
-            boolean finalApprover = context.getAudiences().contains(AudienceBucket.HR)
-                    || context.getAudiences().contains(AudienceBucket.ADMIN);
+            boolean finalApprover = context.holds("expenses:APPROVE:ALL");
             List<ExpenseClaimResponse> pending = finalApprover
                     ? expenseService.pendingForFinalApprover(context.getActorEmail())
                     : expenseService.pendingForManager(context.getActorEmail());

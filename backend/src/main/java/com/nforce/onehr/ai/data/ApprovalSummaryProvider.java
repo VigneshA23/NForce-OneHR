@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.ApprovalItemDto;
 import com.nforce.onehr.service.ApprovalCenterService;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +38,14 @@ public class ApprovalSummaryProvider implements AssistantDataProvider {
     /** The Approval Center's own labels (DashboardPage.tsx APPROVAL_TYPE_LABELS), in its order. */
     private static final Map<String, String> TYPE_LABELS = labels();
 
+    /**
+     * Any approver queue the caller can act on - exactly the Approval Center page's own requirement
+     * (frontend permissions.ts NAV_ITEM_REQUIREMENTS.approvals), seeded for Manager, HR Admin and
+     * Super Admin.
+     */
+    static final Set<String> APPROVERS = Set.of("regularization:APPROVE:TEAM", "attendance_requests:APPROVE:TEAM",
+            "overtime:APPROVE:TEAM", "leave:APPROVE:TEAM", "expenses:APPROVE:TEAM");
+
     private final ApprovalCenterService approvalCenterService;
 
     @Override public String id() { return "approvals.summary"; }
@@ -46,9 +53,7 @@ public class ApprovalSummaryProvider implements AssistantDataProvider {
     @Override public String title() { return "Total pending approvals across every request type"; }
 
     @Override
-    public Set<AudienceBucket> audiences() {
-        return Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
-    }
+    public Set<String> authorities() { return APPROVERS; }
 
     @Override public Set<String> modules() { return Set.of("approvals"); }
 

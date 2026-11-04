@@ -1,6 +1,11 @@
 package com.nforce.onehr.ai.data;
 
+import com.nforce.onehr.ai.SeedAuthorities;
+import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
+import com.nforce.onehr.entity.Role;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.config.BeanDefinition;
@@ -10,6 +15,7 @@ import org.springframework.core.type.filter.AssignableTypeFilter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -239,15 +245,18 @@ class DataProviderSafetyTest {
     }
 
     @Test
-    @DisplayName("every provider declares an audience and at least one module")
+    @DisplayName("every provider declares its permission gate and at least one module")
     void everyProviderDeclaresItsGates() throws Exception {
+        Set<String> registered = SeedAuthorities.ofRoles("SUPER_ADMIN"); // V233: Super Admin holds every permission
         for (Class<?> type : providerClasses()) {
             AssistantDataProvider provider = instantiateWithoutDependencies(type);
             if (provider == null) continue;
 
-            // An empty audience set would run for everyone; an empty module set would run on every
-            // question. Both are the kind of default that looks harmless and is not.
-            assertThat(provider.audiences()).as("%s audiences", type.getSimpleName()).isNotEmpty();
+            // An empty module set would run on every question; an authority that is not a registered
+            // permission (a typo) could never be granted, silently turning the provider off for everyone.
+            assertThat(provider.authorities()).as("%s authorities", type.getSimpleName()).isNotNull();
+            assertThat(registered).as("%s authorities must be registered permissions", type.getSimpleName())
+                    .containsAll(provider.authorities()).containsAll(provider.standsAsideFor());
             assertThat(provider.modules()).as("%s modules", type.getSimpleName()).isNotEmpty();
             assertThat(provider.id()).as("%s id", type.getSimpleName()).isNotBlank();
             assertThat(provider.title()).as("%s title", type.getSimpleName()).isNotBlank();
@@ -256,8 +265,9 @@ class DataProviderSafetyTest {
     }
 
     @Test
-    @DisplayName("the wider a provider's scope, the narrower the roles allowed to run it")
-    void scopeNeverOutrunsAudience() throws Exception {
+    @DisplayName("the wider a provider's scope, the narrower the permissions allowed to run it")
+    void scopeNeverOutrunsAuthority() throws Exception {
+        Set<String> employee = SeedAuthorities.ofRoles("EMPLOYEE");
         for (Class<?> type : providerClasses()) {
             AssistantDataProvider provider = instantiateWithoutDependencies(type);
             if (provider == null) continue;
@@ -267,20 +277,94 @@ class DataProviderSafetyTest {
                 // The caller's own records, content the UI already shows every role unguarded, or the
                 // caller's own project team as their My Team page shows it.
                 case SELF, SHARED, PEERS -> { }
-                // Anything about other people must never run for a plain Employee, whose bucket set
-                // is exactly {EMPLOYEE}. A Manager, HR Admin or Super Admin also holds EMPLOYEE, so
-                // excluding the bucket here excludes only people who have nothing else.
-                case APPROVALS, TEAM -> assertThat(provider.audiences())
+                // Anything about other people must sit behind a real grant, never one a plain
+                // Employee holds - so it never runs for someone who has nothing beyond EMPLOYEE.
+                case APPROVALS, TEAM -> assertThat(provider.authorities())
                         .as("%s reads other people's records and must not run for an Employee", name)
-                        .doesNotContain(AudienceBucket.EMPLOYEE);
+                        .isNotEmpty().noneMatch(employee::contains);
                 // Organisation-wide reads usually go through service methods with no actor at all,
-                // protected in the UI only by the controller's @PreAuthorize - so the audience is
-                // the whole gate, and it may only ever be HR and/or Admin.
-                case ORGANISATION -> assertThat(provider.audiences())
-                        .as("%s reads organisation-wide data and may only run for HR/Admin", name)
-                        .isSubsetOf(AudienceBucket.HR, AudienceBucket.ADMIN);
+                // protected in the UI only by the controller's @PreAuthorize - so the permission is
+                // the whole gate, and it may only ever be an organisation-wide (ALL) grant.
+                case ORGANISATION -> assertThat(provider.authorities())
+                        .as("%s reads organisation-wide data and may only run behind an ALL-scope grant", name)
+                        .isNotEmpty().allMatch(a -> a.endsWith(":ALL"));
             }
         }
+    }
+
+    /**
+     * The role-bucket audiences providers had before gating moved to permissions, where they were
+     * narrower than "APPROVALS/TEAM: Manager and above, everything else: everyone".
+     */
+    private static final Map<String, Set<AudienceBucket>> AUDIENCES_BEFORE = Map.ofEntries(
+            Map.entry("PeerTeam", Set.of(AudienceBucket.EMPLOYEE)),
+            Map.entry("UserAccounts", Set.of(AudienceBucket.ADMIN)),
+            Map.entry("ApiUsage", Set.of(AudienceBucket.ADMIN)),
+            Map.entry("Headcount", Set.of(AudienceBucket.HR)),
+            Map.entry("OnboardingSummary", Set.of(AudienceBucket.HR)),
+            Map.entry("OrgAttendanceToday", Set.of(AudienceBucket.HR, AudienceBucket.ADMIN)),
+            Map.entry("OrgLeave", Set.of(AudienceBucket.HR, AudienceBucket.ADMIN)),
+            Map.entry("OrgPenalties", Set.of(AudienceBucket.HR, AudienceBucket.ADMIN)),
+            Map.entry("OrgStructure", Set.of(AudienceBucket.HR, AudienceBucket.ADMIN)),
+            Map.entry("OrgDocumentCompliance", Set.of(AudienceBucket.HR, AudienceBucket.ADMIN)),
+            Map.entry("HelpdeskQueue", Set.of(AudienceBucket.HR, AudienceBucket.ADMIN)),
+            Map.entry("OrgAssetSummary", Set.of(AudienceBucket.HR, AudienceBucket.ADMIN)));
+
+    private static final Set<AudienceBucket> MANAGER_AND_ABOVE =
+            Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
+
+    /** Real system-role combinations: everyone holds EMPLOYEE, an admin with reports also holds MANAGER. */
+    private static final List<Set<AudienceBucket>> ROLE_COMBINATIONS = List.of(
+            Set.of(AudienceBucket.EMPLOYEE),
+            Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER),
+            Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.HR),
+            Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.ADMIN),
+            Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER, AudienceBucket.HR),
+            Set.of(AudienceBucket.EMPLOYEE, AudienceBucket.MANAGER, AudienceBucket.ADMIN));
+
+    @Test
+    @DisplayName("with the seeded roles, every provider runs for exactly the roles its old audience gate admitted")
+    void permissionGatesMatchTheOldAudienceGatesForSystemRoles() throws Exception {
+        List<String> problems = new java.util.ArrayList<>();
+        for (Class<?> type : providerClasses()) {
+            AssistantDataProvider provider = instantiateWithoutDependencies(type);
+            if (provider == null) continue;
+            Set<AudienceBucket> before = AUDIENCES_BEFORE.getOrDefault(type.getSimpleName(),
+                    provider.scope() == DataScope.APPROVALS || provider.scope() == DataScope.TEAM
+                            ? MANAGER_AND_ABOVE : Set.of(AudienceBucket.values()));
+            for (Set<AudienceBucket> holder : ROLE_COMBINATIONS) {
+                boolean old = before.stream().anyMatch(holder::contains);
+                boolean now = AssistantDataService.mayRun(provider, seededContext(holder));
+                if (old != now) problems.add(type.getSimpleName() + " for " + holder + ": was " + old + ", now " + now);
+            }
+        }
+        assertThat(problems).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a custom role gets the data its permission grants, and none it does not")
+    void customRoleGetsExactlyWhatItsPermissionsGrant() {
+        EffectivePermissionService permissions = SeedMatrix.permissionService(
+                Map.of("CUSTOM_PEOPLE", Map.of("leave:VIEW", "ALL")));
+        Role custom = Role.builder().id(99).code("CUSTOM_PEOPLE").displayName("People Ops").build();
+        Set<String> held = permissions.coverage(List.of(SeedMatrix.role("EMPLOYEE"), custom));
+        AssistantRequestContext context = AssistantRequestContext.builder()
+                .audiences(Set.of(AudienceBucket.EMPLOYEE)).authorities(held).customAuthorities(held).build();
+
+        assertThat(AssistantDataService.mayRun(new OrganisationDataProviders.OrgLeave(null, null), context)).isTrue();
+        // TEAM is covered by the ALL grant, so the team leave view opens too...
+        assertThat(AssistantDataService.mayRun(new TeamDataProviders.TeamLeave(null, null), context)).isTrue();
+        // ...but nothing it was not granted.
+        assertThat(AssistantDataService.mayRun(new OrganisationDataProviders.OrgAttendanceToday(null, null, null, null), context)).isFalse();
+        assertThat(AssistantDataService.mayRun(new OrganisationDataProviders.UserAccounts(null, null), context)).isFalse();
+        assertThat(AssistantDataService.mayRun(new LeaveDataProviders.PendingApprovals(null), context)).isFalse();
+        // A plain Employee without the custom role gets none of it.
+        assertThat(AssistantDataService.mayRun(new OrganisationDataProviders.OrgLeave(null, null),
+                seededContext(Set.of(AudienceBucket.EMPLOYEE)))).isFalse();
+    }
+
+    private static AssistantRequestContext seededContext(Set<AudienceBucket> buckets) {
+        return AssistantRequestContext.builder().audiences(buckets).authorities(SeedAuthorities.of(buckets)).build();
     }
 
     /**
@@ -352,7 +436,7 @@ class DataProviderSafetyTest {
     /**
      * Builds a provider with null dependencies purely to read its declared metadata.
      *
-     * <p>{@code id()}, {@code audiences()} and {@code modules()} are constants that never touch the
+     * <p>{@code id()}, {@code authorities()} and {@code modules()} are constants that never touch the
      * injected service, so a null is harmless here and avoids standing up a Spring context to
      * assert four constants.
      */

@@ -1,5 +1,7 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.dto.helpcontent.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
@@ -9,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -50,6 +53,12 @@ class HelpContentServiceTest {
     @Mock private UserRepository userRepo;
     @Mock private EmployeeRepository employeeRepo;
 
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(java.util.Map.of(
+            "CUSTOM_CONTENT_AUTHOR", java.util.Map.of("hr_help_content:CREATE", "ALL"),
+            "CUSTOM_CONTENT_APPROVER", java.util.Map.of("hr_help_content:APPROVE", "ALL"),
+            "CUSTOM_CONTENT_EDIT_APPROVER", java.util.Map.of("hr_help_content:EDIT", "ALL", "hr_help_content:APPROVE", "ALL"),
+            "CUSTOM_CONTENT_VIEWER", java.util.Map.of("hr_help_content:VIEW", "ALL"),
+            "CUSTOM_OTHER", java.util.Map.of("helpdesk:VIEW", "ALL")));
     @InjectMocks private HelpContentService service;
 
     private final UUID employeeId = UUID.randomUUID();
@@ -111,6 +120,19 @@ class HelpContentServiceTest {
             if (a.getId() == null) a.setId(UUID.randomUUID());
             return a;
         });
+    }
+
+    /** Fallback-approver lookup: the active holders of hr_help_content:APPROVE:ALL, resolved to users. */
+    private void stubFallbackApprovers(User... holders) {
+        Set<UUID> ids = new java.util.LinkedHashSet<>();
+        for (User u : holders) ids.add(u.getId());
+        doReturn(ids).when(effectivePermissionService).activeUserIdsWithAuthority("hr_help_content", "APPROVE", "ALL");
+        when(userRepo.findAllById(ids)).thenReturn(List.of(holders));
+    }
+
+    private static User customUser(String roleCode) {
+        return User.builder().id(UUID.randomUUID()).email(roleCode.toLowerCase() + "@test.com").active(true)
+                .roles(Set.of(Role.builder().id(100).code(roleCode).displayName(roleCode).build())).build();
     }
 
     private HelpContent faq() {
@@ -469,7 +491,7 @@ class HelpContentServiceTest {
         when(attachmentRepo.findByContentIdOrderByDisplayOrderAsc(content.getId())).thenReturn(List.of());
         when(approvalRepo.countByContentId(content.getId())).thenReturn(0L);
         when(managerHistoryRepo.findByEmployeeUserIdAndEffectiveToIsNull(hrAdminId)).thenReturn(Optional.empty());
-        when(userRepo.findActiveSuperAdmins()).thenReturn(List.of(superAdmin));
+        stubFallbackApprovers(superAdmin);
 
         service.submit(content.getId(), hrAdminEmail);
 
@@ -672,7 +694,7 @@ class HelpContentServiceTest {
         when(repo.findById(content.getId())).thenReturn(Optional.of(content));
         when(attachmentRepo.findByContentIdOrderByDisplayOrderAsc(content.getId())).thenReturn(List.of());
         when(managerHistoryRepo.findByEmployeeUserIdAndEffectiveToIsNull(hrAdminId)).thenReturn(Optional.empty());
-        when(userRepo.findActiveSuperAdmins()).thenReturn(List.of(hrAdminUser));
+        stubFallbackApprovers(hrAdminUser);
 
         when(approvalRepo.countByContentId(content.getId())).thenReturn(0L);
         service.submit(content.getId(), hrAdminEmail); // attempt #1
@@ -1239,7 +1261,7 @@ class HelpContentServiceTest {
         when(attachmentRepo.findByContentIdOrderByDisplayOrderAsc(content.getId())).thenReturn(List.of());
         when(approvalRepo.countByContentId(content.getId())).thenReturn(0L);
         when(managerHistoryRepo.findByEmployeeUserIdAndEffectiveToIsNull(hrAdminId)).thenReturn(Optional.empty());
-        when(userRepo.findActiveSuperAdmins()).thenReturn(List.of(hrAdminUser));
+        stubFallbackApprovers(hrAdminUser);
 
         assertEquals("DRAFT", content.getStatus());
         service.submit(content.getId(), hrAdminEmail);
@@ -1385,5 +1407,145 @@ class HelpContentServiceTest {
 
         assertEquals(1, result.size());
         verify(approvalRepo, never()).findByApproverIdAndStatus(any(), any());
+    }
+
+    // ── Permission-based checks: custom roles behave like the seeded holders ─────
+
+    @Test
+    void seed_fallbackApprovalAuthority_isHeldBySuperAdminOnly() {
+        assertEquals("ALL", SeedMatrix.grants("SUPER_ADMIN").get("hr_help_content:APPROVE"));
+        for (String code : List.of("EMPLOYEE", "MANAGER", "HR_ADMIN")) {
+            assertNull(SeedMatrix.grants(code).get("hr_help_content:APPROVE"), code);
+        }
+    }
+
+    @Test
+    void create_asCustomRoleWithCreatePermission_succeeds() {
+        User author = customUser("CUSTOM_CONTENT_AUTHOR");
+        when(userRepo.findByEmail(author.getEmail())).thenReturn(Optional.of(author));
+        CreateHelpContentRequest req = new CreateHelpContentRequest();
+        req.setType("FAQ");
+        req.setTitle("x");
+
+        assertEquals("DRAFT", service.create(req, author.getEmail()).getStatus());
+    }
+
+    @Test
+    void create_asCustomRoleWithoutCreatePermission_isDenied() {
+        User other = customUser("CUSTOM_OTHER");
+        when(userRepo.findByEmail(other.getEmail())).thenReturn(Optional.of(other));
+        CreateHelpContentRequest req = new CreateHelpContentRequest();
+        req.setType("FAQ");
+        req.setTitle("x");
+
+        assertThrows(AccessDeniedException.class, () -> service.create(req, other.getEmail()));
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void draftAttachment_isReadableByViewPermissionHolders_only() {
+        HelpContent draft = faq(); // DRAFT — never employee-visible
+        HelpContentAttachment att = HelpContentAttachment.builder().id(UUID.randomUUID()).contentId(draft.getId()).build();
+        User viewer = customUser("CUSTOM_CONTENT_VIEWER");
+        User other = customUser("CUSTOM_OTHER");
+        when(userRepo.findByEmail(viewer.getEmail())).thenReturn(Optional.of(viewer));
+        when(userRepo.findByEmail(other.getEmail())).thenReturn(Optional.of(other));
+        when(repo.findById(draft.getId())).thenReturn(Optional.of(draft));
+        when(attachmentRepo.findById(att.getId())).thenReturn(Optional.of(att));
+
+        assertEquals(att, service.getAttachmentFile(draft.getId(), att.getId(), hrAdminEmail)); // system role unchanged
+        assertEquals(att, service.getAttachmentFile(draft.getId(), att.getId(), viewer.getEmail()));
+        assertThrows(AccessDeniedException.class, () -> service.getAttachmentFile(draft.getId(), att.getId(), other.getEmail()));
+        assertThrows(AccessDeniedException.class, () -> service.getAttachmentFile(draft.getId(), att.getId(), employeeEmail));
+    }
+
+    private HelpContentApproval pendingAttemptFor(HelpContent content) {
+        content.setStatus("PENDING_APPROVAL");
+        return HelpContentApproval.builder().id(UUID.randomUUID())
+                .contentId(content.getId()).approverId(UUID.randomUUID()).submittedBy(hrAdminId)
+                .status("PENDING").attemptNumber(1).snapshotTitle(content.getTitle()).build();
+    }
+
+    @Test
+    void approve_byCustomRoleWithApprovePermission_isAllowedAsFallbackAuthority() {
+        User approver = customUser("CUSTOM_CONTENT_APPROVER");
+        HelpContent content = faq();
+        HelpContentApproval attempt = pendingAttemptFor(content);
+        when(userRepo.findByEmail(approver.getEmail())).thenReturn(Optional.of(approver));
+        when(approvalRepo.findById(attempt.getId())).thenReturn(Optional.of(attempt));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        assertEquals("APPROVED", service.approveAttempt(attempt.getId(), approver.getEmail()).getStatus());
+    }
+
+    @Test
+    void approve_byNonResolvedHrAdminOrCustomRoleWithoutApprove_isDenied() {
+        HelpContent content = faq();
+        HelpContentApproval attempt = pendingAttemptFor(content);
+        User other = customUser("CUSTOM_OTHER");
+        when(userRepo.findByEmail(other.getEmail())).thenReturn(Optional.of(other));
+        when(approvalRepo.findById(attempt.getId())).thenReturn(Optional.of(attempt));
+
+        // HR Admin never had the Super-Admin fallback authority — unchanged.
+        assertThrows(AccessDeniedException.class, () -> service.approveAttempt(attempt.getId(), otherAdminEmail));
+        assertThrows(AccessDeniedException.class, () -> service.approveAttempt(attempt.getId(), other.getEmail()));
+    }
+
+    @Test
+    void withdraw_byCustomRoleWithApprovePermission_isAllowedForSomeoneElsesRequest() {
+        // Withdraw is an EDIT-gated authoring action, so this role holds EDIT as well as APPROVE.
+        User approver = customUser("CUSTOM_CONTENT_EDIT_APPROVER");
+        HelpContent content = faq(); // createdBy = hrAdminId
+        HelpContentApproval attempt = pendingAttemptFor(content);
+        when(userRepo.findByEmail(approver.getEmail())).thenReturn(Optional.of(approver));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+        when(approvalRepo.findByContentIdAndStatus(content.getId(), "PENDING")).thenReturn(Optional.of(attempt));
+        WithdrawRequest req = new WithdrawRequest();
+        req.setReason("stale");
+
+        assertEquals("DRAFT", service.withdraw(content.getId(), req, approver.getEmail()).getStatus());
+    }
+
+    @Test
+    void listPendingApprovals_forCustomRoleWithApprovePermission_seesEveryPendingAttempt() {
+        User approver = customUser("CUSTOM_CONTENT_APPROVER");
+        when(userRepo.findByEmail(approver.getEmail())).thenReturn(Optional.of(approver));
+        when(approvalRepo.findByStatus("PENDING")).thenReturn(List.of());
+
+        service.listPendingApprovalsForApprover(approver.getEmail());
+
+        verify(approvalRepo, never()).findByApproverIdAndStatus(any(), any());
+    }
+
+    @Test
+    void listPendingApprovals_forCustomRoleWithoutApprovePermission_seesOnlyOwnAttempts() {
+        User other = customUser("CUSTOM_OTHER");
+        when(userRepo.findByEmail(other.getEmail())).thenReturn(Optional.of(other));
+        when(approvalRepo.findByApproverIdAndStatus(other.getId(), "PENDING")).thenReturn(List.of());
+
+        service.listPendingApprovalsForApprover(other.getEmail());
+
+        verify(approvalRepo, never()).findByStatus(any());
+    }
+
+    @Test
+    void submit_withNoManagerInChain_fallsBackToEarliestCreatedApprovalAuthorityHolder() {
+        HelpContent content = faq();
+        User newer = customUser("CUSTOM_CONTENT_APPROVER");
+        newer.setCreatedAt(java.time.LocalDateTime.of(2026, 5, 1, 0, 0));
+        User earliest = User.builder().id(UUID.randomUUID()).email("sa-old@test.com").active(true)
+                .roles(Set.of(Role.builder().code("SUPER_ADMIN").build())).build();
+        earliest.setCreatedAt(java.time.LocalDateTime.of(2024, 1, 1, 0, 0));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+        when(attachmentRepo.findByContentIdOrderByDisplayOrderAsc(content.getId())).thenReturn(List.of());
+        when(approvalRepo.countByContentId(content.getId())).thenReturn(0L);
+        when(managerHistoryRepo.findByEmployeeUserIdAndEffectiveToIsNull(hrAdminId)).thenReturn(Optional.empty());
+        stubFallbackApprovers(newer, earliest);
+
+        service.submit(content.getId(), hrAdminEmail);
+
+        ArgumentCaptor<HelpContentApproval> captor = ArgumentCaptor.forClass(HelpContentApproval.class);
+        verify(approvalRepo).save(captor.capture());
+        assertEquals(earliest.getId(), captor.getValue().getApproverId());
     }
 }

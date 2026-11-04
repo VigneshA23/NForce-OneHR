@@ -19,6 +19,8 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.RegularizationApprovalRepository;
 import com.nforce.onehr.repository.RegularizationRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,6 +38,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -43,6 +46,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -62,9 +66,17 @@ import java.util.stream.Collectors;
 @Slf4j
 public class RegularizationService {
 
-    private static final Set<String> APPROVER_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
-    // Super Admin deliberately excluded — they already have blanket review visibility via
-    // APPROVER_OVERRIDE_ROLES above, so they're not offered as an explicit "Assign To" target.
+    // Org-wide review override (seeded: HR_ADMIN, SUPER_ADMIN).
+    private static final String APPROVER_OVERRIDE_AUTHORITY = "regularization:APPROVE:ALL";
+    // Reviewer of assigned/direct-report requests (seeded: MANAGER, plus the override holders above).
+    private static final String APPROVER_AUTHORITY = "regularization:APPROVE:TEAM";
+    // Exempt from the lookback window and monthly limit on their own submissions (seeded: SUPER_ADMIN).
+    private static final String SUBMISSION_LIMIT_EXEMPT_AUTHORITY = "regularization:CONFIGURE:ALL";
+    // Eligible "Assign To" targets: anyone a role OTHER than SUPER_ADMIN grants APPROVER_AUTHORITY
+    // (seeded: MANAGER, HR_ADMIN). Super Admin deliberately excluded — they already have blanket
+    // review visibility, so they're not offered as an explicit target unless another role of theirs
+    // qualifies them. ELIGIBLE_APPROVER_ROLES is only the display label preference now.
+    private static final String NOT_AN_ASSIGNEE_ROLE = "SUPER_ADMIN";
     private static final Set<String> ELIGIBLE_APPROVER_ROLES = Set.of("MANAGER", "HR_ADMIN");
     private static final String STATUS_PRESENT = "PRESENT";
     private static final String STATUS_LATE = "LATE";
@@ -121,6 +133,7 @@ public class RegularizationService {
     // class (REGULARIZATION_DAY_BOUNDARY/resolveBusinessDate, reviewedAt/approvedAt/
     // finalApprovedAt, ...) is untouched and still reads the real system clock directly.
     private final Clock clock;
+    private final EffectivePermissionService effectivePermissionService;
 
     /** Resolved requested times after applying punch auto-fill from attendance history. */
     private record ResolvedTimes(LocalDateTime checkIn, LocalDateTime checkOut) {}
@@ -139,7 +152,7 @@ public class RegularizationService {
     @Transactional
     public RegularizationResponse submit(CreateRegularizationRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
-        boolean isSuperAdmin = actorHasRole(actor, "SUPER_ADMIN");
+        boolean isSuperAdmin = isSubmissionLimitExempt(actor);
 
         ResolvedTimes times = resolveTimes(req, actor.getId());
         assertNotBeforeJoiningDate(actor.getId(), req.getAttendanceDate());
@@ -206,7 +219,7 @@ public class RegularizationService {
     @Transactional(readOnly = true)
     public RegularizationBalance getBalance(String actorEmail) {
         User actor = requireActor(actorEmail);
-        boolean isSuperAdmin = actorHasRole(actor, "SUPER_ADMIN");
+        boolean isSuperAdmin = isSubmissionLimitExempt(actor);
         LocalDate today = regularizationBusinessToday();
         LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
         int usedCount = (int) regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(
@@ -235,7 +248,7 @@ public class RegularizationService {
         String before = auditSnapshot.toJson(regularizationSnapshot(existing));
         ResolvedTimes times = resolveTimes(req, actor.getId());
         assertNotBeforeJoiningDate(actor.getId(), req.getAttendanceDate());
-        if (!actorHasRole(actor, "SUPER_ADMIN")) {
+        if (!isSubmissionLimitExempt(actor)) {
             validateLookbackWindow(req.getAttendanceDate(), employeeLookbackDays);
         }
         if (!existing.getAttendanceDate().equals(req.getAttendanceDate())) {
@@ -428,9 +441,7 @@ public class RegularizationService {
         if (managerUserId != null) {
             User candidate = userRepository.findById(managerUserId)
                     .orElseThrow(() -> new IllegalArgumentException("Selected manager not found"));
-            boolean eligible = candidate.getRoles().stream()
-                    .anyMatch(r -> ELIGIBLE_APPROVER_ROLES.contains(r.getCode()));
-            if (!eligible) {
+            if (!eligibleApprover().test(candidate)) {
                 throw new IllegalArgumentException("Selected user is not an eligible approver");
             }
             return candidate.getId();
@@ -443,7 +454,11 @@ public class RegularizationService {
     /** Active users eligible to be selected/assigned as an approver, for the manager-select dropdown. */
     @Transactional(readOnly = true)
     public List<ApproverOptionDto> listApprovers() {
-        return employeeRepository.findActiveByRoleCodes(ELIGIBLE_APPROVER_ROLES).stream()
+        Set<UUID> holderIds = effectivePermissionService.activeUserIdsWithAuthority("regularization", "APPROVE", "TEAM");
+        if (holderIds.isEmpty()) return List.of();
+        Predicate<User> eligible = eligibleApprover();
+        return employeeRepository.findAllByIdWithUserDetails(holderIds).stream()
+                .filter(e -> eligible.test(e.getUser()))
                 .map(e -> ApproverOptionDto.builder()
                         .userId(e.getUserId())
                         .fullName(e.getFullName())
@@ -457,7 +472,20 @@ public class RegularizationService {
                 .toList();
     }
 
-    /** Super Admin: full history across everyone, with optional filters. */
+    /**
+     * Eligible "Assign To" target: some role other than SUPER_ADMIN grants {@link #APPROVER_AUTHORITY}.
+     * Grants are resolved once per distinct role for the predicate's lifetime, so a whole approver
+     * list costs one lookup per role, not per user.
+     */
+    private Predicate<User> eligibleApprover() {
+        Map<String, Boolean> grantsByRoleCode = new HashMap<>();
+        return user -> user != null && user.getRoles().stream()
+                .filter(r -> !NOT_AN_ASSIGNEE_ROLE.equals(r.getCode()))
+                .anyMatch(r -> grantsByRoleCode.computeIfAbsent(r.getCode(),
+                        code -> effectivePermissionService.coverage(List.of(r)).contains(APPROVER_AUTHORITY)));
+    }
+
+    /** Full history across everyone, with optional filters (regularization:EXPORT:ALL — Super Admin). */
     @Transactional(readOnly = true)
     public List<RegularizationResponse> listAll(UUID employeeUserId, UUID approverUserId,
                                                  UUID departmentId, String month, String status) {
@@ -488,7 +516,7 @@ public class RegularizationService {
     @Transactional(readOnly = true)
     public List<RegularizationResponse> getHistoryForManager(String managerEmail, UUID employeeUserId, LocalDate attendanceDate) {
         User actor = requireActor(managerEmail);
-        if (!hasOverrideRole(actor)
+        if (!effectivePermissionService.hasAuthority(actor, "regularization:VIEW:ALL")
                 && !historyRepository.findCurrentDirectReportIds(actor.getId()).contains(employeeUserId)) {
             throw new AccessDeniedException("You can only view regularization history for your direct reports");
         }
@@ -558,31 +586,23 @@ public class RegularizationService {
                 .orElseThrow(() -> new IllegalArgumentException("Request not found"));
 
         boolean finalStage;
-        String actingRole;
+        String actingRole = actingRoleLabel(actor);
+        boolean override = hasOverrideRole(actor);
         if (STATUS_PENDING.equals(req.getStatus())) {
-            if (actorHasRole(actor, "SUPER_ADMIN")) {
-                actingRole = "SUPER_ADMIN";
+            if (override) {
+                // HR_ADMIN/SUPER_ADMIN (regularization:APPROVE:ALL) need not be the employee's
+                // manager, and may act before the manager has (ONEHR-140 follow-up).
                 finalStage = true;
-            } else if (actorHasRole(actor, "HR_ADMIN")) {
-                // Same bypass SUPER_ADMIN already has at this stage — HR_ADMIN need not be the
-                // employee's manager, and may act before the manager has (ONEHR-140 follow-up).
-                actingRole = "HR_ADMIN";
-                finalStage = true;
-            } else if (actorHasRole(actor, "MANAGER")) {
+            } else if (effectivePermissionService.hasAuthority(actor, APPROVER_AUTHORITY)) {
                 // A Manager's approval is now final on its own — no HR/Super Admin sign-off
                 // required afterward. Still gated to their own assigned/reporting employee.
                 assertCanReview(req, actor);
-                actingRole = "MANAGER";
                 finalStage = true;
             } else {
                 throw new AccessDeniedException("You are not authorized to review this request");
             }
         } else if (STATUS_PARTIALLY_APPROVED.equals(req.getStatus())) {
-            if (actorHasRole(actor, "SUPER_ADMIN")) {
-                actingRole = "SUPER_ADMIN";
-                finalStage = true;
-            } else if (actorHasRole(actor, "HR_ADMIN")) {
-                actingRole = "HR_ADMIN";
+            if (override) {
                 finalStage = true;
             } else {
                 throw new AccessDeniedException("You are not authorized to review this request");
@@ -699,25 +719,18 @@ public class RegularizationService {
         RegularizationRequest req = regularizationRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Request not found"));
 
-        String actingRole;
+        String actingRole = actingRoleLabel(actor);
+        boolean override = hasOverrideRole(actor);
         if (STATUS_PENDING.equals(req.getStatus())) {
-            if (actorHasRole(actor, "SUPER_ADMIN")) {
-                actingRole = "SUPER_ADMIN";
-            } else if (actorHasRole(actor, "HR_ADMIN")) {
-                // Same bypass SUPER_ADMIN already has at this stage — see approve() above.
-                actingRole = "HR_ADMIN";
-            } else if (actorHasRole(actor, "MANAGER")) {
+            // Same override bypass as approve() above.
+            if (!override) {
+                if (!effectivePermissionService.hasAuthority(actor, APPROVER_AUTHORITY)) {
+                    throw new AccessDeniedException("You are not authorized to review this request");
+                }
                 assertCanReview(req, actor);
-                actingRole = "MANAGER";
-            } else {
-                throw new AccessDeniedException("You are not authorized to review this request");
             }
         } else if (STATUS_PARTIALLY_APPROVED.equals(req.getStatus())) {
-            if (actorHasRole(actor, "SUPER_ADMIN")) {
-                actingRole = "SUPER_ADMIN";
-            } else if (actorHasRole(actor, "HR_ADMIN")) {
-                actingRole = "HR_ADMIN";
-            } else {
+            if (!override) {
                 throw new AccessDeniedException("You are not authorized to review this request");
             }
         } else {
@@ -862,24 +875,34 @@ public class RegularizationService {
         }
     }
 
+    /** Only called for an actor already holding {@link #APPROVER_AUTHORITY} without the org-wide override. */
     private void assertCanReview(RegularizationRequest req, User actor) {
-        if (hasOverrideRole(actor)) return;
         if (actor.getId().equals(req.getAssignedApproverId())) return;
 
         // Fallback for requests predating assigned_approver_id (should be rare — V34 backfills
         // in-flight PENDING rows at migration time).
-        boolean isManager = actor.getRoles().stream().anyMatch(r -> r.getCode().equals("MANAGER"));
-        if (isManager && isCurrentManagerOf(actor.getId(), req.getEmployeeUserId())) return;
+        if (isCurrentManagerOf(actor.getId(), req.getEmployeeUserId())) return;
 
         throw new AccessDeniedException("You are not authorized to review this request");
     }
 
     private boolean hasOverrideRole(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
+        return effectivePermissionService.hasAuthority(actor, APPROVER_OVERRIDE_AUTHORITY);
     }
 
-    private boolean actorHasRole(User actor, String code) {
-        return actor.getRoles().stream().anyMatch(r -> code.equals(r.getCode()));
+    private boolean isSubmissionLimitExempt(User actor) {
+        return effectivePermissionService.hasAuthority(actor, SUBMISSION_LIMIT_EXEMPT_AUTHORITY);
+    }
+
+    /**
+     * Approval-history/audit label only, never an access decision: the actor's highest-priority
+     * role, ignoring the base EMPLOYEE role every approver also holds (so a custom-role approver is
+     * labeled with that role, not "EMPLOYEE"). Same value the old SUPER_ADMIN > HR_ADMIN > MANAGER
+     * branches produced for the system roles.
+     */
+    private static String actingRoleLabel(User actor) {
+        return RoleUtils.primaryRoleCode(actor.getRoles().stream()
+                .filter(r -> !"EMPLOYEE".equals(r.getCode())).toList(), "EMPLOYEE");
     }
 
     private boolean isCurrentManagerOf(UUID managerCandidateId, UUID employeeUserId) {
