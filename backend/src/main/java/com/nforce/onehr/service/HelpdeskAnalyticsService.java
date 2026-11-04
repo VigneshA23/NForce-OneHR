@@ -10,6 +10,7 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.HelpContentRepository;
 import com.nforce.onehr.repository.HelpdeskTicketRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -34,7 +35,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class HelpdeskAnalyticsService {
 
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
     private static final String PUBLISHED = "PUBLISHED";
     private static final int TOP_CONTENT_LIMIT = 5;
     private static final int ZERO_VIEW_CONTENT_LIMIT = 10;
@@ -44,6 +44,7 @@ public class HelpdeskAnalyticsService {
     private final HelpContentRepository helpContentRepo;
     private final UserRepository userRepo;
     private final EmployeeRepository employeeRepo;
+    private final EffectivePermissionService effectivePermissionService;
 
     @Transactional(readOnly = true)
     public HelpdeskAnalyticsDto getAnalytics(String actorEmail) {
@@ -131,9 +132,10 @@ public class HelpdeskAnalyticsService {
     private void requireAdmin(String actorEmail) {
         User actor = userRepo.findByEmail(actorEmail)
                 .orElseThrow(() -> new NoSuchElementException("User not found: " + actorEmail));
-        boolean isAdmin = actor.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
-        if (!isAdmin) {
-            throw new AccessDeniedException("HR Admin or Super Admin role required");
+        // Same authority as HrHelpdeskController's /analytics gate — seeded to exactly HR_ADMIN +
+        // SUPER_ADMIN, the roles this used to check by code.
+        if (!effectivePermissionService.hasAuthority(actor, "helpdesk:VIEW:ALL")) {
+            throw new AccessDeniedException("Help Desk permission required: helpdesk:VIEW:ALL");
         }
     }
 

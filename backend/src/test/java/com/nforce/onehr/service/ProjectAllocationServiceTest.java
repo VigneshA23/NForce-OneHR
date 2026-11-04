@@ -9,20 +9,25 @@ import com.nforce.onehr.entity.Department;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Project;
 import com.nforce.onehr.entity.ProjectAllocation;
+import com.nforce.onehr.entity.ProjectStatus;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.ProjectAllocationRepository;
 import com.nforce.onehr.repository.ProjectRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
@@ -51,6 +56,11 @@ class ProjectAllocationServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private DirectReportScopeService directReportScopeService;
 
+    // Real seed matrix (V241: project_allocations:VIEW is MANAGER TEAM, HR_ADMIN/SUPER_ADMIN ALL) plus two custom roles.
+    private final EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
+            "CUSTOM_CAPACITY_ALL", Map.of("project_allocations:VIEW", "ALL"),
+            "CUSTOM_CAPACITY_TEAM", Map.of("project_allocations:VIEW", "TEAM")));
+
     private ProjectAllocationService service;
 
     private final UUID projectId = UUID.randomUUID();
@@ -58,10 +68,18 @@ class ProjectAllocationServiceTest {
     private final LocalDate start = LocalDate.of(2026, 1, 1);
     private final LocalDate end = LocalDate.of(2026, 1, 31);
 
+    private static final String HR_EMAIL = "hr@test.com";
+    private static final String OWNER_EMAIL = "owner@test.com";
+    private final UUID managerId = UUID.randomUUID();
+
     @BeforeEach
     void setUp() {
         service = new ProjectAllocationService(allocationRepository, employeeRepository, projectRepository,
-                userRepository, directReportScopeService);
+                userRepository, directReportScopeService, effectivePermissionService);
+        lenient().when(userRepository.findByEmail(HR_EMAIL)).thenReturn(Optional.of(User.builder()
+                .id(UUID.randomUUID()).email(HR_EMAIL).roles(Set.of(Role.builder().code("HR_ADMIN").build())).build()));
+        lenient().when(userRepository.findByEmail(OWNER_EMAIL)).thenReturn(Optional.of(User.builder()
+                .id(managerId).email(OWNER_EMAIL).roles(Set.of(Role.builder().code("MANAGER").build())).build()));
         lenient().when(allocationRepository.save(any())).thenAnswer(inv -> {
             ProjectAllocation a = inv.getArgument(0);
             if (a.getId() == null) a.setId(UUID.randomUUID());
@@ -78,12 +96,14 @@ class ProjectAllocationServiceTest {
     }
 
     private User userWithRole(String roleCode) {
+        Role role = roleCode.startsWith("CUSTOM_")
+                ? Role.builder().id(99).code(roleCode).displayName(roleCode).build() : SeedMatrix.role(roleCode);
         return User.builder().id(UUID.randomUUID()).email("actor@test.com")
-                .roles(Set.of(Role.builder().code(roleCode).build())).build();
+                .roles(Set.of(SeedMatrix.role("EMPLOYEE"), role)).build();
     }
 
     private Project activeProject() {
-        return Project.builder().id(projectId).name("Phoenix").active(true).build();
+        return Project.builder().id(projectId).name("Phoenix").status(ProjectStatus.ACTIVE).build();
     }
 
     private ProjectAllocationRequest request(UUID empId, int capacity, LocalDate from, LocalDate to) {
@@ -102,7 +122,7 @@ class ProjectAllocationServiceTest {
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(activeProject()));
         when(allocationRepository.findOverlapping(employeeId, start, end)).thenReturn(List.of());
 
-        ProjectAllocationResponse res = service.allocate(request(employeeId, 60, start, end));
+        ProjectAllocationResponse res = service.allocate(HR_EMAIL, request(employeeId, 60, start, end));
 
         assertEquals(employeeId, res.getEmployeeId());
         assertEquals(projectId, res.getProjectId());
@@ -112,9 +132,10 @@ class ProjectAllocationServiceTest {
 
     @Test
     void allocate_throwsWhenEmployeeMissing() {
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(activeProject()));
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.empty());
 
-        assertThrows(NoSuchElementException.class, () -> service.allocate(request(employeeId, 50, start, end)));
+        assertThrows(NoSuchElementException.class, () -> service.allocate(HR_EMAIL, request(employeeId, 50, start, end)));
         verify(allocationRepository, never()).save(any());
     }
 
@@ -122,9 +143,9 @@ class ProjectAllocationServiceTest {
     void allocate_throwsWhenProjectInactive() {
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(
-                Project.builder().id(projectId).name("Legacy").active(false).build()));
+                Project.builder().id(projectId).name("Legacy").status(ProjectStatus.CLOSED).build()));
 
-        assertThrows(IllegalArgumentException.class, () -> service.allocate(request(employeeId, 50, start, end)));
+        assertThrows(IllegalArgumentException.class, () -> service.allocate(HR_EMAIL, request(employeeId, 50, start, end)));
         verify(allocationRepository, never()).save(any());
     }
 
@@ -134,7 +155,7 @@ class ProjectAllocationServiceTest {
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(activeProject()));
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.allocate(request(employeeId, 50, end, start)));
+                () -> service.allocate(HR_EMAIL, request(employeeId, 50, end, start)));
         verify(allocationRepository, never()).save(any());
     }
 
@@ -147,7 +168,7 @@ class ProjectAllocationServiceTest {
                 .capacityPercent(70).startDate(start).endDate(end).build();
         when(allocationRepository.findOverlapping(employeeId, start, end)).thenReturn(List.of(existing));
 
-        assertThrows(IllegalArgumentException.class, () -> service.allocate(request(employeeId, 40, start, end)));
+        assertThrows(IllegalArgumentException.class, () -> service.allocate(HR_EMAIL, request(employeeId, 40, start, end)));
         verify(allocationRepository, never()).save(any());
     }
 
@@ -175,7 +196,7 @@ class ProjectAllocationServiceTest {
         req.setStartDate(start);
         req.setEndDate(end);
 
-        BulkAllocationResponse res = service.bulkAllocate(req);
+        BulkAllocationResponse res = service.bulkAllocate(HR_EMAIL, req);
 
         assertEquals(3, res.getResults().size());
         assertEquals("SUCCESS", statusFor(res, okEmployee));
@@ -197,6 +218,76 @@ class ProjectAllocationServiceTest {
 
     private List<UUID> idsOf(List<EmployeeCapacityResponse> rows) {
         return rows.stream().map(EmployeeCapacityResponse::getEmployeeId).collect(Collectors.toList());
+    }
+
+    // ── US-B03: only the project owner or HR may allocate ───────────────────────
+
+    private Project projectOwnedBy(UUID ownerId) {
+        return Project.builder().id(projectId).name("Phoenix").status(ProjectStatus.ACTIVE).ownerEmployeeId(ownerId).build();
+    }
+
+    @Test
+    void allocate_managerWhoOwnsProject_isAllowed() {
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(projectOwnedBy(managerId)));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
+        when(allocationRepository.findOverlapping(employeeId, start, end)).thenReturn(List.of());
+
+        ProjectAllocationResponse res = service.allocate(OWNER_EMAIL, request(employeeId, 50, start, end));
+
+        assertEquals(projectId, res.getProjectId());
+        verify(allocationRepository).save(any());
+    }
+
+    @Test
+    void allocate_managerWhoDoesNotOwnProject_isDeniedAndNothingSaved() {
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(projectOwnedBy(UUID.randomUUID())));
+
+        assertThrows(AccessDeniedException.class,
+                () -> service.allocate(OWNER_EMAIL, request(employeeId, 50, start, end)));
+        verify(allocationRepository, never()).save(any());
+    }
+
+    @Test
+    void allocate_managerOnUnownedProject_isDenied() {
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(projectOwnedBy(null)));
+
+        assertThrows(AccessDeniedException.class,
+                () -> service.allocate(OWNER_EMAIL, request(employeeId, 50, start, end)));
+    }
+
+    @Test
+    void allocate_hrAdmin_mayAllocateOnAnyonesProject() {
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(projectOwnedBy(UUID.randomUUID())));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
+        when(allocationRepository.findOverlapping(employeeId, start, end)).thenReturn(List.of());
+
+        service.allocate(HR_EMAIL, request(employeeId, 50, start, end));
+
+        verify(allocationRepository).save(any());
+    }
+
+    @Test
+    void bulkAllocate_nonOwner_rejectsWholeRequestInsteadOfPerEmployeeFailures() {
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(projectOwnedBy(UUID.randomUUID())));
+        BulkProjectAllocationRequest req = new BulkProjectAllocationRequest();
+        req.setEmployeeIds(List.of(employeeId));
+        req.setProjectId(projectId);
+        req.setCapacityPercent(50);
+        req.setStartDate(start);
+        req.setEndDate(end);
+
+        assertThrows(AccessDeniedException.class, () -> service.bulkAllocate(OWNER_EMAIL, req));
+        verify(allocationRepository, never()).save(any());
+    }
+
+    @Test
+    void allocate_onHoldProject_isRejected() {
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(
+                Project.builder().id(projectId).name("Paused").status(ProjectStatus.ON_HOLD).build()));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
+
+        assertThrows(IllegalArgumentException.class, () -> service.allocate(HR_EMAIL, request(employeeId, 50, start, end)));
+        verify(allocationRepository, never()).save(any());
     }
 
     @Test
@@ -309,5 +400,28 @@ class ProjectAllocationServiceTest {
 
         assertEquals(1, res.size());
         verifyNoInteractions(directReportScopeService);
+    }
+
+    @Test
+    void capacityView_superAdminAndACustomRoleWithViewAll_seeOrgWide() {
+        for (String code : List.of("SUPER_ADMIN", "CUSTOM_CAPACITY_ALL")) {
+            String email = code + "@test.com";
+            when(userRepository.findByEmail(email)).thenReturn(Optional.of(userWithRole(code)));
+            when(employeeRepository.findAll()).thenReturn(List.of(employee(UUID.randomUUID())));
+            when(allocationRepository.findByEmployeeUserIdIn(any())).thenReturn(List.of());
+
+            assertEquals(1, service.capacityView(email, null, null).size(), code);
+        }
+        verifyNoInteractions(directReportScopeService);
+    }
+
+    @Test
+    void capacityView_aCustomRoleWithOnlyTeamScope_staysWithinItsDirectReports() {
+        String email = "custom@test.com";
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(userWithRole("CUSTOM_CAPACITY_TEAM")));
+        when(directReportScopeService.directReportIds(email)).thenReturn(Set.of());
+
+        assertTrue(service.capacityView(email, null, null).isEmpty());
+        verify(employeeRepository, never()).findAll();
     }
 }

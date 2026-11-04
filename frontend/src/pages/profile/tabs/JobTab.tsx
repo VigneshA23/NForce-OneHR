@@ -5,6 +5,7 @@ import { type ProfileData } from '../../../api/profile';
 import { hierarchyApi, type PersonCard } from '../../../api/hierarchy';
 import { dashboardApi, type DirectReport } from '../../../api/dashboard';
 import { SectionHeader, ReadField } from '../shared';
+import { PersonCell } from '../../../components/PersonCell';
 
 function Card({ title, badge, icon, children }: { title: string; badge?: string; icon?: LucideIcon; children: React.ReactNode }) {
   return (
@@ -74,17 +75,17 @@ export function JobTab({ profile, token }: { profile: ProfileData; token: string
           <ReadField label="Reports To" value={profile.managerName} />
           <ReadField label="Manager of Manager (L2)" value={l2Manager === undefined ? undefined : l2Manager?.name ?? null} />
           <div style={{ gridColumn: '1/-1' }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>Direct Reports</div>
+            <div className="nf-ps-label" style={{ marginBottom: 8 }}>Direct Reports</div>
             {!reportsLoaded ? (
               <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>Loading…</div>
             ) : directReports.length === 0 ? (
               <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No direct reports.</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div className="nf-ps-people">
                 {directReports.map(r => (
-                  <div key={r.userId} style={{ fontSize: 13, color: 'var(--txt)' }}>
-                    {r.fullName}
-                    {r.designationName && <span style={{ color: 'var(--txt-mut)' }}> – {r.designationName}</span>}
+                  <div key={r.userId} className="nf-ps-person">
+                    <PersonCell userId={r.userId} name={r.fullName} code={r.employeeCode} />
+                    {r.designationName && <span className="nf-ps-person-role">{r.designationName}</span>}
                   </div>
                 ))}
               </div>

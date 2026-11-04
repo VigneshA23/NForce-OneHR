@@ -1,0 +1,78 @@
+/* Performance drill-down popups — presentation only. Colours are theme tokens (light/dark + accent safe). */
+
+/* modal shell (shared by the Performance tabs and the Team Performance roster popups) */
+.nf-tm-overlay { position: fixed; inset: 0; background: rgba(8, 10, 16, .62); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: 600; padding: clamp(16px, 4vw, 40px); animation: nf-tm-fade .16s ease-out; }
+.nf-tm-card {
+  width: clamp(320px, 70vw, 780px); max-width: 95vw; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--line2); border-radius: 20px; box-shadow: 0 28px 70px rgba(0, 0, 0, .5); animation: nf-tm-rise .2s ease-out;
+}
+.nf-tm-head {
+  display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 10%, var(--panel)) 0%, var(--panel) 70%);
+}
+.nf-tm-ico {
+  flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
+}
+.nf-tm-titles { flex: 1; min-width: 0; }
+.nf-tm-title { font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nf-tm-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-tm-close {
+  flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; color: var(--txt-mut);
+  background: var(--raised); border: 1px solid var(--line); border-radius: 11px; transition: color .15s, background .15s;
+}
+.nf-tm-close:hover { color: var(--txt); background: var(--raised2); }
+.nf-tm-body { padding: 18px 22px 22px; overflow-y: auto; }
+@keyframes nf-tm-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nf-tm-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+
+/* employee list rows */
+.nf-tl-list { display: flex; flex-direction: column; gap: 8px; }
+.nf-tl-row {
+  display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; font: inherit; cursor: pointer; padding: 11px 14px;
+  background: var(--raised); border: 1px solid var(--line); border-radius: 14px; transition: border-color .15s, background .15s, transform .15s, box-shadow .15s;
+}
+.nf-tl-row:hover { transform: translateX(2px); border-color: color-mix(in srgb, var(--brand) 34%, var(--line)); background: color-mix(in srgb, var(--brand) 5%, var(--raised)); box-shadow: 0 6px 16px rgba(16, 24, 40, .07); }
+.nf-tl-id { flex: 0 0 210px; min-width: 0; display: flex; align-items: center; gap: 12px; }
+.nf-tl-name { font-size: 13.5px; font-weight: 600; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nf-tl-meta { margin-top: 2px; font-size: 11.5px; color: var(--txt-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nf-tl-chips { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.nf-tl-more { font-size: 11px; color: var(--txt-dim); }
+.nf-tl-go { flex-shrink: 0; color: var(--txt-dim); transition: color .15s, transform .15s; }
+.nf-tl-row:hover .nf-tl-go { color: var(--brand); transform: translateX(2px); }
+.nf-tl-empty { display: flex; align-items: center; gap: 14px; padding: 18px; border-radius: 14px; background: var(--raised); border: 1px dashed var(--line2); color: var(--txt-mut); font-size: 13px; }
+.nf-tl-back {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px 6px 10px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600;
+  color: var(--brand); background: transparent; border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); border-radius: 999px; transition: background .15s;
+}
+.nf-tl-back:hover { background: color-mix(in srgb, var(--brand) 9%, var(--panel)); }
+
+/* employee detail view */
+.nf-ed { display: flex; flex-direction: column; gap: 16px; }
+.nf-ed-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.nf-ed-stat { padding: 12px 14px; border-radius: 14px; background: linear-gradient(160deg, color-mix(in srgb, var(--c, var(--brand)) 9%, var(--panel)) 0%, var(--panel) 80%); border: 1px solid color-mix(in srgb, var(--c, var(--brand)) 22%, var(--line)); }
+.nf-ed-stat b { display: block; font-family: Inter, sans-serif; font-size: 22px; font-weight: 800; letter-spacing: -.02em; color: var(--txt); line-height: 1.1; }
+.nf-ed-stat span { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--txt-mut); }
+.nf-ed-sec { border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--brand) 2%, var(--raised)); overflow: hidden; }
+.nf-ed-sec-hd { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.nf-ed-sec-ico { width: 30px; height: 30px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 11%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 24%, transparent); }
+.nf-ed-sec-hd h4 { margin: 0; font-size: 13.5px; font-weight: 700; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); }
+.nf-ed-count { margin-left: auto; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; color: var(--txt-mut); background: var(--panel); border: 1px solid var(--line2); }
+.nf-ed-sec-body { padding: 14px 16px; }
+.nf-ed-skills { display: flex; flex-wrap: wrap; gap: 8px; }
+.nf-ed-skill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 5px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--txt); background: var(--panel); border: 1px solid var(--line2); }
+.nf-ed-skill i { font-style: normal; padding: 2px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 700; }
+.nf-ed-items { display: flex; flex-direction: column; gap: 8px; }
+.nf-ed-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+.nf-ed-item-ico { flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--c, var(--brand)); background: color-mix(in srgb, var(--c, var(--brand)) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--c, var(--brand)) 26%, transparent); }
+.nf-ed-item-main { flex: 1; min-width: 0; }
+.nf-ed-item-name { font-size: 13px; font-weight: 600; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); overflow-wrap: anywhere; }
+.nf-ed-item-sub { margin-top: 1px; font-size: 11.5px; color: var(--txt-dim); }
+.nf-ed-tag { flex-shrink: 0; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; color: var(--c, var(--txt-mut)); background: color-mix(in srgb, var(--c, var(--txt-mut)) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--c, var(--txt-mut)) 28%, transparent); }
+.nf-ed-none { font-size: 12.5px; color: var(--txt-dim); }
+
+@media (max-width: 640px) {
+  .nf-tl-row { flex-wrap: wrap; }
+  .nf-tl-id { flex-basis: 100%; }
+  .nf-ed-stats { grid-template-columns: 1fr 1fr 1fr; }
+}

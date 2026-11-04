@@ -1,0 +1,96 @@
+/* Attendance popups — Quick Actions (Check-out confirm, Web Clock-In, Work From Home, Partial Day,
+ * Attendance Policy) and Request Regularization. Presentation only; theme tokens throughout, so
+ * light/dark and the accent setting keep working. Inline styles set most field properties, hence the
+ * few !important rules. */
+
+/* card */
+.nf-modal {
+  border-radius: 20px !important; border-color: var(--line2) !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important;
+  animation: nf-am-rise .2s ease-out;
+}
+@keyframes nf-am-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+
+/* header band (shared by every popup and by the right-hand detail drawer) */
+.nf-am-head {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 18px 22px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line);
+}
+.nf-am-ico {
+  flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
+}
+.nf-am-titles { flex: 1; min-width: 0; }
+.nf-am-title { font-family: Inter, sans-serif; font-size: 16.5px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); overflow-wrap: anywhere; }
+.nf-am-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-am-x {
+  flex-shrink: 0; width: 34px !important; height: 34px !important; display: grid !important; place-items: center; cursor: pointer; padding: 0;
+  color: var(--txt-mut) !important; background: var(--raised) !important; border: 1px solid var(--line) !important; border-radius: 11px !important; transition: color .15s, background .15s;
+}
+.nf-am-x:hover { color: var(--txt) !important; background: var(--raised2) !important; }
+
+/* fields */
+.nf-modal input:not([type='checkbox']):not([type='radio']),
+.nf-modal select,
+.nf-modal textarea {
+  background: var(--panel) !important; border-color: var(--line2) !important; border-radius: 11px !important; transition: border-color .15s, box-shadow .15s;
+}
+.nf-modal input:not([type='checkbox']):not([type='radio']):hover,
+.nf-modal select:hover, .nf-modal textarea:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-modal input:disabled, .nf-modal select:disabled { background: var(--raised) !important; opacity: .75; }
+.nf-modal input[type='radio'], .nf-modal input[type='checkbox'] { accent-color: var(--brand); }
+.nf-modal label { color: var(--txt-mut); font-weight: 600; }
+
+/* Partial Day mode choices as pill options */
+.nf-modal label:has(> input[type='radio'][name='partialDayMode']) {
+  display: inline-flex !important; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 999px; cursor: pointer; font-size: 12px !important; font-weight: 600;
+  color: var(--txt-mut) !important; text-transform: none !important; letter-spacing: 0 !important; background: var(--raised); border: 1px solid var(--line2);
+  transition: background .15s, border-color .15s, color .15s;
+}
+.nf-modal label:has(> input[type='radio'][name='partialDayMode']):hover { border-color: color-mix(in srgb, var(--brand) 40%, var(--line2)); }
+.nf-modal label:has(> input[type='radio'][name='partialDayMode']:checked) {
+  color: var(--brand) !important; background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border-color: var(--brand);
+}
+
+/* info rows */
+.nf-am-callout {
+  padding: 11px 14px; border-radius: 13px; background: color-mix(in srgb, var(--info) 8%, var(--panel)); border: 1px solid color-mix(in srgb, var(--info) 24%, transparent); line-height: 1.5;
+}
+.nf-am-balance {
+  display: flex !important; align-items: center; flex-wrap: wrap; padding: 9px 13px; border-radius: 13px; background: var(--raised); border: 1px solid var(--line);
+}
+
+/* action bar */
+.nf-modal-actions { box-shadow: 0 -8px 18px rgba(16, 24, 40, .06); }
+.nf-modal-actions > button:last-child:not(:first-child) { box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 28%, transparent); }
+
+/* ── Attendance Policy (full-page takeover) ── */
+.nf-ap-hero { display: flex; align-items: center; gap: 16px; padding: 20px 32px; }
+.nf-ap-hero .nf-am-ico { width: 48px; height: 48px; border-radius: 15px; }
+.nf-ap-title { font-family: Inter, sans-serif; font-weight: 700; font-size: 21px; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); }
+.nf-ap-sub { margin-top: 2px; font-size: 13px; color: var(--txt-mut); }
+.nf-ap-wrap { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.nf-ap-lead { font-size: 13.5px; color: var(--txt-mut); line-height: 1.7; margin: 0; }
+.nf-ap-card {
+  border: 1px solid var(--line); border-radius: 18px; padding: 18px 22px 20px; overflow: hidden;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 4%, var(--panel)) 0%, var(--panel) 110px); box-shadow: 0 6px 22px rgba(16, 24, 40, .06);
+}
+.nf-ap-card-hd { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.nf-ap-card-ico {
+  flex-shrink: 0; width: 36px; height: 36px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 26%, transparent);
+}
+.nf-ap-card-hd h3 { margin: 0; font-family: Inter, sans-serif; font-size: 16px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); }
+.nf-ap-card p { font-size: 13.5px; color: var(--txt-mut); line-height: 1.7; margin: 8px 0; }
+.nf-ap-callout {
+  display: flex; align-items: flex-start; gap: 10px; margin: 10px 0; padding: 11px 14px; border-radius: 13px; font-size: 13.5px; line-height: 1.6; color: var(--txt);
+  background: color-mix(in srgb, var(--info) 8%, var(--panel)); border: 1px solid color-mix(in srgb, var(--info) 24%, transparent);
+}
+.nf-ap-callout svg { flex-shrink: 0; margin-top: 3px; color: var(--info); }
+.nf-ap-list { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.nf-ap-list li { display: flex; align-items: flex-start; gap: 10px; padding: 9px 13px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line); font-size: 13.5px; color: var(--txt-mut); line-height: 1.6; }
+.nf-ap-list li::before { content: ''; flex-shrink: 0; margin-top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--brand); }
+
+@media (max-width: 767px) {
+  .nf-ap-hero { padding: 16px 18px; }
+  .nf-ap-card { padding: 14px 15px 16px; }
+}

@@ -13,6 +13,7 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.EmployeeSkillRatingRepository;
 import com.nforce.onehr.repository.SkillTaxonomyRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,19 +32,19 @@ import java.util.stream.Collectors;
  * US-A07: the managed skill taxonomy (HR_ADMIN/SUPER_ADMIN) and per-employee 1-5 ratings. Skills
  * are only ever picked from the taxonomy, never typed freely, so US-A08's skill search is an
  * exact-id match. A self-rating is the employee's own write path; the manager rating is a separate
- * one, allowed only for that employee's current manager or HR_ADMIN/SUPER_ADMIN.
+ * one, allowed only for that employee's current manager or a skill_ratings:EDIT:ALL holder
+ * (HR_ADMIN/SUPER_ADMIN by default).
  */
 @Service
 @RequiredArgsConstructor
 public class SkillService {
-
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
 
     private final SkillTaxonomyRepository taxonomyRepository;
     private final EmployeeSkillRatingRepository ratingRepository;
     private final EmployeeRepository employeeRepository;
     private final UserRepository userRepository;
     private final DirectReportScopeService directReportScopeService;
+    private final EffectivePermissionService effectivePermissionService;
 
     // ---- taxonomy ----
 
@@ -108,7 +109,7 @@ public class SkillService {
         }
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
-        boolean admin = actor.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
+        boolean admin = effectivePermissionService.hasAuthority(actor, "skill_ratings:EDIT:ALL");
         if (!admin && !directReportScopeService.isDirectReport(actorEmail, employeeId)) {
             throw new org.springframework.security.access.AccessDeniedException(
                     "You can only rate the skills of your own direct reports");

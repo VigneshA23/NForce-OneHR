@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.HolidayResponse;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.service.AttendanceRulesService;
@@ -40,7 +39,7 @@ public final class HolidayDataProviders {
         @Override public String id() { return "holiday.upcoming"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Holidays for your location"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("holidays", "leave"); }
 
         @Override

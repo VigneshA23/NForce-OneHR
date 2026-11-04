@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.BirthdayEntryDto;
 import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeResponse;
@@ -45,7 +44,7 @@ public final class PeopleDataProviders {
         @Override public String id() { return "profile.me"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your employment details"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("my-profile", "profile", "people"); }
 
         /**
@@ -113,7 +112,7 @@ public final class PeopleDataProviders {
         @Override public String id() { return "directory.summary"; }
         @Override public DataScope scope() { return DataScope.SHARED; }
         @Override public String title() { return "People Directory headcount by department and location"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("directory", "people"); }
 
         @Override
@@ -178,7 +177,7 @@ public final class PeopleDataProviders {
         @Override public String id() { return "people-named.matches"; }
         @Override public DataScope scope() { return DataScope.SHARED; }
         @Override public String title() { return "People Directory entries whose name the question mentions"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("people-named"); }
         @Override public boolean consultedEveryTurn() { return true; }
 
@@ -266,7 +265,7 @@ public final class PeopleDataProviders {
         @Override public String id() { return "birthdays.upcoming"; }
         @Override public DataScope scope() { return DataScope.SHARED; }
         @Override public String title() { return "Colleagues' birthdays today and in the next 7 days"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         // Not "dashboard": the page hint would hand this a slot on every question asked from Home.
         @Override public Set<String> modules() { return Set.of("birthdays"); }
 

@@ -1,0 +1,59 @@
+/* User Management modals (Add / Edit / Reset / Status / Delete) — presentation only.
+ * Colours are theme tokens, so light/dark and the accent setting keep working. Inline styles on the
+ * inputs set border/background, hence the !important on those few properties. */
+
+.nf-um-modal { border-radius: 20px !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important; animation: nf-um-rise .2s ease-out; }
+@keyframes nf-um-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+
+/* header */
+.nf-um-head {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 18px 22px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line);
+}
+.nf-um-head-ico {
+  flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
+}
+.nf-um-head-txt { flex: 1; min-width: 0; }
+.nf-um-head-title { font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nf-um-head-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-um-close {
+  flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; color: var(--txt-mut);
+  background: var(--raised); border: 1px solid var(--line); border-radius: 11px; transition: color .15s, background .15s;
+}
+.nf-um-close:hover { color: var(--txt); background: var(--raised2); }
+
+/* form sections as cards */
+.nf-um-sec { border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--brand) 2%, var(--raised)); padding: 16px 18px 18px; }
+.nf-um-sec-hd { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.nf-um-sec-ico {
+  width: 30px; height: 30px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 11%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 24%, transparent);
+}
+.nf-um-sec-title { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-mut); }
+
+/* fields */
+.nf-um-modal label { color: var(--txt-mut) !important; font-weight: 600 !important; letter-spacing: .04em !important; }
+.nf-um-modal input:not([type='checkbox']):not([type='radio']),
+.nf-um-modal select,
+.nf-um-modal textarea {
+  background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 11px !important; padding: 11px 13px !important;
+  transition: border-color .15s, box-shadow .15s;
+}
+.nf-um-modal input:not([type='checkbox']):not([type='radio']):hover,
+.nf-um-modal select:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-um-modal input:not([type='checkbox']):not([type='radio']):focus,
+.nf-um-modal select:focus,
+.nf-um-modal textarea:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.nf-um-modal select:disabled, .nf-um-modal input:disabled { background: var(--raised) !important; opacity: .75; cursor: not-allowed; }
+
+/* onboarding opt-in */
+.nf-um-check { border-radius: 14px !important; background: color-mix(in srgb, var(--brand) 5%, var(--panel)) !important; border-color: color-mix(in srgb, var(--brand) 22%, var(--line)) !important; transition: border-color .15s, background .15s; }
+.nf-um-check:hover { border-color: color-mix(in srgb, var(--brand) 40%, var(--line)) !important; }
+
+/* sticky action bar */
+.nf-um-foot {
+  position: sticky; bottom: 0; z-index: 3; margin: 6px -24px -24px; padding: 14px 24px; background: var(--panel);
+  border-top: 1px solid var(--line); box-shadow: 0 -8px 18px rgba(16, 24, 40, .06);
+}
+.nf-um-foot button { border-radius: 11px !important; }

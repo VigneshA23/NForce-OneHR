@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.data;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.ai.contract.ShellRole;
@@ -55,7 +56,7 @@ class QuestionAwareProvidersTest {
 
     private static AssistantRequestContext as(ShellRole role, AudienceBucket... audiences) {
         return AssistantRequestContext.builder().userId(UUID.randomUUID()).actorEmail(EMAIL)
-                .primaryRoleCode(role.name()).shellRole(role).audiences(Set.of(audiences)).build();
+                .primaryRoleCode(role.name()).shellRole(role).audiences(Set.of(audiences)).authorities(SeedAuthorities.of(Set.of(audiences))).build();
     }
 
     private static DirectoryEntryDto person(String name, String email, String dept, String manager) {

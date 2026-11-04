@@ -96,6 +96,9 @@ spring:
     # ("future"). Neither is corruption — don't fail validation over either.
     ignore-migration-patterns: "*:missing,*:future,*:pending,*:ignored"
     validate-on-migrate: false
+    # Branches merge in migrations numbered below versions the DB already applied (e.g. V232-V242
+    # arriving after V243-V246 ran). Without this Flyway silently skips them as "ignored".
+    out-of-order: true
 
 app:
   jwt:

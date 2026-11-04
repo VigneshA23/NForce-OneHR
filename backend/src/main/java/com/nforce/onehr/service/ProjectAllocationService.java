@@ -9,12 +9,15 @@ import com.nforce.onehr.dto.allocation.ProjectAllocationResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Project;
 import com.nforce.onehr.entity.ProjectAllocation;
+import com.nforce.onehr.entity.ProjectStatus;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.ProjectAllocationRepository;
 import com.nforce.onehr.repository.ProjectRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,31 +35,33 @@ import java.util.stream.Collectors;
 /**
  * Single source of truth for project-allocation capacity validation (US-B04 create / US-B06
  * capacity check): {@link #validateAndBuild} is the one place that decides whether an allocation
- * is legal. {@link #allocate} (single) and {@link #bulkAllocate} (US-B10) both call it instead of
+ * is legal, and {@link #requireCanAllocate} (US-B03) the one place that decides who may make it.
+ * {@link #allocate} (single) and {@link #bulkAllocate} (US-B10) both call it instead of
  * re-implementing the rule — do not duplicate this logic in a new allocation path.
  *
  * <p>{@link #capacityView} (US-B05, filterable by {@link #capacityView} since US-B13) is the team
  * capacity read path. Its visibility is deliberately the same hierarchy rule {@link LeaveService}
  * uses for approvals — {@link DirectReportScopeService}'s direct-report set for a plain Manager,
- * unrestricted only for HR_ADMIN/SUPER_ADMIN — so a Manager's department/project filters can only
+ * unrestricted only for holders of project_allocations:VIEW:ALL (HR_ADMIN/SUPER_ADMIN by default) —
+ * so a Manager's department/project filters can only
  * narrow that set further, never substitute for it.
  */
 @Service
 @RequiredArgsConstructor
 public class ProjectAllocationService {
 
-    private static final Set<String> VISIBILITY_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
-
     private final ProjectAllocationRepository allocationRepository;
     private final EmployeeRepository employeeRepository;
     private final ProjectRepository projectRepository;
     private final UserRepository userRepository;
     private final DirectReportScopeService directReportScopeService;
+    private final EffectivePermissionService effectivePermissionService;
 
     @Transactional
-    public ProjectAllocationResponse allocate(ProjectAllocationRequest req) {
-        Employee employee = findEmployee(req.getEmployeeId());
+    public ProjectAllocationResponse allocate(String actorEmail, ProjectAllocationRequest req) {
         Project project = findProject(req.getProjectId());
+        requireCanAllocate(resolveUser(actorEmail), project);
+        Employee employee = findEmployee(req.getEmployeeId());
         ProjectAllocation allocation = allocationRepository.save(validateAndBuild(
                 employee.getUserId(), project, req.getCapacityPercent(), req.getStartDate(), req.getEndDate()));
         return toResponse(allocation, employee, project);
@@ -64,8 +69,10 @@ public class ProjectAllocationService {
 
     /** US-B10: project/capacity/dates are shared across the request; each employee is still validated on its own. */
     @Transactional
-    public BulkAllocationResponse bulkAllocate(BulkProjectAllocationRequest req) {
+    public BulkAllocationResponse bulkAllocate(String actorEmail, BulkProjectAllocationRequest req) {
         Project project = findProject(req.getProjectId());
+        // Whole-request gate, not a per-employee failure: the caller either owns the project or doesn't.
+        requireCanAllocate(resolveUser(actorEmail), project);
         List<AllocationResult> results = new ArrayList<>();
         for (UUID employeeId : req.getEmployeeIds()) {
             try {
@@ -81,9 +88,22 @@ public class ProjectAllocationService {
         return BulkAllocationResponse.builder().results(results).build();
     }
 
+    /**
+     * US-B03: only the project's owner or a holder of project_allocations:CREATE:ALL
+     * (HR_ADMIN/SUPER_ADMIN by default) may create or edit allocations against it. Enforced here rather than in the UI, so every allocation path (single, bulk,
+     * opportunity close) is covered — any future allocation-edit path must call this too.
+     */
+    private void requireCanAllocate(User actor, Project project) {
+        if (effectivePermissionService.hasAuthority(actor, "project_allocations:CREATE:ALL")) return;
+        if (project.getOwnerEmployeeId() == null || !project.getOwnerEmployeeId().equals(actor.getId())) {
+            throw new AccessDeniedException(
+                    "Only the project owner or HR can allocate resources to \"" + project.getName() + "\"");
+        }
+    }
+
     private ProjectAllocation validateAndBuild(UUID employeeUserId, Project project, Integer capacityPercent,
                                                 LocalDate startDate, LocalDate endDate) {
-        if (!project.isActive()) {
+        if (project.getStatus() != ProjectStatus.ACTIVE) {
             throw new IllegalArgumentException("Project \"" + project.getName() + "\" is not active");
         }
         if (endDate.isBefore(startDate)) {
@@ -111,16 +131,16 @@ public class ProjectAllocationService {
      * {@link DirectReportScopeService} (the same hierarchy query Leave approvals is built on) as a
      * set of allowed employee ids, which {@code projectId} can only narrow further by intersection
      * — never widen, never replace — so a Manager can never see outside their own direct reports
-     * no matter which filters are supplied. Only HR_ADMIN/SUPER_ADMIN get no such set at all.
+     * no matter which filters are supplied. Only project_allocations:VIEW:ALL holders get no such set at all.
      */
     @Transactional(readOnly = true)
     public List<EmployeeCapacityResponse> capacityView(String actorEmail, UUID departmentId, UUID projectId) {
         User actor = resolveUser(actorEmail);
 
-        // null = unrestricted (HR_ADMIN/SUPER_ADMIN only); any other value is the hard ceiling
+        // null = unrestricted (project_allocations:VIEW:ALL only); any other value is the hard ceiling
         // every further filter gets intersected into, never unioned or bypassed.
         Set<UUID> allowedIds = null;
-        if (!hasVisibilityOverride(actor)) {
+        if (!effectivePermissionService.hasAuthority(actor, "project_allocations:VIEW:ALL")) {
             allowedIds = directReportScopeService.directReportIds(actorEmail);
             if (allowedIds.isEmpty()) {
                 return List.of();
@@ -184,10 +204,6 @@ public class ProjectAllocationService {
         Set<UUID> result = new HashSet<>(a);
         result.retainAll(b);
         return result;
-    }
-
-    private boolean hasVisibilityOverride(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> VISIBILITY_OVERRIDE_ROLES.contains(r.getCode()));
     }
 
     private User resolveUser(String actorEmail) {

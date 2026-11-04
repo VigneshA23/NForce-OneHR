@@ -1,0 +1,62 @@
+/* Organization Masters popups (Add/Edit Business Unit, Department, Designation, Location, Document Type,
+ * Leave Type, Shift, Weekly Off, and the confirm dialogs) — presentation only. Theme tokens throughout,
+ * so light/dark and the accent setting keep working. Inline styles set border/background on the inputs,
+ * hence the !important on those few properties. */
+
+.nf-om-dlg { background: rgba(8, 10, 16, .6) !important; backdrop-filter: blur(3px) !important; padding: 16px; box-sizing: border-box; }
+
+.nf-om-card {
+  position: relative; padding: 0 !important; overflow-y: auto; max-height: 92vh;
+  border: 1px solid var(--line2) !important; border-radius: 20px !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important;
+  animation: nf-om-rise .2s ease-out;
+}
+@keyframes nf-om-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+
+/* header band */
+.nf-om-card > h2 {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 14px; margin: 0 0 20px !important; padding: 18px 64px 18px 24px;
+  font-family: Inter, sans-serif !important; font-size: 17px !important; font-weight: 700 !important; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)) !important;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line);
+}
+.nf-om-card > h2::before {
+  content: '+'; flex-shrink: 0; width: 40px; height: 40px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 500; line-height: 1; color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
+}
+.nf-om-card > h2[data-kind='edit']::before { content: '\270E'; font-size: 18px; }
+.nf-om-card > h2[data-kind='warn']::before {
+  content: '!'; font-size: 20px; font-weight: 800; color: var(--risk);
+  background: color-mix(in srgb, var(--risk) 12%, var(--panel)); border-color: color-mix(in srgb, var(--risk) 30%, transparent);
+}
+
+.nf-om-x {
+  position: absolute; top: 18px; right: 18px; z-index: 3; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; padding: 0;
+  color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 11px; transition: color .15s, background .15s;
+}
+.nf-om-x:hover { color: var(--txt); background: var(--raised2); }
+
+/* body gutters: everything under the header sits 24px in, whatever its own markup */
+.nf-om-card > :not(h2):not(.nf-om-x) { margin-left: 24px !important; margin-right: 24px !important; }
+.nf-om-card > :last-child { margin-bottom: 24px !important; }
+
+/* fields */
+.nf-om-card label { color: var(--txt-mut); }
+.nf-om-card input:not([type='checkbox']):not([type='radio']),
+.nf-om-card select,
+.nf-om-card textarea {
+  background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 11px !important; padding: 10px 13px !important;
+  transition: border-color .15s, box-shadow .15s;
+}
+.nf-om-card input:not([type='checkbox']):not([type='radio']):hover,
+.nf-om-card select:hover,
+.nf-om-card textarea:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-om-card input:not([type='checkbox']):not([type='radio']):focus,
+.nf-om-card select:focus,
+.nf-om-card textarea:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.nf-om-card input:disabled, .nf-om-card select:disabled { background: var(--raised) !important; opacity: .75; cursor: not-allowed; }
+
+/* action buttons */
+.nf-om-card button[type='submit'], .nf-om-card > div:last-child > button:last-child {
+  border-radius: 11px !important; padding: 9px 22px !important; font-weight: 700 !important; box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 28%, transparent);
+}
+.nf-om-card form > div:last-child > button:first-child, .nf-om-card > div:last-child > button:first-child { border-radius: 11px !important; padding: 9px 18px !important; }

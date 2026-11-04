@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/auth';
 import { useAuthStore } from '../store/authStore';
 import { BrandMark } from '../components/BrandMark';
+import { KeyRound, LockKeyhole, ShieldCheck, Check, Circle } from 'lucide-react';
+import './changePassword.css';
 import {
   PASSWORD_CRITERIA as CRITERIA,
   PASSWORD_MIN_LENGTH,
@@ -52,11 +54,12 @@ function PasswordField({
   const [show, setShow] = useState(false);
 
   return (
-    <div className="mb-4">
-      <label htmlFor={id} className="block text-sm font-medium mb-1.5" style={{ color: '#a0a0a0' }}>
-        {label} {required && <span style={{ color: 'var(--brand)' }}>*</span>}
+    <div className="nf-cp-field">
+      <label htmlFor={id} className="nf-cp-label">
+        {label} {required && <span className="nf-cp-req">*</span>}
       </label>
-      <div className="relative">
+      <div className={`nf-cp-input${error ? ' has-error' : ''}`}>
+        <KeyRound size={16} className="nf-cp-lead" aria-hidden="true" />
         <input
           id={id}
           type={show ? 'text' : 'password'}
@@ -64,38 +67,18 @@ function PasswordField({
           aria-describedby={error ? `${id}-error` : undefined}
           aria-invalid={!!error}
           {...registration}
-          className="w-full px-3.5 py-2.5 pr-10 rounded-lg text-sm outline-none transition-all"
-          style={{
-            background: '#141414',
-            border: `1px solid ${error ? '#ef4444' : '#2a2a2a'}`,
-            color: '#f0f0f0',
-            fontFamily: 'Inter, system-ui',
-          }}
-          onFocus={(e) => {
-            if (!error) e.currentTarget.style.borderColor = 'var(--brand)';
-          }}
-          onBlur={(e) => {
-            registration.onBlur(e);
-            if (!error) e.currentTarget.style.borderColor = '#2a2a2a';
-          }}
+          onBlur={(e) => registration.onBlur(e)}
         />
         <button
           type="button"
           onClick={() => setShow((v) => !v)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer transition-colors"
-          style={{ color: '#5a5a5a', background: 'none', border: 'none', padding: 0 }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = '#a0a0a0')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = '#5a5a5a')}
+          className="nf-cp-eye"
           aria-label={show ? 'Hide password' : 'Show password'}
         >
           <EyeIcon open={show} />
         </button>
       </div>
-      {error && (
-        <p id={`${id}-error`} className="mt-1.5 text-xs" style={{ color: '#ef4444' }}>
-          {error}
-        </p>
-      )}
+      {error && <p id={`${id}-error`} className="nf-cp-err">{error}</p>}
     </div>
   );
 }
@@ -195,226 +178,133 @@ export default function ChangePasswordPage() {
 
   const strengthColors = ['#2a2a2a', '#ef4444', '#f59e0b', '#22c55e', '#22c55e'];
   const strengthLabels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
+  const checks = [{ label: `At least ${PASSWORD_MIN_LENGTH} characters`, test: (p: string) => p.length >= PASSWORD_MIN_LENGTH }, ...CRITERIA];
 
   return (
-    <div className="min-h-dvh flex items-center justify-center p-6" style={{ background: '#080808' }}>
-      <div className="w-full max-w-[420px]">
-        {/* Logo */}
-        <div className="flex items-center gap-2 mb-10">
+    <div className="nf-cp">
+      <div className="nf-cp-glow" aria-hidden="true" />
+      <div className="nf-cp-wrap">
+        <div className="nf-cp-brand">
           <BrandMark size="sm" />
-          <span
-            className="text-base font-semibold"
-            style={{ fontFamily: 'Inter, system-ui, sans-serif', color: '#f0f0f0' }}
-          >
-            NForce OneHR
-          </span>
+          <span>NForce OneHR</span>
         </div>
 
-        {/* Heading */}
-        <div className="mb-6">
-          <h2
-            className="text-2xl font-semibold mb-2"
-            style={{ fontFamily: 'Inter, system-ui, sans-serif', color: '#f0f0f0' }}
-          >
-            {isForcedFlow ? 'Set your password' : 'Change your password'}
-          </h2>
-          <p className="text-sm leading-relaxed" style={{ color: '#5a5a5a' }}>
-            {isForcedFlow
-              ? 'For security, you must set a new password before you can access the platform. This step cannot be skipped.'
-              : 'Enter your current password and choose a new one.'}
-          </p>
-        </div>
-
-        {/* Server error */}
-        {serverError && (
-          <div
-            className="mb-5 px-4 py-3 rounded-lg text-sm"
-            style={{
-              background: 'rgba(239,68,68,0.08)',
-              border: '1px solid rgba(239,68,68,0.25)',
-              color: '#ef4444',
-            }}
-            role="alert"
-          >
-            {serverError}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit(onSubmit)} noValidate>
-          {!isForcedFlow && (
-            <PasswordField
-              id="currentPassword"
-              label="Current password"
-              required
-              registration={register('currentPassword')}
-              error={errors.currentPassword?.message}
-              autoComplete="current-password"
-            />
-          )}
-
-          {/* New password with strength meter */}
-          <div className="mb-4">
-            <label htmlFor="newPassword" className="block text-sm font-medium mb-1.5" style={{ color: '#a0a0a0' }}>
-              New password <span style={{ color: 'var(--brand)' }}>*</span>
-            </label>
-            <div className="relative">
-              <input
-                id="newPassword"
-                type={showNew ? 'text' : 'password'}
-                autoComplete="new-password"
-                aria-describedby="newPassword-error newPassword-strength"
-                aria-invalid={!!errors.newPassword}
-                {...register('newPassword')}
-                className="w-full px-3.5 py-2.5 pr-10 rounded-lg text-sm outline-none transition-all"
-                style={{
-                  background: '#141414',
-                  border: `1px solid ${errors.newPassword ? '#ef4444' : '#2a2a2a'}`,
-                  color: '#f0f0f0',
-                  fontFamily: 'Inter, system-ui',
-                }}
-                onFocus={(e) => {
-                  if (!errors.newPassword) e.currentTarget.style.borderColor = 'var(--brand)';
-                }}
-                onBlur={(e) => {
-                  register('newPassword').onBlur(e);
-                  if (!errors.newPassword) e.currentTarget.style.borderColor = '#2a2a2a';
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowNew(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer transition-colors"
-                style={{ color: '#5a5a5a', background: 'none', border: 'none', padding: 0 }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = '#a0a0a0')}
-                onMouseLeave={(e) => (e.currentTarget.style.color = '#5a5a5a')}
-                aria-label={showNew ? 'Hide password' : 'Show password'}
-              >
-                <EyeIcon open={showNew} />
-              </button>
+        <div className="nf-cp-card">
+          <div className="nf-cp-head">
+            <span className="nf-cp-ico"><LockKeyhole size={22} /></span>
+            <div>
+              <h2>{isForcedFlow ? 'Set your password' : 'Change your password'}</h2>
+              <p>
+                {isForcedFlow
+                  ? 'For security, you must set a new password before you can access the platform. This step cannot be skipped.'
+                  : 'Enter your current password and choose a new one.'}
+              </p>
             </div>
+          </div>
 
-            {/* Strength bars */}
-            {newPasswordValue && (
-              <div className="mt-2">
-                <div className="flex gap-1 mb-1" id="newPassword-strength" aria-live="polite" aria-label={`Password strength: ${strengthLabels[score]}`}>
+          {serverError && <div className="nf-cp-alert" role="alert">{serverError}</div>}
+
+          <form onSubmit={handleSubmit(onSubmit)} noValidate>
+            {!isForcedFlow && (
+              <PasswordField
+                id="currentPassword"
+                label="Current password"
+                required
+                registration={register('currentPassword')}
+                error={errors.currentPassword?.message}
+                autoComplete="current-password"
+              />
+            )}
+
+            {/* New password with strength meter */}
+            <div className="nf-cp-field">
+              <label htmlFor="newPassword" className="nf-cp-label">
+                New password <span className="nf-cp-req">*</span>
+              </label>
+              <div className={`nf-cp-input${errors.newPassword ? ' has-error' : ''}`}>
+                <KeyRound size={16} className="nf-cp-lead" aria-hidden="true" />
+                <input
+                  id="newPassword"
+                  type={showNew ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  aria-describedby="newPassword-error newPassword-strength"
+                  aria-invalid={!!errors.newPassword}
+                  {...register('newPassword')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNew(v => !v)}
+                  className="nf-cp-eye"
+                  aria-label={showNew ? 'Hide password' : 'Show password'}
+                >
+                  <EyeIcon open={showNew} />
+                </button>
+              </div>
+
+              <div className="nf-cp-meter">
+                <div className="nf-cp-bars" id="newPassword-strength" aria-live="polite" aria-label={`Password strength: ${strengthLabels[score]}`}>
                   {[1, 2, 3, 4].map((level) => (
-                    <div
-                      key={level}
-                      className="h-1 flex-1 rounded-full transition-all duration-300"
-                      style={{ background: level <= score ? strengthColors[score] : '#2a2a2a' }}
-                    />
+                    <i key={level} style={{ background: level <= score ? strengthColors[score] : undefined }} />
                   ))}
+                  <span style={{ color: score > 0 ? strengthColors[score] : undefined }}>{strengthLabels[score] || 'Strength'}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex flex-wrap gap-x-3 gap-y-1">
-                    {[{ label: `At least ${PASSWORD_MIN_LENGTH} characters`, test: (p: string) => p.length >= PASSWORD_MIN_LENGTH }, ...CRITERIA].map((c) => (
-                      <span
-                        key={c.label}
-                        className="text-[11px] flex items-center gap-1"
-                        style={{ color: c.test(newPasswordValue) ? '#22c55e' : '#3a3a3a' }}
-                      >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                          {c.test(newPasswordValue) ? (
-                            <polyline points="20 6 9 17 4 12" />
-                          ) : (
-                            <circle cx="12" cy="12" r="8" />
-                          )}
-                        </svg>
+                <div className="nf-cp-rules">
+                  {checks.map((c) => {
+                    const ok = !!newPasswordValue && c.test(newPasswordValue);
+                    return (
+                      <span key={c.label} className={ok ? 'is-ok' : ''}>
+                        {ok ? <Check size={12} /> : <Circle size={10} />}
                         {c.label}
                       </span>
-                    ))}
-                  </div>
-                  {score > 0 && (
-                    <span className="text-[11px] font-medium" style={{ color: strengthColors[score] }}>
-                      {strengthLabels[score]}
-                    </span>
-                  )}
+                    );
+                  })}
                 </div>
               </div>
-            )}
 
-            {errors.newPassword && (
-              <p id="newPassword-error" className="mt-1.5 text-xs" style={{ color: '#ef4444' }}>
-                {errors.newPassword.message}
-              </p>
-            )}
+              {errors.newPassword && <p id="newPassword-error" className="nf-cp-err">{errors.newPassword.message}</p>}
+            </div>
+
+            <PasswordField
+              id="confirmPassword"
+              label="Confirm new password"
+              required
+              registration={register('confirmPassword')}
+              error={errors.confirmPassword?.message}
+              autoComplete="new-password"
+            />
+
+            <button type="submit" disabled={loading} className="nf-cp-submit">
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                  </svg>
+                  Updating password…
+                </span>
+              ) : isForcedFlow ? (
+                'Set password & continue'
+              ) : (
+                'Update password'
+              )}
+            </button>
+          </form>
+
+          <div className="nf-cp-foot">
+            <p><ShieldCheck size={14} />Signed in as <b>{user?.email}</b></p>
+            <button
+              type="button"
+              onClick={() => {
+                if (isForcedFlow) {
+                  clearAuth();
+                  navigate('/login', { replace: true });
+                } else {
+                  navigate('/profile');
+                }
+              }}
+            >
+              {isForcedFlow ? 'Back to Sign In' : 'Back to Profile'}
+            </button>
           </div>
-
-          <PasswordField
-            id="confirmPassword"
-            label="Confirm new password"
-            required
-            registration={register('confirmPassword')}
-            error={errors.confirmPassword?.message}
-            autoComplete="new-password"
-          />
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold cursor-pointer transition-all mt-2"
-            style={{
-              background: loading ? 'var(--brand-deep)' : 'var(--brand)',
-              color: '#ffffff',
-              border: 'none',
-              fontFamily: 'Inter, system-ui',
-              opacity: loading ? 0.8 : 1,
-            }}
-            onMouseEnter={(e) => {
-              if (!loading) e.currentTarget.style.background = 'var(--brand-bright)';
-            }}
-            onMouseLeave={(e) => {
-              if (!loading) e.currentTarget.style.background = 'var(--brand)';
-            }}
-          >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg
-                  className="animate-spin"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                </svg>
-                Updating password…
-              </span>
-            ) : isForcedFlow ? (
-              'Set password & continue'
-            ) : (
-              'Update password'
-            )}
-          </button>
-        </form>
-
-        <p className="mt-5 text-xs text-center" style={{ color: '#3a3a3a' }}>
-          Signed in as{' '}
-          <span style={{ fontFamily: 'Inter, sans-serif', color: '#5a5a5a' }}>
-            {user?.email}
-          </span>
-        </p>
-
-        <div className="mt-6 text-center">
-          <button
-            type="button"
-            onClick={() => {
-              if (isForcedFlow) {
-                clearAuth();
-                navigate('/login', { replace: true });
-              } else {
-                navigate('/profile');
-              }
-            }}
-            className="text-sm cursor-pointer"
-            style={{ background: 'none', border: 'none', color: '#8a8a8a', textDecoration: 'underline', textUnderlineOffset: '3px', padding: 0 }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = '#d0d0d0')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = '#8a8a8a')}
-          >
-            {isForcedFlow ? 'Back to Sign In' : 'Back to Profile'}
-          </button>
         </div>
       </div>
     </div>

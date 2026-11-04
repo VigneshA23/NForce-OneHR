@@ -1,0 +1,68 @@
+/* Workflow Studio — Create / Edit Rule popup. Presentation only; theme tokens throughout. */
+
+.nf-wf-dlg { background: rgba(8, 10, 16, .6) !important; backdrop-filter: blur(3px); }
+.nf-wf-card {
+  max-width: 640px !important; border-radius: 20px !important; border-color: var(--line2) !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important;
+  animation: nf-wf-rise .2s ease-out;
+}
+@keyframes nf-wf-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+
+.nf-wf-head {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 18px 22px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line);
+}
+.nf-wf-ico { flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-wf-titles { flex: 1; min-width: 0; }
+.nf-wf-title { font-family: Inter, sans-serif; font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); }
+.nf-wf-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-wf-x { flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 11px; transition: color .15s, background .15s; }
+.nf-wf-x:hover { color: var(--txt); background: var(--raised2); }
+
+.nf-wf-body { padding: 20px 22px 8px; display: flex; flex-direction: column; gap: 14px; }
+.nf-wf-err { background: color-mix(in srgb, var(--risk) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--risk) 30%, transparent); border-radius: 12px; padding: 10px 14px; }
+.nf-wf-err div { font-size: 12.5px; color: var(--risk); }
+
+/* step cards */
+.nf-wf-sec { border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--brand) 2%, var(--raised)); padding: 14px 16px 16px; }
+.nf-wf-sec-hd { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.nf-wf-step { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #fff; background: var(--brand); box-shadow: 0 4px 10px color-mix(in srgb, var(--brand) 30%, transparent); }
+.nf-wf-sec-title { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-mut); }
+.nf-wf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.nf-wf-card label.nf-wf-lbl { color: var(--txt-mut) !important; font-weight: 600 !important; letter-spacing: .04em !important; }
+
+.nf-wf-card input, .nf-wf-card select {
+  background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 11px !important; padding: 10px 13px !important; transition: border-color .15s, box-shadow .15s;
+}
+.nf-wf-card input:hover, .nf-wf-card select:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-wf-card input:focus, .nf-wf-card select:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+
+/* IF row */
+.nf-wf-if { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-radius: 13px; background: var(--panel); border: 1px solid var(--line); }
+.nf-wf-tag { padding: 4px 11px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--info); background: color-mix(in srgb, var(--info) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--info) 28%, transparent); }
+.nf-wf-tag.then { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--panel)); border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
+.nf-wf-field { font-size: 13px; font-weight: 700; color: var(--txt); }
+
+/* THEN chain */
+.nf-wf-then { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-radius: 13px; background: var(--panel); border: 1px solid var(--line); }
+.nf-wf-chip { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12px; font-weight: 600; padding: 6px 13px; border-radius: 999px; transition: background .15s, border-color .15s, color .15s; }
+.nf-wf-chip.locked { color: var(--txt-mut); background: var(--raised2); border: 1px dashed var(--line2); cursor: default; }
+.nf-wf-chip.opt { cursor: pointer; color: var(--txt-mut); background: var(--panel); border: 1px solid var(--line2); }
+.nf-wf-chip.opt:hover { border-color: color-mix(in srgb, var(--brand) 40%, var(--line2)); color: var(--brand); }
+.nf-wf-chip.opt.on { color: var(--brand); background: color-mix(in srgb, var(--brand) 11%, var(--panel)); border-color: var(--brand); }
+.nf-wf-note { margin-top: 10px; font-size: 11.5px; color: var(--txt-dim); line-height: 1.5; }
+
+/* preview */
+.nf-wf-prev { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.nf-wf-prev label { margin: 0 !important; }
+.nf-wf-result { margin-top: 12px; padding: 12px 14px; border-radius: 13px; background: var(--panel); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; color: var(--txt); }
+.nf-wf-route { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.nf-wf-route .lbl { min-width: 104px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--txt-dim); }
+.nf-wf-route .step { padding: 3px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line2); }
+.nf-wf-route .step.new { color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border-color: color-mix(in srgb, var(--brand) 30%, transparent); }
+.nf-wf-route .arr { color: var(--txt-dim); font-size: 12px; }
+
+/* footer */
+.nf-wf-foot { position: sticky; bottom: 0; z-index: 3; display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; padding: 14px 22px; background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -8px 18px rgba(16, 24, 40, .06); }
+.nf-wf-foot button { border-radius: 11px !important; padding: 9px 22px !important; }
+
+@media (max-width: 560px) { .nf-wf-grid { grid-template-columns: 1fr; } }

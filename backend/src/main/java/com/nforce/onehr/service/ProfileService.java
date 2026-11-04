@@ -10,6 +10,7 @@ import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -38,6 +39,7 @@ public class ProfileService {
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
     private final AttendanceService attendanceService;
+    private final EffectivePermissionService effectivePermissionService;
 
     // Not readOnly: isClockedIn() below can trigger a real write (flagging a stale open attendance
     // session as MISSING_CHECKOUT) — the same write AttendanceService#getToday already relies on,
@@ -50,8 +52,6 @@ public class ProfileService {
                 .map(emp -> toResponse(user, emp))
                 .orElse(toMinimalResponse(user));
     }
-
-    private static final Set<String> SENSITIVE_PROFILE_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
 
     // Read-only "View Profile" from the People Directory — any authenticated employee can look up
     // any other employee's safe/public-facing fields (About + Job), same exposure level the
@@ -97,9 +97,10 @@ public class ProfileService {
         return hasSensitiveProfileAccess(requireUser(viewerEmail));
     }
 
+    // employees:VIEW:ALL is seeded to exactly HR_ADMIN + SUPER_ADMIN (V225) — the roles this used
+    // to check by code — and is the authority that already gates the full employee master.
     private boolean hasSensitiveProfileAccess(User viewer) {
-        return viewer.getRoles().stream()
-                .anyMatch(r -> SENSITIVE_PROFILE_OVERRIDE_ROLES.contains(r.getCode()));
+        return effectivePermissionService.hasAuthority(viewer, "employees:VIEW:ALL");
     }
 
     @Transactional(readOnly = true)
