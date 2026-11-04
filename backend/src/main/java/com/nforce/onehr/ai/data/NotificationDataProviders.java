@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.NotificationDto;
 import com.nforce.onehr.service.AttendanceRulesService;
 import com.nforce.onehr.service.NotificationService;
@@ -36,7 +35,7 @@ public final class NotificationDataProviders {
         @Override public String id() { return "notification.unread"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your unread notifications"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         // Only its own module: tagging it "dashboard" or "profile" would let the page hint hand it a
         // slot on every question asked from Home or My Profile, crowding out what was asked about.
         @Override public Set<String> modules() { return Set.of("notifications"); }

@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, Briefcase, TrendingUp, UserX, Sparkles, Handshake,
+  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, Briefcase, TrendingUp, UserX, Sparkles, Handshake, KeyRound,
 } from 'lucide-react';
 
 export type Role = 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
@@ -106,6 +106,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
     item('talent-performance', 'Performance', TrendingUp, 1),
     item('access', 'User Management', Shield, 1),
+    item('roles', 'Roles & Permissions', KeyRound, 1),
     item('attendance', 'Attendance Administration', Clock, 1),
     item('leave', 'Leave & Holidays', Calendar, 1),
     item('approvals', 'Approval Center', FileText, 1),
@@ -174,7 +175,7 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
       { key: 'people-organization', label: 'Organization', icon: GitBranch, children: ['hierarchy', 'organization', 'directory', 'talent-performance'] },
     ],
   },
-  { key: 'administration', label: 'Administration', icon: Shield, children: ['access', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
+  { key: 'administration', label: 'Administration', icon: Shield, children: ['access', 'roles', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
   { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
   { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
   { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports', 'api-usage'] },
@@ -224,9 +225,13 @@ function resolveEntry(entry: HierarchyEntry, itemsByKey: Map<string, NavItem>): 
  * to begin with (same group-collapsing behavior). Omitted entirely by
  * RoleGuidePage, which deliberately shows a role's full reference nav
  * regardless of any one user's live, possibly-narrower permissions.
+ *
+ * `extraItems` are items outside NAV[role] that this user's custom roles grant (see
+ * permissions.ts customRoleNavItems) — slotted into the same hierarchy.
  */
-export function buildRoleNav(role: Role, isVisible?: (item: NavItem) => boolean): ResolvedNavNode[] {
-  const candidates = isVisible ? NAV[role].filter(isVisible) : NAV[role];
+export function buildRoleNav(role: Role, isVisible?: (item: NavItem) => boolean, extraItems: NavItem[] = []): ResolvedNavNode[] {
+  const all = [...NAV[role], ...extraItems];
+  const candidates = isVisible ? all.filter(isVisible) : all;
   const itemsByKey = new Map(candidates.map((i) => [i.key, i] as const));
   return NAV_HIERARCHY
     .map((entry) => resolveEntry(entry, itemsByKey))

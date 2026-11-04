@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.attendance.PolicyEvaluationContext;
 import com.nforce.onehr.dto.attendance.WorkingDaySchedule;
 import com.nforce.onehr.dto.exceptions.ExceptionResponse;
 import com.nforce.onehr.entity.*;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.repository.*;
 import com.nforce.onehr.util.WorkHoursCalculator;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +35,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ExceptionService {
 
-    private static final Set<String> HR_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
     private static final Set<String> PENDING_REGULARIZATION_STATUSES = Set.of("PENDING", "PARTIALLY_APPROVED");
     // The one allowed-late privilege: ShiftVersion.lateGraceMinutes, already folded into this by
     // AttendanceInterpretationService/AttendanceService/RegularizationService when they compute
@@ -90,6 +90,7 @@ public class ExceptionService {
     // Only for resolveSnapshotShift's historical Attendance.shiftId lookup below — never for
     // resolving an employee's current/live Shift.
     private final ShiftRepository shiftRepository;
+    private final EffectivePermissionService effectivePermissionService;
 
     /**
      * Gap-033/034: every discrepancy type a corrected Attendance record could invalidate — a
@@ -115,7 +116,7 @@ public class ExceptionService {
     /**
      * HR Admin + Super Admin see company-wide exceptions; Manager sees only current
      * direct reports (via EmployeeManagerHistory). Scope is resolved from the caller's
-     * roles only — never client-supplied. HR/Super Admin takes precedence over Manager
+     * exceptions:VIEW permissions only — never client-supplied. ALL takes precedence over TEAM
      * for any user holding both roles.
      *
      * This dashboard is an individual-contributor view only: an exception subject must
@@ -127,7 +128,7 @@ public class ExceptionService {
      */
     @Transactional
     public List<ExceptionResponse> getExceptionsForCaller(String actorEmail, LocalDate from, LocalDate to) {
-        List<UUID> scopeIds = resolveCallerScopeIds(actorEmail);
+        List<UUID> scopeIds = resolveCallerScopeIds(actorEmail, "exceptions");
 
         detectExceptions(scopeIds, from, to);
 
@@ -153,18 +154,23 @@ public class ExceptionService {
      */
     @Transactional
     public void detectForCaller(String actorEmail, LocalDate from, LocalDate to) {
-        detectExceptions(resolveCallerScopeIds(actorEmail), from, to);
+        detectExceptions(resolveCallerScopeIds(actorEmail, "attendance"), from, to);
     }
 
-    private List<UUID> resolveCallerScopeIds(String actorEmail) {
+    /**
+     * {@code module}:VIEW:ALL (seeded: HR_ADMIN, SUPER_ADMIN) is company-wide; :TEAM (adds MANAGER)
+     * is current direct reports; neither is denied. The Exceptions dashboard checks the exceptions
+     * module, the Penalties screen's detection pass ({@link #detectForCaller}) the attendance module
+     * its endpoint is gated on — both seeded identically, so system roles behave exactly as before.
+     */
+    private List<UUID> resolveCallerScopeIds(String actorEmail, String module) {
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
-        Set<String> roleCodes = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
         Set<UUID> employeeRoleIds = userRepository.findEmployeeRoleUserIds();
 
-        if (roleCodes.stream().anyMatch(HR_ROLES::contains)) {
+        if (effectivePermissionService.hasAuthority(actor, module + ":VIEW:ALL")) {
             return new java.util.ArrayList<>(employeeRoleIds);
-        } else if (roleCodes.contains("MANAGER")) {
+        } else if (effectivePermissionService.hasAuthority(actor, module + ":VIEW:TEAM")) {
             return historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
                     .map(EmployeeManagerHistory::getEmployeeUserId)
                     .filter(employeeRoleIds::contains)

@@ -1,3 +1,4 @@
+import './orgSetupModals.css';
 import { useEffect, useRef, useState } from 'react';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
@@ -348,7 +349,7 @@ function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, onClose }:
 
   return (
     <div
-      role="dialog" aria-modal="true"
+      className="nf-om-dlg" role="dialog" aria-modal="true"
       style={{
         position: 'fixed', inset: 0, zIndex: 200,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -356,19 +357,15 @@ function ConfirmModal({ title, body, confirmLabel, danger, onConfirm, onClose }:
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{
+      <div className="nf-om-card" style={{
         background: 'var(--panel)', border: '1px solid var(--line)',
         borderRadius: 12, padding: '24px 28px', width: 400, maxWidth: '95vw',
         boxShadow: '0 24px 48px rgba(0,0,0,.4)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
-            {title}
-          </h2>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}>
-            <X size={16} />
-          </button>
-        </div>
+        <h2 data-kind={danger ? 'warn' : 'edit'}>{title}</h2>
+        <button onClick={onClose} aria-label="Close" className="nf-om-x">
+          <X size={16} />
+        </button>
         <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.55 }}>{body}</p>
         {error && (
           <div role="alert" style={{
@@ -533,7 +530,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
 
   return (
     <div
-      role="dialog" aria-modal="true" aria-label={modalTitle}
+      className="nf-om-dlg" role="dialog" aria-modal="true" aria-label={modalTitle}
       style={{
         position: 'fixed', inset: 0, zIndex: 200,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -541,19 +538,15 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
       }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div style={{
+      <div className="nf-om-card" style={{
         background: 'var(--panel)', border: '1px solid var(--line)',
         borderRadius: 12, padding: '24px 28px', width: 440, maxWidth: '95vw',
         boxShadow: '0 24px 48px rgba(0,0,0,.4)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontFamily: 'Inter, sans-serif', fontWeight: 700, color: 'var(--txt)' }}>
-            {modalTitle}
-          </h2>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4 }}>
-            <X size={16} />
-          </button>
-        </div>
+        <h2 data-kind={isEdit ? 'edit' : 'add'}>{modalTitle}</h2>
+        <button onClick={onClose} aria-label="Close" className="nf-om-x">
+          <X size={16} />
+        </button>
 
         {error && (
           <div role="alert" style={{
@@ -776,9 +769,9 @@ function DocTypeModal({ editRow, token, locationNames, onClose, onSaved }: DocTy
   }
 
   return (
-    <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto' }}>
-        <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Document Type' : 'Add Document Type'}</h2>
+    <div className="nf-om-dlg" role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div className="nf-om-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto' }}>
+        <h2 data-kind={isEdit ? 'edit' : 'add'}>{isEdit ? 'Edit Document Type' : 'Add Document Type'}</h2>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 14 }}>
             <label style={labelS}>Name *</label>
@@ -864,9 +857,9 @@ function LeaveTypeModal({ editRow, token, onClose, onSaved }: LeaveTypeModalProp
   const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
 
   return (
-    <div role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 420, maxWidth: '94vw' }}>
-        <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Leave Type' : 'Add Leave Type'}</h2>
+    <div className="nf-om-dlg" role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div className="nf-om-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 420, maxWidth: '94vw' }}>
+        <h2 data-kind={isEdit ? 'edit' : 'add'}>{isEdit ? 'Edit Leave Type' : 'Add Leave Type'}</h2>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 14 }}>
             <label style={labelS}>Leave Type Name *</label>
@@ -1051,9 +1044,9 @@ export function ShiftFormModal({ editRow, token, onClose, onSaved }: ShiftFormMo
   // (e.g. UserManagementPage's Add/Edit User, overlay z-index 500) it must outrank that modal's
   // own overlay or its backdrop swallows every click meant for this one.
   return createPortal(
-    <div role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Shift' : 'Add Shift'} style={{ position: 'fixed', inset: 0, zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Shift' : 'Add Shift'}</h2>
+    <div className="nf-om-dlg" role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Shift' : 'Add Shift'} style={{ position: 'fixed', inset: 0, zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div className="nf-om-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 480, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h2 data-kind={isEdit ? 'edit' : 'add'}>{isEdit ? 'Edit Shift' : 'Add Shift'}</h2>
         {isEdit && (
           <p style={{ margin: '0 0 16px', fontSize: 11.5, color: 'var(--txt-mut)' }}>
             The current timing stays in effect through today exactly as it is - saving schedules a new timing
@@ -2190,9 +2183,9 @@ function WeeklyOffFormModal({ editRow, token, onClose, onSaved }: WeeklyOffFormM
   const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Weekly Off Policy' : 'Add Weekly Off Policy'} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 440, maxWidth: '94vw' }}>
-        <h2 style={{ margin: '0 0 20px', fontSize: 15, fontWeight: 700 }}>{isEdit ? 'Edit Weekly Off Policy' : 'Add Weekly Off Policy'}</h2>
+    <div className="nf-om-dlg" role="dialog" aria-modal="true" aria-label={isEdit ? 'Edit Weekly Off Policy' : 'Add Weekly Off Policy'} style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
+      <div className="nf-om-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 440, maxWidth: '94vw' }}>
+        <h2 data-kind={isEdit ? 'edit' : 'add'}>{isEdit ? 'Edit Weekly Off Policy' : 'Add Weekly Off Policy'}</h2>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 16 }}>
             <label style={labelS}>Policy Name *</label>

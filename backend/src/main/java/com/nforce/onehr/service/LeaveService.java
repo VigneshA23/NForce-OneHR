@@ -5,6 +5,11 @@ import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.LeaveTypeResponse;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nforce.onehr.entity.AttendancePenalty;
+import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Holiday;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
@@ -14,6 +19,7 @@ import com.nforce.onehr.entity.LeaveHalfDaySession;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.HolidayRepository;
@@ -21,6 +27,7 @@ import com.nforce.onehr.repository.LeaveBalanceRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
@@ -33,7 +40,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -47,11 +56,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LeaveService {
 
-    // HR_ADMIN/SUPER_ADMIN may decide any leave request regardless of the literal manager
-    // relationship — same override convention as RegularizationService/AssetService/
-    // OvertimeRequestService/AttendanceRequestService/WebClockInService (ONEHR-140 follow-up:
-    // this service was the one workflow missing it, causing HR Admin "Access Denied").
-    private static final Set<String> APPROVER_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    // Holders of leave:APPROVE:ALL (seeded: HR_ADMIN, SUPER_ADMIN) may decide any leave request
+    // regardless of the literal manager relationship — same override convention as
+    // RegularizationService/AssetService/OvertimeRequestService/AttendanceRequestService/
+    // WebClockInService (ONEHR-140 follow-up: this service was the one workflow missing it,
+    // causing HR Admin "Access Denied").
+    private static final String APPROVER_OVERRIDE_AUTHORITY = "leave:APPROVE:ALL";
 
     // Annual/Sick/Casual are still independently selectable when submitting a request (see
     // #listTypes, untouched), but for calculation/display they share ONE consolidated balance —
@@ -89,6 +99,9 @@ public class LeaveService {
     // WorkingDayService/ExceptionService already share, never Employee.weeklyOffPolicy directly.
     private final WorkingDayService workingDayService;
     private final HolidayRepository holidayRepository;
+    private final EffectivePermissionService effectivePermissionService;
+    private final AttendancePenaltyRepository attendancePenaltyRepository;
+    private static final ObjectMapper PENALTY_JSON = new ObjectMapper();
     // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
     // AttendancePenaltyEvaluationService -> EmployeeService -> LeaveService (EmployeeService has
     // depended on LeaveService since before this change). A lazy proxy defers resolving the real
@@ -444,9 +457,58 @@ public class LeaveService {
         List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(actor.getId());
         Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
         Map<UUID, String> codesById = codesByUserIds(Set.of(actor.getId()));
-        return requests.stream()
+        List<LeaveRequestResponse> rows = requests.stream()
                 .map(r -> toRequestResponse(r, namesById, codesById))
                 .collect(Collectors.toList());
+        rows.addAll(penaltyDeductionRows(actor.getId(), employeeName(actor.getId()), codesById.get(actor.getId())));
+        rows.sort(Comparator.comparing(LeaveRequestResponse::getCreatedAt,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return rows;
+    }
+
+    /**
+     * ONEHR-645: a PAID_LEAVE attendance penalty debits {@code LeaveBalance.usedDays} directly
+     * (PenaltyDeductionService) without any LeaveRequest, so the deduction was invisible in Leave
+     * history, My Requests and My Attendance (whose Leave day-tag reads this same list). Surfaces
+     * each still-active penalty as a read-only, already-APPROVED row per debited leave type —
+     * synthesized, never persisted, so the balance isn't debited twice and no leave-approval side
+     * effects (penalty re-evaluation/reversal) fire. A cancelled/reversed penalty drops out
+     * automatically, matching AttendancePenaltyService#restoreLeaveBalance crediting it back.
+     */
+    private List<LeaveRequestResponse> penaltyDeductionRows(UUID employeeUserId, String employeeName, String employeeCode) {
+        List<LeaveRequestResponse> rows = new ArrayList<>();
+        for (AttendancePenalty p : attendancePenaltyRepository.findByEmployeeUserIdAndStatusAndLeaveDeductionDaysGreaterThan(
+                employeeUserId, AttendancePenaltyStatus.PENDING_REVIEW, BigDecimal.ZERO)) {
+            Map<String, BigDecimal> breakdown;
+            try {
+                breakdown = p.getLeaveBreakdown() == null ? Map.of()
+                        : PENALTY_JSON.readValue(p.getLeaveBreakdown(), new TypeReference<Map<String, BigDecimal>>() {});
+            } catch (JsonProcessingException e) {
+                continue;
+            }
+            String reason = "Attendance penalty: " + AttendancePenaltyEvaluationService.humanizeDiscrepancyType(p.getDiscrepancyType());
+            breakdown.forEach((code, days) -> leaveTypeRepository.findByCode(code).ifPresent(type -> rows.add(
+                    LeaveRequestResponse.builder()
+                            // Stable and unique per (penalty, leave type) — a cascade across types yields several rows.
+                            .id(UUID.nameUUIDFromBytes((p.getId() + ":" + code).getBytes()))
+                            .employeeUserId(employeeUserId)
+                            .employeeName(employeeName)
+                            .employeeCode(employeeCode)
+                            .leaveTypeCode(type.getCode())
+                            .leaveTypeName(type.getName())
+                            .leaveTypeClassification(type.getClassification())
+                            .startDate(p.getIncidentDate())
+                            .endDate(p.getIncidentDate())
+                            .totalDays(days)
+                            .status("APPROVED")
+                            .employeeReason(reason)
+                            .decisionReason("Deducted automatically by attendance penalty")
+                            .decidedByName("System")
+                            .decidedAt(p.getCreatedAt())
+                            .createdAt(p.getCreatedAt())
+                            .build())));
+        }
+        return rows;
     }
 
     /**
@@ -733,7 +795,8 @@ public class LeaveService {
     }
 
     /**
-     * Backend enforcement gate for approve/reject: HR Admin/Super Admin may decide on any
+     * Backend enforcement gate for approve/reject: holders of leave:APPROVE:ALL (HR Admin/Super
+     * Admin, or a custom role granted it) may decide on any
      * employee's leave regardless of reporting line; everyone else must be the employee's
      * current reporting manager. Employee-level (and any other non-manager, non-override) users
      * fail both checks and are denied.
@@ -748,7 +811,7 @@ public class LeaveService {
     }
 
     private boolean hasOverrideRole(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
+        return effectivePermissionService.hasAuthority(actor, APPROVER_OVERRIDE_AUTHORITY);
     }
 
     /**
@@ -802,6 +865,8 @@ public class LeaveService {
         return approverById;
     }
 
+    // Deliberately the literal role, not a permission: this is routing for a Super Admin's OWN
+    // leave (who decides it), not a check on what the actor was granted — see V234's header.
     private boolean employeeHasRole(User user, String roleCode) {
         return user.getRoles().stream().anyMatch(r -> roleCode.equals(r.getCode()));
     }

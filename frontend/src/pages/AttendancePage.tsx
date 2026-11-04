@@ -2,6 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 import PageTitleBlock from '../components/PageTitleBlock';
 import { PersonCell, PersonCellById } from '../components/PersonCell';
 import { createPortal } from 'react-dom';
+import './attendanceModals.css';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, XCircle, Mountain, MapPin, PartyPopper, Building2, UsersRound, Search, Moon, Plane, TriangleAlert, CircleCheck, BadgeCheck, Hourglass, Target, type LucideIcon } from 'lucide-react';
@@ -38,6 +39,8 @@ import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole, type Role } from '../lib/nav.config';
+import { hasPermission } from '../lib/permissions';
+import type { MyPermissionsResponse } from '../api/me';
 import { previewRegularizations, previewAttendanceRequests, previewOvertimeRequests, previewRoster, previewRosterEmails } from './attendance-ui-preview/attendancePreviewData';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
 import { TimeFormatProvider, useTimeFormat, formatLateBySeconds } from '../context/TimeFormatContext';
@@ -639,20 +642,29 @@ function modalIconFor(title: string): LucideIcon {
   return FileText;
 }
 
+/** One-line helper under a popup title — presentation only. */
+function modalSubtitleFor(title: string): string | null {
+  const t = title.toLowerCase();
+  if (t.startsWith('request attendance regularization')) return 'Correct a missed or wrong punch for a past day.';
+  if (t.startsWith('edit regularization')) return 'Update your pending regularization request.';
+  if (t === 'work from home') return 'Request remote work for one or more days.';
+  if (t.startsWith('request partial day')) return 'Late arrival, early leaving or time off during the shift.';
+  if (t.startsWith('web clock-in')) return 'Add a short note about where you are working from.';
+  if (t.startsWith('check out')) return 'This closes out your working day.';
+  return null;
+}
+
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
   const Icon = modalIconFor(title);
+  const sub = modalSubtitleFor(title);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '18px 22px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-        <Icon size={18} style={{ color: 'var(--brand)', flexShrink: 0 }} />
-        <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15.5, color: 'var(--txt)', overflowWrap: 'anywhere' }}>{title}</span>
-      </span>
-      <button
-        onClick={onClose}
-        aria-label="Close"
-        className="nf-modal-close"
-        style={{ width: 30, height: 30, flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      >
+    <div className="nf-am-head">
+      <span className="nf-am-ico"><Icon size={19} /></span>
+      <div className="nf-am-titles">
+        <div className="nf-am-title">{title}</div>
+        {sub && <div className="nf-am-sub">{sub}</div>}
+      </div>
+      <button onClick={onClose} aria-label="Close" className="nf-modal-close nf-am-x">
         <X size={16} />
       </button>
     </div>
@@ -1035,7 +1047,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <div className="nf-am-callout" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
             <input type="radio" checked readOnly style={{ marginTop: 3 }} />
             <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>
               Raise regularization request to exempt this day from penalization policy.
@@ -1043,7 +1055,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
           </div>
 
           <div ref={balanceDetailsRef} style={{ position: 'relative' }}>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div className="nf-am-balance" style={{ fontSize: 12, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Info size={13} />
               {balance ? (
                 balance.unlimited
@@ -2409,7 +2421,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
                 </div>
               )}
               <div ref={wfhBalanceRef} style={{ position: 'relative' }}>
-                <div style={{ fontSize: 12, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="nf-am-balance" style={{ fontSize: 12, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <Info size={13} />
                   Remaining balance: <strong style={{ color: 'var(--txt)' }}>{wfhBalance ? wfhBalance.remainingDays : '–'}</strong> days
                   <button type="button" onClick={() => setShowWfhBalance((v) => !v)}
@@ -5673,8 +5685,8 @@ export interface RegularizationSectionHandle {
   openNewRequest: () => void;
 }
 
-const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: string; canApprove: boolean; isSuperAdmin: boolean; isManager: boolean; isPreview?: boolean }>(
-  function RegularizationSection({ token, canApprove, isSuperAdmin, isManager, isPreview = false }, ref) {
+const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: string; canApprove: boolean; isSuperAdmin: boolean; canViewAuditTrail: boolean; isManager: boolean; isPreview?: boolean }>(
+  function RegularizationSection({ token, canApprove, isSuperAdmin, canViewAuditTrail, isManager, isPreview = false }, ref) {
   const { showToast } = useToast();
   const { formatTime, formatDuration } = useTimeFormat();
   const [myRequests, setMyRequests] = useState<RegularizationRecord[]>([]);
@@ -5766,7 +5778,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <SectionHeading title="Attendance Regularization" hint="Request corrections for missed or incorrect punches." />
-        {isSuperAdmin && (
+        {canViewAuditTrail && (
           <Link to="/attendance/regularization/all" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 14px', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
             <ShieldCheck size={13} /> View All & Audit Trail
           </Link>
@@ -7385,13 +7397,57 @@ function DayRoster({ scope, isPreview = false }: { scope: 'team' | 'all'; isPrev
 // outer bar can match Keka's exact 4-tab list (Overtime Requests moved out to its own main tab).
 type AttendanceRequestsSubTab = 'REGULARIZATION' | 'WFH_PARTIAL_DAY';
 
+export interface AttendanceAccess {
+  canApproveRegularization: boolean;
+  canApproveAttendanceRequests: boolean;
+  canApproveOvertime: boolean;
+  /** May act on legacy PARTIALLY_APPROVED regularizations — HR/Super Admin only server-side. */
+  regularizationFinalStage: boolean;
+  /** No lookback window / monthly limit on one's own regularization requests (V234 regularization:CONFIGURE:ALL — Super Admin by default). */
+  regularizationUnlimited: boolean;
+  /** "View All & Audit Trail" — GET /attendance/regularization/all (V234 regularization:EXPORT:ALL — Super Admin by default). */
+  regularizationAuditTrail: boolean;
+  roster: 'team' | 'all' | null;
+}
+
+/** Each approval queue / roster is gated on the permission its own endpoint requires
+ *  (AttendanceController, AttendanceRequestController, OvertimeRequestController) — every one
+ *  seeded to exactly the role set this page used to check (V225): the *:APPROVE:TEAM trio to
+ *  Manager/HR Admin/Super Admin, regularization:APPROVE:ALL and attendance:VIEW:ALL to HR Admin/
+ *  Super Admin, attendance:VIEW:TEAM to Manager (+ HR/SA, who take the 'all' branch first). */
+export function attendanceAccess(permissions: MyPermissionsResponse | null | undefined): AttendanceAccess {
+  return {
+    canApproveRegularization: hasPermission(permissions, 'regularization', 'APPROVE', 'TEAM'),
+    canApproveAttendanceRequests: hasPermission(permissions, 'attendance_requests', 'APPROVE', 'TEAM'),
+    canApproveOvertime: hasPermission(permissions, 'overtime', 'APPROVE', 'TEAM'),
+    regularizationFinalStage: hasPermission(permissions, 'regularization', 'APPROVE', 'ALL'),
+    regularizationUnlimited: hasPermission(permissions, 'regularization', 'CONFIGURE', 'ALL'),
+    regularizationAuditTrail: hasPermission(permissions, 'regularization', 'EXPORT', 'ALL'),
+    roster: hasPermission(permissions, 'attendance', 'VIEW', 'ALL') ? 'all'
+      : hasPermission(permissions, 'attendance', 'VIEW', 'TEAM') ? 'team' : null,
+  };
+}
+
 function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }: { forcePreview?: boolean; previewRole?: Role }) {
   // The router has no role guard, so — like Shell — the page resolves the role itself.
   const token = useAuthStore((s) => s.token)!;
   const authRole = toShellRole(useAuthStore((s) => s.user?.role));
-  // Preview route only: the role is chosen by the preview frame, since there is no signed-in user.
+  const permissions = useAuthStore((s) => s.permissions);
+  // Preview route only: the role is chosen by the preview frame, since there is no signed-in user
+  // (and so no permissions) — its access mirrors what that role's seeded permissions grant.
   const role: Role = forcePreview ? previewRole : authRole;
-  const canApprove = role === 'Manager' || role === 'HR Admin' || role === 'Super Admin';
+  const isOrgRole = role === 'HR Admin' || role === 'Super Admin';
+  const access: AttendanceAccess = forcePreview
+    ? {
+        canApproveRegularization: role !== 'Employee',
+        canApproveAttendanceRequests: role !== 'Employee',
+        canApproveOvertime: role !== 'Employee',
+        regularizationFinalStage: isOrgRole,
+        regularizationUnlimited: role === 'Super Admin',
+        regularizationAuditTrail: role === 'Super Admin',
+        roster: isOrgRole ? 'all' : role === 'Manager' ? 'team' : null,
+      }
+    : attendanceAccess(permissions);
 
   const subtitle = role === 'Manager'
     ? 'Review daily attendance for the selected month, and your team’s attendance for any day.'
@@ -7509,7 +7565,7 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
         <MyAttendance
           ref={myAttendanceRef}
-          isSuperAdmin={role === 'Super Admin'}
+          isSuperAdmin={access.regularizationUnlimited}
           logsTab={logsTab}
           onLogsTabChange={setLogsTab}
           isPreviewMode={isPreviewMode}
@@ -7529,20 +7585,19 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
                   />
                 </div>
                 {requestsSubTab === 'REGULARIZATION' && (
-                  <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} isPreview={forcePreview} />
+                  <RegularizationSection ref={regularizationRef} token={token} canApprove={access.canApproveRegularization} isSuperAdmin={access.regularizationUnlimited} canViewAuditTrail={access.regularizationAuditTrail} isManager={!access.regularizationFinalStage} isPreview={forcePreview} />
                 )}
                 {requestsSubTab === 'WFH_PARTIAL_DAY' && (
-                  <AttendanceRequestsSection token={token} canApprove={canApprove} isPreview={forcePreview} />
+                  <AttendanceRequestsSection token={token} canApprove={access.canApproveAttendanceRequests} isPreview={forcePreview} />
                 )}
               </div>
             ) : logsTab === 'OVERTIME' ? (
-              <OvertimeRequestsSection token={token} canApprove={canApprove} isPreview={forcePreview} />
+              <OvertimeRequestsSection token={token} canApprove={access.canApproveOvertime} isPreview={forcePreview} />
             ) : null
           }
         />
 
-        {role === 'Manager' && <DayRoster scope="team" isPreview={forcePreview} />}
-        {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" isPreview={forcePreview} />}
+        {access.roster && <DayRoster scope={access.roster} isPreview={forcePreview} />}
       </div>
     </div>
   );

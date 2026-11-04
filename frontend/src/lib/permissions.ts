@@ -1,5 +1,5 @@
 import type { MyPermissionsResponse } from '../api/me';
-import type { NavItem } from './nav.config';
+import { ALL_NAV_ITEMS, isNavItemDisabled, type NavItem } from './nav.config';
 
 /** Scopes a granted scope also satisfies — mirrors the backend's ScopeCoverage. GET
  *  /api/me/permissions returns the UN-cascaded grants (a role holding ALL lists only "ALL"), so
@@ -26,6 +26,15 @@ export function hasPermission(
   const granted = permissions?.permissions?.[module]?.[action];
   if (!granted) return false;
   return granted.some((g) => (SCOPE_COVERAGE[g] ?? [g]).includes(scope));
+}
+
+/** The org-wide workforce views (HR dashboard, Reports) fetch /org-dashboard, /attendance/day and
+ *  /leave/organization together, so they need every one of those endpoints' permissions — all
+ *  three seeded to exactly HR_ADMIN + SUPER_ADMIN (V225), the role pair these views used to check. */
+export function hasOrgWorkforceView(permissions: MyPermissionsResponse | null | undefined): boolean {
+  return hasPermission(permissions, 'employees', 'VIEW', 'ALL')
+    && hasPermission(permissions, 'attendance', 'VIEW', 'ALL')
+    && hasPermission(permissions, 'leave', 'VIEW', 'ALL');
 }
 
 export interface PermissionRequirement {
@@ -69,6 +78,9 @@ const NAV_ITEM_REQUIREMENTS: Partial<Record<string, PermissionRequirement[]>> = 
   reports: [{ module: 'reports', action: 'VIEW', scope: 'TEAM' }],
   audit: [{ module: 'audit', action: 'VIEW', scope: 'OWN' }],
   access: [{ module: 'user_management', action: 'VIEW', scope: 'ALL' }],
+  roles: [{ module: 'roles', action: 'VIEW', scope: 'ALL' }],
+  bench: [{ module: 'bench', action: 'VIEW', scope: 'TEAM' }],
+  allocations: [{ module: 'project_allocations', action: 'CREATE', scope: 'ALL' }],
   workflows: [{ module: 'approval_rules', action: 'VIEW', scope: 'ALL' }],
   'api-usage': [{ module: 'ai_assistant', action: 'VIEW', scope: 'ALL' }],
 };
@@ -80,4 +92,43 @@ export function isNavItemVisible(item: NavItem, permissions: MyPermissionsRespon
   const requirements = NAV_ITEM_REQUIREMENTS[item.key];
   if (!requirements) return true;
   return hasAnyPermission(permissions, requirements);
+}
+
+/**
+ * Gated nav items that this user's CUSTOM roles grant but their primary role's curated NAV doesn't
+ * list. The sidebar is still chosen per primary (system) role, so without this a custom role's
+ * admin grants (e.g. User Management) would never be reachable from the menu. Only custom-role
+ * grants count (customRolePermissions), so no system role's curated nav changes shape. Items with
+ * identical requirements (organization / masters → the same page) are only added once.
+ */
+export function customRoleNavItems(roleItems: NavItem[], permissions: MyPermissionsResponse | null | undefined): NavItem[] {
+  const custom = permissions?.customRolePermissions;
+  if (!custom || Object.keys(custom).length === 0) return [];
+  const customOnly = { ...permissions!, permissions: custom };
+  const have = new Set(roleItems.map((i) => i.key));
+  const seen = new Set(roleItems.filter((i) => NAV_ITEM_REQUIREMENTS[i.key]).map((i) => JSON.stringify(NAV_ITEM_REQUIREMENTS[i.key])));
+  return ALL_NAV_ITEMS.filter((i) => {
+    const req = NAV_ITEM_REQUIREMENTS[i.key];
+    if (!req || have.has(i.key) || isNavItemDisabled(i) || !hasAnyPermission(customOnly, req)) return false;
+    const sig = JSON.stringify(req);
+    if (seen.has(sig)) return false;
+    seen.add(sig);
+    return true;
+  });
+}
+
+/**
+ * Which Assets & Expenses view a user gets (page + My Profile's Assets tab) — from the permissions
+ * the views' endpoints require (V236/V242), each seeded to exactly the roles that used to pick it:
+ * HR view = assets:VIEW:ALL or expenses:VIEW:ALL (HR Admin/Super Admin); Manager view =
+ * assets:APPROVE:TEAM or expenses:APPROVE:TEAM (Manager; HR/SA already took the HR view). Before
+ * permissions have loaded it falls back to the primary role so the page doesn't flash the wrong view.
+ */
+export function assetsExpensesView(permissions: MyPermissionsResponse | null | undefined, primaryRole: string | undefined): 'hr' | 'manager' | 'employee' {
+  if (!permissions) {
+    return primaryRole === 'HR_ADMIN' || primaryRole === 'SUPER_ADMIN' ? 'hr' : primaryRole === 'MANAGER' ? 'manager' : 'employee';
+  }
+  if (hasAnyPermission(permissions, [{ module: 'assets', action: 'VIEW', scope: 'ALL' }, { module: 'expenses', action: 'VIEW', scope: 'ALL' }])) return 'hr';
+  if (hasAnyPermission(permissions, [{ module: 'assets', action: 'APPROVE', scope: 'TEAM' }, { module: 'expenses', action: 'APPROVE', scope: 'TEAM' }])) return 'manager';
+  return 'employee';
 }

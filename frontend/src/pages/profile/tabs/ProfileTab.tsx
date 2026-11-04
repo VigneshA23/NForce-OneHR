@@ -19,9 +19,9 @@ function SectionCard({ title, badge, icon, onEdit, children }: {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <SectionHeader title={title} badge={badge} icon={icon} />
         {onEdit && (
-          <button onClick={onEdit}
+          <button onClick={onEdit} className="nf-ps-edit"
             style={{ padding: '5px 12px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-            Edit
+            <Pencil size={13} />Edit
           </button>
         )}
       </div>
@@ -57,7 +57,7 @@ function EducationCard({ token }: { token: string }) {
     <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <SectionHeader title="Education" icon={GraduationCap} />
-        <button onClick={() => setModalTarget('new')}
+        <button onClick={() => setModalTarget('new')} className="nf-ps-add"
           style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
           <Plus size={13} /> Add Education
         </button>
@@ -65,11 +65,11 @@ function EducationCard({ token }: { token: string }) {
       {loading ? (
         <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading…</div>
       ) : entries.length === 0 ? (
-        <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>No education records added yet.</div>
+        <div className="nf-ps-empty"><GraduationCap size={18} />No education records added yet.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {entries.map(e => (
-            <div key={e.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '12px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8 }}>
+            <div key={e.id} className="nf-edu-row" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, padding: '12px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8 }}>
               <div>
                 <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{e.degree}{e.fieldOfStudy ? ` · ${e.fieldOfStudy}` : ''}</div>
                 <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>{e.institutionName}</div>

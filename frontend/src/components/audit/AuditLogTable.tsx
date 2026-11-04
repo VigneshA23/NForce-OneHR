@@ -4,6 +4,7 @@ import { Users, CalendarCheck, Clock, Package, Shield, Tag, X, ChevronRight, Cal
 import type { LucideIcon } from 'lucide-react';
 import type { ActionGroup, AuditLogEntry } from '../../api/audit';
 import { EmployeeAvatar } from '../EmployeeAvatar';
+import './auditTable.css';
 
 // EMPLOYEE_UPDATED and USER_UPDATED both land under the Employee Management group (see
 // AuditActionCategory) and represent the same kind of edit — HR Admin's path vs Super Admin's
@@ -86,6 +87,11 @@ const CATEGORY_STYLE: Record<ActionGroup, { label: string; icon: LucideIcon; col
   ACCESS:     { label: 'User & Access',        icon: Shield,        color: 'var(--risk)',    rgb: '228,55,61' },
   OTHER:      { label: 'Other',                 icon: Tag,           color: 'var(--txt-mut)', rgb: '155,161,172' },
 };
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '·';
+}
 
 function ActionBadge({ group }: { group: ActionGroup }) {
   const style = CATEGORY_STYLE[group] ?? CATEGORY_STYLE.OTHER;
@@ -247,10 +253,17 @@ export function AuditLogTable({ rows }: Props) {
   return (
     <div style={{ overflowX: 'auto' }}>
       <table className="nf-audit-table">
+        <colgroup>
+          <col style={{ width: '17%' }} />
+          <col style={{ width: '25%' }} />
+          <col style={{ width: '24%' }} />
+          <col style={{ width: '34%' }} />
+        </colgroup>
         <thead>
           <tr>
             <th>Timestamp</th>
             <th>Affected User</th>
+            <th>Performed By</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -265,7 +278,16 @@ export function AuditLogTable({ rows }: Props) {
                   <span className="nf-audit-date">{d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' })}</span>
                   <span className="nf-audit-time">{d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
                 </td>
-                <td className="nf-audit-user">{r.targetLabel}</td>
+                <td className="nf-audit-user" title={r.targetLabel}>{r.targetLabel}</td>
+                <td>
+                  <div className="nf-audit-by">
+                    <span className={`nf-audit-by-av${r.actorName ? '' : ' sys'}`}>{r.actorName ? initialsOf(r.actorName) : 'SY'}</span>
+                    <div className="nf-audit-by-main">
+                      <div className="nf-audit-by-name" title={r.actorName ?? 'System'}>{r.actorName ?? 'System'}</div>
+                      {r.actorEmail && <div className="nf-audit-by-mail" title={r.actorEmail}>{r.actorEmail}</div>}
+                    </div>
+                  </div>
+                </td>
                 <td>
                   <div className="nf-audit-act">
                     <span className="nf-audit-ico"><CatIcon size={15} /></span>

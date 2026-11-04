@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Info, X } from 'lucide-react';
+import { Info, X, ShieldCheck, Clock, Home, Pencil, FileText, Laptop, Hourglass } from 'lucide-react';
+import '../pages/attendanceModals.css';
 import { TabBar } from './TabBar';
 import { getMyCurrentPolicy, type PenalizationPolicy } from '../api/penalizationPolicy';
 
@@ -168,49 +169,37 @@ const TIME_TRACKING_POLICY_BLOCKS: PolicyBlock[] = [
   { type: 'callout', text: 'Approval is required for all Regularization / Partial Day requests.' },
 ];
 
-function PolicyBlockView({ block }: { block: PolicyBlock }) {
-  if (block.type === 'heading') {
-    return (
-      <h3
-        className="nf-attpolicy-heading"
-        style={{
-          fontFamily: 'Inter, sans-serif', fontSize: 17, fontWeight: 700, color: 'var(--txt)',
-          margin: '32px 0 12px', paddingBottom: 10, borderBottom: '1px solid var(--line)',
-        }}
-      >
-        {block.text}
-      </h3>
-    );
+/** Groups the flat block list into one card per heading (blocks before the first heading stay as an intro). */
+function groupBlocks(blocks: PolicyBlock[]): { heading: string | null; blocks: PolicyBlock[] }[] {
+  const groups: { heading: string | null; blocks: PolicyBlock[] }[] = [];
+  for (const b of blocks) {
+    if (b.type === 'heading') groups.push({ heading: b.text, blocks: [] });
+    else if (groups.length === 0) groups.push({ heading: null, blocks: [b] });
+    else groups[groups.length - 1].blocks.push(b);
   }
+  return groups;
+}
+
+function headingIcon(text: string): React.ComponentType<{ size?: number }> {
+  const t = text.toLowerCase();
+  if (t.includes('check-in')) return Laptop;
+  if (t.includes('work from home') || t.includes('wfh')) return Home;
+  if (t.includes('regulariz')) return Pencil;
+  if (t.includes('late')) return Clock;
+  if (t.includes('hour')) return Hourglass;
+  if (t.includes('swipe')) return Pencil;
+  return FileText;
+}
+
+function PolicyBlockBody({ block }: { block: PolicyBlock }) {
   if (block.type === 'callout') {
-    return (
-      <div
-        className="nf-attpolicy-callout"
-        style={{
-          display: 'flex', alignItems: 'flex-start', gap: 10,
-          background: 'rgba(76,141,214,.10)', border: '1px solid rgba(76,141,214,.28)',
-          borderLeft: '3px solid #4C8DD6', borderRadius: 8, padding: '12px 16px',
-          fontSize: 13.5, color: 'var(--txt)', lineHeight: 1.6, margin: '12px 0',
-        }}
-      >
-        <Info size={15} style={{ color: '#4C8DD6', flexShrink: 0, marginTop: 2 }} />
-        <span>{block.text}</span>
-      </div>
-    );
+    return <div className="nf-ap-callout"><Info size={15} /><span>{block.text}</span></div>;
   }
   if (block.type === 'bullets') {
-    return (
-      <ul style={{ listStyle: 'none', margin: '8px 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {block.items.map((item, i) => (
-          <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13.5, color: 'var(--txt-mut)', lineHeight: 1.65 }}>
-            <span style={{ flexShrink: 0, marginTop: 8, width: 7, height: 7, borderRadius: '50%', background: 'var(--brand)' }} />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
-    );
+    return <ul className="nf-ap-list">{block.items.map((item, i) => <li key={i}>{item}</li>)}</ul>;
   }
-  return <p style={{ fontSize: 13.5, color: 'var(--txt-mut)', lineHeight: 1.7, margin: '10px 0' }}>{block.text}</p>;
+  if (block.type === 'heading') return null;
+  return <p>{block.text}</p>;
 }
 
 type PolicyTab = 'PENALISATION' | 'TIME_TRACKING';
@@ -255,20 +244,20 @@ export function AttendancePolicyModal({ token, onClose }: { token: string; onClo
     };
   }, []);
 
+  const groups = groupBlocks(blocks);
+
   return (
     <div className="nf-attpolicy-overlay" style={{ position: 'fixed', inset: 0, background: 'var(--shell)', zIndex: 500, display: 'flex', flexDirection: 'column' }}>
       {/* Header + tabs stay pinned while the long policy text scrolls beneath them. */}
-      <div className="nf-attpolicy-sticky" style={{ position: 'sticky', top: 0, background: 'var(--shell)', borderBottom: '1px solid var(--line)', zIndex: 1 }}>
-        <div className="nf-attpolicy-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 32px' }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 20, color: 'var(--txt)' }}>Attendance Policy</span>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 8, borderRadius: 7, display: 'flex' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--raised)'; e.currentTarget.style.color = 'var(--txt)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--txt-dim)'; }}
-          >
-            <X size={18} />
+      <div className="nf-attpolicy-sticky" style={{ position: 'sticky', top: 0, background: 'linear-gradient(120deg, color-mix(in srgb, var(--brand) 9%, var(--shell)) 0%, var(--shell) 70%)', borderBottom: '1px solid var(--line)', zIndex: 1 }}>
+        <div className="nf-attpolicy-header nf-ap-hero">
+          <span className="nf-am-ico"><ShieldCheck size={24} /></span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="nf-ap-title">Attendance Policy</div>
+            <div className="nf-ap-sub">The rules that apply to your attendance, at a glance.</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="nf-am-x">
+            <X size={16} />
           </button>
         </div>
         {/* Sits directly on the sticky header's bottom border, so no rule of its own. */}
@@ -285,10 +274,24 @@ export function AttendancePolicyModal({ token, onClose }: { token: string; onClo
         />
       </div>
 
-      {/* Scrollable body — full-width panel, but text itself stays capped for readability. */}
+      {/* Scrollable body — one card per policy section. */}
       <div className="nf-attpolicy-content" style={{ flex: 1, overflowY: 'auto', padding: '28px 32px 56px' }}>
-        <div style={{ maxWidth: 860 }}>
-          {blocks.map((block, i) => <PolicyBlockView key={i} block={block} />)}
+        <div className="nf-ap-wrap">
+          {groups.map((g, i) => {
+            if (g.heading === null) {
+              return <div key={i}>{g.blocks.map((b, j) => b.type === 'text' ? <p key={j} className="nf-ap-lead">{b.text}</p> : <PolicyBlockBody key={j} block={b} />)}</div>;
+            }
+            const Icon = headingIcon(g.heading);
+            return (
+              <section key={i} className="nf-ap-card">
+                <div className="nf-ap-card-hd">
+                  <span className="nf-ap-card-ico"><Icon size={17} /></span>
+                  <h3>{g.heading}</h3>
+                </div>
+                {g.blocks.map((b, j) => <PolicyBlockBody key={j} block={b} />)}
+              </section>
+            );
+          })}
         </div>
       </div>
     </div>

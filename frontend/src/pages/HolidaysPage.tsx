@@ -3,8 +3,10 @@ import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import { ActionDock } from '../components/ActionDock';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart, MapPin, List, CalendarPlus } from 'lucide-react';
+import './holidaysPolish.css';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { orgApi, type LocationRow } from '../api/org';
 
@@ -33,28 +35,25 @@ const HOLIDAY_NAME_MAX_LENGTH = 100;
 // size/weight rather than drifting independently.
 const primaryButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 
-function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+function ModalHeader({ title, subtitle, icon: Icon = CalendarPlus, onClose }: { title: string; subtitle?: string; icon?: React.ComponentType<{ size?: number }>; onClose: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+    <div className="nf-hm-head">
+      <span className="nf-hm-ico"><Icon size={20} /></span>
+      <div className="nf-hm-titles">
+        <div className="nf-hm-title">{title}</div>
+        {subtitle && <div className="nf-hm-sub">{subtitle}</div>}
+      </div>
+      <button onClick={onClose} className="nf-hm-x" aria-label="Close"><X size={16} /></button>
     </div>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label style={labelStyle}>{label}</label>{children}</div>;
+  return <div><label style={labelStyle} className="nf-hm-lbl">{label}</label>{children}</div>;
 }
 
 const HOLIDAY_STATUS_BADGE = (active: boolean) => (
-  <span style={{
-    display: 'inline-flex', alignItems: 'center', gap: 4,
-    padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-    background: active ? 'rgba(47,182,124,.15)' : 'rgba(107,114,128,.15)',
-    color: active ? 'var(--ok)' : 'var(--txt-dim)',
-  }}>
-    {active ? 'Active' : 'Inactive'}
-  </span>
+  <span className={`nf-hol-status${active ? '' : ' off'}`}>{active ? 'Active' : 'Inactive'}</span>
 );
 
 function formatHolidayDate(iso: string) {
@@ -84,10 +83,10 @@ function UpcomingHolidayCard({ holiday, daysAway }: { holiday: HolidayRow; daysA
     }}>
       <div style={{ width: 52, height: 52, borderRadius: 10, flexShrink: 0, background: 'color-mix(in srgb, var(--brand) 14%, var(--raised))', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--brand)', textTransform: 'uppercase' }}>{d.toLocaleDateString(undefined, { month: 'short' })}</span>
-        <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{d.getDate()}</span>
+        <span style={{ fontSize: 18, fontWeight: 600, color: 'color-mix(in srgb, var(--txt) 78%, var(--panel))', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{d.getDate()}</span>
       </div>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={holiday.holidayName}>{holiday.holidayName}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'color-mix(in srgb, var(--txt) 78%, var(--panel))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={holiday.holidayName}>{holiday.holidayName}</div>
         <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 2 }}>{d.toLocaleDateString(undefined, { weekday: 'long' })}</div>
         <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3 }}>{daysAway === 0 ? 'Today' : daysAway === 1 ? 'Tomorrow' : `In ${daysAway} days`}</div>
       </div>
@@ -125,7 +124,7 @@ export function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
   };
 
   return (
-    <div className="nf-section-enter" style={{
+    <div className="nf-section-enter nf-hol-cal" style={{
       background: 'linear-gradient(180deg, color-mix(in srgb, var(--brand) 6%, var(--panel)) 0%, var(--panel) 120px)',
       border: '1px solid var(--line)', borderRadius: 14, padding: 14, boxShadow: '0 6px 22px rgba(0,0,0,.14)',
     }}>
@@ -173,7 +172,7 @@ export function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
               title={dayHolidays.map(h => h.holidayName).join(', ') || undefined}
               style={{
                 // Fixed height: the cell never resizes with content; extras are summarised as "+N more".
-                height: 74, minWidth: 0, width: '100%', overflow: 'hidden', boxSizing: 'border-box',
+                height: 84, minWidth: 0, width: '100%', overflow: 'hidden', boxSizing: 'border-box',
                 borderRadius: 10, padding: '5px 5px 4px', position: 'relative',
                 background: hasHoliday
                   ? 'linear-gradient(160deg, color-mix(in srgb, var(--brand) 30%, var(--panel)) 0%, color-mix(in srgb, var(--brand) 10%, var(--panel)) 100%)'
@@ -196,7 +195,7 @@ export function HolidayMonthCalendar({ holidays }: { holidays: HolidayRow[] }) {
               </span>
               {visible.map(h => (
                 <span key={h.id} style={{
-                  fontSize: 9, fontWeight: 700, color: '#fff', background: 'var(--brand)',
+                  fontSize: 9.5, fontWeight: 700, color: '#fff', background: 'var(--brand)',
                   borderRadius: 5, padding: '2px 5px', lineHeight: 1.4,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   maxWidth: '100%', width: '100%', boxSizing: 'border-box', flexShrink: 0,
@@ -275,27 +274,38 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
   }
 
   return (
-    <div style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={modalStyle}>
-        <ModalHeader title={editing ? 'Edit Holiday' : 'Add Holiday'} onClose={onClose} />
-        {error && <div style={{ margin: '16px 20px 0', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
-        <form onSubmit={submit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Field label="Holiday Name *">
-            <input ref={firstRef} maxLength={HOLIDAY_NAME_MAX_LENGTH} style={inputStyle} value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="e.g. Diwali" />
-          </Field>
-          <Field label="Date *">
-            <input type="date" min={editing ? undefined : todayIso} style={inputStyle} value={holidayDate} onChange={e => setHolidayDate(e.target.value)} />
-          </Field>
-          <Field label="Location *">
-            <select style={inputStyle} value={locationId} onChange={e => setLocationId(e.target.value)}>
-              <option value="">Select a location…</option>
-              {/* Active-only for a NEW selection — a deactivated (not deleted) location shouldn't
-                  be pickable going forward; `locationId` keeps this holiday's existing location
-                  visible/selected if it was assigned before that location was deactivated. */}
-              {locations.filter(l => l.active !== false || l.id === locationId).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
-          </Field>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+    <div className="nf-hm-dlg" style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="nf-hm-card" style={modalStyle}>
+        <ModalHeader
+          title={editing ? 'Edit Holiday' : 'Add Holiday'}
+          subtitle={editing ? 'Update the name, date or location.' : 'Add a company holiday for a location.'}
+          icon={editing ? Pencil : CalendarPlus}
+          onClose={onClose}
+        />
+        <form onSubmit={submit}>
+          <div className="nf-hm-form">
+            {error && <div className="nf-hm-err">{error}</div>}
+            <section className="nf-hm-sec">
+              <Field label="Holiday Name *">
+                <input ref={firstRef} maxLength={HOLIDAY_NAME_MAX_LENGTH} style={inputStyle} value={holidayName} onChange={e => setHolidayName(e.target.value)} placeholder="e.g. Diwali" />
+              </Field>
+              <div className="nf-hm-grid">
+                <Field label="Date *">
+                  <input type="date" min={editing ? undefined : todayIso} style={inputStyle} value={holidayDate} onChange={e => setHolidayDate(e.target.value)} />
+                </Field>
+                <Field label="Location *">
+                  <select style={inputStyle} value={locationId} onChange={e => setLocationId(e.target.value)}>
+                    <option value="">Select a location…</option>
+                    {/* Active-only for a NEW selection — a deactivated (not deleted) location shouldn't
+                        be pickable going forward; `locationId` keeps this holiday's existing location
+                        visible/selected if it was assigned before that location was deactivated. */}
+                    {locations.filter(l => l.active !== false || l.id === locationId).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </Field>
+              </div>
+            </section>
+          </div>
+          <div className="nf-hm-foot">
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             <button type="submit" disabled={loading} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>{loading ? 'Saving…' : 'Save'}</button>
           </div>
@@ -307,8 +317,13 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
 
 export default function HolidaysPage() {
   const token = useAuthStore(s => s.token)!;
-  const role = useAuthStore(s => s.user?.role);
-  const isAdmin = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  const permissions = useAuthStore(s => s.permissions);
+  // Each gate is the permission HolidayController requires for that call — all four seeded to
+  // exactly HR_ADMIN + SUPER_ADMIN (V225), the roles this page used to check.
+  const isAdmin = hasPermission(permissions, 'holidays', 'VIEW', 'ALL');
+  const canCreate = hasPermission(permissions, 'holidays', 'CREATE', 'ALL');
+  const canEdit = hasPermission(permissions, 'holidays', 'EDIT', 'ALL');
+  const canDelete = hasPermission(permissions, 'holidays', 'DELETE', 'ALL');
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
   const holPaged = usePaged(holidays);
   const [holidayError, setHolidayError] = useState('');
@@ -396,7 +411,7 @@ export default function HolidaysPage() {
         flexWrap: 'wrap',
       }}>
         <PageTitleBlock icon={CalendarHeart}>
-            <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
+            <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 20, fontWeight: 600, color: 'color-mix(in srgb, var(--txt) 78%, var(--panel))', margin: 0 }}>
               Company Holidays{holidayScopeLabel ? ` - ${holidayScopeLabel}` : ''}
             </h1>
             <p style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 3 }}>
@@ -414,7 +429,7 @@ export default function HolidaysPage() {
               {adminLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           )}
-          {isAdmin && (
+          {canCreate && (
             <button onClick={() => setShowAddHoliday(true)} style={{ ...primaryButtonStyle, boxShadow: '0 2px 10px rgba(177,17,22,.25)' }}>
               <Plus size={14} /> Add Holiday
             </button>
@@ -430,17 +445,26 @@ export default function HolidaysPage() {
 
       {upcomingHolidays.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Upcoming Holidays</div>
+          <div className="nf-hol-sec"><span className="nf-hol-sec-ico"><CalendarHeart size={17} /></span><h2>Upcoming Holidays</h2></div>
           <div className="nf-autofit-mobile-safe" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
             {upcomingHolidays.map(u => <UpcomingHolidayCard key={u.holiday.id} holiday={u.holiday} daysAway={u.daysAway} />)}
           </div>
         </div>
       )}
 
-      <div className={holidays.length > 0 ? 'nf-grid-side-collapse' : undefined} style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(310px, 380px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
+      <div className={holidays.length > 0 ? 'nf-grid-side-collapse' : undefined} style={holidays.length > 0 ? { display: 'grid', gridTemplateColumns: 'minmax(340px, 440px) 1fr', gap: 20, alignItems: 'start' } : undefined}>
         {holidays.length > 0 && <HolidayMonthCalendar holidays={holidays} />}
 
-        <div className="nf-section-enter" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+        <div className="nf-section-enter nf-hol-card">
+          {holidays.length > 0 && (
+            <div className="nf-hol-card-hd">
+              <div className="nf-hol-sec">
+                <span className="nf-hol-sec-ico"><List size={17} /></span>
+                <h2>Holiday List</h2>
+                <span className="nf-hol-count">{holidays.length} {holidays.length === 1 ? 'holiday' : 'holidays'}</span>
+              </div>
+            </div>
+          )}
           {holidays.length === 0 ? (
             <div style={{ padding: 48, textAlign: 'center' }}>
               <CalendarDays size={28} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
@@ -450,7 +474,7 @@ export default function HolidaysPage() {
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <table className="nf-hol-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                 <colgroup>
                   {isAdmin ? (
                     <>
@@ -470,26 +494,31 @@ export default function HolidaysPage() {
                 </colgroup>
                 <thead>
                   <tr>
-                    {(isAdmin ? ['Holiday Name', 'Date', 'Location', 'Status', 'Actions'] : ['Holiday Name', 'Date', 'Status']).map(h => <th key={h} style={holidayThStyle}>{h}</th>)}
+                    {(isAdmin ? ['Holiday Name', 'Date', 'Location', 'Status', 'Actions'] : ['Holiday Name', 'Date', 'Status']).map(h => <th key={h} style={h === 'Holiday Name' ? { ...holidayThStyle, textAlign: 'left', paddingLeft: 22 } : holidayThStyle}>{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
-                  {holPaged.pageRows.map(h => (
-                    <tr key={h.id} className="nf-leave-row">
-                      <td style={{ ...holidayTdStyle, color: 'var(--txt)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.holidayName}>{h.holidayName}</td>
+                  {holPaged.pageRows.map(h => {
+                    const isPast = h.holidayDate < new Date().toISOString().slice(0, 10);
+                    return (
+                    <tr key={h.id} className={`nf-leave-row${isPast ? ' is-past' : ''}`}>
+                      <td style={{ ...holidayTdStyle, textAlign: 'left' }} title={h.holidayName}>
+                        <div className="nf-hol-nm"><b>{h.holidayName}</b></div>
+                      </td>
                       <td style={holidayTdStyle}>{formatHolidayDate(h.holidayDate)}</td>
-                      {isAdmin && <td style={{ ...holidayTdStyle, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={h.locationName}>{h.locationName}</td>}
+                      {isAdmin && <td style={{ ...holidayTdStyle, overflow: 'hidden' }} title={h.locationName}><span className="nf-hol-loc"><MapPin size={12} /><span>{h.locationName}</span></span></td>}
                       <td style={holidayTdStyle}>{HOLIDAY_STATUS_BADGE(h.active)}</td>
                       {isAdmin && (
                         <td style={holidayTdStyle}>
                           <ActionDock items={[
-                            { label: 'Edit', icon: Pencil, onClick: () => setEditingHoliday(h) },
-                            { label: 'Delete', icon: Trash2, onClick: () => handleDeleteHoliday(h), danger: true, disabled: deletingId === h.id },
+                            ...(canEdit ? [{ label: 'Edit', icon: Pencil, onClick: () => setEditingHoliday(h) }] : []),
+                            ...(canDelete ? [{ label: 'Delete', icon: Trash2, onClick: () => handleDeleteHoliday(h), danger: true, disabled: deletingId === h.id }] : []),
                           ]} />
                         </td>
                       )}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
               <TablePagination {...holPaged.pagerProps} noun="holidays" />

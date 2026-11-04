@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { Plus, X, ShieldAlert, Workflow, ChevronRight, GitBranch, Pencil, Power, PowerOff, Trash2 } from 'lucide-react';
+import { Plus, X, ShieldAlert, Workflow, ChevronRight, GitBranch, Pencil, Power, PowerOff, Trash2, Lock } from 'lucide-react';
+import './workflowRuleModal.css';
 import { useAuthStore } from '../store/authStore';
 import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
@@ -111,11 +113,11 @@ function ConfirmModal({ title, message, confirmLabel, danger, onConfirm, onCance
   title: string; message: string; confirmLabel: string; danger?: boolean;
   onConfirm: () => void; onCancel: () => void; busy: boolean;
 }) {
-  return (
-    <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 440 }}>
-        <div style={{ padding: 20 }}>
-          <h3 style={{ fontSize: 15, fontFamily: 'Inter, sans-serif', color: 'var(--txt)', margin: '0 0 8px' }}>{title}</h3>
+  return createPortal(
+    <div className="nf-wf-dlg" style={overlayStyle}>
+      <div className="nf-wf-card" style={{ ...modalStyle, maxWidth: 440 }}>
+        <div style={{ padding: 22 }}>
+          <h3 style={{ fontSize: 17, fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'color-mix(in srgb, var(--txt) 88%, var(--panel))', margin: '0 0 8px' }}>{title}</h3>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '0 0 20px', lineHeight: 1.5 }}>{message}</p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
             <button onClick={onCancel} disabled={busy} style={btnStyle}>Cancel</button>
@@ -129,7 +131,8 @@ function ConfirmModal({ title, message, confirmLabel, danger, onConfirm, onCance
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -213,64 +216,78 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
     }
   }
 
-  return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
-            {initial ? 'Edit Rule' : 'Create Rule'}
-          </span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', display: 'flex' }}><X size={16} /></button>
+  const stepsOf = (labels: string[], cls = '') => labels.map((l, i) => (
+    <span key={`${l}-${i}`} style={{ display: 'contents' }}>
+      {i > 0 && <span className="arr">→</span>}
+      <span className={`step${cls ? ' ' + cls : ''}`}>{l}</span>
+    </span>
+  ));
+
+  return createPortal(
+    <div className="nf-wf-dlg" style={overlayStyle}>
+      <div className="nf-wf-card" style={modalStyle}>
+        <div className="nf-wf-head">
+          <span className="nf-wf-ico"><GitBranch size={20} /></span>
+          <div className="nf-wf-titles">
+            <div className="nf-wf-title">{initial ? 'Edit Rule' : 'Create Rule'}</div>
+            <div className="nf-wf-sub">Choose when this rule applies and who approves.</div>
+          </div>
+          <button onClick={onClose} className="nf-wf-x" aria-label="Close"><X size={16} /></button>
         </div>
 
-        <div style={{ padding: 20 }}>
+        <div className="nf-wf-body">
           {errors.length > 0 && (
-            <div style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+            <div className="nf-wf-err">
               {errors.map((err, i) => (
-                <div key={i} style={{ fontSize: 12.5, color: '#E4373D' }}>{err}</div>
+                <div key={i}>{err}</div>
               ))}
             </div>
           )}
 
-          <div style={{ marginBottom: 14 }}>
-            <label style={labelStyle}>Rule Name</label>
+          <section className="nf-wf-sec">
+            <div className="nf-wf-sec-hd"><span className="nf-wf-step">1</span><span className="nf-wf-sec-title">Rule</span></div>
+            <label style={labelStyle} className="nf-wf-lbl">Rule Name</label>
             <input
               style={inputStyle}
               value={values.ruleName}
               onChange={e => setValues(v => ({ ...v, ruleName: e.target.value }))}
               placeholder="e.g. Second approval above $500"
             />
-          </div>
+          </section>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-            <div>
-              <label style={labelStyle}>Request Type</label>
-              <select
-                style={inputStyle}
-                value={values.requestType}
-                onChange={e => setValues(v => ({ ...v, requestType: e.target.value, conditionField: metadata.conditionFieldsByRequestType[e.target.value]?.[0] ?? '' }))}
-              >
-                {metadata.requestTypes.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
+          <section className="nf-wf-sec">
+            <div className="nf-wf-sec-hd"><span className="nf-wf-step">2</span><span className="nf-wf-sec-title">Applies to</span></div>
+            <div className="nf-wf-grid">
+              <div>
+                <label style={labelStyle} className="nf-wf-lbl">Request Type</label>
+                <select
+                  style={inputStyle}
+                  value={values.requestType}
+                  onChange={e => setValues(v => ({ ...v, requestType: e.target.value, conditionField: metadata.conditionFieldsByRequestType[e.target.value]?.[0] ?? '' }))}
+                >
+                  {metadata.requestTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle} className="nf-wf-lbl">Condition Field</label>
+                <select
+                  style={inputStyle}
+                  value={values.conditionField}
+                  onChange={e => setValues(v => ({ ...v, conditionField: e.target.value }))}
+                >
+                  {conditionFields.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
             </div>
-            <div>
-              <label style={labelStyle}>Condition Field</label>
-              <select
-                style={inputStyle}
-                value={values.conditionField}
-                onChange={e => setValues(v => ({ ...v, conditionField: e.target.value }))}
-              >
-                {conditionFields.map(f => <option key={f} value={f}>{f}</option>)}
-              </select>
-            </div>
-          </div>
+          </section>
 
-          <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-            <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginBottom: 8, fontWeight: 600 }}>IF</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, color: 'var(--txt)', fontWeight: 600 }}>{values.conditionField || 'Field'}</span>
+          <section className="nf-wf-sec">
+            <div className="nf-wf-sec-hd"><span className="nf-wf-step">3</span><span className="nf-wf-sec-title">Condition &amp; approvals</span></div>
+            <div className="nf-wf-if">
+              <span className="nf-wf-tag">If</span>
+              <span className="nf-wf-field">{values.conditionField || 'Field'}</span>
               <select
-                style={{ ...inputStyle, width: 70 }}
+                style={{ ...inputStyle, width: 76 }}
                 value={values.operator}
                 onChange={e => setValues(v => ({ ...v, operator: e.target.value }))}
               >
@@ -285,13 +302,10 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
               />
             </div>
 
-            <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 14, marginBottom: 8, fontWeight: 600 }}>THEN</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              <span style={{
-                fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 20,
-                background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px dashed var(--line2)',
-              }} title="Manager approval always applies - this cannot be turned off">
-                Manager Approval (always required)
+            <div className="nf-wf-then">
+              <span className="nf-wf-tag then">Then</span>
+              <span className="nf-wf-chip locked" title="Manager approval always applies - this cannot be turned off">
+                <Lock size={11} /> Manager Approval (always required)
               </span>
               {secondApprovalOptions.map(role => {
                 const checked = values.secondApprovalRoles.includes(role);
@@ -300,26 +314,22 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
                     key={role}
                     type="button"
                     onClick={() => toggleSecondApprovalRole(role)}
-                    style={{
-                      fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 20, cursor: 'pointer',
-                      border: checked ? '1px solid var(--brand)' : '1px solid var(--line2)',
-                      background: checked ? 'rgba(228,55,61,.12)' : 'var(--shell)',
-                      color: checked ? 'var(--brand)' : 'var(--txt-mut)',
-                    }}
+                    className={`nf-wf-chip opt${checked ? ' on' : ''}`}
                   >
-                    {checked ? '+ ' : ''}{role.replace('_', ' ')} Approval
+                    {checked ? '+ ' : ''}{metadata.approvalRoleLabels?.[role] ?? role.replace('_', ' ')} Approval
                   </button>
                 );
               })}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 8 }}>
+            <div className="nf-wf-note">
               Applies only when the condition above is TRUE. When FALSE, Manager approval alone is required.
             </div>
-          </div>
+          </section>
 
-          <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: 14, marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <label style={{ ...labelStyle, margin: 0 }}>Preview with sample amount</label>
+          <section className="nf-wf-sec">
+            <div className="nf-wf-sec-hd"><span className="nf-wf-step">4</span><span className="nf-wf-sec-title">Preview</span></div>
+            <div className="nf-wf-prev">
+              <label style={labelStyle} className="nf-wf-lbl">Preview with sample amount</label>
               <input
                 style={{ ...inputStyle, width: 120 }}
                 value={sampleValue}
@@ -331,23 +341,24 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
               </button>
             </div>
             {preview && (
-              <div style={{ fontSize: 12.5, color: 'var(--txt)', lineHeight: 1.7 }}>
+              <div className="nf-wf-result">
                 <div>Condition: <b style={{ fontFamily: 'Inter, sans-serif' }}>{preview.conditionExpression}</b> = <b style={{ color: preview.conditionResult ? '#2FB67C' : '#E4373D' }}>{String(preview.conditionResult).toUpperCase()}</b></div>
-                <div style={{ marginTop: 4 }}>Current Routing: <b>{preview.currentRouting.join(' → ')}</b></div>
-                <div>New Routing: <b>{preview.newRouting.join(' → ')}</b></div>
+                <div className="nf-wf-route"><span className="lbl">Current Routing</span>{stepsOf(preview.currentRouting)}</div>
+                <div className="nf-wf-route"><span className="lbl">New Routing</span>{stepsOf(preview.newRouting, 'new')}</div>
               </div>
             )}
-          </div>
+          </section>
+        </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-            <button onClick={onClose} disabled={saving} style={btnStyle}>Cancel</button>
-            <button onClick={handleSave} disabled={saving} style={btnPrimaryStyle}>
-              {saving ? 'Saving…' : initial ? 'Save Changes' : 'Save Draft'}
-            </button>
-          </div>
+        <div className="nf-wf-foot">
+          <button onClick={onClose} disabled={saving} style={btnStyle}>Cancel</button>
+          <button onClick={handleSave} disabled={saving} style={btnPrimaryStyle}>
+            {saving ? 'Saving…' : initial ? 'Save Changes' : 'Save Draft'}
+          </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

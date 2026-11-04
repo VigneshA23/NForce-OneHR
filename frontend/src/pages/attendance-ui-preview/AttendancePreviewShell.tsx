@@ -17,6 +17,7 @@
  *  Approve / Reject / submit actions are not wired to anything in this preview.
  * ============================================================================
  */
+import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import AttendancePage from '../AttendancePage';
 import { PreviewModeContext } from '../../lib/previewMode';
@@ -30,8 +31,28 @@ const ROLES: { param: string; role: Role; label: string }[] = [
   { param: 'superadmin', role: 'Super Admin', label: 'Super Admin' },
 ];
 
+/** Mock only: the Attendance Policy popup reads the employee's real resolved policy, so give it a sample one here. */
+const SAMPLE_POLICY = {
+  id: 'p1', policyId: 'p1', version: 1, effectiveFrom: '2026-01-01', effectiveTo: null, createdBy: 'mock', createdAt: '2026-01-01T00:00:00',
+  basicInfo: { deductionMethod: 'PAID_LEAVE', leavePriorityOrder: ['Casual Leave', 'Earned Leave'], bufferPeriodDays: 3, noticePeriodForcesLopEnabled: false },
+  noAttendance: { enabled: true, deductionDays: 1, noShowEnabled: false, noShowThresholdHours: null, adjoiningHolidayEnabled: false, adjoiningHolidayCondition: null, adjoiningHolidayCalendarDayThreshold: null, adjoiningHolidayIgnoreHalfDayLeave: false, adjoiningWeekoffEnabled: false, adjoiningWeekoffCondition: null, adjoiningWeekoffCalendarDayThreshold: null, adjoiningWeekoffIgnoreHalfDayLeave: false },
+  lateArrival: { enabled: true, basis: 'NUMBER_OF_INCIDENTS', gracePeriodMinutes: 10, exemptCount: 3, exemptPeriod: 'MONTH', deductionDays: 0.5, deductionPerShifts: 3, ignoreWhenEffectiveHoursMetEnabled: true, allowedHours: null, lateHoursTiers: [], combinedRuleBehavior: 'BOTH', penaliseWhenCausedByMissingLogEnabled: false },
+  workHoursShortage: { enabled: true, deductionBasis: 'EFFECTIVE_HOURS', deductionPeriod: 'DAY', tiers: [{ thresholdPercent: 50, deductionDays: 1 }, { thresholdPercent: 75, deductionDays: 0.5 }], applyPenaltyForShortageEnabled: true, applyPenaltyForLateArrivalEnabled: false, excludeHoursOutsideShiftEnabled: false, penalizeShortageCausedByMissingLogsEnabled: false },
+  missingLogs: { enabled: true, exemptDays: 2, exemptPeriod: 'MONTH', deductionMode: 'PER_SHIFT', deductionDays: 0.5, deductionPerShifts: 1, ignoreRuleEnabled: false, ignoreRuleThresholdPercent: null },
+};
+
 export default function AttendancePreviewShell() {
   const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const prevFetch = window.fetch;
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).split('?')[0].endsWith('/api/penalization-policy/my-current')) {
+        return Promise.resolve(new Response(JSON.stringify(SAMPLE_POLICY), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    return () => { window.fetch = prevFetch; };
+  }, []);
   const { accent, setAccent } = useAccentColor();
   const active = ROLES.find((r) => r.param === params.get('role')) ?? ROLES[0];
 

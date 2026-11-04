@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase, Search, ChevronDown } from 'lucide-react';
+import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase, Search, ChevronDown, IdCard, Mail, MapPin, GraduationCap, ShieldCheck, UserRound, FileText } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ProfileData } from '../../api/profile';
+import './profilePolish.css';
 
 export type ProfileDayStatus = 'holiday' | 'weekly-off' | null;
 
@@ -148,6 +149,7 @@ function MissingItemsDropdown({ items, anchorRect, onJumpTo, onCloseRequest }: {
       <div style={{ position: 'fixed', inset: 0, zIndex: 1000 }} onClick={onCloseRequest} />
       <div
         role="menu"
+        className="nf-pm-menu"
         style={{
           position: 'fixed', top: anchorRect.bottom + 6, left: anchorRect.left, zIndex: 1001,
           background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8,
@@ -244,35 +246,19 @@ export const ROLE_LABELS: Record<string, string> = {
 
 export function SectionHeader({ title, badge, icon: Icon }: { title: string; badge?: string; icon?: LucideIcon }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
-      {Icon && (
-        <span style={{
-          width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-          background: 'color-mix(in srgb, var(--brand) 14%, var(--raised2))',
-          color: 'var(--brand-bright)', display: 'grid', placeItems: 'center',
-        }}>
-          <Icon size={12} />
-        </span>
-      )}
-      <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-        {title}
-      </h2>
-      {badge && (
-        <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 20, background: 'rgba(107,114,128,.15)', color: 'var(--txt-dim)', letterSpacing: '.04em', textTransform: 'uppercase' }}>
-          {badge}
-        </span>
-      )}
+    <div className="nf-ps-head" style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 18 }}>
+      {Icon && <span className="nf-ps-ico"><Icon size={16} /></span>}
+      <h2 className="nf-ps-title">{title}</h2>
+      {badge && <span className="nf-ps-badge">{badge}</span>}
     </div>
   );
 }
 
 export function ReadField({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 13, color: value ? 'var(--txt)' : 'var(--txt-dim)', fontStyle: value ? 'normal' : 'italic', minHeight: 20 }}>
-        {value || 'Not set'}
-      </div>
+    <div className="nf-ps-field">
+      <div className="nf-ps-label">{label}</div>
+      <div className={`nf-ps-value${value ? '' : ' is-empty'}`}>{value || 'Not set'}</div>
     </div>
   );
 }
@@ -552,6 +538,19 @@ export function TextAreaField({ label, value, onChange, rows = 3, placeholder }:
   );
 }
 
+function editModalIcon(title: string): LucideIcon {
+  const t = title.toLowerCase();
+  if (t.includes('primary')) return IdCard;
+  if (t.includes('contact')) return Mail;
+  if (t.includes('address')) return MapPin;
+  if (t.includes('education') || t.includes('learning')) return GraduationCap;
+  if (t.includes('identity') || t.includes('statutory')) return ShieldCheck;
+  if (t.includes('bio') || t.includes('name') || t.includes('summary')) return UserRound;
+  if (t.includes('skill')) return Sparkles;
+  if (t.includes('certificate')) return FileText;
+  return Pencil;
+}
+
 // Generic per-section edit modal shell — fixed overlay, own card, Cancel/Save footer. Every new
 // My Profile section modal (Primary Details, Contact, Addresses, Education, Identity &
 // Statutory) is built from this, following the same overlay pattern PhotoModal/AvatarPickerModal
@@ -575,6 +574,8 @@ export function EditModal({ title, onClose, onSave, saving, saveDisabled, childr
     return () => { document.body.style.overflow = previous; };
   }, []);
 
+  const Icon = editModalIcon(title);
+
   // Portaled to <body>: every caller renders this inline inside a `.nf-profile-card`, which has
   // its own `:hover { transform: translateY(-1px) }`. A `transform` on any ancestor becomes the
   // positioning reference for a `position: fixed` descendant instead of the viewport — so with
@@ -583,32 +584,20 @@ export function EditModal({ title, onClose, onSave, saving, saveDisabled, childr
   // position the instant the mouse leaves the card. Portaling escapes that entirely — the same
   // fix MissingItemsDropdown already uses in this file for the same reason.
   return createPortal(
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: 'clamp(16px, 4vw, 40px)' }}
-      onClick={onClose}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 12,
-          width: `clamp(320px, 60vw, ${width}px)`, maxWidth: '95vw', maxHeight: '90vh',
-          display: 'flex', flexDirection: 'column', overflow: 'hidden',
-          boxShadow: '0 24px 64px rgba(0,0,0,.55)',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{title}</span>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, display: 'flex' }}>
-            <X size={16} />
-          </button>
+    <div className="nf-pm-dlg" onClick={onClose}>
+      <div className="nf-pm-card" role="dialog" aria-label={title} onClick={e => e.stopPropagation()} style={{ width: `clamp(320px, 60vw, ${width}px)` }}>
+        <div className="nf-pm-head">
+          <span className="nf-pm-ico"><Icon size={20} /></span>
+          <div className="nf-pm-titles">
+            <div className="nf-pm-title">{title}</div>
+            <div className="nf-pm-sub">Update this section. Your changes are saved to your profile.</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="nf-pm-x"><X size={16} /></button>
         </div>
-        <div style={{ padding: 22, overflowY: 'auto' }}>{children}</div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 22px', borderTop: '1px solid var(--line)' }}>
-          <button onClick={onClose} style={{ padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-            Cancel
-          </button>
-          <button onClick={onSave} disabled={saving || saveDisabled}
-            style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: (saving || saveDisabled) ? 'not-allowed' : 'pointer', opacity: (saving || saveDisabled) ? .7 : 1 }}>
+        <div className="nf-pm-body">{children}</div>
+        <div className="nf-pm-foot">
+          <button onClick={onClose} className="nf-pm-cancel">Cancel</button>
+          <button onClick={onSave} disabled={saving || saveDisabled} className="nf-pm-save">
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
         </div>
@@ -748,10 +737,12 @@ export function PhotoModal({ photoDataUrl, initials, uploading, removing, onEdit
   const busy = uploading || removing;
   return (
     <div
+      className="nf-pm-dlg"
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 600, padding: 'clamp(16px, 4vw, 40px)' }}
       onClick={onClose}
     >
       <div
+        className="nf-pm-photo"
         onClick={e => e.stopPropagation()}
         style={{
           background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 'clamp(10px, 1.4vw, 16px)',
@@ -864,10 +855,12 @@ export function AvatarPickerModal({ currentAvatarUrl, settingAvatar, onPick, onC
 }) {
   return (
     <div
+      className="nf-pm-dlg"
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 610, padding: 'clamp(16px, 4vw, 40px)' }}
       onClick={onClose}
     >
       <div
+        className="nf-pm-photo"
         onClick={e => e.stopPropagation()}
         style={{
           background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 'clamp(10px, 1.4vw, 16px)',

@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { ArrowDown, ArrowUp, Paperclip, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, BookOpen, FileText, HelpCircle, Paperclip, Pencil, Trash2, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import './helpModals.css';
 import { useToast } from '../../context/ToastContext';
 import {
   hrHelpContentApi,
@@ -21,11 +23,35 @@ export function StatusChip({ label, tone }: { label: string; tone: 'ok' | 'warn'
   return <span className={`nf-rep-pill${cls}`}>{label}</span>;
 }
 
+function modalIconFor(title: string): LucideIcon {
+  const t = title.toLowerCase();
+  if (t.includes('faq')) return HelpCircle;
+  if (t.includes('guide') || t.includes('quick help')) return BookOpen;
+  if (t.includes('edit')) return Pencil;
+  if (t.includes('delete') || t.includes('archive')) return Trash2;
+  return FileText;
+}
+
+function modalSubtitleFor(title: string): string | null {
+  const t = title.toLowerCase();
+  if (t.startsWith('add new faq')) return 'Write the question as an employee would ask it, with a short answer.';
+  if (t.startsWith('add new guide') || t.startsWith('add guide')) return 'Add a guide or quick-help document.';
+  if (t.startsWith('edit')) return 'Update this content.';
+  if (t === 'contact hr support') return 'Tell HR what you need and we will get back to you.';
+  return null;
+}
+
 function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  const Icon = modalIconFor(title);
+  const sub = modalSubtitleFor(title);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
+    <div className="nf-hp-head">
+      <span className="nf-hp-ico"><Icon size={20} /></span>
+      <div className="nf-hp-titles">
+        <div className="nf-hp-title">{title}</div>
+        {sub && <div className="nf-hp-sub">{sub}</div>}
+      </div>
+      <button onClick={onClose} className="nf-hp-x" aria-label="Close"><X size={16} /></button>
     </div>
   );
 }
@@ -64,15 +90,15 @@ export function ConfirmModal({ title, body, confirmLabel = 'Confirm', danger, on
   }
 
   return (
-    <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 440 }}>
+    <div className="nf-hp-dlg" style={overlayStyle}>
+      <div className="nf-hp-card" style={{ ...modalStyle, maxWidth: 440 }}>
         <ModalHeader title={title} onClose={onClose} />
         <div style={{ padding: 24 }}>
           <div style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.55, marginBottom: error ? 12 : 20 }}>{body}</div>
           {error && (
             <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 12.5, marginBottom: 16 }}>{error}</div>
           )}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <div className="nf-hp-foot" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} disabled={loading} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>Cancel</button>
             <button
               type="button"
@@ -241,8 +267,8 @@ export function ContentFormModal({ editing, initialType, token, onClose, onSaved
   }
 
   return (
-    <div style={overlayStyle}>
-      <div style={modalStyle}>
+    <div className="nf-hp-dlg" style={overlayStyle}>
+      <div className="nf-hp-card" style={modalStyle}>
         <ModalHeader title={modalTitle} onClose={onClose} />
         <form onSubmit={handleSubmit} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
@@ -318,7 +344,7 @@ export function ContentFormModal({ editing, initialType, token, onClose, onSaved
             </div>
           </Field>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
+          <div className="nf-hp-foot" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 4 }}>
             <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             <button type="submit" disabled={saving} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }}>
               {saving ? 'Saving…' : submitLabel}

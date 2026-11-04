@@ -2,8 +2,8 @@ package com.nforce.onehr.service.search.impl;
 
 import com.nforce.onehr.dto.helpdesk.TicketSummaryDto;
 import com.nforce.onehr.dto.search.SearchResultItem;
-import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.service.HelpdeskService;
 import com.nforce.onehr.service.search.SearchProvider;
 import lombok.RequiredArgsConstructor;
@@ -11,14 +11,13 @@ import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.nforce.onehr.service.search.SearchSupport.encode;
 
 /**
  * Helpdesk tickets — delegates straight to {@link HelpdeskService#listMine} (Employee/Manager:
- * their own tickets) or {@link HelpdeskService#listQueue} (HR Admin/Super Admin: the full queue),
+ * their own tickets) or {@link HelpdeskService#listQueue} (helpdesk:VIEW:ALL holders: the full queue),
  * the exact same paginated, already-authorized search each role's Help Desk view already calls —
  * this provider adds no filtering of its own.
  */
@@ -26,9 +25,8 @@ import static com.nforce.onehr.service.search.SearchSupport.encode;
 @RequiredArgsConstructor
 public class HelpdeskSearchProvider implements SearchProvider {
 
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
-
     private final HelpdeskService helpdeskService;
+    private final EffectivePermissionService effectivePermissionService;
 
     @Override
     public String moduleKey() {
@@ -57,8 +55,9 @@ public class HelpdeskSearchProvider implements SearchProvider {
                 : "/help?ticketSearch=" + encode(query);
     }
 
+    /** Same authority listQueue itself requires (seeded to exactly HR_ADMIN + SUPER_ADMIN). */
     private boolean isAdmin(User actor) {
-        return actor.getRoles().stream().map(Role::getCode).anyMatch(ADMIN_ROLES::contains);
+        return effectivePermissionService.hasAuthority(actor, "helpdesk:VIEW:ALL");
     }
 
     private SearchProviderResult search(User actor, String query, int page, int size) {

@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.doc.AnnouncementResponse;
 import com.nforce.onehr.dto.doc.PolicyResponse;
 import com.nforce.onehr.service.AnnouncementService;
@@ -35,7 +34,7 @@ public final class PolicyDataProviders {
         @Override public String id() { return "policy.my-acknowledgements"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Company policies and your acknowledgements"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("policies", "documents"); }
 
         @Override
@@ -75,7 +74,7 @@ public final class PolicyDataProviders {
         @Override public String id() { return "announcement.latest"; }
         @Override public DataScope scope() { return DataScope.SHARED; }
         @Override public String title() { return "Latest company announcements"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("announcements", "policies"); }
 
         @Override

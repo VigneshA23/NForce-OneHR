@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Calendar, RefreshCw, UserRound, Building2, History } from 'lucide-react';
+import { Calendar, RefreshCw, UserRound, Building2, History, Pencil } from 'lucide-react';
 import { profileApi, type ProfileData, type ProfileTimelineEvent } from '../../../api/profile';
 import { SectionHeader, ReadField, computeDisplayName } from '../shared';
 import { PreferredNameBioModal } from './PreferredNameBioModal';
@@ -12,11 +12,12 @@ function SummaryCard({ profile, token, onSaved }: { profile: ProfileData; token:
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <SectionHeader title="Personal Summary & Bio" icon={UserRound} />
         <button onClick={() => setEditing(true)}
+          className="nf-ps-edit"
           style={{ padding: '5px 12px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', cursor: 'pointer' }}>
-          Edit
+          <Pencil size={13} />Edit
         </button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }} className="nf-grid-2col-collapse">
         <ReadField label="Display Name" value={computeDisplayName(profile)} />
         <div style={{ gridColumn: '1/-1' }}>
           <ReadField label="About Me / Bio" value={profile.bio} />
@@ -77,8 +78,8 @@ function TimelineSubTab({ entries, loading }: { entries: ProfileTimelineEvent[];
   return (
     <div className="nf-profile-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '20px 24px' }}>
       <SectionHeader title="Employee Life Cycle & Career History" badge="System History" icon={History} />
-      <div style={{ position: 'relative', paddingLeft: 8 }}>
-        <div style={{ position: 'absolute', left: 23, top: 10, bottom: 10, width: 2, background: 'var(--line2)' }} />
+      <div className="nf-tl" style={{ position: 'relative', paddingLeft: 8 }}>
+        <div className="nf-tl-line" style={{ position: 'absolute', left: 23, top: 10, bottom: 10, width: 2, background: 'var(--line2)' }} />
         {sorted.map((e, i) => (
           <div key={i} style={{ position: 'relative', display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: i === sorted.length - 1 ? 0 : 22 }}>
             <div style={{
@@ -89,7 +90,7 @@ function TimelineSubTab({ entries, loading }: { entries: ProfileTimelineEvent[];
             }}>
               {e.type === 'JOINED_COMPANY' ? <UserRound size={16} /> : <RefreshCw size={16} />}
             </div>
-            <div style={{ paddingTop: 4 }}>
+            <div className="nf-tl-item" style={{ paddingTop: 4 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', marginBottom: 2 }}>{e.description}</div>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <Calendar size={11} /> {new Date(e.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
