@@ -161,7 +161,7 @@ public class OpportunityService {
         allocationReq.setCapacityPercent(req.capacityPercent());
         allocationReq.setStartDate(req.startDate());
         allocationReq.setEndDate(req.endDate());
-        ProjectAllocationResponse allocation = allocationService.allocate(allocationReq);
+        ProjectAllocationResponse allocation = allocationService.allocate(actorEmail, allocationReq);
 
         benchStatusService.endForAllocation(actor.getId(), req.employeeId(), allocation.getId(), req.startDate());
 

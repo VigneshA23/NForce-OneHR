@@ -38,6 +38,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -248,13 +249,13 @@ class OpportunityServiceTest {
     void close_allocates_endsBench_thenClosesTheOpportunity() {
         InternalOpportunity opp = openOpportunity();
         UUID allocationId = UUID.randomUUID();
-        when(allocationService.allocate(any(ProjectAllocationRequest.class)))
+        when(allocationService.allocate(anyString(), any(ProjectAllocationRequest.class)))
                 .thenReturn(ProjectAllocationResponse.builder().id(allocationId).build());
 
         OpportunityResponse res = service.close("hr@t", opp.getId(), closeRequest());
 
         InOrder order = inOrder(allocationService, benchStatusService, opportunityRepository);
-        order.verify(allocationService).allocate(any(ProjectAllocationRequest.class));
+        order.verify(allocationService).allocate(anyString(), any(ProjectAllocationRequest.class));
         order.verify(benchStatusService).endForAllocation(eq(hr.getId()), eq(benchedEmployee.getId()), eq(allocationId), any());
         order.verify(opportunityRepository).save(opp);
         assertEquals(OpportunityStatus.CLOSED, res.status());
@@ -266,7 +267,7 @@ class OpportunityServiceTest {
     void close_worksWhenThePosterIsAlsoTheAssignee() {
         InternalOpportunity opp = openOpportunity();
         opp.setPostedByUserId(benchedEmployee.getId());
-        when(allocationService.allocate(any(ProjectAllocationRequest.class)))
+        when(allocationService.allocate(anyString(), any(ProjectAllocationRequest.class)))
                 .thenReturn(ProjectAllocationResponse.builder().id(UUID.randomUUID()).build());
 
         OpportunityResponse res = service.close("hr@t", opp.getId(), closeRequest());
@@ -277,7 +278,7 @@ class OpportunityServiceTest {
     @Test
     void close_whenTheAllocationFails_leavesBenchAndOpportunityUntouched() {
         InternalOpportunity opp = openOpportunity();
-        when(allocationService.allocate(any(ProjectAllocationRequest.class)))
+        when(allocationService.allocate(anyString(), any(ProjectAllocationRequest.class)))
                 .thenThrow(new IllegalArgumentException("Capacity exceeds 100%"));
 
         assertThrows(IllegalArgumentException.class, () -> service.close("hr@t", opp.getId(), closeRequest()));
@@ -291,7 +292,7 @@ class OpportunityServiceTest {
     @Test
     void close_whenEndingBenchFails_neverClosesTheOpportunity() {
         InternalOpportunity opp = openOpportunity();
-        when(allocationService.allocate(any(ProjectAllocationRequest.class)))
+        when(allocationService.allocate(anyString(), any(ProjectAllocationRequest.class)))
                 .thenReturn(ProjectAllocationResponse.builder().id(UUID.randomUUID()).build());
         when(benchStatusService.endForAllocation(any(), any(), any(), any()))
                 .thenThrow(new IllegalStateException("Employee is not on bench"));
@@ -314,7 +315,7 @@ class OpportunityServiceTest {
 
     @Test
     void close_followsOpportunitiesApprove_forSuperAdminAndCustomRoles() {
-        when(allocationService.allocate(any(ProjectAllocationRequest.class)))
+        when(allocationService.allocate(anyString(), any(ProjectAllocationRequest.class)))
                 .thenReturn(ProjectAllocationResponse.builder().id(UUID.randomUUID()).build());
         for (String email : List.of("sa@t", "assigner@t")) {
             assertEquals(OpportunityStatus.CLOSED, service.close(email, openOpportunity().getId(), closeRequest()).status(), email);
