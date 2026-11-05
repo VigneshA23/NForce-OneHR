@@ -26,4 +26,11 @@ public interface EmployeeCompensationRepository extends JpaRepository<EmployeeCo
     @Modifying
     @Query("UPDATE EmployeeCompensation c SET c.effectiveTo = :effectiveTo WHERE c.employeeId = :employeeId AND c.effectiveTo IS NULL")
     void closeCurrentEntry(@Param("employeeId") UUID employeeId, @Param("effectiveTo") LocalDate effectiveTo);
+
+    // US-C08 — every employee's compensation row effective on a given date (point-in-time, not
+    // "whatever's current now"), used to discover who's included in a run and with what
+    // structure/CTC, correct even if generation happens well after the cycle closed.
+    @Query("SELECT c FROM EmployeeCompensation c JOIN FETCH c.structure "
+         + "WHERE c.effectiveFrom <= :date AND (c.effectiveTo IS NULL OR c.effectiveTo > :date)")
+    List<EmployeeCompensation> findAllEffectiveAt(@Param("date") LocalDate date);
 }

@@ -96,6 +96,9 @@ public enum AuditActionCategory {
             "PAYROLL_LOP_COMPUTED", "PAYROLL_LOP_OVERRIDDEN",
             // PayrollProrationService — US-C07: same treatment.
             "PAYROLL_PRORATION_COMPUTED",
+            // PayrollRunService — US-C08/C10/C11/C27: an HR Admin generating/transitioning/rolling
+            // back a payroll run, same treatment.
+            "PAYROLL_RUN_DRAFT_GENERATED", "PAYROLL_RUN_TRANSITION",
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.
