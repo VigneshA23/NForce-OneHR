@@ -4,6 +4,7 @@ import com.nforce.onehr.dto.payroll.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,12 +18,25 @@ import java.util.stream.Collectors;
 /**
  * US-C08 (ONEHR-614), Phase 3 — the payroll run: generates a DRAFT batch of payslips for a pay
  * cycle, carries it through DRAFT → SUBMITTED → APPROVED → DISBURSED (US-C11 audits every
- * transition), reconciles before submission (US-C10), and supports whole-run rollback (US-C27).
+ * transition), reconciles before submission (US-C10), supports whole-run rollback (US-C27), and
+ * routes {@link #approve} through the same {@code ApprovalRule} chain EXPENSE uses (US-C09).
+ *
+ * <h2>US-C09 — the approval chain</h2>
+ * <p>{@link #submit} snapshots the routing decision from whichever {@code ApprovalRule} is active
+ * for {@code PAYROLL_RUN} (see {@link ApprovalRuleEvaluationService#evaluatePayrollRun}) onto the
+ * run's {@code approvalStages}/{@code pendingApprovalStage}, exactly like {@code ExpenseService}
+ * snapshots its own routing at submission rather than re-evaluating later. {@link #approve}
+ * advances {@code pendingApprovalStage} one stage at a time; status stays SUBMITTED across every
+ * intermediate stage (no new status value — Decision #2's vocabulary stays settled) and only
+ * flips to APPROVED once the last stage clears. A single actor who holds every remaining stage's
+ * role (e.g. a Super Admin on a HR_ADMIN→SUPER_ADMIN chain) clears the whole chain in one call —
+ * same multi-layer collapse as {@code ExpenseService#finalApprove}. No active rule for
+ * {@code PAYROLL_RUN} means a single HR_ADMIN-only stage: the exact single-step behavior this app
+ * shipped with before this story, so an un-configured deployment is unaffected.
  *
  * <h2>Scope of this increment</h2>
  * <ul>
- *   <li><b>Not built yet:</b> US-C09's full multi-stage ApprovalRule chain — {@link #approve} is a
- *       direct single-step action. US-C27's per-employee selective rollback — only {@link
+ *   <li><b>Not built yet:</b> US-C27's per-employee selective rollback — only {@link
  *       #rollbackWholeRun} exists. Ad-hoc payments/deductions (US-C24/C25) — only recurring {@link
  *       SalaryStructureComponent} rows are read.</li>
  *   <li><b>Which employees are included:</b> every {@link EmployeeCompensation} row effective on
@@ -95,6 +109,7 @@ public class PayrollRunService {
     private final SalaryStructureComponentRepository salaryStructureComponentRepository;
     private final PayrollLopCalculationService payrollLopCalculationService;
     private final PayrollProrationService payrollProrationService;
+    private final ApprovalRuleEvaluationService approvalRuleEvaluationService;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -168,6 +183,13 @@ public class PayrollRunService {
             throw new IllegalStateException("Reconciliation mismatch — line items no longer match the run's stored totals; regenerate before submitting");
         }
 
+        // US-C09: snapshot the routing decision now, at submission — never re-evaluated later at
+        // approve() time, same convention as ExpenseService#submit.
+        ApprovalRuleEvaluationService.Decision decision = approvalRuleEvaluationService.evaluatePayrollRun(run.getTotalNet());
+        run.setApprovalStages(ApprovalRuleEvaluationService.toCsv(decision.requiredStages()));
+        run.setPendingApprovalStage(decision.requiredStages().get(0));
+        run.setEvaluatedRuleId(decision.evaluatedRuleId());
+
         return transition(run, PayrollRunStatus.SUBMITTED, actorEmail, r -> r.setSubmittedAt(LocalDateTime.now()));
     }
 
@@ -177,7 +199,31 @@ public class PayrollRunService {
         if (!PayrollRunStatus.SUBMITTED.equals(run.getStatus())) {
             throw new IllegalStateException("Only a SUBMITTED run can be approved (currently " + run.getStatus() + ")");
         }
-        return transition(run, PayrollRunStatus.APPROVED, actorEmail, r -> r.setApprovedAt(LocalDateTime.now()));
+        User actor = requireActor(actorEmail);
+        // A run submitted before US-C09 (or against the legacy single-stage default) has no
+        // chain to walk — treat it as the one HR_ADMIN-only stage this app always required.
+        String currentStage = run.getPendingApprovalStage() != null
+                ? run.getPendingApprovalStage() : ApprovalRuleEvaluationService.ROLE_HR_ADMIN;
+        requireCanActAtApprovalStage(actor, currentStage);
+
+        // Multi-layer collapse: an actor who also holds the role for the next stage(s) clears them
+        // in this same call — same convention as ExpenseService#finalApprove.
+        String next = nextApprovalStage(run, currentStage);
+        while (next != null && actorHasRole(actor, next)) {
+            next = nextApprovalStage(run, next);
+        }
+        if (next != null) {
+            String before = auditSnapshot.toJson(runSnapshot(run));
+            run.setPendingApprovalStage(next);
+            run = payrollRunRepository.save(run);
+            auditService.log(actor.getId(), "PAYROLL_RUN_STAGE_APPROVED", run.getId(), before, auditSnapshot.toJson(runSnapshot(run)));
+            return toRunResponse(run);
+        }
+
+        return transition(run, PayrollRunStatus.APPROVED, actorEmail, r -> {
+            r.setApprovedAt(LocalDateTime.now());
+            r.setPendingApprovalStage(null);
+        });
     }
 
     @Transactional
@@ -192,8 +238,14 @@ public class PayrollRunService {
     @Transactional
     public PayrollRunResponse rollbackWholeRun(UUID runId, RollbackRunRequest req, String actorEmail) {
         PayrollRun run = requireRun(runId);
-        if (!PayrollRunStatus.APPROVED.equals(run.getStatus()) && !PayrollRunStatus.DISBURSED.equals(run.getStatus())) {
-            throw new IllegalStateException("Only an APPROVED or DISBURSED run can be rolled back (currently " + run.getStatus() + ")");
+        // US-C09: widened to also accept SUBMITTED, not just APPROVED/DISBURSED. Before this, a
+        // SUBMITTED run that an approver wanted to reject (rather than advance) had no path back to
+        // DRAFT at all — generateDraft refuses to regenerate anything but a DRAFT run, and this was
+        // the only way back to DRAFT. Rejecting mid-chain reuses this exact mechanism (reasoned,
+        // audited, reverts to DRAFT) rather than inventing a parallel reject flow.
+        if (!PayrollRunStatus.APPROVED.equals(run.getStatus()) && !PayrollRunStatus.DISBURSED.equals(run.getStatus())
+                && !PayrollRunStatus.SUBMITTED.equals(run.getStatus())) {
+            throw new IllegalStateException("Only a SUBMITTED, APPROVED or DISBURSED run can be rolled back (currently " + run.getStatus() + ")");
         }
         if (!payrollRunRepository.findLaterLockedRuns(run.getPayGroupId(), run.getCycleStart()).isEmpty()) {
             throw new IllegalStateException("Cannot roll back: a later cycle for this pay group is already APPROVED or DISBURSED");
@@ -201,6 +253,7 @@ public class PayrollRunService {
 
         String before = auditSnapshot.toJson(runSnapshot(run));
         run.setStatus(PayrollRunStatus.DRAFT);
+        run.setPendingApprovalStage(null);
         run.setLastRolledBackAt(LocalDateTime.now());
         run.setLastRollbackReason(req.getReason());
         run = payrollRunRepository.save(run);
@@ -391,6 +444,31 @@ public class PayrollRunService {
         return types.stream().map(t -> sums.getOrDefault(t, BigDecimal.ZERO)).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
+    /** The stage after {@code current} in the run's snapshotted stage list, or null when
+     * {@code current} is the last one. Mirrors ExpenseService#nextFinalStage, simplified — every
+     * PAYROLL_RUN stage is a "final-type" role (HR_ADMIN/SUPER_ADMIN), there's no separate
+     * manager-stage tier to skip past. */
+    private String nextApprovalStage(PayrollRun run, String current) {
+        List<String> stages = run.getApprovalStages() != null
+                ? ApprovalRuleEvaluationService.parseStages(run.getApprovalStages())
+                : List.of(ApprovalRuleEvaluationService.ROLE_HR_ADMIN);
+        int i = stages.indexOf(current);
+        return (i >= 0 && i + 1 < stages.size()) ? stages.get(i + 1) : null;
+    }
+
+    /** Null stage never occurs in practice (approve() always resolves a concrete stage first) —
+     * kept for symmetry with the same check in ExpenseService. Super Admin may act at the
+     * HR_ADMIN stage too, never the reverse — same override convention used everywhere else. */
+    private void requireCanActAtApprovalStage(User actor, String stage) {
+        if (!actorHasRole(actor, stage) && !actorHasRole(actor, "SUPER_ADMIN")) {
+            throw new AccessDeniedException("This run is awaiting " + stage + " approval");
+        }
+    }
+
+    private boolean actorHasRole(User actor, String roleCode) {
+        return actor.getRoles().stream().anyMatch(r -> roleCode.equals(r.getCode()));
+    }
+
     private PayrollRun requireRun(UUID runId) {
         return payrollRunRepository.findById(runId)
                 .orElseThrow(() -> new NoSuchElementException("Payroll run not found: " + runId));
@@ -408,6 +486,7 @@ public class PayrollRunService {
         snapshot.put("totalGross", r.getTotalGross());
         snapshot.put("totalDeductions", r.getTotalDeductions());
         snapshot.put("totalNet", r.getTotalNet());
+        if (r.getPendingApprovalStage() != null) snapshot.put("pendingApprovalStage", r.getPendingApprovalStage());
         if (r.getLastRollbackReason() != null) snapshot.put("lastRollbackReason", r.getLastRollbackReason());
         return snapshot;
     }
@@ -428,6 +507,8 @@ public class PayrollRunService {
                 .disbursedAt(r.getDisbursedAt())
                 .lastRolledBackAt(r.getLastRolledBackAt())
                 .lastRollbackReason(r.getLastRollbackReason())
+                .approvalStages(r.getApprovalStages() != null ? ApprovalRuleEvaluationService.parseStages(r.getApprovalStages()) : null)
+                .pendingApprovalStage(r.getPendingApprovalStage())
                 .createdAt(r.getCreatedAt())
                 .build();
     }

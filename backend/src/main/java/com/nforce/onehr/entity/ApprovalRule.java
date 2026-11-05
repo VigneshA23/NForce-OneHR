@@ -45,7 +45,9 @@ public class ApprovalRule {
     private String conditionValue;
 
     // Comma-separated role codes required when the condition evaluates true, e.g.
-    // "MANAGER,HR_ADMIN". Always starts with MANAGER — see ApprovalRuleService validation.
+    // "MANAGER,HR_ADMIN" (EXPENSE) or "HR_ADMIN,SUPER_ADMIN" (PAYROLL_RUN) — the required first
+    // stage and allowed stage roles are request-type-specific, see ApprovalRuleService validation.
+    // Widened to 500 (V236) for custom-role-based stage lists.
     @Column(name = "approval_stages", nullable = false, length = 500)
     private String approvalStages;
 
