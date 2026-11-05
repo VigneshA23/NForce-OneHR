@@ -37,8 +37,8 @@ import java.util.stream.Collectors;
  * <h2>Scope of this increment</h2>
  * <ul>
  *   <li><b>Not built yet:</b> US-C27's per-employee selective rollback — only {@link
- *       #rollbackWholeRun} exists. Ad-hoc payments/deductions (US-C24/C25) — only recurring {@link
- *       SalaryStructureComponent} rows are read.</li>
+ *       #rollbackWholeRun} exists. US-C25's ad-hoc deductions (with installment/balance
+ *       tracking) — only US-C24's one-off {@link AdHocPayment} rows are read here.</li>
  *   <li><b>Which employees are included:</b> every {@link EmployeeCompensation} row effective on
  *       the cycle's last day, regardless of {@code payGroupId} — there is no employee-to-pay-group
  *       assignment mechanism yet, a gap already flagged when US-C07 was built. Fine while there's
@@ -89,6 +89,11 @@ import java.util.stream.Collectors;
  *       ("all components except conveyance are reduced proportionally").</li>
  *   <li><b>Rounding:</b> every stored amount is HALF_UP to 2 decimals (Decision #10, rounding
  *       rule, is still unconfirmed).</li>
+ *   <li><b>US-C24 ad-hoc payments are never prorated</b>, regardless of the catalog component's
+ *       own {@code prorateOnLop} flag — a one-off bonus/OT/referral amount an HR Admin explicitly
+ *       typed in for this exact cycle isn't a recurring entitlement to scale down for a partial
+ *       month; it's added at face value, same as Conveyance's own prorateOnLop=false treatment but
+ *       for a different reason (deliberate exception, not a catalog property).</li>
  * </ol>
  */
 @Service
@@ -110,6 +115,7 @@ public class PayrollRunService {
     private final PayrollLopCalculationService payrollLopCalculationService;
     private final PayrollProrationService payrollProrationService;
     private final ApprovalRuleEvaluationService approvalRuleEvaluationService;
+    private final AdHocPaymentRepository adHocPaymentRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -362,6 +368,21 @@ public class PayrollRunService {
             } else if (DEDUCTION_TYPES.contains(catalog.getType())) {
                 totalDeductions = totalDeductions.add(amount);
             }
+        }
+
+        // US-C24: one-off ad-hoc payments added to this run for this employee — picked up on
+        // every generateDraft call (including a regenerate), since they're tied to the run's own
+        // id, which is stable across regeneration. Never prorated — see the class javadoc.
+        for (AdHocPayment adHoc : adHocPaymentRepository.findByPayrollRunIdAndEmployeeId(run.getId(), comp.getEmployeeId())) {
+            payslipLineItemRepository.save(PayslipLineItem.builder()
+                    .payslip(payslip)
+                    .componentId(adHoc.getComponentId())
+                    .componentName(adHoc.getComponentName())
+                    .componentType(adHoc.getComponentType())
+                    .amount(adHoc.getAmount())
+                    .prorated(false)
+                    .build());
+            grossPay = grossPay.add(adHoc.getAmount());
         }
 
         payslip.setGrossPay(grossPay);
