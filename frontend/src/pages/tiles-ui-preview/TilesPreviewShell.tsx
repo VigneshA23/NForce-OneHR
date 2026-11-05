@@ -47,6 +47,8 @@ import NotificationsPage from '../NotificationsPage';
 import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
+import { AttentionPanel } from '../MyTeamPage';
+import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
 import DocumentsPage from '../DocumentsPage';
 import HelpDeskPage from '../HelpDeskPage';
@@ -83,6 +85,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'profile-page', label: 'My Profile (full page)', title: 'My Profile', subtitle: 'Sample data: About, Profile, Job and Assets tabs with the Edit popups. Use ?role=employee for the employee view.' },
   { key: 'prefs-page', label: 'User Preferences (full page)', title: 'User Preferences', subtitle: 'Appearance, Notifications and Accessibility. Changes here apply to this preview only.' },
   { key: 'change-password-page', label: 'Change Password (full page)', title: 'Change Password', subtitle: 'Add &forced=1 for the first-login version. Nothing is submitted to a server here.' },
+  { key: 'attention-panel', label: 'My Team: Needs your attention', title: 'My Team: Needs your attention', subtitle: 'Sample pending requests. Approve / Reject here only change this preview.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
@@ -439,6 +442,36 @@ function ChangePasswordMock() {
     return () => { useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user }); };
   }, []);
   return ready ? <ChangePasswordPage /> : null;
+}
+
+function AttentionMock() {
+  const [items, setItems] = useState<ApprovalItem[]>([]);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample pending requests; approving or rejecting just removes them from this preview.
+    const prevFetch = window.fetch;
+    const base = { employeeUserId: '', employeeName: '', requestType: 'LEAVE', id: '', leaveTypeName: null, leaveStartDate: null, leaveEndDate: null, leaveTotalDays: null, attendanceDate: null, requestedCheckIn: null, requestedCheckOut: null, expenseCategoryName: null, expenseAmount: null, approvalStage: null, requestedCategoryName: null, assetRequestReason: null };
+    const mk = (i: number, name: string, extra: Record<string, unknown>) => ({ ...base, id: String(i), employeeUserId: 'u' + i, employeeName: name, ...extra }) as unknown as ApprovalItem;
+    const names = ['Ramesh A', 'Lalith Kumar Ratnala', 'Abuzar Siddiqui', 'Sri vidya', 'Praveen Gurram', 'Sanjukta', 'Vyshnavi Guthala', 'chandu shyam'];
+    const list: ApprovalItem[] = [];
+    names.forEach((n, i) => list.push(mk(i + 1, n, { requestType: 'LEAVE', leaveTypeName: i % 2 ? 'Annual Leave' : 'Casual Leave', leaveStartDate: '2026-09-17', leaveEndDate: i % 3 === 0 ? '2026-09-17' : '2026-09-19', leaveTotalDays: i % 3 === 0 ? 1 : 3 })));
+    list.push(mk(21, 'Sri vidya', { requestType: 'REGULARIZATION', attendanceDate: '2026-10-30', requestedCheckIn: '09:30', requestedCheckOut: null }));
+    list.push(mk(22, 'Sanjukta', { requestType: 'REGULARIZATION', attendanceDate: '2026-10-29', requestedCheckIn: null, requestedCheckOut: '18:30' }));
+    list.push(mk(31, 'Praveen Gurram', { requestType: 'EXPENSE', expenseCategoryName: 'Travel', expenseAmount: 2400, approvalStage: 'MANAGER' }));
+    list.push(mk(41, 'Vyshnavi Guthala', { requestType: 'ASSET_REQUEST', requestedCategoryName: 'Laptop', assetRequestReason: 'Replacement for a faulty unit' }));
+    setItems(list);
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'GET') return Promise.resolve(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    setReady(true);
+    return () => { window.fetch = prevFetch; };
+  }, []);
+  return ready ? (
+    <div style={{ maxWidth: 420 }}>
+      <AttentionPanel items={items} token="mock-token" onDone={id => setItems(prev => prev.filter(i => i.id !== id))} />
+    </div>
+  ) : null;
 }
 
 function PoliciesMock() {
@@ -1185,6 +1218,8 @@ function Tiles({ page }: { page: string }) {
       return <ProfileMock />;
     case 'prefs-page':
       return <UserPreferencesPage />;
+    case 'attention-panel':
+      return <AttentionMock />;
     case 'change-password-page':
       return <ChangePasswordMock />;
     case 'documents-page':
