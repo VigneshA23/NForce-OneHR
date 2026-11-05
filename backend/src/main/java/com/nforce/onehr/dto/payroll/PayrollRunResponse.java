@@ -6,6 +6,7 @@ import lombok.Getter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -25,5 +26,9 @@ public class PayrollRunResponse {
     private LocalDateTime disbursedAt;
     private LocalDateTime lastRolledBackAt;
     private String lastRollbackReason;
+    // US-C09 — the snapshotted approval chain and which stage is currently pending; both null
+    // before submission or once APPROVED.
+    private List<String> approvalStages;
+    private String pendingApprovalStage;
     private LocalDateTime createdAt;
 }
