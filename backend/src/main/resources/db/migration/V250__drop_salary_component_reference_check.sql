@@ -1,0 +1,14 @@
+-- NForce OneHR — Flyway Migration V250
+-- US-C01 (ONEHR-607) — fixes a real bug in V249's chk_salary_components_reference_matches_calc_type
+-- constraint, caught live: PostgreSQL CHECK constraints cannot be DEFERRABLE (only UNIQUE,
+-- PRIMARY KEY and FOREIGN KEY can be — see PostgreSQL's own CREATE TABLE docs). This constraint
+-- requires reference_component_id to already be set for a PERCENT_OF_COMPONENT row, but
+-- SalaryStructureService#create saves every component first (to get ids), THEN resolves and sets
+-- each PERCENT_OF_COMPONENT row's reference_component_id against its sibling — an intermediate
+-- state the constraint rejected on the very first INSERT, before resolution ever got to run.
+--
+-- This rule is kept, just moved: it's enforced in SalaryStructureService#validateComponents
+-- before anything is saved (referenceComponentName required iff PERCENT_OF_COMPONENT, must
+-- resolve to a real sibling, must not self-reference), the same way this codebase enforces most
+-- cross-row business rules that a plain CHECK constraint can't express.
+ALTER TABLE salary_components DROP CONSTRAINT chk_salary_components_reference_matches_calc_type;
