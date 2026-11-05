@@ -73,6 +73,25 @@ public enum AuditActionCategory {
             // LeaveTypeService — Organization Masters > Leave configuration changes, same
             // treatment as PenalizationPolicyService above.
             "LEAVE_TYPE_CREATED", "LEAVE_TYPE_UPDATED",
+            // SalaryStructureService — Payroll Epic (ONEHR-579) US-C01: defining a Salary
+            // Structure template is HR configuration, not a self-submitted request, same
+            // treatment as LeaveTypeService above.
+            "SALARY_STRUCTURE_CREATED",
+            // SalaryComponentService — US-C20: the shared component catalog is HR configuration,
+            // same treatment as the two above.
+            "SALARY_COMPONENT_CREATED", "SALARY_COMPONENT_UPDATED",
+            // PayGroupService — US-C19: pay group/schedule configuration, same treatment.
+            "PAY_GROUP_CREATED", "PAY_GROUP_UPDATED",
+            // EmployeeCompensationService — US-C02: an HR Admin assigning/revising someone else's
+            // CTC and structure, not a self-submitted request, same treatment as above.
+            "EMPLOYEE_COMPENSATION_ASSIGNED",
+            // StatutoryRuleService — US-C13: statutory deduction rule configuration, same treatment.
+            "STATUTORY_RULE_CREATED",
+            // PayrollLopCalculationService — US-C04/US-C05: an HR Admin computing/overriding
+            // someone else's LOP days, not a self-submitted request, same treatment as above.
+            "PAYROLL_LOP_COMPUTED", "PAYROLL_LOP_OVERRIDDEN",
+            // PayrollProrationService — US-C07: same treatment.
+            "PAYROLL_PRORATION_COMPUTED",
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.
