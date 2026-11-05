@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -35,6 +36,7 @@ class PayrollRunServiceTest {
     @Mock private SalaryStructureComponentRepository salaryStructureComponentRepository;
     @Mock private PayrollLopCalculationService payrollLopCalculationService;
     @Mock private PayrollProrationService payrollProrationService;
+    @Mock private ApprovalRuleEvaluationService approvalRuleEvaluationService;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -51,15 +53,26 @@ class PayrollRunServiceTest {
     private final LocalDate cycleStart = LocalDate.of(2026, 6, 1);
     private final LocalDate cycleEnd = LocalDate.of(2026, 6, 28); // 28-day cycle, same pattern as other tests
 
+    private final Role hrAdminRole = Role.builder().id(1).code("HR_ADMIN").displayName("HR Admin").build();
+    private final Role superAdminRole = Role.builder().id(2).code("SUPER_ADMIN").displayName("Super Admin").build();
+
     @BeforeEach
     void setUp() {
         service = new PayrollRunService(payrollRunRepository, payslipRepository, payslipLineItemRepository,
                 payGroupRepository, employeeCompensationRepository, salaryStructureComponentRepository,
-                payrollLopCalculationService, payrollProrationService, userRepository, auditService, auditSnapshot);
+                payrollLopCalculationService, payrollProrationService, approvalRuleEvaluationService,
+                userRepository, auditService, auditSnapshot);
 
-        User actor = User.builder().id(actorId).email(actorEmail).build();
+        // Default actor holds HR_ADMIN — matches this app's one real approver role before US-C09,
+        // and the legacy single-HR_ADMIN-stage default evaluatePayrollRun falls back to below.
+        User actor = User.builder().id(actorId).email(actorEmail).roles(Set.of(hrAdminRole)).build();
         lenient().when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
         lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
+
+        // US-C09: no active ApprovalRule for PAYROLL_RUN by default — single HR_ADMIN-only stage,
+        // the exact behavior this app shipped with before this story.
+        lenient().when(approvalRuleEvaluationService.evaluatePayrollRun(any())).thenReturn(
+                new ApprovalRuleEvaluationService.Decision(false, List.of("HR_ADMIN"), null));
 
         PayGroup payGroup = PayGroup.builder().id(payGroupId).cycleStartDay(1).cycleEndDay(28).build();
         lenient().when(payGroupRepository.findById(payGroupId)).thenReturn(Optional.of(payGroup));
@@ -241,7 +254,26 @@ class PayrollRunServiceTest {
 
         assertEquals(PayrollRunStatus.SUBMITTED, resp.getStatus());
         assertNotNull(resp.getSubmittedAt());
+        // US-C09: legacy default (no active rule) snapshots a single HR_ADMIN-only stage.
+        assertEquals(List.of("HR_ADMIN"), resp.getApprovalStages());
+        assertEquals("HR_ADMIN", resp.getPendingApprovalStage());
         verify(auditService).log(eq(actorId), eq("PAYROLL_RUN_TRANSITION"), any(), any(), any());
+    }
+
+    @Test
+    void submit_activeRuleRequiresEscalation_snapshotsTwoStageChain() {
+        PayrollRun draft = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(draft.getId())).thenReturn(Optional.of(draft));
+        when(payslipLineItemRepository.sumAmountByComponentType(draft.getId()))
+                .thenReturn(List.<Object[]>of(new Object[]{SalaryComponentType.EARNING, new BigDecimal("100000.00")}));
+        UUID ruleId = UUID.randomUUID();
+        when(approvalRuleEvaluationService.evaluatePayrollRun(new BigDecimal("100000.00"))).thenReturn(
+                new ApprovalRuleEvaluationService.Decision(true, List.of("HR_ADMIN", "SUPER_ADMIN"), ruleId));
+
+        PayrollRunResponse resp = service.submit(draft.getId(), actorEmail);
+
+        assertEquals(List.of("HR_ADMIN", "SUPER_ADMIN"), resp.getApprovalStages());
+        assertEquals("HR_ADMIN", resp.getPendingApprovalStage());
     }
 
     @Test
@@ -282,6 +314,59 @@ class PayrollRunServiceTest {
     }
 
     @Test
+    void approve_actorMissingPendingStageRole_rejected() {
+        PayrollRun submitted = run(PayrollRunStatus.SUBMITTED);
+        submitted.setApprovalStages("HR_ADMIN,SUPER_ADMIN");
+        submitted.setPendingApprovalStage("SUPER_ADMIN");
+        when(payrollRunRepository.findById(submitted.getId())).thenReturn(Optional.of(submitted));
+        // Default test actor only holds HR_ADMIN, but the run is awaiting SUPER_ADMIN.
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.approve(submitted.getId(), actorEmail));
+    }
+
+    @Test
+    void approve_twoStageChain_hrAdminAdvancesThenSuperAdminFinalizes() {
+        PayrollRun submitted = run(PayrollRunStatus.SUBMITTED);
+        submitted.setApprovalStages("HR_ADMIN,SUPER_ADMIN");
+        submitted.setPendingApprovalStage("HR_ADMIN");
+        when(payrollRunRepository.findById(submitted.getId())).thenReturn(Optional.of(submitted));
+
+        PayrollRunResponse afterFirst = service.approve(submitted.getId(), actorEmail);
+
+        assertEquals(PayrollRunStatus.SUBMITTED, afterFirst.getStatus());
+        assertEquals("SUPER_ADMIN", afterFirst.getPendingApprovalStage());
+        verify(auditService).log(eq(actorId), eq("PAYROLL_RUN_STAGE_APPROVED"), any(), any(), any());
+
+        // A different actor, holding SUPER_ADMIN, clears the final stage.
+        UUID superAdminActorId = UUID.randomUUID();
+        String superAdminEmail = "super.admin@test.com";
+        User superAdminActor = User.builder().id(superAdminActorId).email(superAdminEmail).roles(Set.of(superAdminRole)).build();
+        when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminActor));
+
+        PayrollRunResponse afterSecond = service.approve(submitted.getId(), superAdminEmail);
+
+        assertEquals(PayrollRunStatus.APPROVED, afterSecond.getStatus());
+        assertNull(afterSecond.getPendingApprovalStage());
+        assertNotNull(afterSecond.getApprovedAt());
+    }
+
+    @Test
+    void approve_superAdminActor_collapsesTwoStageChainInOneCall() {
+        PayrollRun submitted = run(PayrollRunStatus.SUBMITTED);
+        submitted.setApprovalStages("HR_ADMIN,SUPER_ADMIN");
+        submitted.setPendingApprovalStage("HR_ADMIN");
+        when(payrollRunRepository.findById(submitted.getId())).thenReturn(Optional.of(submitted));
+        User superAdminActor = User.builder().id(actorId).email(actorEmail).roles(Set.of(superAdminRole)).build();
+        when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(superAdminActor));
+
+        PayrollRunResponse resp = service.approve(submitted.getId(), actorEmail);
+
+        assertEquals(PayrollRunStatus.APPROVED, resp.getStatus());
+        assertNull(resp.getPendingApprovalStage());
+    }
+
+    @Test
     void disburse_fromApproved_succeeds() {
         PayrollRun approved = run(PayrollRunStatus.APPROVED);
         when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
@@ -306,6 +391,24 @@ class PayrollRunServiceTest {
         assertEquals("Reconciliation error found after approval", resp.getLastRollbackReason());
         assertNotNull(resp.getLastRolledBackAt());
         verify(auditService).log(eq(actorId), eq("PAYROLL_RUN_TRANSITION"), any(), any(), any());
+    }
+
+    @Test
+    void rollback_fromSubmitted_allowed_clearsPendingApprovalStage() {
+        // US-C09: before this story, a SUBMITTED run had no path back to DRAFT at all — this
+        // closes that gap (an approver rejecting mid-chain reuses rollback).
+        PayrollRun submitted = run(PayrollRunStatus.SUBMITTED);
+        submitted.setApprovalStages("HR_ADMIN,SUPER_ADMIN");
+        submitted.setPendingApprovalStage("SUPER_ADMIN");
+        when(payrollRunRepository.findById(submitted.getId())).thenReturn(Optional.of(submitted));
+        when(payrollRunRepository.findLaterLockedRuns(payGroupId, cycleStart)).thenReturn(List.of());
+
+        RollbackRunRequest req = new RollbackRunRequest();
+        req.setReason("Found an error at the Super Admin stage");
+        PayrollRunResponse resp = service.rollbackWholeRun(submitted.getId(), req, actorEmail);
+
+        assertEquals(PayrollRunStatus.DRAFT, resp.getStatus());
+        assertNull(resp.getPendingApprovalStage());
     }
 
     @Test

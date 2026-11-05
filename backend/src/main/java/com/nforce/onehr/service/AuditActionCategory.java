@@ -97,8 +97,10 @@ public enum AuditActionCategory {
             // PayrollProrationService — US-C07: same treatment.
             "PAYROLL_PRORATION_COMPUTED",
             // PayrollRunService — US-C08/C10/C11/C27: an HR Admin generating/transitioning/rolling
-            // back a payroll run, same treatment.
-            "PAYROLL_RUN_DRAFT_GENERATED", "PAYROLL_RUN_TRANSITION",
+            // back a payroll run, same treatment. PAYROLL_RUN_STAGE_APPROVED (US-C09) is a single
+            // intermediate stage clearing in a multi-stage chain, distinct from the final
+            // SUBMITTED->APPROVED transition PAYROLL_RUN_TRANSITION already covers.
+            "PAYROLL_RUN_DRAFT_GENERATED", "PAYROLL_RUN_TRANSITION", "PAYROLL_RUN_STAGE_APPROVED",
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.
