@@ -34,6 +34,7 @@ import { kudosApi } from '../api/kudos';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
+import './myTeamAttention.css';
 import { businessTodayIsoDate } from '../utils/businessDate';
 import { teamGrowthApi, type TeamGrowthSummary } from '../api/teamGrowth';
 import { DetailModalShell } from '../components/TeamGrowthModal';
@@ -212,14 +213,17 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
     : `${fmtDateShort(item.attendanceDate)} · missing ${item.requestedCheckIn && item.requestedCheckOut ? 'check-in & check-out' : item.requestedCheckIn ? 'check-in' : 'check-out'}`;
 
   return (
-    <div style={{ padding: '13px 18px', borderBottom: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 7 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{item.employeeName}</span>
+    <div className="nf-att-item">
+      <div className="nf-att-who">
+        <Avatar userId={item.employeeUserId} name={item.employeeName} size={32} />
+        <div className="nf-att-txt">
+          <div className="nf-att-name">{item.employeeName}</div>
+          <div className="nf-att-detail">{detail}</div>
+        </div>
         <TypeBadge type={type} />
       </div>
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{detail}</div>
       {rejecting ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
+        <div className="nf-att-reject">
           <textarea
             autoFocus
             value={reason}
@@ -227,21 +231,63 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
             placeholder="Reason for rejecting…"
             style={{ ...inputStyle, minHeight: 56, resize: 'vertical', fontFamily: 'inherit' }}
           />
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => { setRejecting(false); setReason(''); }} style={{ flex: 1, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--line2)', background: 'var(--raised2)', color: 'var(--txt-mut)' }}>Cancel</button>
-            <button onClick={reject} disabled={!reason.trim() || busy} style={{ flex: 1, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', borderRadius: 6, cursor: !reason.trim() || busy ? 'not-allowed' : 'pointer', border: '1px solid transparent', background: reason.trim() ? 'rgba(228,55,61,.18)' : 'var(--raised2)', color: reason.trim() ? 'var(--risk)' : 'var(--txt-dim)' }}>
+          <div className="nf-att-actions">
+            <button onClick={() => { setRejecting(false); setReason(''); }} className="nf-att-btn">Cancel</button>
+            <button onClick={reject} disabled={!reason.trim() || busy} className="nf-att-btn is-danger">
               {busy ? 'Rejecting…' : 'Confirm reject'}
             </button>
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-          <button onClick={approve} disabled={busy} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', borderRadius: 6, cursor: busy ? 'not-allowed' : 'pointer', border: '1px solid transparent', background: 'rgba(47,182,124,.14)', color: 'var(--ok)' }}>
-            <Check size={12} /> Approve
+        <div className="nf-att-actions">
+          <button onClick={approve} disabled={busy} className="nf-att-btn is-ok">
+            <Check size={13} /> Approve
           </button>
-          <button onClick={() => setRejecting(true)} disabled={busy} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', borderRadius: 6, cursor: busy ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--raised2)', color: 'var(--txt-mut)' }}>
-            <X size={12} /> Reject
+          <button onClick={() => setRejecting(true)} disabled={busy} className="nf-att-btn">
+            <X size={13} /> Reject
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Needs your attention: the pending queue. The list scrolls inside the card (so the page itself
+ *  stays short), and the type chips only narrow what is shown — they never change what is pending. ── */
+export function AttentionPanel({ items, token, onDone }: { items: ApprovalItem[]; token: string; onDone: (id: string) => void }) {
+  const [filter, setFilter] = useState<RequestType | 'ALL'>('ALL');
+  const order: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST'];
+  const counts = order.map(t => ({ type: t, count: items.filter(i => i.requestType === t).length })).filter(c => c.count > 0);
+  const active = filter !== 'ALL' && counts.some(c => c.type === filter) ? filter : 'ALL';
+  const visible = active === 'ALL' ? items : items.filter(i => i.requestType === active);
+
+  return (
+    <div className="nf-att">
+      <div className="nf-att-head">
+        <span className="nf-att-ico"><AlertTriangle size={15} /></span>
+        <div className="nf-att-title">
+          <span>Needs your attention</span>
+          <small>{items.length === 0 ? 'All caught up' : 'Approve or reject without leaving this page'}</small>
+        </div>
+        <span className="nf-att-count">{items.length} pending</span>
+      </div>
+      {counts.length > 1 && (
+        <div className="nf-att-chips" role="tablist" aria-label="Filter pending requests">
+          <button role="tab" aria-selected={active === 'ALL'} className={active === 'ALL' ? 'is-on' : ''} onClick={() => setFilter('ALL')}>All <b>{items.length}</b></button>
+          {counts.map(c => (
+            <button key={c.type} role="tab" aria-selected={active === c.type} className={active === c.type ? 'is-on' : ''} onClick={() => setFilter(c.type)}>
+              {TYPE_LABELS[c.type] ?? c.type} <b>{c.count}</b>
+            </button>
+          ))}
+        </div>
+      )}
+      {items.length === 0 ? (
+        <div className="nf-att-empty"><CheckCircle2 size={20} />Nothing pending right now.</div>
+      ) : (
+        <div className="nf-att-list">
+          {visible.map(item => (
+            <AttentionQueueItem key={`${item.requestType}:${item.id}`} item={item} token={token} onDone={onDone} />
+          ))}
         </div>
       )}
     </div>
@@ -3409,19 +3455,7 @@ export default function MyTeamPage() {
 
         {/* Right column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={panelStyle}>
-            <div style={panelHeadStyle}>
-              <span style={panelTitleStyle}>Needs your attention</span>
-              <span style={panelCountStyle}>{attentionItems.length} pending</span>
-            </div>
-            {attentionItems.length === 0 ? (
-              <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Nothing pending right now.</div>
-            ) : (
-              attentionItems.map(item => (
-                <AttentionQueueItem key={`${item.requestType}:${item.id}`} item={item} token={token} onDone={removeAttentionItem} />
-              ))
-            )}
-          </div>
+          <AttentionPanel items={attentionItems} token={token} onDone={removeAttentionItem} />
 
           <div style={panelStyle}>
             <div style={panelHeadStyle}>

@@ -20,6 +20,8 @@ const LP_PALETTE = {
   '--line': '#2A2E37', '--line2': '#353A45',
   '--txt': '#E8EAED', '--txt-mut': '#9BA1AC', '--txt-dim': '#6B7280',
   '--ok': '#E4373D', '--warn': '#E4373D',
+  // Content width: uses the screen instead of a narrow centred column (side gutters stay ~24-28px on small screens).
+  '--lp-wrap': 'min(1840px, 100%)', '--lp-wrap-media': 'min(1180px, 100%)',
 } as React.CSSProperties;
 
 // ── Section-level reveal (whole section rises as one unit — Keka pattern) ────
@@ -122,7 +124,7 @@ function LandingNav() {
 
   return (
     <nav className={`lp-nav${scrolled ? ' lp-nav-scrolled' : ''}`}>
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 28px', height: 76, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto', padding: '0 28px', height: 76, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
 
         {/* Logo */}
         <div className="lp-nav-logo" style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', flexShrink: 0 }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
@@ -291,7 +293,7 @@ function LandingHero() {
         <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.013) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.013) 1px, transparent 1px)', backgroundSize: '52px 52px' }} />
       </div>
 
-      <div className="lp-hero-grid" style={{ maxWidth: 1200, margin: '0 auto', position: 'relative' }}>
+      <div className="lp-hero-grid" style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto', position: 'relative' }}>
         {/* Left — text */}
         <div>
           <FadeIn>
@@ -472,7 +474,7 @@ function LandingProductShowcase() {
   return (
     <section ref={sectionRef} id="platform" style={{ padding: '96px 24px', background: 'var(--shell)' }}>
       <SectionReveal>
-      <div style={{ maxWidth: 1060, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap-media)', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 48 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>SEE IT IN ACTION</p></FadeIn>
           <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 2.9rem)', letterSpacing: '-0.035em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
@@ -573,7 +575,7 @@ function LandingFeatures() {
   return (
     <section id="features" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
       <SectionReveal>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center', marginBottom: 64 }} className="lp-features-header">
           <div>
             <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>WHAT'S INSIDE</p></FadeIn>
@@ -652,7 +654,7 @@ function LandingAI() {
       <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(228,55,61,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(228,55,61,0.025) 1px, transparent 1px)', backgroundSize: '72px 72px', pointerEvents: 'none' }} />
 
       <SectionReveal>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px', position: 'relative' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto', padding: '0 24px', position: 'relative' }}>
         {/* Header */}
         <FadeIn>
           <div style={{ marginBottom: 56 }}>
@@ -763,9 +765,9 @@ function LandingBrandMoment() {
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', zIndex: 0 }}
       />
       <div className="lp-brand-overlay" />
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '80px 24px', position: 'relative', zIndex: 2, width: '100%' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto', padding: '80px 24px', position: 'relative', zIndex: 2, width: '100%' }}>
         <FadeIn variant="left">
-          <div style={{ maxWidth: 560 }}>
+          <div style={{ maxWidth: 'min(900px, 100%)' }}>
             <div className="lp-brand-loc">
               <MapPin size={13} /> Hyderabad · Dallas
             </div>
@@ -805,7 +807,7 @@ function LandingRoles() {
   return (
     <section id="role-guides" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
       <SectionReveal>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 56 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>ROLE GUIDES</p></FadeIn>
           <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
@@ -851,7 +853,7 @@ function LandingHowItWorks() {
   return (
     <section id="how-it-works" style={{ padding: '96px 24px', background: 'var(--shell)' }}>
       <SectionReveal>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 72 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>HOW IT WORKS</p></FadeIn>
           <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: 0, color: 'var(--txt)', lineHeight: 1.1 }}>
@@ -903,7 +905,7 @@ function LandingPricing() {
   return (
     <section id="pricing" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
       <SectionReveal>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 60 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>PRICING</p></FadeIn>
           <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
@@ -1104,7 +1106,7 @@ function LandingSecurity() {
   return (
     <section id="security" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
       <SectionReveal>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+        <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto' }}>
           <div style={{ textAlign: 'center', marginBottom: 48 }}>
             <FadeIn><p className="lp-eyebrow">SECURITY & CONTROL</p></FadeIn>
             <FadeIn delay={80} variant="scale"><h2 className="lp-h2">Built so the right people see the right things.</h2></FadeIn>
@@ -1236,40 +1238,6 @@ function LandingSignIn() {
   );
 }
 
-// ── Connect With Us ───────────────────────────────────────────────────────────
-function LandingConnect() {
-  return (
-    <section className="lp-connect-section" style={{ padding: '72px 24px', background: 'var(--panel)', borderTop: '1px solid var(--line)', textAlign: 'center' }}>
-      <FadeIn>
-        <p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 12px' }}>CONNECT</p>
-        <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.4rem, 3vw, 2rem)', letterSpacing: '-0.03em', color: 'var(--txt)', margin: '0 0 32px', lineHeight: 1.2 }}>
-          Find us online.
-        </h3>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 20, alignItems: 'center' }}>
-          {/* Instagram */}
-          <a href="https://www.instagram.com/nforce_one/" target="_blank" rel="noopener noreferrer" className="lp-social-btn lp-social-ig" aria-label="NForce One on Instagram">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-              <circle cx="12" cy="12" r="4" />
-              <circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" stroke="none" />
-            </svg>
-            <span>Instagram</span>
-          </a>
-          {/* LinkedIn */}
-          <a href="https://www.linkedin.com/company/nforceone/" target="_blank" rel="noopener noreferrer" className="lp-social-btn lp-social-li" aria-label="NForce One on LinkedIn">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
-              <rect x="2" y="9" width="4" height="12" />
-              <circle cx="4" cy="4" r="2" />
-            </svg>
-            <span>LinkedIn</span>
-          </a>
-        </div>
-      </FadeIn>
-    </section>
-  );
-}
-
 // ── Footer ────────────────────────────────────────────────────────────────────
 const FOOTER_LINKS = {
   Product:   ['Features', 'AI Agents', 'How it Works', 'Pricing'],
@@ -1283,7 +1251,8 @@ function LandingFooter() {
   const sectionMap: Record<string, string> = { 'Features': '#features', 'AI Agents': '#ai-agents', 'How it Works': '#how-it-works', 'Pricing': '#pricing' };
   return (
     <footer className="lp-footer" style={{ background: 'var(--panel)', borderTop: '1px solid var(--line)', padding: '72px 24px 40px' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div className="lp-foot-mark" aria-hidden="true">NFORCE ONEHR</div>
+      <div className="lp-foot-content" style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <div className="lp-footer-grid" style={{ display: 'grid', gridTemplateColumns: '260px repeat(4, 1fr)', gap: 48, marginBottom: 56 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
@@ -1296,11 +1265,13 @@ function LandingFooter() {
             </div>
             <a href="mailto:demo@nforceone.com" className="lp-foot-mail"><Mail size={12} /> demo@nforceone.com</a>
             <div className="lp-foot-social">
-              <a href="https://www.instagram.com/nforce_one/" target="_blank" rel="noopener noreferrer" aria-label="NForce One on Instagram">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" stroke="none" /></svg>
+              <a href="https://www.instagram.com/nforce_one/" target="_blank" rel="noopener noreferrer" className="lp-social-btn lp-social-ig" aria-label="NForce One on Instagram">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" stroke="none" /></svg>
+                <span>Instagram</span>
               </a>
-              <a href="https://www.linkedin.com/company/nforceone/" target="_blank" rel="noopener noreferrer" aria-label="NForce One on LinkedIn">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" /><rect x="2" y="9" width="4" height="12" /><circle cx="4" cy="4" r="2" /></svg>
+              <a href="https://www.linkedin.com/company/nforceone/" target="_blank" rel="noopener noreferrer" className="lp-social-btn lp-social-li" aria-label="NForce One on LinkedIn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" /><rect x="2" y="9" width="4" height="12" /><circle cx="4" cy="4" r="2" /></svg>
+                <span>LinkedIn</span>
               </a>
             </div>
           </div>
@@ -1328,7 +1299,6 @@ function LandingFooter() {
           </div>
         </div>
       </div>
-      <div className="lp-foot-mark" aria-hidden="true">NFORCE ONEHR</div>
     </footer>
   );
 }
@@ -1365,7 +1335,6 @@ export default function LandingPage() {
         <LandingFaq />
         <LandingCta />
         <LandingSignIn />
-        <LandingConnect />
         <LandingFooter />
       </div>
     </div>

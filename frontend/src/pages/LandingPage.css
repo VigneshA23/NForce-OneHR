@@ -945,7 +945,7 @@
 @media (prefers-reduced-motion: reduce) { .lp-hero-float { animation: none !important; } }
 
 .lp-proof { position: relative; padding: 0 24px; margin-top: -8px; }
-.lp-proof-inner { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.015)); backdrop-filter: blur(10px); overflow: hidden; }
+.lp-proof-inner { max-width: var(--lp-wrap); margin: 0 auto; display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.015)); backdrop-filter: blur(10px); overflow: hidden; }
 .lp-proof-item { display: flex; align-items: flex-start; gap: 12px; padding: 22px; border-right: 1px solid var(--line); }
 .lp-proof-item:last-child { border-right: none; }
 .lp-proof-ico { flex-shrink: 0; width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; color: var(--brand-bright); background: rgba(228,55,61,.1); border: 1px solid rgba(228,55,61,.22); }
@@ -980,7 +980,7 @@
 .lp-faq-a > div { overflow: hidden; }
 .lp-faq-a p { margin: 0; padding: 0 20px 20px; color: var(--txt-mut); font-size: 14px; line-height: 1.7; }
 
-.lp-cta-band { max-width: 1100px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 28px; flex-wrap: wrap; padding: 44px 48px; border-radius: 22px; border: 1px solid rgba(228,55,61,.35); background: radial-gradient(ellipse at 0% 0%, rgba(228,55,61,.32), transparent 60%), linear-gradient(135deg, #1A0A0C, #0E0F12); box-shadow: 0 30px 70px rgba(0,0,0,.55), 0 0 60px rgba(177,17,22,.18); }
+.lp-cta-band { max-width: var(--lp-wrap); margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 28px; flex-wrap: wrap; padding: 44px 48px; border-radius: 22px; border: 1px solid rgba(228,55,61,.35); background: radial-gradient(ellipse at 0% 0%, rgba(228,55,61,.32), transparent 60%), linear-gradient(135deg, #1A0A0C, #0E0F12); box-shadow: 0 30px 70px rgba(0,0,0,.55), 0 0 60px rgba(177,17,22,.18); }
 .lp-cta-band h2 { font: 700 clamp(1.5rem, 3vw, 2.1rem)/1.15 Inter, sans-serif; letter-spacing: -.03em; color: #fff; margin: 0 0 10px; }
 .lp-cta-band p { margin: 0; max-width: 540px; color: var(--txt-mut); font-size: 15px; line-height: 1.6; }
 .lp-cta-btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 30px; border-radius: 12px; background: linear-gradient(135deg, #E4373D, #B11116); color: #fff; font: 700 15px Inter, sans-serif; text-decoration: none; box-shadow: 0 10px 28px rgba(177,17,22,.5); transition: transform .15s, box-shadow .15s; }
@@ -1014,7 +1014,7 @@
 .lp-root section:nth-of-type(odd):not(.lp-hero-section):not(.lp-proof) { background: linear-gradient(180deg, rgba(14,15,18,.52), rgba(14,15,18,.30)) !important; }
 .lp-root .lp-brand-section, .lp-root footer { position: relative; z-index: 1; }
 .lp-root footer { background: rgba(10,11,13,.82) !important; backdrop-filter: blur(8px); }
-.lp-divider { height: 1px; max-width: 1100px; background: linear-gradient(90deg, transparent, rgba(228,55,61,.55), transparent) !important; box-shadow: 0 0 14px rgba(228,55,61,.35); opacity: .7; }
+.lp-divider { height: 1px; max-width: var(--lp-wrap); background: linear-gradient(90deg, transparent, rgba(228,55,61,.55), transparent) !important; box-shadow: 0 0 14px rgba(228,55,61,.35); opacity: .7; }
 
 /* Glass cards with a pointer-following red spotlight */
 .lp-spot { position: relative; --mx: -999px; --my: -999px; }
@@ -1238,7 +1238,7 @@
 .lp-nav-desktop:not(.lp-nav-root) button:hover { transform: translateY(-2px); border-color: rgba(228,55,61,.6) !important; background: rgba(228,55,61,.12) !important; }
 
 /* ── FAQ v2: sticky intro + contact card on the left, numbered glass accordion on the right ── */
-.lp-faq2 { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 340px 1fr; gap: 56px; align-items: start; }
+.lp-faq2 { max-width: var(--lp-wrap); margin: 0 auto; display: grid; grid-template-columns: 340px 1fr; gap: 56px; align-items: start; }
 .lp-faq2-side { position: sticky; top: 110px; }
 .lp-faq2-card { position: relative; padding: 24px; border-radius: 20px; border: 1px solid rgba(228,55,61,.3); overflow: hidden;
   background: radial-gradient(320px circle at var(--mx) var(--my), rgba(228,55,61,.2), transparent 60%), linear-gradient(160deg, rgba(60,14,17,.7), rgba(16,18,23,.8)) !important; box-shadow: 0 20px 48px rgba(0,0,0,.5); }
@@ -1272,7 +1272,7 @@
   font: 600 11.5px 'Space Grotesk', Inter, sans-serif; letter-spacing: .2em; text-transform: uppercase; color: #fff;
   background: rgba(14,15,18,.5); border: 1px solid rgba(228,55,61,.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .lp-brand-loc svg { color: #E4373D; }
-.lp-root h2.lp-brand-title { margin: 0 0 34px; font-family: 'Sora', 'Space Grotesk', Inter, sans-serif !important; font-weight: 800; letter-spacing: -.045em !important; line-height: 1.02; font-size: clamp(2.3rem, 5vw, 4.2rem); color: #fff; }
+.lp-root h2.lp-brand-title { margin: 0 0 34px; font-family: 'Sora', 'Space Grotesk', Inter, sans-serif !important; font-weight: 800; letter-spacing: -.045em !important; line-height: 1.02; font-size: clamp(1.9rem, 3.3vw, 3.1rem); color: #fff; }
 .lp-brand-title span { display: block; }
 .lp-brand-l1 { text-shadow: 0 6px 40px rgba(0,0,0,.6); }
 .lp-brand-l2 { font-weight: 800; padding-top: .04em;
@@ -1280,3 +1280,85 @@
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
   filter: drop-shadow(0 0 26px rgba(228,55,61,.45)); animation: lp-shimmer 6s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .lp-brand-l2 { animation: none; } }
+
+/* Wider layout: keep "HR team." together on one line, and let the intro paragraph use the extra room */
+.lp-hero-shimmer { white-space: nowrap; }
+.lp-hero-grid p { max-width: 560px !important; }
+@media (min-width: 1500px) { .lp-hero-grid { gap: 96px; } }
+
+/* Footer social buttons keep Instagram / LinkedIn brand colours (a deliberate exception to the red-and-black palette) */
+.lp-foot-social { gap: 12px; flex-wrap: wrap; }
+.lp-foot-social a.lp-social-btn { width: auto; height: auto; border-radius: 999px; padding: 9px 18px 9px 14px; display: inline-flex; align-items: center; gap: 9px; font: 600 13.5px Inter, sans-serif; }
+.lp-foot-social a.lp-social-btn:hover { transform: translateY(-3px); }
+.lp-foot-social a.lp-social-ig { color: #ff5b95; background: rgba(225,48,108,.1); border: 1px solid rgba(225,48,108,.4); box-shadow: none; }
+.lp-foot-social a.lp-social-ig:hover { color: #fff; background: linear-gradient(135deg, #f58529, #dd2a7b 55%, #8134af); border-color: transparent; box-shadow: 0 12px 28px rgba(225,48,108,.45); }
+.lp-foot-social a.lp-social-li { color: #4c9be8; background: rgba(10,102,194,.12); border: 1px solid rgba(10,102,194,.5); box-shadow: none; }
+.lp-foot-social a.lp-social-li:hover { color: #fff; background: #0a66c2; border-color: transparent; box-shadow: 0 12px 28px rgba(10,102,194,.5); }
+
+/* Footer: the big name moves to the top of the footer in a light tone; everything else gets brighter */
+.lp-foot-mark { margin: 0 0 40px !important; text-align: left !important; white-space: nowrap; user-select: none; pointer-events: none;
+  font: 800 clamp(2.6rem, 7.2vw, 6.6rem)/1 'Sora', 'Space Grotesk', Inter, sans-serif !important; letter-spacing: -.045em !important; text-transform: none;
+  background: linear-gradient(100deg, #FFFFFF 0%, #FFD9DB 45%, rgba(255,160,164,.55) 100%) !important; -webkit-background-clip: text !important; background-clip: text !important; -webkit-text-fill-color: transparent !important;
+  opacity: .92; filter: drop-shadow(0 0 28px rgba(228,55,61,.25)); }
+.lp-root footer.lp-footer h4 { color: #fff !important; }
+.lp-root footer.lp-footer .lp-foot-link { color: #D5D9E0 !important; }
+.lp-root footer.lp-footer .lp-foot-link:hover { color: #fff !important; }
+.lp-root footer.lp-footer p, .lp-root footer.lp-footer .lp-foot-mail { color: #C3C8D0 !important; }
+.lp-root footer.lp-footer .lp-foot-mail:hover { color: #FF8A8E !important; }
+.lp-root footer.lp-footer [style*="var(--txt-dim)"] { color: #AEB4BF !important; }
+.lp-root footer.lp-footer .lp-foot-top { color: #fff; border-color: rgba(255,255,255,.28); }
+
+/* The big name is a background watermark behind the footer content: centred, light, soft, never clickable */
+.lp-root footer.lp-footer .lp-foot-mark { position: absolute !important; left: 50%; top: 50%; transform: translate(-50%, -50%); margin: 0 !important; width: max-content; max-width: none; text-align: center !important; z-index: 0;
+  font-size: clamp(4rem, 15vw, 15rem) !important; line-height: .9 !important; opacity: .13; filter: none;
+  background: linear-gradient(180deg, #FFFFFF 0%, #FFD0D3 55%, rgba(255,190,194,.4) 100%) !important; -webkit-background-clip: text !important; background-clip: text !important; -webkit-text-fill-color: transparent !important; }
+/* Footer watermark: same red as the original wordmark, kept light and soft behind the content */
+.lp-root footer.lp-footer .lp-foot-mark { opacity: 1 !important;
+  background: linear-gradient(180deg, rgba(228,55,61,.26) 0%, rgba(228,55,61,.1) 60%, rgba(228,55,61,0) 100%) !important; -webkit-background-clip: text !important; background-clip: text !important; -webkit-text-fill-color: transparent !important; }
+
+/* Footer text sits on a dark panel so it stays crisp over the red watermark */
+.lp-root footer.lp-footer .lp-foot-content { padding: 36px 40px 28px; border-radius: 26px; border: 1px solid rgba(255,255,255,.06);
+  background: linear-gradient(180deg, rgba(9,10,12,.94), rgba(9,10,12,.88)); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 24px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05); }
+@media (max-width: 760px) { .lp-root footer.lp-footer .lp-foot-content { padding: 24px 20px 20px; border-radius: 20px; } }
+
+/* Let the name show through: no panel over it. The name is a deep, low-intensity red so the bright footer text stays readable on top. */
+.lp-root footer.lp-footer .lp-foot-content { background: none !important; border: none !important; box-shadow: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; padding: 0 !important; border-radius: 0 !important; }
+.lp-root footer.lp-footer .lp-foot-mark { background: linear-gradient(180deg, rgba(190,28,34,.34) 0%, rgba(150,18,24,.22) 55%, rgba(120,12,16,.1) 100%) !important; -webkit-background-clip: text !important; background-clip: text !important; -webkit-text-fill-color: transparent !important; }
+.lp-root footer.lp-footer .lp-foot-link, .lp-root footer.lp-footer h4, .lp-root footer.lp-footer p, .lp-root footer.lp-footer .lp-foot-mail { text-shadow: 0 1px 10px rgba(0,0,0,.85), 0 0 2px rgba(0,0,0,.6); }
+
+/* Tighter footer: less empty space above it, and a light-toned name behind the content */
+.lp-root footer.lp-footer { padding-top: 34px !important; padding-bottom: 28px !important; }
+.lp-root footer.lp-footer .lp-footer-grid { margin-bottom: 36px !important; }
+.lp-root .lp-signin-section { padding-bottom: 48px !important; }
+.lp-root footer.lp-footer .lp-foot-mark { background: linear-gradient(180deg, rgba(255,176,180,.26) 0%, rgba(255,150,155,.15) 60%, rgba(255,130,136,.07) 100%) !important; -webkit-background-clip: text !important; background-clip: text !important; -webkit-text-fill-color: transparent !important; }
+
+/* Footer watermark lettering: the original wordmark style (all caps, Space Grotesk 700, tight tracking) */
+.lp-root footer.lp-footer .lp-foot-mark { font-family: 'Space Grotesk', Inter, sans-serif !important; font-weight: 700 !important; letter-spacing: -.04em !important; text-transform: none; font-size: clamp(3rem, 12vw, 10.5rem) !important; line-height: 1 !important; }
+
+/* Footer watermark = the brand logotype from the header: "NForce" light + "OneHR" red, Inter 700, mixed case - just large and soft */
+.lp-root footer.lp-footer .lp-foot-mark { font-family: Inter, sans-serif !important; font-weight: 700 !important; letter-spacing: -.035em !important; font-size: clamp(3.4rem, 13vw, 12rem) !important; line-height: 1 !important;
+  background: none !important; -webkit-background-clip: border-box !important; background-clip: border-box !important; -webkit-text-fill-color: rgba(255,200,203,.13) !important; color: rgba(255,200,203,.13) !important; }
+.lp-root footer.lp-footer .lp-foot-mark span { -webkit-text-fill-color: rgba(228,55,61,.24) !important; color: rgba(228,55,61,.24) !important; }
+
+/* FINAL: the original footer name exactly as first placed (all caps, Space Grotesk 700, -.04em, red fading to clear), kept as a background layer */
+.lp-root footer.lp-footer .lp-foot-mark { font: 700 clamp(3rem, 12vw, 10.5rem)/1 'Space Grotesk', Inter, sans-serif !important; letter-spacing: -.04em !important; text-transform: none !important;
+  background: linear-gradient(180deg, rgba(228,55,61,.28), rgba(228,55,61,0) 85%) !important; -webkit-background-clip: text !important; background-clip: text !important; -webkit-text-fill-color: transparent !important; color: transparent !important; opacity: 1 !important; filter: none !important; }
+.lp-root footer.lp-footer .lp-foot-mark span { -webkit-text-fill-color: transparent !important; color: transparent !important; }
+
+/* Footer columns: pull them together instead of spreading across the whole width */
+@media (min-width: 981px) {
+  .lp-root footer.lp-footer .lp-footer-grid { grid-template-columns: 330px repeat(4, minmax(0, 150px)) !important; column-gap: 36px !important; justify-content: start !important; }
+}
+
+/* Showcase screenshot frame: sized to ~1090px (not the full page width) and centred under the tab switcher */
+#platform .lp-showcase-scroll-anim { max-width: min(1090px, 100%); margin-left: auto; margin-right: auto; }
+#platform .lp-showcase-scroll-anim { max-width: min(900px, 100%); }
+
+/* Brand moment banner as a framed card: inset from the page edges, rounded corners, a clearly visible border and glow
+   (it used to run edge to edge, so its corners blended into the page). */
+.lp-root section.lp-brand-section { width: calc(100% - 48px); max-width: var(--lp-wrap); margin: 48px auto; border-radius: 28px; overflow: hidden; isolation: isolate;
+  border: 1.5px solid rgba(228,55,61,.5); box-shadow: 0 0 0 1px rgba(255,255,255,.05) inset, 0 0 46px rgba(177,17,22,.28), 0 28px 70px rgba(0,0,0,.6); }
+.lp-root section.lp-brand-section .lp-brand-overlay { border-radius: inherit; }
+.lp-root section.lp-brand-section > div:not(.lp-brand-overlay) { padding-left: 56px !important; padding-right: 56px !important; }
+@media (max-width: 700px) { .lp-root section.lp-brand-section { width: calc(100% - 28px); border-radius: 20px; margin: 32px auto; } .lp-root section.lp-brand-section > div:not(.lp-brand-overlay) { padding-left: 24px !important; padding-right: 24px !important; } }
