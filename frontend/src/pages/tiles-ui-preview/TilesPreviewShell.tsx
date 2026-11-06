@@ -47,7 +47,7 @@ import NotificationsPage from '../NotificationsPage';
 import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
-import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel } from '../MyTeamPage';
+import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
@@ -86,6 +86,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'profile-page', label: 'My Profile (full page)', title: 'My Profile', subtitle: 'Sample data: About, Profile, Job and Assets tabs with the Edit popups. Use ?role=employee for the employee view.' },
   { key: 'prefs-page', label: 'User Preferences (full page)', title: 'User Preferences', subtitle: 'Appearance, Notifications and Accessibility. Changes here apply to this preview only.' },
   { key: 'change-password-page', label: 'Change Password (full page)', title: 'Change Password', subtitle: 'Add &forced=1 for the first-login version. Nothing is submitted to a server here.' },
+  { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
   { key: 'team-reports', label: 'My Team: Reports tab', title: 'My Team: Reports', subtitle: 'The Reports tab of My Team. Cards open the real download dialogs; nothing is sent from this preview.' },
   { key: 'attention-panel', label: 'My Team: Needs your attention', title: 'My Team: Needs your attention', subtitle: 'Sample pending requests. Approve / Reject here only change this preview.' },
@@ -445,6 +446,35 @@ function ChangePasswordMock() {
     return () => { useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user }); };
   }, []);
   return ready ? <ChangePasswordPage /> : null;
+}
+
+function TeamPopupsMock() {
+  const [open, setOpen] = useState<string | null>(null);
+  const close = () => setOpen(null);
+  const dr = { userId: 'u1', fullName: 'Srinivas Kongara', designationName: 'QA Engineer I', employeeCode: 'NF-20261036' };
+  const row = {
+    dr, status: 'NOT_IN_YET', record: null,
+    requests: [
+      { id: '1', requestType: 'LEAVE', leaveTypeName: 'Casual Leave', leaveStartDate: '2026-11-10', leaveEndDate: '2026-11-12' },
+      { id: '2', requestType: 'REGULARIZATION', attendanceDate: '2026-11-03', requestedCheckIn: '09:30', requestedCheckOut: null, regularizationReason: 'Forgot to punch' },
+      { id: '3', requestType: 'EXPENSE', expenseCategoryName: 'Travel', expenseAmount: 2400 },
+    ],
+  } as unknown as Parameters<typeof EmployeeDetailModal>[0]['row'];
+  const entry = { userId: 'u1', fullName: 'Srinivas Kongara', designationName: 'QA Engineer I', employeeCode: 'NF-20261036', email: 'srinivas@nforceone.com', departmentName: 'Quality Engineering', locationName: 'Bangalore', workMode: 'HYBRID', employmentType: 'FULL_TIME', managerName: 'Harvey Specter' } as unknown as Parameters<typeof EmployeeDetailsModal>[0]['entry'];
+  const people = ['Sanjukta', 'Abuzar Siddiqui', 'Harvey Specter', 'Hr Admin', 'Hr', 'Testo'].map((n, i) => ({ userId: 'u' + i, fullName: n }));
+  const btn: React.CSSProperties = { padding: '10px 16px', borderRadius: 10, border: '1px solid var(--line2)', background: 'var(--raised)', color: 'var(--txt)', fontWeight: 600, cursor: 'pointer' };
+  return (
+    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <button style={btn} onClick={() => setOpen('kudos')}>Appreciate (kudos)</button>
+      <button style={btn} onClick={() => setOpen('detail')}>View Profile (attendance and requests)</button>
+      <button style={btn} onClick={() => setOpen('details')}>Employment details</button>
+      <button style={btn} onClick={() => setOpen('list')}>Not in yet list</button>
+      {open === 'kudos' && <KudosModal target={{ userId: 'u1', name: 'Srinivas Kongara' }} token="mock-token" onClose={close} />}
+      {open === 'detail' && <EmployeeDetailModal row={row} onClose={close} />}
+      {open === 'details' && <EmployeeDetailsModal entry={entry} onClose={close} />}
+      {open === 'list' && <NotInYetListModal people={people} onSelect={close} onClose={close} />}
+    </div>
+  );
 }
 
 function TeamTodayMock() {
@@ -1303,6 +1333,8 @@ function Tiles({ page }: { page: string }) {
       return <UserPreferencesPage />;
     case 'attention-panel':
       return <AttentionMock />;
+    case 'team-popups':
+      return <TeamPopupsMock />;
     case 'team-today':
       return <TeamTodayMock />;
     case 'team-reports':

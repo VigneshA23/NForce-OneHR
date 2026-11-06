@@ -297,7 +297,7 @@ export function AttentionPanel({ items, token, onDone }: { items: ApprovalItem[]
 }
 
 /* ── Roster card "View" detail modal ── */
-function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => void }) {
+export function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => void }) {
   const { dr, record, status, requests } = row;
   const regRequest = requests.find(r => r.requestType === 'REGULARIZATION');
   const missingFlag = regRequest
@@ -305,21 +305,21 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
       : regRequest.requestedCheckIn ? 'Missing check-in swipe' : 'Missing check-out swipe') + ` on ${fmtDateShort(regRequest.attendanceDate)}`
     : null;
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={modalStyle} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
           <Avatar userId={dr.userId} name={dr.fullName} size={40} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{dr.fullName}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{dr.designationName ?? '—'}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{dr.employeeCode}</div>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{dr.fullName}</div>
+            <div className="nf-rm-sub">{dr.designationName ?? '-'}</div>
+            <div className="nf-pm-code">{dr.employeeCode}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div className="nf-pm-body">
           <div>
-            <div style={labelStyle}>Today's attendance</div>
+            <div className="nf-pm-sec">Today's attendance</div>
             <Row label="Status" value={STATUS_LABEL[status]} />
             {/* sessionStartedAt reflects the latest check-in of the day (checkInAt is fixed to
                 the day's very first one and never updated on a same-day checkout+checkin resume
@@ -334,19 +334,19 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
             {record?.timezone && <Row label="Employee's timezone" value={record.timezone} />}
             {!!record?.lateByMinutes && <Row label="Late by" value={`${record.lateByMinutes} minutes`} />}
             {missingFlag && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 600, padding: '8px 10px', borderRadius: 8, marginTop: 8, background: 'rgba(228,55,61,.13)', color: 'var(--risk)' }}>
+              <div className="nf-pm-flag">
                 <AlertTriangle size={14} /> {missingFlag}
               </div>
             )}
           </div>
           <div>
-            <div style={labelStyle}>Open requests</div>
+            <div className="nf-pm-sec">Open requests</div>
             {requests.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No open requests.</div>
+              <div className="nf-pm-none"><CheckCircle2 size={16} />No open requests.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {requests.map(r => (
-                  <div key={`${r.requestType}:${r.id}`} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <div key={`${r.requestType}:${r.id}`} className="nf-pm-req">
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                       <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{TYPE_LABELS[r.requestType]}</span>
                       <TypeBadge type={r.requestType} />
@@ -367,7 +367,8 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -379,40 +380,41 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
  * DirectoryEntry itself already comes from the org-wide, unrestricted "/employees/directory" and
  * "/employees/my-peers" endpoints — no manager-only gating needed.
  */
-function EmployeeDetailsModal({ entry, onClose }: { entry: DirectoryEntry; onClose: () => void }) {
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={modalStyle} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
+export function EmployeeDetailsModal({ entry, onClose }: { entry: DirectoryEntry; onClose: () => void }) {
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
           <Avatar userId={entry.userId} name={entry.fullName} size={40} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{entry.fullName}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{entry.designationName ?? '—'}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{entry.employeeCode}</div>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{entry.fullName}</div>
+            <div className="nf-rm-sub">{entry.designationName ?? '-'}</div>
+            <div className="nf-pm-code">{entry.employeeCode}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: 18 }}>
-          <div style={labelStyle}>Employment details</div>
-          <Row label="Employee code" value={entry.employeeCode || '—'} />
-          <Row label="Work email" value={entry.email || '—'} />
-          <Row label="Department" value={entry.departmentName || '—'} />
-          <Row label="Designation" value={entry.designationName || '—'} />
-          <Row label="Location" value={entry.locationName || '—'} />
-          <Row label="Work mode" value={entry.workMode ? entry.workMode.replace('_', ' ') : '—'} />
-          <Row label="Employment type" value={entry.employmentType ? entry.employmentType.replace('_', ' ') : '—'} />
-          <Row label="Manager" value={entry.managerName || '—'} />
+        <div className="nf-pm-body">
+          <div className="nf-pm-sec">Employment details</div>
+          <Row label="Employee code" value={entry.employeeCode || '-'} />
+          <Row label="Work email" value={entry.email || '-'} />
+          <Row label="Department" value={entry.departmentName || '-'} />
+          <Row label="Designation" value={entry.designationName || '-'} />
+          <Row label="Location" value={entry.locationName || '-'} />
+          <Row label="Work mode" value={entry.workMode ? entry.workMode.replace('_', ' ') : '-'} />
+          <Row label="Employment type" value={entry.employmentType ? entry.employmentType.replace('_', ' ') : '-'} />
+          <Row label="Manager" value={entry.managerName || '-'} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
-      <span style={{ color: 'var(--txt-mut)' }}>{label}</span>
-      <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{value}</span>
+    <div className="nf-pm-kv">
+      <span>{label}</span>
+      <b>{value}</b>
     </div>
   );
 }
@@ -423,33 +425,34 @@ function Row({ label, value }: { label: string; value: string }) {
  * card (or this modal) without bound. Reuses the same overlay/modal chrome and Avatar as
  * EmployeeDetailModal rather than introducing a second list/modal system.
  */
-function NotInYetListModal({ people, onSelect, onClose }: {
+export function NotInYetListModal({ people, onSelect, onClose }: {
   people: { userId: string; fullName: string }[];
   onSelect: (userId: string) => void;
   onClose: () => void;
 }) {
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
           <span style={panelTitleStyle}>Employees not in yet today</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+        <div className="nf-pm-list">
           {people.map(p => (
             <button
               key={p.userId}
               title={p.fullName}
               onClick={() => onSelect(p.userId)}
-              style={{ all: 'unset', boxSizing: 'border-box', width: '100%', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}
+              className="nf-pm-person"
             >
               <Avatar userId={p.userId} name={p.fullName} size={30} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{p.fullName}</span>
+              <span>{p.fullName}</span>
             </button>
           ))}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -2169,51 +2172,42 @@ export function KudosModal({ target, token, onClose }: { target: KudosTarget | n
     }
   }
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={modalStyle} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
           <Avatar userId={target.userId} name={target.name} size={36} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700 }}>Appreciating</div>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{target.name}</div>
+          <div className="nf-rm-titles">
+            <div className="nf-pm-kicker">Appreciating</div>
+            <div className="nf-rm-title">{target.name}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="nf-pm-body">
           <div>
-            <div style={labelStyle}>What for?</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <div className="nf-pm-sec">What for?</div>
+            <div className="nf-pm-choices">
               {KUDOS_CATEGORIES.map(c => (
-                <button key={c} onClick={() => setCategory(c)} style={{
-                  fontSize: 12, fontWeight: 600, padding: '8px 12px', borderRadius: 9, cursor: 'pointer',
-                  border: category === c ? '1px solid var(--brand-bright)' : '1px solid var(--line2)',
-                  background: category === c ? 'rgba(228,55,61,.10)' : 'var(--raised)',
-                  color: category === c ? 'var(--txt)' : 'var(--txt-mut)',
-                }}>{c}</button>
+                <button type="button" key={c} onClick={() => setCategory(c)} className={category === c ? 'nf-pm-choice is-on' : 'nf-pm-choice'}>{c}</button>
               ))}
             </div>
           </div>
           <div>
-            <div style={labelStyle}>Note (optional)</div>
+            <div className="nf-pm-sec">Note (optional)</div>
             <textarea
               value={note}
               onChange={e => setNote(e.target.value)}
-              placeholder="e.g. Thanks for jumping on the prod issue last night — huge help!"
-              style={{ ...inputStyle, minHeight: 72, resize: 'vertical', fontFamily: 'inherit' }}
+              placeholder="e.g. Thanks for jumping on the prod issue last night, huge help!"
+              className="nf-pm-area"
             />
           </div>
-          <button onClick={send} disabled={!category || sending} style={{
-            width: '100%', padding: 11, borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13,
-            cursor: !category || sending ? 'not-allowed' : 'pointer',
-            background: !category || sending ? 'var(--raised2)' : 'var(--brand)',
-            color: !category || sending ? 'var(--txt-dim)' : '#fff',
-          }}>
+          <button type="button" onClick={send} disabled={!category || sending} className="nf-pm-send">
             {sending ? 'Sending…' : 'Send Kudos'}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
