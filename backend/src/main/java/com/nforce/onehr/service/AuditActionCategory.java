@@ -101,6 +101,9 @@ public enum AuditActionCategory {
             // intermediate stage clearing in a multi-stage chain, distinct from the final
             // SUBMITTED->APPROVED transition PAYROLL_RUN_TRANSITION already covers.
             "PAYROLL_RUN_DRAFT_GENERATED", "PAYROLL_RUN_TRANSITION", "PAYROLL_RUN_STAGE_APPROVED",
+            // AdHocPaymentService — US-C24: an HR Admin adding/removing a one-off payment on a
+            // DRAFT run, same treatment.
+            "PAYROLL_ADHOC_PAYMENT_ADDED", "PAYROLL_ADHOC_PAYMENT_REMOVED",
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.
