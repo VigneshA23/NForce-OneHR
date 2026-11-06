@@ -25,6 +25,19 @@ public class AttendancePunch {
     @Column(name = "check_out_at")
     private LocalDateTime checkOutAt;
 
+    // Office-network check (record-only). *InOffice null = location's office network not configured.
+    @Column(name = "check_in_ip", length = 45)
+    private String checkInIp;
+
+    @Column(name = "check_in_in_office")
+    private Boolean checkInInOffice;
+
+    @Column(name = "check_out_ip", length = 45)
+    private String checkOutIp;
+
+    @Column(name = "check_out_in_office")
+    private Boolean checkOutInOffice;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

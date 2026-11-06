@@ -20,6 +20,7 @@ public class LocationResponse {
     // Location.pendingTimezone/pendingTimezoneEffectiveFrom's own Javadoc.
     String pendingTimezone;
     LocalDate pendingTimezoneEffectiveFrom;
+    String officeCidrs;
     boolean active;
     long employeeCount;
     LocalDateTime createdAt;
@@ -28,6 +29,6 @@ public class LocationResponse {
     public static LocationResponse from(Location l, long employeeCount) {
         return new LocationResponse(l.getId(), l.getName(), l.getCity(), l.getState(), l.getCountry(),
                 l.getHolidayRegion(), l.getTimezone(), l.getPendingTimezone(), l.getPendingTimezoneEffectiveFrom(),
-                l.isActive(), employeeCount, l.getCreatedAt(), l.getUpdatedAt());
+                l.getOfficeCidrs(), l.isActive(), employeeCount, l.getCreatedAt(), l.getUpdatedAt());
     }
 }

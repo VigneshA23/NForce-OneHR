@@ -270,6 +270,10 @@ public class AttendanceService {
                             .checkInAt(p.getCheckInAt())
                             .checkOutAt(p.getCheckOutAt())
                             .source("SYSTEM")
+                            .checkInIp(p.getCheckInIp())
+                            .checkInInOffice(p.getCheckInInOffice())
+                            .checkOutIp(p.getCheckOutIp())
+                            .checkOutInOffice(p.getCheckOutInOffice())
                             .build()));
         }
         // Web Clock-In needs no approval at all (see WebClockInService's own class Javadoc) — the
@@ -355,10 +359,21 @@ public class AttendanceService {
                 .toList();
     }
 
-    @Transactional
     public AttendanceResponse checkIn(String actorEmail, String clientTimezone) {
+        return checkIn(actorEmail, clientTimezone, null);
+    }
+
+    /** {@code clientIp}: the caller's resolved public IP (see OfficeNetwork), recorded on the punch. */
+    @Transactional
+    public AttendanceResponse checkIn(String actorEmail, String clientTimezone, String clientIp) {
         Employee employee = resolveEmployee(actorEmail);
         assertEligibleToPunch(employee);
+        // Office Check-In only from the office network, when the office has one configured
+        // (null = not configured / IP unknown = not enforced). Off-network → Work From Home.
+        Boolean inOffice = OfficeNetwork.isInOffice(clientIp, officeCidrsOf(employee));
+        if (Boolean.FALSE.equals(inOffice)) {
+            throw new com.nforce.onehr.exception.OffOfficeNetworkException(clientIp);
+        }
 
         // Only an open NORMAL session blocks a fresh Check-In — deliberately independent of any
         // open Web Clock-In session, which is tracked and gated entirely separately (see
@@ -419,9 +434,9 @@ public class AttendanceService {
             record.setSessionStartedAt(resumeNow);
             record.setCheckOutAt(null);
             Attendance saved = attendanceRepository.save(record);
-            openPunch(saved.getId(), resumeNow);
+            openPunch(saved.getId(), resumeNow, clientIp, employee);
             auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_IN", saved.getId());
-            return toResponse(saved, employee);
+            return withOfficeNetwork(toResponse(saved, employee), inOffice);
         }
 
         // isLate (official status, HR/penalty-relevant, grace-aware) and lateByMinutes
@@ -472,16 +487,16 @@ public class AttendanceService {
             // would have given if it had won the race instead.
             throw new IllegalArgumentException("You have already checked in today");
         }
-        openPunch(record.getId(), now);
+        openPunch(record.getId(), now, clientIp, employee);
         if (isLate) {
             latePenaltyService.applyIfDue(employee, today);
         }
 
         auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_IN", record.getId());
-        return toResponse(record, employee);
+        return withOfficeNetwork(toResponse(record, employee), inOffice);
     }
 
-    private void openPunch(UUID attendanceRecordId, LocalDateTime checkInAt) {
+    private void openPunch(UUID attendanceRecordId, LocalDateTime checkInAt, String clientIp, Employee employee) {
         // Defensive: close out any punch(es) still open under this record before opening a new
         // one. Should never happen in the normal flow — checkIn's own open-session guard blocks a
         // second check-in while one is already in progress — but a duplicate/retried request that
@@ -504,14 +519,20 @@ public class AttendanceService {
             attendancePunchRepository.saveAndFlush(AttendancePunch.builder()
                     .attendanceRecordId(attendanceRecordId)
                     .checkInAt(checkInAt)
+                    .checkInIp(clientIp)
+                    .checkInInOffice(OfficeNetwork.isInOffice(clientIp, officeCidrsOf(employee)))
                     .build());
         } catch (DataIntegrityViolationException e) {
             throw new IllegalArgumentException("You have already checked in today");
         }
     }
 
-    @Transactional
     public AttendanceResponse checkOut(String actorEmail, String clientTimezone) {
+        return checkOut(actorEmail, clientTimezone, null);
+    }
+
+    @Transactional
+    public AttendanceResponse checkOut(String actorEmail, String clientTimezone, String clientIp) {
         Employee employee = resolveEmployee(actorEmail);
         assertEligibleToPunch(employee);
 
@@ -556,6 +577,13 @@ public class AttendanceService {
 
         String before = auditSnapshot.toJson(Map.of(
                 "checkOutAt", "null", "workedMinutes", record.getWorkedMinutes() != null ? record.getWorkedMinutes() : 0));
+        // Office-network check (record-only) on the punch closeSession is about to close — the same
+        // managed entity closeSession loads, so this rides along with its save.
+        attendancePunchRepository.findFirstByAttendanceRecordIdAndCheckOutAtIsNullOrderByCheckInAtDesc(record.getId())
+                .ifPresent(punch -> {
+                    punch.setCheckOutIp(clientIp);
+                    punch.setCheckOutInOffice(OfficeNetwork.isInOffice(clientIp, officeCidrsOf(employee)));
+                });
         Attendance saved = closeSession(record, now, cutoff);
         String after = auditSnapshot.toJson(Map.of(
                 "checkOutAt", now.toString(), "workedMinutes", saved.getWorkedMinutes(), "status", saved.getStatus()));
@@ -1543,6 +1571,15 @@ public class AttendanceService {
      * folded into resolveEmployee itself, which backs many read-only call sites that must keep
      * working for an inactive employee (e.g. viewing their own history).
      */
+    private static AttendanceResponse withOfficeNetwork(AttendanceResponse response, Boolean inOffice) {
+        response.setOfficeNetwork(inOffice);
+        return response;
+    }
+
+    private static String officeCidrsOf(Employee employee) {
+        return employee != null && employee.getLocation() != null ? employee.getLocation().getOfficeCidrs() : null;
+    }
+
     private void assertEligibleToPunch(Employee employee) {
         User user = employee.getUser();
         if (user == null || !user.isActive() || user.getDeletedAt() != null) {
