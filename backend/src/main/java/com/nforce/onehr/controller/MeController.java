@@ -36,6 +36,8 @@ public class MeController {
         String primaryRole = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
 
         return new MyPermissionsResponse(primaryRole, roleCodes,
-                effectivePermissionService.effectivePermissions(user.getRoles()));
+                effectivePermissionService.effectivePermissions(user.getRoles()),
+                effectivePermissionService.effectivePermissions(
+                        user.getRoles().stream().filter(r -> !r.isSystem()).toList()));
     }
 }

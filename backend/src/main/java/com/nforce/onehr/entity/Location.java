@@ -59,6 +59,10 @@ public class Location {
     @Column(name = "pending_timezone_effective_from")
     private LocalDate pendingTimezoneEffectiveFrom;
 
+    /** Comma-separated office public IPs/CIDRs; null = office network not configured. See OfficeNetwork. */
+    @Column(name = "office_cidrs")
+    private String officeCidrs;
+
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private boolean active = true;

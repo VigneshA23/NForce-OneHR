@@ -2,13 +2,13 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.reports.AttendanceRequestReportRow;
 import com.nforce.onehr.entity.Employee;
-import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendanceRequestRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.OvertimeRequestRepository;
 import com.nforce.onehr.repository.RegularizationRequestRepository;
 import com.nforce.onehr.repository.WebClockInRequestRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +20,6 @@ import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -52,7 +51,6 @@ public class ReportsService {
 
     private static final String ATTENDANCE_REQUEST_TYPE_PARTIAL_DAY = "PARTIAL_DAY";
     private static final String ATTENDANCE_REQUEST_TYPE_WFH = "WFH";
-    private static final Set<String> ORG_WIDE_REPORT_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
 
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository managerHistoryRepository;
@@ -60,12 +58,27 @@ public class ReportsService {
     private final WebClockInRequestRepository webClockInRequestRepository;
     private final OvertimeRequestRepository overtimeRequestRepository;
     private final AttendanceRequestRepository attendanceRequestRepository;
+    private final EffectivePermissionService effectivePermissionService;
 
     @Transactional(readOnly = true)
     public List<AttendanceRequestReportRow> getAttendanceRequestReport(
             String actorEmail, ReportType type, LocalDate from, LocalDate to) {
+        return attendanceRequestReport(actorEmail, type, from, to, "reports:VIEW:ALL");
+    }
+
+    /** As {@link #getAttendanceRequestReport}, for the CSV export — org-wide only with reports:EXPORT:ALL. */
+    @Transactional(readOnly = true)
+    public List<AttendanceRequestReportRow> exportAttendanceRequestReport(
+            String actorEmail, ReportType type, LocalDate from, LocalDate to) {
+        return attendanceRequestReport(actorEmail, type, from, to, "reports:EXPORT:ALL");
+    }
+
+    /** Org-wide for holders of {@code orgWideAuthority} (seeded to exactly HR_ADMIN + SUPER_ADMIN,
+     * the roles this used to check by code); otherwise the caller's current direct reports. */
+    private List<AttendanceRequestReportRow> attendanceRequestReport(
+            String actorEmail, ReportType type, LocalDate from, LocalDate to, String orgWideAuthority) {
         Employee actor = resolveManager(actorEmail);
-        List<Employee> scopeEmployees = isOrgWideReporter(actor)
+        List<Employee> scopeEmployees = effectivePermissionService.hasAuthority(actor.getUser(), orgWideAuthority)
                 ? employeeRepository.findAllWithDetails()
                 : employeeRepository.findAllById(managerHistoryRepository.findCurrentDirectReportIds(actor.getUserId()));
         return buildReport(scopeEmployees, type, from, to);
@@ -217,13 +230,5 @@ public class ReportsService {
         return employeeRepository.findByUser_Email(actorEmail)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "No employee profile found for this account. Contact HR to complete your profile."));
-    }
-
-    /** True for HR_ADMIN/SUPER_ADMIN — same role check convention as every other org-wide-vs-team
-     * branch in this codebase (e.g. ExpenseService#isFinalApprover). A null User (only possible in
-     * a test double that never set one) is never org-wide — same as a caller with no admin role. */
-    private boolean isOrgWideReporter(Employee actor) {
-        User user = actor.getUser();
-        return user != null && user.getRoles().stream().anyMatch(r -> ORG_WIDE_REPORT_ROLES.contains(r.getCode()));
     }
 }

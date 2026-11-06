@@ -371,3 +371,30 @@
   .mt-metric:nth-child(3) { border-left: 1px solid color-mix(in srgb, var(--mc) 26%, var(--line)); }
   .mt-trio > .mt-card { padding: 18px; }
 }
+
+/* ── My Team alignment: fixed-width tally + Today columns, aligned status ring card ── */
+/* Month tally: four equal slots (icon + count) so every icon and number sits in the same x position row after row. */
+.mt-table .mt-col-tally { width: 232px; min-width: 232px; padding: 0 12px !important; text-align: center; }
+.mt-tally { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; justify-content: stretch; align-items: center; }
+.mt-tally span { display: grid; grid-template-columns: 22px 1fr; align-items: center; justify-items: start; column-gap: 5px; }
+.mt-tally span > :first-child { justify-self: center; }
+/* Today: one fixed-width column; every pill is the same width and centred, whatever its label. */
+.mt-table .mt-col-today { width: 124px; min-width: 124px; padding: 0 12px !important; text-align: center; }
+.mt-table td.mt-col-today .mt-pill { display: inline-flex; align-items: center; justify-content: center; width: 96px; box-sizing: border-box; white-space: nowrap; }
+
+/* Today's Team Status: ring and legend share one vertical centre line, and the block is centred in the card */
+.mt-trio > .mt-card { display: flex; flex-direction: column; }
+.mt-trio > .mt-card > .mt-status-body { flex: 1; align-items: center; justify-content: space-between; }
+.mt-status-body .mt-donut { align-self: center; }
+.mt-status-body .mt-legend { align-self: center; justify-content: center; }
+.mt-donut-center { place-items: center; align-content: center; }
+.mt-donut-num { display: block; text-align: center; }
+.mt-donut-cap { display: block; text-align: center; margin-top: 3px; }
+.mt-legend-row { min-height: 40px; box-sizing: border-box; }
+.mt-legend-row .mt-dot { flex-shrink: 0; }
+
+/* The ring SVG is drawn on a 112 viewBox but the card styles the donut box at 132px - scale the SVG to the box so the
+   ring and the centred "10/18 checked in" text share exactly one centre point. */
+.mt-donut svg { width: 100%; height: 100%; }
+.mt-donut-center { padding: 0 14px; }
+.mt-donut-cap { white-space: nowrap; }

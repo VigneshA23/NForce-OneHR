@@ -3,6 +3,7 @@ package com.nforce.onehr.controller;
 import com.nforce.onehr.dto.*;
 import com.nforce.onehr.security.JwtTokenProvider;
 import com.nforce.onehr.service.AuthService;
+import com.nforce.onehr.service.OfficeNetwork;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,13 +18,14 @@ public class AuthController {
 
     private final AuthService authService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final OfficeNetwork officeNetwork;
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request,
                                                 HttpServletRequest httpRequest) {
         LoginResponse response = authService.login(
                 request,
-                extractClientIp(httpRequest),
+                officeNetwork.clientIp(httpRequest),
                 httpRequest.getHeader("User-Agent")
         );
         return ResponseEntity.ok(response);
@@ -50,13 +52,5 @@ public class AuthController {
     public ResponseEntity<ForgotPasswordResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
                                                                   HttpServletRequest httpRequest) {
         return ResponseEntity.ok(authService.forgotPassword(request.getEmail(), httpRequest.getHeader("Origin")));
-    }
-
-    private String extractClientIp(HttpServletRequest request) {
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
-            return xff.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }

@@ -6,6 +6,7 @@ import com.nforce.onehr.entity.HelpdeskReply;
 import com.nforce.onehr.entity.HelpdeskTicket;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.util.AttachmentValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -39,7 +40,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class HelpdeskService {
 
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    // Same authorities HrHelpdeskController's @PreAuthorize gates use — seeded to exactly HR_ADMIN +
+    // SUPER_ADMIN (V225), the role pair this service used to check by code, so a custom role granted
+    // them works the HR queue the same way.
+    private static final String HELPDESK_VIEW_ALL = "helpdesk:VIEW:ALL";
+    private static final String HELPDESK_EDIT_ALL = "helpdesk:EDIT:ALL";
     private static final String TICKET_NUMBER_PREFIX = "HR";
     private static final String LINK_EMPLOYEE_HELP = "/help";
     private static final String LINK_ADMIN_QUEUE = "/requests";
@@ -55,6 +60,7 @@ public class HelpdeskService {
     private final NotificationService notificationService;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
+    private final EffectivePermissionService effectivePermissionService;
 
     // ── Category master (dropdown) ─────────────────────────
 
@@ -115,7 +121,7 @@ public class HelpdeskService {
 
     @Transactional(readOnly = true)
     public Page<TicketSummaryDto> listQueue(String actorEmail, List<String> statuses, UUID assignedTo, String search, int page, int size) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, HELPDESK_VIEW_ALL);
         // statusIn already handles null/empty as "no filter" and a single-element list identically
         // to the old exact-match statusIs — this supports the "Active Queue" (OPEN + IN_PROGRESS)
         // default filter without adding any new query logic.
@@ -133,7 +139,7 @@ public class HelpdeskService {
     @Transactional(readOnly = true)
     public TicketDetailDto getDetail(UUID ticketId, String actorEmail) {
         User actor = requireUser(actorEmail);
-        boolean isAdmin = isAdmin(actor);
+        boolean isAdmin = effectivePermissionService.hasAuthority(actor, HELPDESK_VIEW_ALL);
         HelpdeskTicket ticket = ticketRepo.findById(ticketId)
                 .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
         if (!isAdmin && !ticket.getEmployeeUserId().equals(actor.getId())) {
@@ -148,7 +154,7 @@ public class HelpdeskService {
     public ReplyDto addReply(UUID ticketId, String message, boolean internalRequested,
                               MultipartFile attachment, String actorEmail) throws IOException {
         User actor = requireUser(actorEmail);
-        boolean isAdmin = isAdmin(actor);
+        boolean isAdmin = effectivePermissionService.hasAuthority(actor, HELPDESK_EDIT_ALL);
         HelpdeskTicket ticket = ticketRepo.findById(ticketId)
                 .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
 
@@ -201,7 +207,7 @@ public class HelpdeskService {
 
     @Transactional
     public TicketDetailDto updateStatus(UUID ticketId, UpdateTicketStatusRequest req, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, HELPDESK_EDIT_ALL);
         HelpdeskTicket ticket = ticketRepo.findById(ticketId)
                 .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
 
@@ -275,7 +281,7 @@ public class HelpdeskService {
     @Transactional
     public TicketDetailDto closeTicket(UUID ticketId, String actorEmail) {
         User actor = requireUser(actorEmail);
-        boolean isAdmin = isAdmin(actor);
+        boolean isAdmin = effectivePermissionService.hasAuthority(actor, HELPDESK_EDIT_ALL);
         HelpdeskTicket ticket = ticketRepo.findById(ticketId)
                 .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
 
@@ -414,14 +420,14 @@ public class HelpdeskService {
 
     @Transactional
     public TicketDetailDto assignTicket(UUID ticketId, AssignTicketRequest req, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, HELPDESK_EDIT_ALL);
         HelpdeskTicket ticket = ticketRepo.findById(ticketId)
                 .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
 
         // Active-only: a deactivated admin can no longer be picked as a *new* assignment target,
         // even though an existing assignment made before they were deactivated is left untouched.
-        if (!userRepo.findActiveAdminUserIds().contains(req.getAssigneeUserId())) {
-            throw new IllegalArgumentException("Assignee must be an active HR Admin or Super Admin");
+        if (!assignableUserIds().contains(req.getAssigneeUserId())) {
+            throw new IllegalArgumentException("Assignee must be an active user who can work Help Desk tickets");
         }
 
         // Assignment is orthogonal to status — it no longer implies a status change (see V93);
@@ -450,7 +456,7 @@ public class HelpdeskService {
      */
     @Transactional
     public TicketDetailDto startWorking(UUID ticketId, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, HELPDESK_EDIT_ALL);
         HelpdeskTicket ticket = ticketRepo.findById(ticketId)
                 .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + ticketId));
 
@@ -480,7 +486,7 @@ public class HelpdeskService {
 
     @Transactional(readOnly = true)
     public HelpdeskDashboardDto getDashboard(String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, HELPDESK_VIEW_ALL);
         // Must mirror listQueue's filtering exactly (including requesterNotDeleted()) so the
         // counts shown on the summary cards always match what's actually listed under each
         // status tab — a bare countByStatus() would count tickets the queue silently excludes.
@@ -501,8 +507,13 @@ public class HelpdeskService {
 
     @Transactional(readOnly = true)
     public List<AssignableAgentDto> listAssignableAgents(String actorEmail) {
-        requireAdmin(actorEmail);
-        return userRepo.findAdminUserIds().stream()
+        requireAuthority(actorEmail, HELPDESK_VIEW_ALL);
+        // Every active user who can be assigned a ticket (same set assignTicket validates against),
+        // plus findAdminUserIds' deactivated HR/Super Admins, which this list has always shown
+        // (active=false) so tickets still assigned to them stay filterable.
+        Set<UUID> agentIds = new java.util.HashSet<>(assignableUserIds());
+        agentIds.addAll(userRepo.findAdminUserIds());
+        return agentIds.stream()
                 .map(id -> AssignableAgentDto.builder()
                         .userId(id)
                         .name(employeeOrEmailName(id))
@@ -524,7 +535,7 @@ public class HelpdeskService {
         }
         HelpdeskTicket ticket = ticketRepo.findById(reply.getTicketId())
                 .orElseThrow(() -> new NoSuchElementException("Ticket not found: " + reply.getTicketId()));
-        boolean isAdmin = isAdmin(actor);
+        boolean isAdmin = effectivePermissionService.hasAuthority(actor, HELPDESK_VIEW_ALL);
         if (!isAdmin && !ticket.getEmployeeUserId().equals(actor.getId())) {
             throw new AccessDeniedException("You may not access this attachment");
         }
@@ -623,16 +634,18 @@ public class HelpdeskService {
                 .orElseThrow(() -> new NoSuchElementException("User not found: " + actorEmail));
     }
 
-    private User requireAdmin(String actorEmail) {
+    private User requireAuthority(String actorEmail, String authority) {
         User actor = requireUser(actorEmail);
-        if (!isAdmin(actor)) {
-            throw new AccessDeniedException("HR Admin or Super Admin role required");
+        if (!effectivePermissionService.hasAuthority(actor, authority)) {
+            throw new AccessDeniedException("Help Desk permission required: " + authority);
         }
         return actor;
     }
 
-    private boolean isAdmin(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
+    /** Active users who can work (and so be assigned) a ticket — helpdesk:EDIT:ALL, seeded to the
+     *  same HR_ADMIN + SUPER_ADMIN pair findActiveAdminUserIds returns. */
+    private Set<UUID> assignableUserIds() {
+        return effectivePermissionService.activeUserIdsWithAuthority("helpdesk", "EDIT", "ALL");
     }
 
     private String employeeOrEmailName(UUID userId) {

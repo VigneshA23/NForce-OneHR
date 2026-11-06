@@ -27,6 +27,7 @@ import com.nforce.onehr.repository.LeaveBalanceRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
@@ -55,11 +56,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LeaveService {
 
-    // HR_ADMIN/SUPER_ADMIN may decide any leave request regardless of the literal manager
-    // relationship — same override convention as RegularizationService/AssetService/
-    // OvertimeRequestService/AttendanceRequestService/WebClockInService (ONEHR-140 follow-up:
-    // this service was the one workflow missing it, causing HR Admin "Access Denied").
-    private static final Set<String> APPROVER_OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    // Holders of leave:APPROVE:ALL (seeded: HR_ADMIN, SUPER_ADMIN) may decide any leave request
+    // regardless of the literal manager relationship — same override convention as
+    // RegularizationService/AssetService/OvertimeRequestService/AttendanceRequestService/
+    // WebClockInService (ONEHR-140 follow-up: this service was the one workflow missing it,
+    // causing HR Admin "Access Denied").
+    private static final String APPROVER_OVERRIDE_AUTHORITY = "leave:APPROVE:ALL";
 
     // Annual/Sick/Casual are still independently selectable when submitting a request (see
     // #listTypes, untouched), but for calculation/display they share ONE consolidated balance —
@@ -97,6 +99,7 @@ public class LeaveService {
     // WorkingDayService/ExceptionService already share, never Employee.weeklyOffPolicy directly.
     private final WorkingDayService workingDayService;
     private final HolidayRepository holidayRepository;
+    private final EffectivePermissionService effectivePermissionService;
     private final AttendancePenaltyRepository attendancePenaltyRepository;
     private static final ObjectMapper PENALTY_JSON = new ObjectMapper();
     // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
@@ -792,7 +795,8 @@ public class LeaveService {
     }
 
     /**
-     * Backend enforcement gate for approve/reject: HR Admin/Super Admin may decide on any
+     * Backend enforcement gate for approve/reject: holders of leave:APPROVE:ALL (HR Admin/Super
+     * Admin, or a custom role granted it) may decide on any
      * employee's leave regardless of reporting line; everyone else must be the employee's
      * current reporting manager. Employee-level (and any other non-manager, non-override) users
      * fail both checks and are denied.
@@ -807,7 +811,7 @@ public class LeaveService {
     }
 
     private boolean hasOverrideRole(User actor) {
-        return actor.getRoles().stream().anyMatch(r -> APPROVER_OVERRIDE_ROLES.contains(r.getCode()));
+        return effectivePermissionService.hasAuthority(actor, APPROVER_OVERRIDE_AUTHORITY);
     }
 
     /**
@@ -861,6 +865,8 @@ public class LeaveService {
         return approverById;
     }
 
+    // Deliberately the literal role, not a permission: this is routing for a Super Admin's OWN
+    // leave (who decides it), not a check on what the actor was granted — see V234's header.
     private boolean employeeHasRole(User user, String roleCode) {
         return user.getRoles().stream().anyMatch(r -> roleCode.equals(r.getCode()));
     }

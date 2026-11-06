@@ -30,4 +30,8 @@ public class CreateLocationRequest {
     @NotBlank(message = "Timezone is required")
     @Size(max = 50)
     private String timezone;
+
+    // Optional office public IPs/CIDRs, comma-separated — validated in OrgService via OfficeNetwork.
+    @Size(max = 1000)
+    private String officeCidrs;
 }

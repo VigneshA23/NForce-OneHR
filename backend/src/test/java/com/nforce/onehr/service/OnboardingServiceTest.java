@@ -13,6 +13,7 @@ import com.nforce.onehr.entity.OnboardingChecklistItem;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -67,7 +68,8 @@ class OnboardingServiceTest {
     @BeforeEach
     void setUp() {
         onboardingService = new OnboardingService(checklistRepo, itemRepo, employeeRepo, historyRepo,
-                userRepo, employeeService, documentService, assetService, auditService, notificationService);
+                userRepo, employeeService, documentService, assetService, auditService, notificationService,
+                SeedMatrix.permissionService());
 
         adminId = UUID.randomUUID();
         User admin = User.builder().id(adminId).email(ADMIN_EMAIL)

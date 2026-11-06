@@ -3,9 +3,11 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.workflow.*;
 import com.nforce.onehr.entity.ApprovalRule;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.ApprovalRuleRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.RoleRepository;
 import com.nforce.onehr.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -27,42 +32,70 @@ import java.util.stream.Collectors;
  * PenalisationPolicyManagementController) — this service assumes the caller is already authorized
  * and only needs the actor's identity for the createdBy/updatedBy audit trail.
  *
- * <p>Extensibility seam for Phase 2 (Leave/Regularization/Asset): add the new request type to
- * {@link #SUPPORTED_REQUEST_TYPES} and its allowed condition fields to
- * {@link #CONDITION_FIELDS_BY_REQUEST_TYPE} — every validation/metadata/preview path already
- * reads from these two maps, nothing else in this class is EXPENSE-specific except the
- * evaluation engine itself ({@link ApprovalRuleEvaluationService#evaluateExpense}, which a new
- * request type would need its own equivalent method for).
+ * <p>Extensibility seam for a new request type: add it to {@link #SUPPORTED_REQUEST_TYPES}, its
+ * allowed condition fields to {@link #CONDITION_FIELDS_BY_REQUEST_TYPE}, and (if its stage-one
+ * role or allowed stage roles differ from EXPENSE's MANAGER-first/any-role defaults — see
+ * US-C09's PAYROLL_RUN entry below) to {@link #REQUIRED_FIRST_STAGE_BY_REQUEST_TYPE} and
+ * {@link #ALLOWED_STAGE_ROLES_BY_REQUEST_TYPE} — every validation/metadata/preview path already
+ * reads from these maps, nothing else in this class is EXPENSE-specific except the evaluation
+ * engine itself ({@link ApprovalRuleEvaluationService#evaluateExpense}/{@code evaluatePayrollRun},
+ * which a new request type would need its own equivalent method for).
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ApprovalRuleService {
 
-    public static final Set<String> SUPPORTED_REQUEST_TYPES = Set.of(ApprovalRuleEvaluationService.REQUEST_TYPE_EXPENSE);
+    public static final Set<String> SUPPORTED_REQUEST_TYPES = Set.of(
+            ApprovalRuleEvaluationService.REQUEST_TYPE_EXPENSE,
+            ApprovalRuleEvaluationService.REQUEST_TYPE_PAYROLL_RUN
+    );
 
     public static final Map<String, Set<String>> CONDITION_FIELDS_BY_REQUEST_TYPE = Map.of(
-            ApprovalRuleEvaluationService.REQUEST_TYPE_EXPENSE, Set.of(ApprovalRuleEvaluationService.CONDITION_FIELD_AMOUNT)
+            ApprovalRuleEvaluationService.REQUEST_TYPE_EXPENSE, Set.of(ApprovalRuleEvaluationService.CONDITION_FIELD_AMOUNT),
+            ApprovalRuleEvaluationService.REQUEST_TYPE_PAYROLL_RUN, Set.of(ApprovalRuleEvaluationService.CONDITION_FIELD_TOTAL_NET)
     );
 
     public static final Set<String> SUPPORTED_OPERATORS = Set.of(">", ">=", "<", "<=", "=");
 
-    public static final Set<String> SUPPORTED_APPROVAL_ROLES = Set.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN");
+    /** The system stage values. Since V236 a stage may also name any ACTIVE custom role — see
+     * {@link #approvalStageLabels()}, the full list of what a stage may hold right now. */
+    public static final List<String> SUPPORTED_APPROVAL_ROLES = List.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN");
+
+    // US-C09: a payroll run has no per-employee manager to anchor a MANAGER stage on, so its
+    // stage one is HR_ADMIN (whoever has payroll:CONFIGURE:ALL) instead of MANAGER — see
+    // ApprovalRuleEvaluationService's class Javadoc for why (Decision #19/Q-07 still unconfirmed).
+    // EXPENSE keeps its existing MANAGER-first requirement unchanged.
+    private static final Map<String, String> REQUIRED_FIRST_STAGE_BY_REQUEST_TYPE = Map.of(
+            ApprovalRuleEvaluationService.REQUEST_TYPE_EXPENSE, ApprovalRuleEvaluationService.ROLE_MANAGER,
+            ApprovalRuleEvaluationService.REQUEST_TYPE_PAYROLL_RUN, ApprovalRuleEvaluationService.ROLE_HR_ADMIN
+    );
+
+    // MANAGER is structurally invalid for PAYROLL_RUN (see above); EXPENSE is unrestricted (any of
+    // the three roles, as before). A request type absent from this map falls back to
+    // SUPPORTED_APPROVAL_ROLES in validateCore.
+    private static final Map<String, Set<String>> ALLOWED_STAGE_ROLES_BY_REQUEST_TYPE = Map.of(
+            ApprovalRuleEvaluationService.REQUEST_TYPE_PAYROLL_RUN, Set.of("HR_ADMIN", "SUPER_ADMIN")
+    );
 
     private final ApprovalRuleRepository ruleRepository;
     private final ApprovalRuleEvaluationService evaluationService;
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
+    private final RoleRepository roleRepository;
 
     // ── Metadata (drives the rule-builder form's dropdowns) ──
 
+    @Transactional(readOnly = true)
     public ApprovalRuleMetadataResponse metadata() {
+        Map<String, String> stageLabels = approvalStageLabels();
         return ApprovalRuleMetadataResponse.builder()
                 .requestTypes(List.copyOf(SUPPORTED_REQUEST_TYPES))
                 .conditionFieldsByRequestType(CONDITION_FIELDS_BY_REQUEST_TYPE.entrySet().stream()
                         .collect(Collectors.toMap(Map.Entry::getKey, e -> List.copyOf(e.getValue()))))
                 .operators(List.copyOf(SUPPORTED_OPERATORS))
-                .approvalRoles(List.copyOf(SUPPORTED_APPROVAL_ROLES))
+                .approvalRoles(List.copyOf(stageLabels.keySet()))
+                .approvalRoleLabels(stageLabels)
                 .build();
     }
 
@@ -191,11 +224,16 @@ public class ApprovalRuleService {
         BigDecimal sampleValue = req.getSampleValue() != null ? req.getSampleValue() : conditionValue;
 
         boolean conditionResult = ApprovalRuleEvaluationService.evaluateCondition(sampleValue, req.getOperator(), conditionValue);
-        List<String> newRouting = conditionResult ? stages : List.of(ApprovalRuleEvaluationService.ROLE_MANAGER);
+        List<String> newRouting = conditionResult ? stages : defaultSingleStage(req.getRequestType());
 
-        List<String> currentRouting = ApprovalRuleEvaluationService.REQUEST_TYPE_EXPENSE.equals(req.getRequestType())
-                ? currentExpenseRouting(sampleValue)
-                : List.of(ApprovalRuleEvaluationService.ROLE_MANAGER);
+        List<String> currentRouting;
+        if (ApprovalRuleEvaluationService.REQUEST_TYPE_EXPENSE.equals(req.getRequestType())) {
+            currentRouting = currentExpenseRouting(sampleValue);
+        } else if (ApprovalRuleEvaluationService.REQUEST_TYPE_PAYROLL_RUN.equals(req.getRequestType())) {
+            currentRouting = currentPayrollRunRouting(sampleValue);
+        } else {
+            currentRouting = defaultSingleStage(req.getRequestType());
+        }
 
         return ApprovalRulePreviewResponse.builder()
                 .conditionField(req.getConditionField())
@@ -212,6 +250,20 @@ public class ApprovalRuleService {
     /** Reuses the exact same production evaluation logic — preview can never drift from reality. */
     private List<String> currentExpenseRouting(BigDecimal sampleValue) {
         return evaluationService.evaluateExpense(sampleValue).requiredStages();
+    }
+
+    /** Reuses the exact same production evaluation logic — preview can never drift from reality. */
+    private List<String> currentPayrollRunRouting(BigDecimal sampleValue) {
+        return evaluationService.evaluatePayrollRun(sampleValue).requiredStages();
+    }
+
+    /** The single-stage routing a non-matching condition falls back to, per request type — EXPENSE
+     * keeps its historical Manager-only fallback; PAYROLL_RUN falls back to HR_ADMIN-only (MANAGER
+     * is not a valid payroll stage — see ALLOWED_STAGE_ROLES_BY_REQUEST_TYPE). */
+    private List<String> defaultSingleStage(String requestType) {
+        return ApprovalRuleEvaluationService.REQUEST_TYPE_PAYROLL_RUN.equals(requestType)
+                ? List.of(ApprovalRuleEvaluationService.ROLE_HR_ADMIN)
+                : List.of(ApprovalRuleEvaluationService.ROLE_MANAGER);
     }
 
     // ── Validation ──
@@ -260,20 +312,65 @@ public class ApprovalRuleService {
         if (stages.isEmpty()) {
             throw new IllegalArgumentException("At least one approval stage is required");
         }
+        // ExpenseService#nextFinalStage looks a stage up by indexOf, so a repeated stage would send
+        // finalApprove round the same stage forever.
+        if (new HashSet<>(stages).size() != stages.size()) {
+            throw new IllegalArgumentException("Each approval stage can appear only once");
+        }
+        Set<String> allowedStages = approvalStageLabels().keySet();
+        // US-C09: PAYROLL_RUN additionally restricts which of those real stage values are valid for
+        // it (no MANAGER, no custom role — see ApprovalRuleEvaluationService's class Javadoc,
+        // Decision #19/Q-07). A request type absent from this map (EXPENSE) has no extra
+        // restriction beyond "a real stage value" — custom roles remain usable there.
+        Set<String> allowedStageRoles = ALLOWED_STAGE_ROLES_BY_REQUEST_TYPE.getOrDefault(requestType, allowedStages);
         for (String stage : stages) {
-            if (!SUPPORTED_APPROVAL_ROLES.contains(stage)) {
+            if (!allowedStages.contains(stage)) {
                 throw new IllegalArgumentException("Invalid approval role: " + stage);
             }
+            if (!allowedStageRoles.contains(stage)) {
+                throw new IllegalArgumentException(stage + " is not a valid approval stage for request type " + requestType);
+            }
         }
-        if (!stages.get(0).equals(ApprovalRuleEvaluationService.ROLE_MANAGER)) {
-            throw new IllegalArgumentException("Manager approval is always the first stage and must be included");
+        String requiredFirstStage = REQUIRED_FIRST_STAGE_BY_REQUEST_TYPE.get(requestType);
+        if (requiredFirstStage != null && !stages.get(0).equals(requiredFirstStage)) {
+            throw new IllegalArgumentException(roleLabel(requiredFirstStage) + " approval is always the first stage for "
+                    + requestType + " and must be included");
         }
         // Manager is always stage one regardless (see ApprovalRuleEvaluationService), so a rule
-        // with no HR_ADMIN/SUPER_ADMIN stage decides nothing except to skip HR final clearance
-        // for every claim — whether or not its condition matches.
+        // with no HR_ADMIN/SUPER_ADMIN/custom-role stage decides nothing except to skip HR final
+        // clearance for every claim — whether or not its condition matches. A no-op for
+        // PAYROLL_RUN: MANAGER is never an allowed payroll stage, so this can never trigger there,
+        // and a single HR_ADMIN-only payroll rule is fully valid (just means "never escalate").
         if (stages.stream().allMatch(ApprovalRuleEvaluationService.ROLE_MANAGER::equals)) {
-            throw new IllegalArgumentException("At least one second-approval role (HR Admin or Super Admin) is required");
+            throw new IllegalArgumentException("At least one second-approval role (HR Admin, Super Admin or a custom role) is required");
         }
+    }
+
+    /**
+     * Every value a stage may hold right now -> its display name, in picker order: the system
+     * stages, then each ACTIVE custom role (V236) by name. A custom-role stage is acted on by that
+     * role's holders (see ExpenseService#canActAtFinalStage); an inactive one can't be newly picked.
+     */
+    private Map<String, String> approvalStageLabels() {
+        List<Role> roles = roleRepository.findAll();
+        Map<String, String> labels = new LinkedHashMap<>();
+        for (String code : SUPPORTED_APPROVAL_ROLES) {
+            labels.put(code, roles.stream().filter(r -> code.equals(r.getCode()))
+                    .map(Role::getDisplayName).findFirst().orElse(code));
+        }
+        roles.stream().filter(r -> !r.isSystem() && r.isActive())
+                .sorted(Comparator.comparing(Role::getDisplayName, String.CASE_INSENSITIVE_ORDER))
+                .forEach(r -> labels.put(r.getCode(), r.getDisplayName()));
+        return labels;
+    }
+
+    private static String roleLabel(String roleCode) {
+        return switch (roleCode) {
+            case "MANAGER" -> "Manager";
+            case "HR_ADMIN" -> "HR Admin";
+            case "SUPER_ADMIN" -> "Super Admin";
+            default -> roleCode;
+        };
     }
 
     private List<String> normalizeStages(List<String> stages) {

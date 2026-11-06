@@ -123,7 +123,7 @@ class ManagerRoleSyncServiceTest {
         when(autoGrantRepository.existsById(MANAGER_ID)).thenReturn(true);
         when(roleRepository.findByCode("MANAGER")).thenReturn(Optional.of(managerRole()));
 
-        service.restoreIfAutoGranted(user);
+        service.restoreIfAutoGranted(user.getId(), user.getRoles());
 
         assertTrue(user.getRoles().stream().anyMatch(r -> "MANAGER".equals(r.getCode())));
     }
@@ -133,7 +133,7 @@ class ManagerRoleSyncServiceTest {
         User user = User.builder().id(MANAGER_ID).roles(new HashSet<>()).build();
         when(autoGrantRepository.existsById(MANAGER_ID)).thenReturn(false);
 
-        service.restoreIfAutoGranted(user);
+        service.restoreIfAutoGranted(user.getId(), user.getRoles());
 
         assertTrue(user.getRoles().isEmpty());
         verifyNoInteractions(roleRepository);

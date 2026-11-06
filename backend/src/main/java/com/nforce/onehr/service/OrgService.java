@@ -344,6 +344,7 @@ public class OrgService {
                         .country(req.getCountry())
                         .holidayRegion(req.getHolidayRegion())
                         .timezone(validatedTimezone(req.getTimezone()))
+                        .officeCidrs(OfficeNetwork.normalizeCidrs(req.getOfficeCidrs()))
                         .build());
         return LocationResponse.from(saved, 0L);
     }
@@ -362,6 +363,7 @@ public class OrgService {
         loc.setState(req.getState() != null ? req.getState().trim() : null);
         loc.setCountry(req.getCountry() != null ? req.getCountry().trim() : null);
         loc.setHolidayRegion(req.getHolidayRegion() != null ? req.getHolidayRegion().trim() : null);
+        loc.setOfficeCidrs(OfficeNetwork.normalizeCidrs(req.getOfficeCidrs()));
         // Future-effective timezone changes (ONEHR-336 follow-up): unchanged from the Location's
         // current live value saves immediately, no date required — and clears any previously-
         // queued pending change (resubmitting the current value is "cancel the pending change,"

@@ -41,4 +41,8 @@ public class UpdateLocationRequest {
     // future-only (today/past rejected), no default enforced server-side (the UI defaults its
     // picker to tomorrow). Ignored when timezone is unchanged: see OrgService#updateLocation.
     private LocalDate effectiveFrom;
+
+    // Optional office public IPs/CIDRs, comma-separated — validated in OrgService via OfficeNetwork.
+    @Size(max = 1000)
+    private String officeCidrs;
 }

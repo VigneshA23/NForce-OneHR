@@ -5,7 +5,6 @@ import { authApi, LoginLockedError } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
 import { consumeSessionMessage } from '../../lib/authFetch';
 import wordmarkUrl from '../../assets/nforce-wordmark.png';
-import artUrl from '../../assets/login-art.jpg';
 import '../login.css';
 
 // "NForce One" in the surrounding text colour, "HR" in brand red.
@@ -175,16 +174,17 @@ export default function Login() {
           <span className="nf-lg-product"><BrandName /></span>
         </div>
 
-        <h1 className="nf-lg-headline">
-          The modern way to<br />
-          manage <em>your workforce.</em>
-        </h1>
-        <p className="nf-lg-sub">
-          Streamline HR processes, empower your people<br />
-          and build a stronger tomorrow, together.
-        </p>
+        <div className="nf-lg-hero">
+          <h1 className="nf-lg-headline">
+            The modern way to<br />
+            manage <em>your workforce.</em>
+          </h1>
+          <p className="nf-lg-sub">
+            Streamline HR processes, empower your people and build a stronger tomorrow, together.
+          </p>
+        </div>
 
-        <div className="nf-lg-art" aria-hidden="true" style={{ backgroundImage: `url(${artUrl})` }} />
+        <img src="/assets/brand/hero-wave.webp" alt="" aria-hidden="true" className="nf-lg-art" />
         <p className="nf-lg-copy">© {new Date().getFullYear()} NForce One</p>
       </aside>
 
@@ -261,7 +261,7 @@ export default function Login() {
                   disabled={locked}
                   className="nf-lg-eye"
                 >
-                  {showPass ? <Eye size={17} aria-hidden="true" /> : <EyeOff size={17} aria-hidden="true" />}
+                  {showPass ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
                 </button>
               </div>
             </div>
@@ -292,7 +292,7 @@ export default function Login() {
                   Signing in…
                 </>
               ) : (
-                <>Sign in <ArrowRight size={17} aria-hidden="true" /></>
+                <>Sign in <ArrowRight size={16} aria-hidden="true" /></>
               )}
             </button>
           </form>

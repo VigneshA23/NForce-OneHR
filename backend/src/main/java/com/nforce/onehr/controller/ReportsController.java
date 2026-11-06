@@ -40,7 +40,7 @@ public class ReportsController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             Principal principal) {
-        List<AttendanceRequestReportRow> rows = reportsService.getAttendanceRequestReport(principal.getName(), type, from, to);
+        List<AttendanceRequestReportRow> rows = reportsService.exportAttendanceRequestReport(principal.getName(), type, from, to);
         byte[] csv = reportsService.toCsv(rows).getBytes(StandardCharsets.UTF_8);
         String filename = type.name().toLowerCase() + "-report-" + from + "-to-" + to + ".csv";
         return ResponseEntity.ok()
