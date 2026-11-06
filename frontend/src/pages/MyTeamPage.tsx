@@ -88,9 +88,9 @@ function toISO(d: Date): string {
 // this appended '+05:30' (assumed IST) and let toLocaleTimeString re-project into the viewer's
 // local zone, mislabeling and re-shifting any non-IST employee's recorded time.
 function fmtTime(iso?: string | null) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const d = new Date(iso + 'Z');
-  if (isNaN(d.getTime())) return '—';
+  if (isNaN(d.getTime())) return '-';
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
 }
 // Shift start/end are plain LocalTime strings (e.g. "20:30:00") with no date/zone component at
@@ -104,10 +104,10 @@ function fmtShiftRange(start: string, end: string): string {
     const hour12 = h % 12 === 0 ? 12 : h % 12;
     return `${hour12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
   };
-  return `${fmt(start)} – ${fmt(end)}`;
+  return `${fmt(start)} to ${fmt(end)}`;
 }
 function fmtDateShort(iso?: string | null) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 /** "Sep 16, 2026" — full date incl. year, for Effective From displays (a scheduled date can be far enough out that the bare day/month above would be ambiguous). */
@@ -185,7 +185,7 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
     setBusy(true);
     try {
       await approveCall();
-      showToast('success', `Approved — ${item.employeeName}`);
+      showToast('success', `Approved: ${item.employeeName}`);
       onDone(item.id);
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Approve failed');
@@ -198,7 +198,7 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
     setBusy(true);
     try {
       await rejectCall(reason.trim());
-      showToast('success', `Rejected — ${item.employeeName}`);
+      showToast('success', `Rejected: ${item.employeeName}`);
       onDone(item.id);
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Reject failed');
@@ -207,7 +207,7 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
   }
 
   const detail = type === 'LEAVE'
-    ? `${item.leaveTypeName} · ${fmtDateShort(item.leaveStartDate)}${item.leaveStartDate !== item.leaveEndDate ? ` – ${fmtDateShort(item.leaveEndDate)}` : ''} (${item.leaveTotalDays} day${item.leaveTotalDays !== 1 ? 's' : ''})`
+    ? `${item.leaveTypeName} · ${fmtDateShort(item.leaveStartDate)}${item.leaveStartDate !== item.leaveEndDate ? ` to ${fmtDateShort(item.leaveEndDate)}` : ''} (${item.leaveTotalDays} day${item.leaveTotalDays !== 1 ? 's' : ''})`
     : type === 'EXPENSE'
     ? `${item.expenseCategoryName} · ₹${item.expenseAmount?.toFixed(2)}${item.approvalStage === 'FINAL' ? ' · awaiting final approval' : ''}`
     : type === 'ASSET_REQUEST'
@@ -323,13 +323,13 @@ export function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose:
             <Row label="Status" value={STATUS_LABEL[status]} />
             {/* sessionStartedAt reflects the latest check-in of the day (checkInAt is fixed to
                 the day's very first one and never updated on a same-day checkout+checkin resume
-                — see AttendanceService.checkIn) — same fallback AttendanceHeroBanner/
+               , see AttendanceService.checkIn), same fallback AttendanceHeroBanner/
                 AttendancePage already use, so a direct report's most recent check-in shows here
                 too instead of a frozen original time. */}
             <Row label="Actual check-in" value={fmtTime(record?.sessionStartedAt ?? record?.checkInAt)} />
             <Row label="Actual check-out" value={fmtTime(record?.checkOutAt)} />
             {/* record.timezone is the employee's OWN effective timezone (locked in at their
-                check-in — see Attendance.timezone), not the viewer's. Labeled explicitly so it's
+                check-in, see Attendance.timezone), not the viewer's. Labeled explicitly so it's
                 never ambiguous which zone the times above are in when viewing another employee. */}
             {record?.timezone && <Row label="Employee's timezone" value={record.timezone} />}
             {!!record?.lateByMinutes && <Row label="Late by" value={`${record.lateByMinutes} minutes`} />}
@@ -353,7 +353,7 @@ export function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose:
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
                       {r.requestType === 'LEAVE'
-                        ? `${r.leaveTypeName} · ${fmtDateShort(r.leaveStartDate)}${r.leaveStartDate !== r.leaveEndDate ? ` – ${fmtDateShort(r.leaveEndDate)}` : ''}`
+                        ? `${r.leaveTypeName} · ${fmtDateShort(r.leaveStartDate)}${r.leaveStartDate !== r.leaveEndDate ? ` to ${fmtDateShort(r.leaveEndDate)}` : ''}`
                         : r.requestType === 'EXPENSE'
                         ? `${r.expenseCategoryName} · ₹${r.expenseAmount?.toFixed(2)}`
                         : r.requestType === 'ASSET_REQUEST'
@@ -741,7 +741,7 @@ function DateRangeControl({ from, to, onFrom, onTo }: { from: string; to: string
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
       <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)' }}>Date range</span>
       <input type="date" value={from} max={to} onChange={e => onFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-      <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>–</span>
+      <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>to</span>
       <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => onTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
     </div>
   );
@@ -777,7 +777,7 @@ function EffortRow({ entry }: { entry: TeamEffortEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ flex: 1, minWidth: 100 }}>
         <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
@@ -799,7 +799,7 @@ function PunctualityRow({ entry }: { entry: PunctualityLeaderboardEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ flex: 1, minWidth: 100 }}>
         <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
@@ -853,7 +853,7 @@ function PunctualitySection({ from, to, token }: { from: string; to: string; tok
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>On-Time Leaderboard</span>
-          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} to {fmtDateShort(to)}</span>
         </div>
         <div className="nf-team-leaderboard-scroll">
           <div className="nf-team-leaderboard-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
@@ -889,7 +889,7 @@ function EffortTab({ token }: { token: string }) {
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Avg. Work Hours Leaderboard</span>
-          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} to {fmtDateShort(to)}</span>
         </div>
         <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
         {loading ? (
@@ -915,7 +915,7 @@ function LateArrivalRow({ entry }: { entry: TeamLateArrivalEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{entry.lateDays} / {entry.activeDays} Late Arrivals</div>
@@ -949,7 +949,7 @@ function LeastHoursRow({ entry }: { entry: TeamLeastHoursEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>Avg. {entry.avgHoursPerDay.toFixed(1)} hrs/day</div>
@@ -990,7 +990,7 @@ function FrequentBreaksRow({ entry }: { entry: TeamFrequentBreaksEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{entry.totalBreakHours.toFixed(1)} hrs in {entry.totalBreakCount} breaks</div>
@@ -1021,7 +1021,7 @@ function BreaksTrend({ data }: { data: { date: string; avgBreaks: number }[] }) 
         })}
       </svg>
       <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 6 }}>
-        Avg. breaks/day across flagged employees — {trendingUp ? 'trending up' : 'trending down'} this range
+        Avg. breaks/day across flagged employees, {trendingUp ? 'trending up' : 'trending down'} this range
       </div>
     </div>
   );
@@ -1050,7 +1050,7 @@ function NegligenceTab({ token }: { token: string }) {
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Late Arrivals</span>
-          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} to {fmtDateShort(to)}</span>
         </div>
         <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
         {data.lateArrivals.length === 0 ? (
@@ -1068,7 +1068,7 @@ function NegligenceTab({ token }: { token: string }) {
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Least Hours Worked</span>
-          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} to {fmtDateShort(to)}</span>
         </div>
         {data.leastHoursWorked.length === 0 ? (
           <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance data for this range.</div>
@@ -1085,7 +1085,7 @@ function NegligenceTab({ token }: { token: string }) {
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Frequent Breaks</span>
-          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} to {fmtDateShort(to)}</span>
         </div>
         {data.frequentBreaks.length === 0 ? (
           <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No breaks recorded in this range.</div>
@@ -1218,7 +1218,7 @@ function AssignmentsTab({ token }: { token: string }) {
         kind: 'import',
         succeeded: result.succeeded,
         failures: result.results.filter(r => !r.success)
-          .map(r => ({ label: `Row ${r.row} (${r.employeeCode || '—'})`, reason: r.error ?? 'Unknown error' })),
+          .map(r => ({ label: `Row ${r.row} (${r.employeeCode || '-'})`, reason: r.error ?? 'Unknown error' })),
       });
       setImportOpen(false);
       setImportFile(null);
@@ -1299,7 +1299,7 @@ function AssignmentsTab({ token }: { token: string }) {
       {lastResult && (
         <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', background: lastResult.failures.length ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: lastResult.failures.length ? 6 : 0 }}>
-            {lastResult.kind === 'import' ? 'Import' : 'Bulk update'} — {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
+            {lastResult.kind === 'import' ? 'Import' : 'Bulk update'}: {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
           </div>
           {lastResult.failures.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -1340,10 +1340,10 @@ function AssignmentsTab({ token }: { token: string }) {
                   </div>
                 </td>
                 <td style={assignmentCellStyle}>{r.employeeCode}</td>
-                <td style={assignmentCellStyle}>{r.departmentName ?? '—'}</td>
-                <td style={assignmentCellStyle}>{r.locationName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.departmentName ?? '-'}</td>
+                <td style={assignmentCellStyle}>{r.locationName ?? '-'}</td>
                 <td style={assignmentCellStyle}>
-                  {r.shiftName ?? '—'}
+                  {r.shiftName ?? '-'}
                   {r.shiftName && r.shiftStartTime && r.shiftEndTime && (
                     <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 2 }}>
                       {fmtShiftRange(r.shiftStartTime, r.shiftEndTime)}
@@ -1366,7 +1366,7 @@ function AssignmentsTab({ token }: { token: string }) {
                   )}
                 </td>
                 <td style={assignmentCellStyle}>
-                  {r.weeklyOffPolicyName ?? '—'}
+                  {r.weeklyOffPolicyName ?? '-'}
                   {r.pendingWeeklyOffPolicyName && (
                     <div style={{
                       display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 10,
@@ -1377,7 +1377,7 @@ function AssignmentsTab({ token }: { token: string }) {
                     </div>
                   )}
                 </td>
-                <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '-'}</td>
               </tr>
             ))}
           </tbody>
@@ -1438,7 +1438,7 @@ function AssignmentsTab({ token }: { token: string }) {
             <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>Import Shifts &amp; Weekly Offs</div>
             <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-                CSV with columns <code>employee_code,shift_name,shift_effective_from,weekly_off_policy_name,weekly_off_effective_from</code>. Leave a cell blank to leave that field untouched. <code>shift_effective_from</code>/<code>weekly_off_effective_from</code> (YYYY-MM-DD) are each required whenever the matching name column is set — today or any future date, never a past one.
+                CSV with columns <code>employee_code,shift_name,shift_effective_from,weekly_off_policy_name,weekly_off_effective_from</code>. Leave a cell blank to leave that field untouched. <code>shift_effective_from</code>/<code>weekly_off_effective_from</code> (YYYY-MM-DD) are each required whenever the matching name column is set, today or any future date, never a past one.
               </div>
               <input type="file" accept=".csv,text/csv" onChange={e => setImportFile(e.target.files?.[0] ?? null)} style={{ fontSize: 12.5, color: 'var(--txt)' }} />
             </div>
@@ -2366,12 +2366,12 @@ function PeersView({ token }: { token: string }) {
 
       <MemberGridSection
         title={`Project Team (${filteredPeers.length})`}
-        subtitle="Avatar, designation, live status, location, department and email — find and reach a teammate without leaving this page."
+        subtitle="Avatar, designation, live status, location, department and email, find and reach a teammate without leaving this page."
         search={search} onSearch={setSearch} searchPlaceholder="Search by name, designation, or department…"
       >
         <MemberGrid empty={
           loading ? 'Loading…'
-            : peers.length === 0 ? "No project team members found — you don't currently share a manager with anyone else in the system."
+            : peers.length === 0 ? "No project team members found. You don't currently share a manager with anyone else in the system."
             : filteredPeers.length === 0 ? 'No one matches this filter.' : undefined
         }>
           {filteredPeers.map(row => {
@@ -2498,7 +2498,7 @@ const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
 };
 
 function fmtDateTimeShort(iso?: string | null) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -2688,7 +2688,7 @@ function PenaltiesTab({ token }: { token: string }) {
       {lastResult && (
         <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', background: lastResult.failures.length ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: lastResult.failures.length ? 6 : 0 }}>
-            Cancellation — {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
+            Cancellation: {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
           </div>
           {lastResult.failures.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -2734,8 +2734,8 @@ function PenaltiesTab({ token }: { token: string }) {
                 <td style={assignmentCellStyle}>{fmtDateShort(r.incidentDate)}</td>
                 <td style={assignmentCellStyle}>{fmtDateTimeShort(r.penalizedOn)}</td>
                 <td style={assignmentCellStyle}><PenaltyStatusBadge status={r.status} /></td>
-                <td style={assignmentCellStyle}>{r.locationName ?? '—'}</td>
-                <td style={assignmentCellStyle}>{r.departmentName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.locationName ?? '-'}</td>
+                <td style={assignmentCellStyle}>{r.departmentName ?? '-'}</td>
                 <td style={assignmentCellStyle}>{DISCREPANCY_TYPE_LABEL[r.discrepancyType] ?? r.discrepancyType}</td>
                 <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>
                   <KebabMenu items={[{ label: 'View Regularization History', onClick: () => setHistoryFor(r) }]} />
@@ -2810,7 +2810,7 @@ function growthLimit<T>(items: T[], expanded: boolean): { visible: T[]; overflow
   return { visible: items.slice(0, GROWTH_PREVIEW_LIMIT), overflow: items.length - GROWTH_PREVIEW_LIMIT };
 }
 function growthFmtDate(d: string | null): string {
-  if (!d) return '—';
+  if (!d) return '-';
   return growthParseLocalDate(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 function growthCertificateStatusLabel(expiry: string | null): { label: string; tone: string } | null {
@@ -2842,8 +2842,8 @@ function CertificateDetailModal({ cert, onClose }: { cert: CertificateEntry; onC
       )}
       onClose={onClose}
     >
-      <GrowthDetailRow label="Issuing Organization">{cert.issuingOrganization ?? '—'}</GrowthDetailRow>
-      <GrowthDetailRow label="Credential ID">{cert.credentialId ?? '—'}</GrowthDetailRow>
+      <GrowthDetailRow label="Issuing Organization">{cert.issuingOrganization ?? '-'}</GrowthDetailRow>
+      <GrowthDetailRow label="Credential ID">{cert.credentialId ?? '-'}</GrowthDetailRow>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <GrowthDetailRow label="Issue Date">{growthFmtDate(cert.issueDate)}</GrowthDetailRow>
         <GrowthDetailRow label="Expiry Date">{growthFmtDate(cert.expiryDate)}</GrowthDetailRow>
@@ -2853,7 +2853,7 @@ function CertificateDetailModal({ cert, onClose }: { cert: CertificateEntry; onC
           <a href={cert.credentialUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--brand-bright)', textDecoration: 'none', fontWeight: 600 }}>
             View credential <ExternalLink size={12} />
           </a>
-        ) : '—'}
+        ) : '-'}
       </GrowthDetailRow>
     </DetailModalShell>
   );
@@ -2872,7 +2872,7 @@ function LearningDetailModal({ entry, onClose }: { entry: LearningEntry; onClose
     >
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <GrowthDetailRow label="Type">{entry.learningType}</GrowthDetailRow>
-        <GrowthDetailRow label="Provider">{entry.provider ?? '—'}</GrowthDetailRow>
+        <GrowthDetailRow label="Provider">{entry.provider ?? '-'}</GrowthDetailRow>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <GrowthDetailRow label="Started On">{growthFmtDate(entry.startDate)}</GrowthDetailRow>
@@ -2951,7 +2951,7 @@ function GrowthColumn({ icon: Icon, label, category, count, empty, children }: {
           <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)' }}>({count})</span>
         )}
       </div>
-      {empty ? <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>—</span> : (
+      {empty ? <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>-</span> : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{children}</div>
       )}
     </div>
