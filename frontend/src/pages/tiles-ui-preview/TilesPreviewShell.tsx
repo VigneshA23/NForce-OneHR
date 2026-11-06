@@ -47,7 +47,8 @@ import NotificationsPage from '../NotificationsPage';
 import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
-import { AttentionPanel, ReportsTab as MyTeamReportsTab } from '../MyTeamPage';
+import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel } from '../MyTeamPage';
+import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
 import DocumentsPage from '../DocumentsPage';
@@ -85,6 +86,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'profile-page', label: 'My Profile (full page)', title: 'My Profile', subtitle: 'Sample data: About, Profile, Job and Assets tabs with the Edit popups. Use ?role=employee for the employee view.' },
   { key: 'prefs-page', label: 'User Preferences (full page)', title: 'User Preferences', subtitle: 'Appearance, Notifications and Accessibility. Changes here apply to this preview only.' },
   { key: 'change-password-page', label: 'Change Password (full page)', title: 'Change Password', subtitle: 'Add &forced=1 for the first-login version. Nothing is submitted to a server here.' },
+  { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
   { key: 'team-reports', label: 'My Team: Reports tab', title: 'My Team: Reports', subtitle: 'The Reports tab of My Team. Cards open the real download dialogs; nothing is sent from this preview.' },
   { key: 'attention-panel', label: 'My Team: Needs your attention', title: 'My Team: Needs your attention', subtitle: 'Sample pending requests. Approve / Reject here only change this preview.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
@@ -445,6 +447,30 @@ function ChangePasswordMock() {
   return ready ? <ChangePasswordPage /> : null;
 }
 
+function TeamTodayMock() {
+  const names = ['Sanjukta', 'Abuzar Siddiqui', 'Harvey Specter', 'Hr Admin', 'Hr', 'Testo', 'Ramesh A', 'Lalith Kumar Ratnala'];
+  const people = names.map((n, i) => ({ userId: 'u' + i, name: n }));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
+        <TeamKpiCard icon={<KIcOk size={14} />} iconColor="var(--ok)" label="Employees on time" value={5} note="arrived on schedule" onClick={() => {}} />
+        <TeamKpiCard icon={<KIcLate size={14} />} iconColor="var(--warn)" label="Late arrivals" value={2} note="arrived late today" onClick={() => {}} />
+        <TeamKpiCard icon={<KIcHome size={14} />} iconColor="var(--info)" label="WFH / On duty" value={0} note="remote or hybrid today" />
+        <TeamKpiCard icon={<KIcPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={0} note="via Web Clock-In today" />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+        <LeaveTodayPanel emptyText="No one on your team is on leave today." rows={[
+          { key: '1', userId: 'u1', name: 'Abuzar Siddiqui', leaveType: 'Casual Leave', active: true },
+          { key: '2', userId: 'u3', name: 'Hr Admin', leaveType: 'Annual Leave', active: true },
+        ]} />
+        <NotInYetPanel variant="list" loading={false} emptyText="Everyone has checked in." people={people} onPick={() => {}} onViewAll={() => {}} />
+        <LeaveTodayPanel emptyText="No one on your project team is on leave today." rows={[]} />
+        <NotInYetPanel variant="chips" limit={4} loading={false} emptyText="Everyone's checked in." people={people} onPick={() => {}} onViewAll={() => {}} />
+      </div>
+    </div>
+  );
+}
+
 function TeamReportsMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -488,7 +514,17 @@ function TeamReportsMock() {
     setReady(true);
     return () => { window.fetch = prevFetch; };
   }, []);
-  return ready ? <MyTeamReportsTab token="mock-token" /> : null;
+  return ready ? (
+    <div>
+      <div className="nf-page-hdr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={KIcTeam}>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
+          <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>Attendance, leave, and open requests for your direct reports, in one place, so you don't have to check four separate pages to know how your team is doing today.</p>
+        </PageTitleBlock>
+      </div>
+      <MyTeamReportsTab token="mock-token" />
+    </div>
+  ) : null;
 }
 
 function AttentionMock() {
@@ -1267,6 +1303,8 @@ function Tiles({ page }: { page: string }) {
       return <UserPreferencesPage />;
     case 'attention-panel':
       return <AttentionMock />;
+    case 'team-today':
+      return <TeamTodayMock />;
     case 'team-reports':
       return <TeamReportsMock />;
     case 'change-password-page':

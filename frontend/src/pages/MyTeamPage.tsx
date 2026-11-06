@@ -35,6 +35,8 @@ import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
 import './myTeamAttention.css';
 import './myTeamReports.css';
+import './myTeamPanels.css';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { businessTodayIsoDate } from '../utils/businessDate';
 import { teamGrowthApi, type TeamGrowthSummary } from '../api/teamGrowth';
 import { DetailModalShell } from '../components/TeamGrowthModal';
@@ -567,39 +569,110 @@ function KpiEmployeesModal({ title, description, people, onClose }: {
  * that opens KpiEmployeesModal, with a "Click to view employees" tooltip as the hover/focus
  * affordance; cards with no employee-level drilldown (e.g. Team size, Needs your attention)
  * stay static, exactly as before. ── */
-function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string; onClick?: () => void }) {
-  const [hover, setHover] = useState(false);
+export function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string; onClick?: () => void }) {
   const card = (
     <div
+      className={onClick ? 'nf-mk is-click' : 'nf-mk'}
+      style={{ ['--mk' as string]: iconColor }}
       {...(onClick ? {
         role: 'button' as const,
         tabIndex: 0,
         onClick,
         onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } },
-        onMouseEnter: () => setHover(true),
-        onMouseLeave: () => setHover(false),
-        onFocus: () => setHover(true),
-        onBlur: () => setHover(false),
-        'aria-label': `${label} — click to view employees`,
+        'aria-label': `${label}, click to view employees`,
       } : {})}
-      style={{
-        // height: 100% keeps every card the height of its grid row — clickable cards are wrapped
-        // in Tooltip's <span>, so without it they'd shrink to their content instead of stretching.
-        height: '100%', boxSizing: 'border-box',
-        background: 'var(--panel)', borderRadius: 10, padding: '16px 18px',
-        border: `1px solid ${onClick && hover ? 'var(--brand-bright)' : 'var(--line)'}`,
-        cursor: onClick ? 'pointer' : 'default', transition: 'border-color .15s ease',
-      }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: iconColor }}>
-        {icon}
-        <span style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--txt-mut)' }}>{label}</span>
+      <div className="nf-mk-top">
+        <span className="nf-mk-ico">{icon}</span>
+        <span className="nf-mk-label">{label}</span>
       </div>
-      <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 30, color: 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>
+      <div className="nf-mk-val">{value}</div>
+      <div className="nf-mk-note">{note}</div>
     </div>
   );
   return onClick ? <Tooltip content="Click to view employees">{card}</Tooltip> : card;
+}
+
+/* ── Today panels (leave / not in yet), shared by the Direct Reports and Project Team views ── */
+function TodayPanel({ icon, tone, title, count, children }: { icon: React.ReactNode; tone: 'leave' | 'wait'; title: string; count: string; children: React.ReactNode }) {
+  return (
+    <div className="nf-mp">
+      <div className="nf-mp-head">
+        <span className={`nf-mp-ico is-${tone}`}>{icon}</span>
+        <span className="nf-mp-title">{title}</span>
+        <span className="nf-mp-count">{count}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+const peopleCount = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`;
+
+export function LeaveTodayPanel({ rows, emptyText }: { rows: { key: string; userId: string; name: string; leaveType: string; active: boolean }[]; emptyText: string }) {
+  return (
+    <TodayPanel icon={<CalendarClock size={15} />} tone="leave" title="Who's on leave today" count={peopleCount(rows.length)}>
+      {rows.length === 0 ? (
+        <div className="nf-mp-empty"><CheckCircle2 size={20} />{emptyText}</div>
+      ) : (
+        <div className="nf-mp-list">
+          {rows.map(r => (
+            <div key={r.key} className="nf-mp-row" style={inactiveDimStyle(r.active)}>
+              <Avatar userId={r.userId} name={r.name} size={32} />
+              <span className="nf-mp-name">{r.name}</span>
+              {!r.active && <StatusBadge active={false} />}
+              <span className="nf-mp-tag">{r.leaveType}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </TodayPanel>
+  );
+}
+
+/** Not in yet. variant "list" = scrolling rows (Direct Reports), "chips" = compact name chips (Project Team). */
+export function NotInYetPanel({ loading, people, emptyText, variant, limit = 6, onPick, onViewAll }: {
+  loading: boolean; people: { userId: string; name: string }[]; emptyText: string; variant: 'list' | 'chips'; limit?: number;
+  onPick: (userId: string) => void; onViewAll: () => void;
+}) {
+  const shown = variant === 'chips' ? people.slice(0, limit) : people;
+  return (
+    <TodayPanel icon={<Clock size={15} />} tone="wait" title="Not in yet today" count={peopleCount(people.length)}>
+      {loading ? (
+        <div className="nf-mp-empty">Loading…</div>
+      ) : people.length === 0 ? (
+        <div className="nf-mp-empty"><CheckCircle2 size={20} />{emptyText}</div>
+      ) : (
+        <>
+          {variant === 'list' ? (
+            <div className="nf-mp-list">
+              {shown.map(r => (
+                <div key={r.userId} className="nf-mp-row is-click" title={r.name} onClick={() => onPick(r.userId)}>
+                  <Avatar userId={r.userId} name={r.name} size={32} />
+                  <span className="nf-mp-name">{r.name}</span>
+                  <span className="nf-mp-wait">Not in yet</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="nf-mp-chips">
+              {shown.map(r => (
+                <button type="button" key={r.userId} className="nf-mp-chip" title={r.name} onClick={() => onPick(r.userId)}>
+                  <Avatar userId={r.userId} name={r.name} size={22} />{r.name}
+                </button>
+              ))}
+              {people.length > limit && (
+                <button type="button" className="nf-mp-chip is-more" title="View all employees not in yet" onClick={onViewAll}>+{people.length - limit} more</button>
+              )}
+            </div>
+          )}
+          <div className="nf-mp-foot">
+            <button type="button" onClick={onViewAll}>View employees <ArrowUpRight size={13} /></button>
+          </div>
+        </>
+      )}
+    </TodayPanel>
+  );
 }
 
 /* ── Calendar day-cell classification ── */
@@ -2344,7 +2417,7 @@ function PeersView({ token }: { token: string }) {
        * instead of auto-fit computing more tracks than there are cards and leaving a gap.
        * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
        * row of fixed-width cards instead of squeezing all 4 into the narrow viewport. */}
-      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '…' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '…' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
         <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '…' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
@@ -2365,72 +2438,20 @@ function PeersView({ token }: { token: string }) {
       )}
 
       {/* Who's on leave / Not in yet */}
-      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-        <div style={panelStyle}>
-          <div style={panelHeadStyle}>
-            <span style={panelTitleStyle}>Who's on leave today</span>
-            <span style={panelCountStyle}>{onLeaveList.length} {onLeaveList.length === 1 ? 'person' : 'people'}</span>
-          </div>
-          {onLeaveList.length === 0 ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your project team is on leave today.</div>
-          ) : (
-            onLeaveList.map(r => (
-              <div key={r.peer.userId} style={{ ...inactiveDimStyle(r.peer.active), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                <Avatar userId={r.peer.userId} name={r.peer.fullName} size={30} />
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{r.peer.fullName}</span>
-                {!r.peer.active && <StatusBadge active={false} />}
-                <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{r.leaveTypeName}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <div style={panelStyle}>
-          <div style={panelHeadStyle}>
-            <span style={panelTitleStyle}>Not in yet today</span>
-            <span style={panelCountStyle}>{notInYet.length} {notInYet.length === 1 ? 'person' : 'people'}</span>
-          </div>
-          {loading ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
-          ) : notInYet.length === 0 ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Everyone's checked in.</div>
-          ) : (
-            <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex' }}>
-                  {notInYet.slice(0, OVERFLOW_LIMIT).map((r, i) => (
-                    <div
-                      key={r.peer.userId}
-                      title={r.peer.fullName}
-                      onClick={() => setViewingEmployeeDetails(r.peer)}
-                      style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid var(--panel)', borderRadius: '50%', cursor: 'pointer' }}
-                    >
-                      <Avatar userId={r.peer.userId} name={r.peer.fullName} size={30} />
-                    </div>
-                  ))}
-                </div>
-                {notInYet.length > OVERFLOW_LIMIT && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllNotIn(true)}
-                    title="View all employees not in yet"
-                    style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', padding: '4px 9px', borderRadius: 20, border: 'none', cursor: 'pointer' }}
-                  >
-                    +{notInYet.length - OVERFLOW_LIMIT} more
-                  </button>
-                )}
-                <span style={{ fontSize: 12, color: 'var(--txt-dim)', flexBasis: '100%' }}>
-                  {notInYet.slice(0, OVERFLOW_LIMIT).map(r => r.peer.fullName).join(', ')}
-                  {notInYet.length > OVERFLOW_LIMIT ? `, +${notInYet.length - OVERFLOW_LIMIT} more` : ''}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={() => setShowAllNotIn(true)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--info)' }}>
-                  View employees
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+        <LeaveTodayPanel
+          emptyText="No one on your project team is on leave today."
+          rows={onLeaveList.map(r => ({ key: r.peer.userId, userId: r.peer.userId, name: r.peer.fullName, leaveType: r.leaveTypeName ?? '', active: r.peer.active }))}
+        />
+        <NotInYetPanel
+          variant="chips"
+          limit={OVERFLOW_LIMIT}
+          loading={loading}
+          emptyText="Everyone's checked in."
+          people={notInYet.map(r => ({ userId: r.peer.userId, name: r.peer.fullName }))}
+          onPick={userId => { const row = notInYet.find(r => r.peer.userId === userId); if (row) setViewingEmployeeDetails(row.peer); }}
+          onViewAll={() => setShowAllNotIn(true)}
+        />
       </div>
       {viewingEmployeeDetails && <EmployeeDetailsModal entry={viewingEmployeeDetails} onClose={() => setViewingEmployeeDetails(null)} />}
       {showAllNotIn && (
@@ -3366,16 +3387,16 @@ export default function MyTeamPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div className={viewMode === 'direct' && tab !== 'overview' ? 'nf-page-hdr' : undefined} style={{ display: 'flex', alignItems: viewMode === 'direct' && tab !== 'overview' ? 'center' : 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: viewMode === 'direct' && tab !== 'overview' ? 18 : 16, flexWrap: 'wrap' }}>
         {/* The redesigned Overview / Project Team views carry their own "My Team" hero title;
             the classic title only shows above the manager-tool tabs, which keep their old layout. */}
         {viewMode === 'direct' && tab !== 'overview' ? (
-          <div>
+          <PageTitleBlock icon={Users}>
             <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
             <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>
               Attendance, leave, and open requests for your direct reports, in one place, so you don't have to check four separate pages to know how your team is doing today.
             </p>
-          </div>
+          </PageTitleBlock>
         ) : <span />}
         {!isEmployee && directReportCount > 0 && (
           // A view toggle (whose team), not page navigation — so a chip group, not tabs.
@@ -3529,7 +3550,7 @@ export default function MyTeamPage() {
        * onto its own row and left the rest of that row empty.
        * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
        * row of fixed-width cards instead of squeezing all 6 into the narrow viewport. */}
-      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, marginBottom: 20 }}>
         <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={loading ? '…' : directReports.length} note="direct reports" onClick={directReports.length > 0 ? () => setKpiModal('teamSize') : undefined} />
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '…' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '…' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
@@ -3568,63 +3589,19 @@ export default function MyTeamPage() {
       )}
 
       {/* Who's on leave / Not in yet */}
-      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-        <div style={panelStyle}>
-          <div style={panelHeadStyle}>
-            <span style={panelTitleStyle}>Who's on leave today</span>
-            <span style={panelCountStyle}>{todayLeave.length} {todayLeave.length === 1 ? 'person' : 'people'}</span>
-          </div>
-          {todayLeave.length === 0 ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your team is on leave today.</div>
-          ) : (
-            todayLeave.map(l => {
-              const active = directReportsById.get(l.employeeUserId)?.active ?? true;
-              return (
-                <div key={l.id} style={{ ...inactiveDimStyle(active), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                  <Avatar userId={l.employeeUserId} name={l.employeeName} size={30} />
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{l.employeeName}</span>
-                  {!active && <StatusBadge active={false} />}
-                  <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{l.leaveTypeName}</span>
-                </div>
-              );
-            })
-          )}
-        </div>
-        <div style={panelStyle}>
-          <div style={panelHeadStyle}>
-            <span style={panelTitleStyle}>Not in yet today</span>
-            <span style={panelCountStyle}>{notInYet.length} {notInYet.length === 1 ? 'person' : 'people'}</span>
-          </div>
-          {loading ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
-          ) : notInYet.length === 0 ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Everyone has checked in.</div>
-          ) : (
-            <>
-              {/* Capped height + scroll so a 100+-person team can't grow this card without
-                  bound or push neighboring cards around — see NotInYetListModal for the full,
-                  independently-scrollable list opened by "View employees" below. */}
-              <div style={{ maxHeight: 258, overflowY: 'auto' }}>
-                {notInYet.map(r => (
-                  <div
-                    key={r.dr.userId}
-                    title={r.dr.fullName}
-                    onClick={() => { const entry = directoryByEmployee.get(r.dr.userId); if (entry) setViewingEmployeeDetails(entry); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
-                  >
-                    <Avatar userId={r.dr.userId} name={r.dr.fullName} size={30} />
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{r.dr.fullName}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 18px', borderTop: '1px solid var(--line)' }}>
-                <button onClick={() => setShowAllNotIn(true)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--info)' }}>
-                  View employees
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+        <LeaveTodayPanel
+          emptyText="No one on your team is on leave today."
+          rows={todayLeave.map(l => ({ key: l.id, userId: l.employeeUserId, name: l.employeeName, leaveType: l.leaveTypeName, active: directReportsById.get(l.employeeUserId)?.active ?? true }))}
+        />
+        <NotInYetPanel
+          variant="list"
+          loading={loading}
+          emptyText="Everyone has checked in."
+          people={notInYet.map(r => ({ userId: r.dr.userId, name: r.dr.fullName }))}
+          onPick={userId => { const entry = directoryByEmployee.get(userId); if (entry) setViewingEmployeeDetails(entry); }}
+          onViewAll={() => setShowAllNotIn(true)}
+        />
       </div>
 
       {viewing && <EmployeeDetailModal row={viewing} onClose={() => setViewing(null)} />}
