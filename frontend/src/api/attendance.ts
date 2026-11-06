@@ -23,15 +23,20 @@ export function browserTimezone(): string | undefined {
 }
 
 async function handle<T>(res: Response): Promise<T> {
-  let body: { message?: string; code?: string } = {};
+  let body: { message?: string; code?: string; detail?: string } = {};
   try { body = await res.json(); } catch { /* non-json */ }
-  if (!res.ok) throw Object.assign(new Error(body.message ?? `Request failed (${res.status})`), { code: body.code });
+  if (!res.ok) throw Object.assign(new Error(body.message ?? `Request failed (${res.status})`), { code: body.code, detail: body.detail });
   return body as T;
 }
 
 /** Check-In refused because the employee isn't on the office network — offer Work From Home instead. */
 export function isOffOfficeNetwork(err: unknown): boolean {
   return (err as { code?: string } | null)?.code === 'OFF_OFFICE_NETWORK';
+}
+
+/** The server's "Detected network IP: …" note on an off-network refusal, if any. */
+export function offNetworkDetail(err: unknown): string | null {
+  return (err as { detail?: string } | null)?.detail ?? null;
 }
 
 // ON_LEAVE is derived server-side for a roster row with no attendance record whose employee

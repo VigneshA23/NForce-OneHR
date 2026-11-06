@@ -24,11 +24,13 @@ function formatClockTime(iso: string | null): string | null {
  * every later cycle the same day skips this modal entirely (see the caller). Shared by
  * DashboardPage and AttendancePage's own Web Check-In action.
  */
-export function WebClockInRequestModal({ onClose, onSubmitted, offNetwork = false }: {
+export function WebClockInRequestModal({ onClose, onSubmitted, offNetwork = false, networkDetail }: {
   onClose: () => void;
   onSubmitted: (r: WebClockInRecord) => void | Promise<void>;
   /** Opened because office Check-In was refused off the office network: ask for a WFH reason. */
   offNetwork?: boolean;
+  /** Server note with the network IP it detected — lets an admin compare it with the office IPs. */
+  networkDetail?: string | null;
 }) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
@@ -79,6 +81,9 @@ export function WebClockInRequestModal({ onClose, onSubmitted, offNetwork = fals
               ? "You're not connected to the office Wi-Fi, so you can't check in as in office. Add a reason for working from home to check in."
               : 'Adding a comment is required for a web clock-in request.'}
           </p>
+          {offNetwork && networkDetail && (
+            <p style={{ margin: 0, fontSize: 11, color: 'var(--txt-dim)', lineHeight: 1.4, wordBreak: 'break-all' }}>{networkDetail}</p>
+          )}
           <div>
             <textarea
               value={reason}

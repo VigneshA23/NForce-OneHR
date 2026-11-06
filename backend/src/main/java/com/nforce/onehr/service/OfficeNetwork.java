@@ -50,6 +50,14 @@ public class OfficeNetwork {
         return devPublicIpLookup && isLoopback(ip) ? machinePublicIp(ip) : ip;
     }
 
+    /** How the client IP was derived — shown on an off-network refusal so a proxy mismatch is visible. */
+    public String networkTrace(HttpServletRequest request) {
+        return "remote=" + request.getRemoteAddr()
+                + ", X-Forwarded-For=" + request.getHeader("X-Forwarded-For")
+                + ", X-Real-IP=" + request.getHeader("X-Real-IP")
+                + ", trusted hops=" + trustedProxyHops;
+    }
+
     private static boolean isLoopback(String ip) {
         return ip != null && (ip.startsWith("127.") || ip.equals("::1") || ip.equals("0:0:0:0:0:0:0:1"));
     }

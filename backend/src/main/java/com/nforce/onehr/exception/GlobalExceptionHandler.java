@@ -62,7 +62,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(OffOfficeNetworkException.class)
     public ResponseEntity<ApiError> handleOffOfficeNetwork(OffOfficeNetworkException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ApiError(e.getMessage(), "OFF_OFFICE_NETWORK", null));
+                .body(new ApiError(e.getMessage(), "OFF_OFFICE_NETWORK", null,
+                        "Detected network IP: " + e.getDetectedIp()
+                                + (e.getNetworkTrace() != null ? " (" + e.getNetworkTrace() + ")" : "")));
     }
 
     @ExceptionHandler(EmployeeCreationLockedException.class)
