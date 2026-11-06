@@ -40,6 +40,7 @@ class PayrollRunServiceTest {
     @Mock private AdHocPaymentRepository adHocPaymentRepository;
     @Mock private AdHocDeductionRepository adHocDeductionRepository;
     @Mock private AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
+    @Mock private SalaryHoldRepository salaryHoldRepository;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -65,7 +66,7 @@ class PayrollRunServiceTest {
                 payGroupRepository, employeeCompensationRepository, salaryStructureComponentRepository,
                 payrollLopCalculationService, payrollProrationService, approvalRuleEvaluationService,
                 adHocPaymentRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
-                userRepository, auditService, auditSnapshot);
+                salaryHoldRepository, userRepository, auditService, auditSnapshot);
 
         // Default actor holds HR_ADMIN — matches this app's one real approver role before US-C09,
         // and the legacy single-HR_ADMIN-stage default evaluatePayrollRun falls back to below.
@@ -111,6 +112,9 @@ class PayrollRunServiceTest {
         });
         lenient().when(adHocDeductionRepository.save(any(AdHocDeduction.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(adHocDeductionInstallmentRepository.findByPayrollRunId(any())).thenReturn(List.of());
+
+        // US-C26: no active salary holds by default.
+        lenient().when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunId(any())).thenReturn(Set.of());
     }
 
     private SalaryComponent catalogComponent(String name, String type, boolean prorateOnLop) {
@@ -374,6 +378,21 @@ class PayrollRunServiceTest {
         when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
 
         assertThrows(IllegalStateException.class, () -> service.generateDraft(generateReq(), actorEmail));
+    }
+
+    @Test
+    void generateDraft_heldEmployee_excludedEntirely_noPayslipNoDeductions() {
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunId(any())).thenReturn(Set.of(employeeId));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        assertEquals(0, resp.getEmployeeCount());
+        assertEquals(0, BigDecimal.ZERO.compareTo(resp.getTotalGross()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(resp.getTotalNet()));
+        verify(payslipRepository, never()).save(any());
+        verify(payslipLineItemRepository, never()).save(any());
     }
 
     @Test
