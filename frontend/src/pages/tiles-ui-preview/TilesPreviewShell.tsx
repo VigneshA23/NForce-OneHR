@@ -51,6 +51,7 @@ import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard,
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
+import ProjectAllocationsPage from '../ProjectAllocationsPage';
 import OnboardingPage from '../OnboardingPage';
 import DocumentsPage from '../DocumentsPage';
 import HelpDeskPage from '../HelpDeskPage';
@@ -92,6 +93,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
   { key: 'team-reports', label: 'My Team: Reports tab', title: 'My Team: Reports', subtitle: 'The Reports tab of My Team. Cards open the real download dialogs; nothing is sent from this preview.' },
   { key: 'attention-panel', label: 'My Team: Needs your attention', title: 'My Team: Needs your attention', subtitle: 'Sample pending requests. Approve / Reject here only change this preview.' },
+  { key: 'allocations-page', label: 'Project Allocations (full page)', title: 'Project Allocations', subtitle: 'Allocate and Projects tabs with sample data. Allocating and saving only change this preview.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
@@ -682,6 +684,58 @@ function AttentionMock() {
       <AttentionPanel items={items} token="mock-token" onDone={id => setItems(prev => prev.filter(i => i.id !== id))} />
     </div>
   ) : null;
+}
+
+function AllocationsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample employees and projects held in memory, and an HR Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const emp = (i: number, n: string, code: string, des: string | null, dept: string, role = 'EMPLOYEE') => ({ userId: 'u' + i, employeeCode: code, fullName: n, email: n.split(' ')[0].toLowerCase() + '@nforceone.com', role, departmentName: dept, designationName: des, joiningDate: '2026-01-10', active: true });
+    const employees = [
+      emp(1, 'TestUserone', 'NF-20261314', 'QA Engineer', 'Quality Engineering'), emp(2, 'Praveen Gurram', 'NF-20261023', 'Tech Lead', 'Engineering', 'MANAGER'),
+      emp(3, 'Testo', 'NF-20261334', 'HR Executive', 'Human Resources'), emp(4, 'Narendra Reddy', 'NF-20261003', 'Software Engineer', 'Engineering'),
+      emp(5, 'Suresh Kumar H', 'NF-20261002', null, 'Finance'), emp(6, 'praveen Gurram', 'NF-20261040', 'Designer', 'Design'),
+      emp(7, 'Naveen Kumar R', 'NF-20261001', 'Software Engineer III', 'Engineering'), emp(8, 'Harvey Specter', 'NF-20261012', 'Sales Lead', 'Operations & Sales', 'HR_ADMIN'),
+    ];
+    let projects = [
+      { id: 'p1', code: 'PRJ-001', name: 'Customer Portal Revamp', startDate: '2026-08-01', endDate: '2027-03-31', ownerEmployeeId: 'u2', ownerName: 'Praveen Gurram', departmentId: 'd1', departmentName: 'Engineering', clientId: 'c1', clientName: 'Acme Corp', status: 'ACTIVE' },
+      { id: 'p2', code: 'PRJ-002', name: 'Payroll Migration', startDate: '2026-05-01', endDate: null, ownerEmployeeId: null, ownerName: null, departmentId: 'd2', departmentName: 'Finance', clientId: null, clientName: null, status: 'ON_HOLD' },
+      { id: 'p3', code: 'PRJ-003', name: 'Legacy Reports', startDate: '2025-01-01', endDate: '2026-06-30', ownerEmployeeId: 'u8', ownerName: 'Harvey Specter', departmentId: null, departmentName: null, clientId: 'c1', clientName: 'Acme Corp', status: 'CLOSED' },
+    ];
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const path = url.split('?')[0];
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/api/employees') && method === 'GET') return json(employees);
+      if (path.endsWith('/api/projects/clients')) return json([{ id: 'c1', name: 'Acme Corp' }, { id: 'c2', name: 'Globex' }]);
+      if (path.endsWith('/api/org/departments')) return json([{ id: 'd1', name: 'Engineering', active: true, employeeCount: 3 }, { id: 'd2', name: 'Finance', active: true, employeeCount: 1 }]);
+      if (path.endsWith('/api/projects') && method === 'GET') return json(projects);
+      if (path.endsWith('/api/projects') && method === 'POST') {
+        const b = JSON.parse(String(init?.body ?? '{}'));
+        const created = { id: 'p' + Date.now(), ownerName: null, departmentName: null, clientName: null, ...b };
+        projects = [...projects, created]; return json(created);
+      }
+      if (/\/api\/projects\/[^/]+$/.test(path) && method === 'PUT') {
+        const b = JSON.parse(String(init?.body ?? '{}')); const id = path.split('/').pop();
+        projects = projects.map(p => (p.id === id ? { ...p, ...b } : p)); return json(projects.find(p => p.id === id));
+      }
+      if (path.endsWith('/api/allocations/bulk')) {
+        const b = JSON.parse(String(init?.body ?? '{}'));
+        return json({ results: (b.employeeIds as string[]).map((id, i) => (i % 3 === 2 ? { employeeId: id, status: 'FAILED', reason: 'Total allocation would exceed 100% in this period' } : { employeeId: id, status: 'SUCCESS' })) });
+      }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <ProjectAllocationsPage /> : null;
 }
 
 function PoliciesMock() {
@@ -1420,6 +1474,8 @@ function Tiles({ page }: { page: string }) {
       return <AssetsMock />;
     case 'opps-page':
       return <OppsMock />;
+    case 'allocations-page':
+      return <AllocationsMock />;
     case 'policies-page':
       return <PoliciesMock />;
     case 'notifications-page':

@@ -1,53 +1,52 @@
 import { useEffect, useMemo, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { Search, Users, FolderKanban } from 'lucide-react';
+import { Search, Users, FolderKanban, CheckCircle2, XCircle, AlertTriangle, ListChecks } from 'lucide-react';
+import { TabBar } from '../components/TabBar';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord } from '../api/employees';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import { projectsApi, projectAllocationsApi, type ProjectRecord, type AllocationResult } from '../api/projectAllocations';
 import ProjectsPanel from './allocations/ProjectsPanel';
-
-const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10 };
-const inputStyle: React.CSSProperties = {
-  background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6,
-  padding: '7px 10px', fontSize: 12.5, color: 'var(--txt)', outline: 'none', fontFamily: 'inherit',
-};
-const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
+import './allocations/allocations.css';
 
 function ResultsTable({ results, employees }: { results: AllocationResult[]; employees: EmployeeRecord[] }) {
   const nameFor = (id: string) => employees.find(e => e.userId === id)?.fullName ?? id;
   const successCount = results.filter(r => r.status === 'SUCCESS').length;
+  const failedCount = results.length - successCount;
   const resultsPaged = usePaged(results);
   return (
-    <div style={{ ...card, padding: '14px 16px', marginTop: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 10 }}>
-        {successCount} of {results.length} allocated successfully
+    <div className="nf-pa-card nf-pa-results">
+      <div className="nf-pa-head">
+        <span className={`nf-pa-ico ${failedCount === 0 ? 'is-ok' : 'is-warn'}`}>{failedCount === 0 ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}</span>
+        <div className="nf-pa-titles">
+          <span>{successCount} of {results.length} allocated successfully</span>
+          <small>{failedCount === 0 ? 'Every employee was allocated.' : `${failedCount} could not be allocated. See the reason for each below.`}</small>
+        </div>
+        <span className="nf-pa-count is-ok">{successCount} done</span>
+        {failedCount > 0 && <span className="nf-pa-count is-bad">{failedCount} failed</span>}
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>Employee</th>
-            <th style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>Status</th>
-            <th style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          {resultsPaged.pageRows.map(r => (
-            <tr key={r.employeeId}>
-              <td style={{ padding: '7px 8px', fontSize: 12.5, color: 'var(--txt)', borderBottom: '1px solid var(--line)' }}>{nameFor(r.employeeId)}</td>
-              <td style={{ padding: '7px 8px', borderBottom: '1px solid var(--line)' }}>
-                <span style={{
-                  fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                  background: r.status === 'SUCCESS' ? 'rgba(47,182,124,.15)' : 'rgba(228,55,61,.12)',
-                  color: r.status === 'SUCCESS' ? 'var(--ok)' : 'var(--risk)',
-                }}>{r.status}</span>
-              </td>
-              <td style={{ padding: '7px 8px', fontSize: 12.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)' }}>{r.reason ?? '–'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="nf-pa-table">
+          <thead>
+            <tr><th>Employee</th><th>Status</th><th>Reason</th></tr>
+          </thead>
+          <tbody>
+            {resultsPaged.pageRows.map(r => (
+              <tr key={r.employeeId}>
+                <td className="is-strong">{nameFor(r.employeeId)}</td>
+                <td>
+                  <span className={`nf-pa-pill ${r.status === 'SUCCESS' ? 'is-ok' : 'is-bad'}`}>
+                    {r.status === 'SUCCESS' ? <CheckCircle2 size={12} /> : <XCircle size={12} />}{r.status === 'SUCCESS' ? 'Success' : 'Failed'}
+                  </span>
+                </td>
+                <td>{r.reason ?? '-'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <TablePagination {...resultsPaged.pagerProps} noun="results" />
     </div>
   );
@@ -148,18 +147,17 @@ export default function ProjectAllocationsPage() {
         </p>
       </PageTitleBlock>
 
-      <div role="tablist" style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: '1px solid var(--line)' }}>
-        {([['allocate', 'Allocate'], ['projects', `Projects (${projects.length})`]] as const).map(([key, label]) => (
-          <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)}
-            style={{
-              padding: '8px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
-              fontWeight: tab === key ? 700 : 500, color: tab === key ? 'var(--brand)' : 'var(--txt-mut)',
-              borderBottom: tab === key ? '2px solid var(--brand)' : '2px solid transparent', marginBottom: -1,
-            }}>
-            {label}
-          </button>
-        ))}
-      </div>
+      <TabBar
+        ariaLabel="Project allocation sections"
+        className="nf-pilltabs"
+        style={{ marginBottom: 16 }}
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { key: 'allocate', label: 'Allocate' },
+          { key: 'projects', label: 'Projects', count: projects.length },
+        ]}
+      />
 
       {tab === 'projects' && (
         <ProjectsPanel token={token} projects={projects} employees={employees} onSaved={handleProjectSaved} />
@@ -167,73 +165,92 @@ export default function ProjectAllocationsPage() {
 
       {tab === 'allocate' && (<>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, alignItems: 'start' }}>
+      <div className="nf-pa-grid">
         {/* Employee multi-select */}
-        <div style={{ ...card, padding: '14px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Users size={14} style={{ color: 'var(--brand)' }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>Select Employees</span>
-            <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>({selected.size} selected)</span>
+        <div className="nf-pa-card">
+          <div className="nf-pa-head">
+            <span className="nf-pa-ico"><Users size={16} /></span>
+            <div className="nf-pa-titles">
+              <span>Select Employees</span>
+              <small>Tick everyone who should join the project</small>
+            </div>
+            <span className={`nf-pa-count${selected.size > 0 ? ' is-on' : ''}`}>{selected.size} selected</span>
           </div>
-          <div style={{ position: 'relative', marginBottom: 10 }}>
-            <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--txt-dim)' }} />
-            <input
-              placeholder="Search by name or employee code"
-              value={employeeSearch}
-              onChange={e => setEmployeeSearch(e.target.value)}
-              style={{ ...inputStyle, width: '100%', paddingLeft: 28, boxSizing: 'border-box' }}
-            />
-          </div>
-          <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 6 }}>
-            {filteredEmployees.map(e => (
-              <label key={e.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}>
-                <input type="checkbox" checked={selected.has(e.userId)} onChange={() => toggle(e.userId)} style={{ width: 14, height: 14 }} />
-                <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>{e.fullName}</span>
-                <span style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{e.employeeCode}</span>
-              </label>
-            ))}
-            {filteredEmployees.length === 0 && (
-              <div style={{ padding: 16, fontSize: 12.5, color: 'var(--txt-dim)', textAlign: 'center' }}>No employees match</div>
-            )}
+          <div className="nf-pa-body">
+            <div className="nf-pa-search">
+              <Search size={14} />
+              <input
+                placeholder="Search by name or employee code"
+                value={employeeSearch}
+                onChange={e => setEmployeeSearch(e.target.value)}
+              />
+            </div>
+            <div className="nf-pa-list">
+              {filteredEmployees.map(e => (
+                <label key={e.userId} className={selected.has(e.userId) ? 'nf-pa-emp is-on' : 'nf-pa-emp'}>
+                  <input type="checkbox" checked={selected.has(e.userId)} onChange={() => toggle(e.userId)} />
+                  <EmployeeAvatar userId={e.userId} name={e.fullName} size={32} fontSize={11} background="var(--brand)" />
+                  <span className="nf-pa-emp-main">
+                    <b>{e.fullName}</b>
+                    <small>{[e.designationName, e.departmentName].filter(Boolean).join(' · ') || e.employeeCode}</small>
+                  </span>
+                  <span className="nf-pa-code">{e.employeeCode}</span>
+                </label>
+              ))}
+              {filteredEmployees.length === 0 && (
+                <div className="nf-pa-empty"><Search size={20} />No employees match</div>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Allocation details */}
-        <div style={{ ...card, padding: '14px 16px' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 10 }}>Allocation Details</div>
-
-          <label style={labelStyle}>Project</label>
-          <select value={projectId} onChange={e => setProjectId(e.target.value)} style={{ ...inputStyle, width: '100%', marginBottom: 4, boxSizing: 'border-box' }}>
-            <option value="">Select a project</option>
-            {activeProjects.map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}
-          </select>
-          <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 14 }}>
-            Only active projects are listed. Add or edit projects in the Projects tab.
-          </div>
-
-          <label style={labelStyle}>Capacity %</label>
-          <input type="number" min={1} max={100} value={capacityPercent}
-            onChange={e => setCapacityPercent(Number(e.target.value))}
-            style={{ ...inputStyle, width: '100%', marginBottom: 8, boxSizing: 'border-box' }} />
-
-          <label style={labelStyle}>Start Date</label>
-          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-            style={{ ...inputStyle, width: '100%', marginBottom: 8, boxSizing: 'border-box' }} />
-
-          <label style={labelStyle}>End Date</label>
-          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-            style={{ ...inputStyle, width: '100%', marginBottom: 14, boxSizing: 'border-box' }} />
-
-          {formError && (
-            <div role="alert" style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 6, padding: '8px 10px', marginBottom: 12, color: 'var(--risk)', fontSize: 12 }}>
-              {formError}
+        <div className="nf-pa-card">
+          <div className="nf-pa-head">
+            <span className="nf-pa-ico"><ListChecks size={16} /></span>
+            <div className="nf-pa-titles">
+              <span>Allocation Details</span>
+              <small>{selected.size === 0 ? 'No employees selected yet' : `${selected.size} employee${selected.size === 1 ? '' : 's'} will be allocated`}</small>
             </div>
-          )}
+          </div>
+          <div className="nf-pa-body nf-pa-form">
+            <div className="nf-pa-field">
+              <label>Project</label>
+              <select value={projectId} onChange={e => setProjectId(e.target.value)} className="nf-pa-input">
+                <option value="">Select a project</option>
+                {activeProjects.map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}
+              </select>
+              <small>Only active projects are listed. Add or edit projects in the Projects tab.</small>
+            </div>
 
-          <button type="button" onClick={handleSubmit} disabled={submitting}
-            style={{ width: '100%', padding: '9px 14px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, color: '#fff', cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
-            {submitting ? 'Allocating…' : `Allocate ${selected.size || ''} Employee${selected.size === 1 ? '' : 's'}`}
-          </button>
+            <div className="nf-pa-field">
+              <label>Capacity %</label>
+              <div className="nf-pa-suffix">
+                <input type="number" min={1} max={100} value={capacityPercent}
+                  onChange={e => setCapacityPercent(Number(e.target.value))} className="nf-pa-input" />
+                <span>%</span>
+              </div>
+            </div>
+
+            <div className="nf-pa-two">
+              <div className="nf-pa-field">
+                <label>Start Date</label>
+                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="nf-pa-input" />
+              </div>
+              <div className="nf-pa-field">
+                <label>End Date</label>
+                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="nf-pa-input" />
+              </div>
+            </div>
+
+            {formError && (
+              <div role="alert" className="nf-pa-alert"><AlertTriangle size={14} />{formError}</div>
+            )}
+
+            <button type="button" onClick={handleSubmit} disabled={submitting} className="nf-pa-primary">
+              {submitting ? 'Allocating…' : `Allocate ${selected.size || ''} Employee${selected.size === 1 ? '' : 's'}`}
+            </button>
+          </div>
         </div>
       </div>
 
