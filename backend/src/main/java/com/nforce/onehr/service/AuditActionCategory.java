@@ -40,7 +40,11 @@ public enum AuditActionCategory {
             // ManagerRoleSyncService — MANAGER role auto-granted/revoked as reporting lines
             // change (not an admin's own action, but still access-control-sensitive; logged
             // against the actor who triggered the underlying manager-history change).
-            "ROLE_AUTO_GRANTED", "ROLE_AUTO_REVOKED"
+            "ROLE_AUTO_GRANTED", "ROLE_AUTO_REVOKED",
+            // RoleAdminService — Roles & Permissions administration (target_id is null: roles have
+            // no UUID; the role code/name is in the before/after snapshot).
+            "ROLE_CREATED", "ROLE_UPDATED", "ROLE_ACTIVATED", "ROLE_DEACTIVATED", "ROLE_DELETED",
+            "ROLE_PERMISSIONS_UPDATED"
     )),
 
     HR_OPERATIONAL(Set.of(
@@ -73,6 +77,39 @@ public enum AuditActionCategory {
             // LeaveTypeService — Organization Masters > Leave configuration changes, same
             // treatment as PenalizationPolicyService above.
             "LEAVE_TYPE_CREATED", "LEAVE_TYPE_UPDATED",
+            // SalaryStructureService — Payroll Epic (ONEHR-579) US-C01: defining a Salary
+            // Structure template is HR configuration, not a self-submitted request, same
+            // treatment as LeaveTypeService above.
+            "SALARY_STRUCTURE_CREATED",
+            // SalaryComponentService — US-C20: the shared component catalog is HR configuration,
+            // same treatment as the two above.
+            "SALARY_COMPONENT_CREATED", "SALARY_COMPONENT_UPDATED",
+            // PayGroupService — US-C19: pay group/schedule configuration, same treatment.
+            "PAY_GROUP_CREATED", "PAY_GROUP_UPDATED",
+            // EmployeeCompensationService — US-C02: an HR Admin assigning/revising someone else's
+            // CTC and structure, not a self-submitted request, same treatment as above.
+            "EMPLOYEE_COMPENSATION_ASSIGNED",
+            // StatutoryRuleService — US-C13: statutory deduction rule configuration, same treatment.
+            "STATUTORY_RULE_CREATED",
+            // PayrollLopCalculationService — US-C04/US-C05: an HR Admin computing/overriding
+            // someone else's LOP days, not a self-submitted request, same treatment as above.
+            "PAYROLL_LOP_COMPUTED", "PAYROLL_LOP_OVERRIDDEN",
+            // PayrollProrationService — US-C07: same treatment.
+            "PAYROLL_PRORATION_COMPUTED",
+            // PayrollRunService — US-C08/C10/C11/C27: an HR Admin generating/transitioning/rolling
+            // back a payroll run, same treatment. PAYROLL_RUN_STAGE_APPROVED (US-C09) is a single
+            // intermediate stage clearing in a multi-stage chain, distinct from the final
+            // SUBMITTED->APPROVED transition PAYROLL_RUN_TRANSITION already covers.
+            "PAYROLL_RUN_DRAFT_GENERATED", "PAYROLL_RUN_TRANSITION", "PAYROLL_RUN_STAGE_APPROVED",
+            // AdHocPaymentService — US-C24: an HR Admin adding/removing a one-off payment on a
+            // DRAFT run, same treatment.
+            "PAYROLL_ADHOC_PAYMENT_ADDED", "PAYROLL_ADHOC_PAYMENT_REMOVED",
+            // AdHocDeductionService — US-C25: an HR Admin creating/cancelling a deduction recovery
+            // plan, same treatment.
+            "PAYROLL_ADHOC_DEDUCTION_CREATED", "PAYROLL_ADHOC_DEDUCTION_CANCELLED",
+            // SalaryHoldService — US-C26: an HR Admin excluding/re-including an employee from a
+            // DRAFT run ("Hold processing"), same treatment.
+            "PAYROLL_SALARY_HOLD_CREATED", "PAYROLL_SALARY_HOLD_RELEASED",
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.

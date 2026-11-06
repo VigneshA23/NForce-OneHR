@@ -33,7 +33,7 @@ public class CustomUserDetailsService implements UserDetailsService {
         // change (same as a role change) takes effect on the user's very next request, no
         // re-login required. ROLE_* is kept alongside the new module:ACTION:SCOPE authorities
         // during the Phase 3 migration, while hasRole/hasAnyRole call sites still exist.
-        List<SimpleGrantedAuthority> roleAuthorities = user.getRoles().stream()
+        List<SimpleGrantedAuthority> roleAuthorities = EffectivePermissionService.activeRoles(user.getRoles()).stream()
                 .map(role -> new SimpleGrantedAuthority("ROLE_" + role.getCode()))
                 .collect(Collectors.toList());
         List<SimpleGrantedAuthority> permissionAuthorities = effectivePermissionService.computeAuthorities(user.getRoles());

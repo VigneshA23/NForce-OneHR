@@ -487,8 +487,8 @@ export function TeamCalendarPanel({
                     </th>
                   );
                 })}
-                <th style={{ minWidth: 150 }}>Month tally</th>
-                <th style={{ minWidth: 104, padding: '8px 14px' }}>Today</th>
+                <th className="mt-col-tally">Month tally</th>
+                <th className="mt-col-today">Today</th>
               </tr>
             </thead>
             <tbody>
@@ -528,14 +528,14 @@ export function TeamCalendarPanel({
                       )}
                     </td>
                   ))}
-                  <td style={{ padding: '0 10px' }}>
+                  <td className="mt-col-tally">
                     <div className="mt-tally" aria-label="Month tally">
                       {([['present', tally.present], ['late', tally.late], ['absent', tally.absent], ['leave', tally.leave]] as [DayKind, number][]).map(([k, n]) => (
                         <span key={k} className={n === 0 ? 'mt-tally-zero' : undefined} title={`${KIND_LABEL[k]}: ${n}`}><DayChip kind={k} small />{n}</span>
                       ))}
                     </div>
                   </td>
-                  <td style={{ textAlign: 'center', padding: '0 14px' }}>{m.active ? <LiveStatusPill status={m.status} /> : <StatusBadge active={false} />}</td>
+                  <td className="mt-col-today">{m.active ? <LiveStatusPill status={m.status} /> : <StatusBadge active={false} />}</td>
                 </tr>
                 );
               })}

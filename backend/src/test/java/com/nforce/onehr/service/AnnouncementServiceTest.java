@@ -7,11 +7,14 @@ import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AnnouncementRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
@@ -35,6 +38,7 @@ class AnnouncementServiceTest {
 
     @Mock private AnnouncementRepository announcementRepo;
     @Mock private UserRepository userRepo;
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService();
 
     @InjectMocks
     private AnnouncementService service;

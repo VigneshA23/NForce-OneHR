@@ -12,6 +12,8 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.EmployeeSkillRatingRepository;
 import com.nforce.onehr.repository.SkillTaxonomyRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
@@ -43,6 +46,11 @@ class SkillServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private DirectReportScopeService directReportScopeService;
 
+    // Real seed matrix (V241: skill_ratings:EDIT is MANAGER TEAM, HR_ADMIN/SUPER_ADMIN ALL) plus two custom roles.
+    private final EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
+            "CUSTOM_ENDORSER", Map.of("skill_ratings:EDIT", "ALL"),
+            "CUSTOM_TEAM_ENDORSER", Map.of("skill_ratings:EDIT", "TEAM")));
+
     private SkillService service;
 
     private final UUID me = UUID.randomUUID();
@@ -51,7 +59,7 @@ class SkillServiceTest {
     @BeforeEach
     void setUp() {
         service = new SkillService(taxonomyRepository, ratingRepository, employeeRepository, userRepository,
-                directReportScopeService);
+                directReportScopeService, effectivePermissionService);
         lenient().when(directReportScopeService.resolveActor("me@test.com"))
                 .thenReturn(Employee.builder().userId(me).fullName("Me").build());
         lenient().when(ratingRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -60,9 +68,8 @@ class SkillServiceTest {
     private User userWithRole(String code) {
         User u = new User();
         u.setId(UUID.randomUUID());
-        Role r = new Role();
-        r.setCode(code);
-        u.setRoles(Set.of(r));
+        Role r = code.startsWith("CUSTOM_") ? Role.builder().id(99).code(code).displayName(code).build() : SeedMatrix.role(code);
+        u.setRoles(new java.util.HashSet<>(java.util.List.of(SeedMatrix.role("EMPLOYEE"), r)));
         return u;
     }
 
@@ -155,6 +162,33 @@ class SkillServiceTest {
 
         assertEquals(5, existing.getManagerRating());
         verifyNoInteractions(directReportScopeService);
+    }
+
+    @Test
+    void rateAsManager_superAdminAndACustomRoleWithEditAll_overrideAnyone() {
+        for (String code : List.of("SUPER_ADMIN", "CUSTOM_ENDORSER")) {
+            UUID anyone = UUID.randomUUID();
+            EmployeeSkillRating existing = EmployeeSkillRating.builder().employeeUserId(anyone).skillId(skillId).selfRating(2).build();
+            when(userRepository.findByEmail(code + "@test.com")).thenReturn(Optional.of(userWithRole(code)));
+            when(ratingRepository.findByEmployeeUserIdAndSkillId(anyone, skillId)).thenReturn(Optional.of(existing));
+
+            service.rateAsManager(code + "@test.com", anyone, skillId, 5);
+
+            assertEquals(5, existing.getManagerRating(), code);
+        }
+        verifyNoInteractions(directReportScopeService);
+    }
+
+    @Test
+    void rateAsManager_employeeAndACustomRoleWithoutEditAll_onlyReachDirectReports() {
+        for (String code : List.of("EMPLOYEE", "CUSTOM_TEAM_ENDORSER")) {
+            UUID stranger = UUID.randomUUID();
+            when(userRepository.findByEmail(code + "@test.com")).thenReturn(Optional.of(userWithRole(code)));
+            when(directReportScopeService.isDirectReport(code + "@test.com", stranger)).thenReturn(false);
+
+            assertThrows(AccessDeniedException.class, () -> service.rateAsManager(code + "@test.com", stranger, skillId, 4), code);
+        }
+        verify(ratingRepository, never()).save(any());
     }
 
     @Test

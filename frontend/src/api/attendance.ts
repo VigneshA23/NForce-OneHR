@@ -23,10 +23,20 @@ export function browserTimezone(): string | undefined {
 }
 
 async function handle<T>(res: Response): Promise<T> {
-  let body: { message?: string } = {};
+  let body: { message?: string; code?: string; detail?: string } = {};
   try { body = await res.json(); } catch { /* non-json */ }
-  if (!res.ok) throw new Error(body.message ?? `Request failed (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(body.message ?? `Request failed (${res.status})`), { code: body.code, detail: body.detail });
   return body as T;
+}
+
+/** Check-In refused because the employee isn't on the office network — offer Work From Home instead. */
+export function isOffOfficeNetwork(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === 'OFF_OFFICE_NETWORK';
+}
+
+/** The server's "Detected network IP: …" note on an off-network refusal, if any. */
+export function offNetworkDetail(err: unknown): string | null {
+  return (err as { detail?: string } | null)?.detail ?? null;
 }
 
 // ON_LEAVE is derived server-side for a roster row with no attendance record whose employee
@@ -37,6 +47,8 @@ export type AttendanceSource = 'SYSTEM' | 'REGULARIZATION' | 'WEB_REMOTE';
 
 export interface AttendanceRecord {
   id: string | null;
+  /** Only on a Check-In response: true = verified on office Wi-Fi, null = office network not configured. */
+  officeNetwork?: boolean | null;
   employeeUserId: string;
   employeeCode: string;
   fullName: string;
@@ -89,6 +101,11 @@ export interface Punch {
   source: 'SYSTEM' | 'WEB_REMOTE';
   /** The Web Clock-In note, if one was provided — always null for a "SYSTEM" source punch. */
   note: string | null;
+  /** Office-network check (SYSTEM punches only). null = the location's office network isn't configured. */
+  checkInIp?: string | null;
+  checkInInOffice?: boolean | null;
+  checkOutIp?: string | null;
+  checkOutInOffice?: boolean | null;
 }
 
 export interface TodayAttendance {
