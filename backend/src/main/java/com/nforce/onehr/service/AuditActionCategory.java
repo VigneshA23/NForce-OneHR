@@ -104,6 +104,9 @@ public enum AuditActionCategory {
             // AdHocPaymentService — US-C24: an HR Admin adding/removing a one-off payment on a
             // DRAFT run, same treatment.
             "PAYROLL_ADHOC_PAYMENT_ADDED", "PAYROLL_ADHOC_PAYMENT_REMOVED",
+            // AdHocDeductionService — US-C25: an HR Admin creating/cancelling a deduction recovery
+            // plan, same treatment.
+            "PAYROLL_ADHOC_DEDUCTION_CREATED", "PAYROLL_ADHOC_DEDUCTION_CANCELLED",
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.
