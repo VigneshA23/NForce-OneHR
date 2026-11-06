@@ -34,11 +34,21 @@ import java.util.stream.Collectors;
  * {@code PAYROLL_RUN} means a single HR_ADMIN-only stage: the exact single-step behavior this app
  * shipped with before this story, so an un-configured deployment is unaffected.
  *
+ * <h2>US-C25 — ad-hoc deduction installments</h2>
+ * <p>{@link #buildPayslip} applies one {@link AdHocDeductionInstallment} per ACTIVE {@link
+ * AdHocDeduction} the employee has, for whatever's left of {@link
+ * AdHocDeduction#getRemainingBalance()} (capped at {@code installmentAmount}). Idempotent under
+ * regeneration: an installment already recorded for this exact {@code (deduction, run)} pair is
+ * reused verbatim rather than decrementing the balance a second time (see that entity's own
+ * Javadoc) — only a run that has never seen this deduction before creates a new one and advances
+ * the balance. {@link #rollbackWholeRun} reverses every installment tied to the rolled-back run
+ * (restores the balance, deletes the row, reopens a COMPLETED plan if it was this installment that
+ * completed it) so a discarded run never permanently shortchanges or overcharges the recovery.
+ *
  * <h2>Scope of this increment</h2>
  * <ul>
  *   <li><b>Not built yet:</b> US-C27's per-employee selective rollback — only {@link
- *       #rollbackWholeRun} exists. US-C25's ad-hoc deductions (with installment/balance
- *       tracking) — only US-C24's one-off {@link AdHocPayment} rows are read here.</li>
+ *       #rollbackWholeRun} (whole-run) exists.</li>
  *   <li><b>Which employees are included:</b> every {@link EmployeeCompensation} row effective on
  *       the cycle's last day, regardless of {@code payGroupId} — there is no employee-to-pay-group
  *       assignment mechanism yet, a gap already flagged when US-C07 was built. Fine while there's
@@ -89,10 +99,11 @@ import java.util.stream.Collectors;
  *       ("all components except conveyance are reduced proportionally").</li>
  *   <li><b>Rounding:</b> every stored amount is HALF_UP to 2 decimals (Decision #10, rounding
  *       rule, is still unconfirmed).</li>
- *   <li><b>US-C24 ad-hoc payments are never prorated</b>, regardless of the catalog component's
- *       own {@code prorateOnLop} flag — a one-off bonus/OT/referral amount an HR Admin explicitly
- *       typed in for this exact cycle isn't a recurring entitlement to scale down for a partial
- *       month; it's added at face value, same as Conveyance's own prorateOnLop=false treatment but
+ *   <li><b>US-C24 ad-hoc payments and US-C25 ad-hoc deduction installments are never prorated</b>,
+ *       regardless of the catalog component's own {@code prorateOnLop} flag — a one-off
+ *       bonus/OT/referral amount or a fixed recovery installment an HR Admin explicitly set for
+ *       this exact cycle isn't a recurring entitlement to scale down for a partial month; both are
+ *       added/deducted at face value, same as Conveyance's own prorateOnLop=false treatment but
  *       for a different reason (deliberate exception, not a catalog property).</li>
  * </ol>
  */
@@ -116,6 +127,8 @@ public class PayrollRunService {
     private final PayrollProrationService payrollProrationService;
     private final ApprovalRuleEvaluationService approvalRuleEvaluationService;
     private final AdHocPaymentRepository adHocPaymentRepository;
+    private final AdHocDeductionRepository adHocDeductionRepository;
+    private final AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -257,6 +270,19 @@ public class PayrollRunService {
             throw new IllegalStateException("Cannot roll back: a later cycle for this pay group is already APPROVED or DISBURSED");
         }
 
+        // US-C25: a rolled-back run is "as if it never ran" — every installment it collected has
+        // to come back, or the next real attempt at this cycle would short-charge the employee by
+        // whatever this run already (wrongly, since it's being discarded) took.
+        for (AdHocDeductionInstallment installment : adHocDeductionInstallmentRepository.findByPayrollRunId(run.getId())) {
+            AdHocDeduction deduction = installment.getAdHocDeduction();
+            deduction.setRemainingBalance(deduction.getRemainingBalance().add(installment.getAmount()));
+            if (AdHocDeductionStatus.COMPLETED.equals(deduction.getStatus())) {
+                deduction.setStatus(AdHocDeductionStatus.ACTIVE);
+            }
+            adHocDeductionRepository.save(deduction);
+            adHocDeductionInstallmentRepository.delete(installment);
+        }
+
         String before = auditSnapshot.toJson(runSnapshot(run));
         run.setStatus(PayrollRunStatus.DRAFT);
         run.setPendingApprovalStage(null);
@@ -385,6 +411,24 @@ public class PayrollRunService {
             grossPay = grossPay.add(adHoc.getAmount());
         }
 
+        // US-C25: one installment per ACTIVE ad-hoc deduction plan, idempotent under regeneration
+        // — see the class javadoc and AdHocDeductionInstallment's own.
+        for (AdHocDeduction deduction : adHocDeductionRepository.findByEmployeeIdAndStatus(comp.getEmployeeId(), AdHocDeductionStatus.ACTIVE)) {
+            AdHocDeductionInstallment installment = adHocDeductionInstallmentRepository
+                    .findByAdHocDeductionIdAndPayrollRunId(deduction.getId(), run.getId())
+                    .orElseGet(() -> applyNewInstallment(deduction, run));
+
+            payslipLineItemRepository.save(PayslipLineItem.builder()
+                    .payslip(payslip)
+                    .componentId(deduction.getComponentId())
+                    .componentName(deduction.getComponentName())
+                    .componentType(deduction.getComponentType())
+                    .amount(installment.getAmount())
+                    .prorated(false)
+                    .build());
+            totalDeductions = totalDeductions.add(installment.getAmount());
+        }
+
         payslip.setGrossPay(grossPay);
         payslip.setTotalDeductions(totalDeductions);
         payslip.setNetPay(grossPay.subtract(totalDeductions));
@@ -394,6 +438,29 @@ public class PayrollRunService {
         result.grossPay = grossPay;
         result.totalDeductions = totalDeductions;
         return result;
+    }
+
+    /**
+     * The FIRST time a run sees this deduction plan: applies min(remainingBalance,
+     * installmentAmount), decrements the plan's balance, and marks it COMPLETED once the balance
+     * hits zero. Never called again for the same (deduction, run) pair — see buildPayslip's own
+     * findByAdHocDeductionIdAndPayrollRunId check above, which is what makes regeneration safe.
+     */
+    private AdHocDeductionInstallment applyNewInstallment(AdHocDeduction deduction, PayrollRun run) {
+        BigDecimal amount = deduction.getInstallmentAmount().min(deduction.getRemainingBalance());
+        AdHocDeductionInstallment installment = adHocDeductionInstallmentRepository.save(AdHocDeductionInstallment.builder()
+                .adHocDeduction(deduction)
+                .payrollRun(run)
+                .amount(amount)
+                .build());
+
+        deduction.setRemainingBalance(deduction.getRemainingBalance().subtract(amount));
+        if (deduction.getRemainingBalance().signum() == 0) {
+            deduction.setStatus(AdHocDeductionStatus.COMPLETED);
+        }
+        adHocDeductionRepository.save(deduction);
+
+        return installment;
     }
 
     /**

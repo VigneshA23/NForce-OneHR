@@ -38,6 +38,8 @@ class PayrollRunServiceTest {
     @Mock private PayrollProrationService payrollProrationService;
     @Mock private ApprovalRuleEvaluationService approvalRuleEvaluationService;
     @Mock private AdHocPaymentRepository adHocPaymentRepository;
+    @Mock private AdHocDeductionRepository adHocDeductionRepository;
+    @Mock private AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -62,7 +64,8 @@ class PayrollRunServiceTest {
         service = new PayrollRunService(payrollRunRepository, payslipRepository, payslipLineItemRepository,
                 payGroupRepository, employeeCompensationRepository, salaryStructureComponentRepository,
                 payrollLopCalculationService, payrollProrationService, approvalRuleEvaluationService,
-                adHocPaymentRepository, userRepository, auditService, auditSnapshot);
+                adHocPaymentRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
+                userRepository, auditService, auditSnapshot);
 
         // Default actor holds HR_ADMIN — matches this app's one real approver role before US-C09,
         // and the legacy single-HR_ADMIN-stage default evaluatePayrollRun falls back to below.
@@ -98,6 +101,16 @@ class PayrollRunServiceTest {
 
         // US-C24: no ad-hoc payments by default.
         lenient().when(adHocPaymentRepository.findByPayrollRunIdAndEmployeeId(any(), any())).thenReturn(List.of());
+
+        // US-C25: no ad-hoc deductions by default.
+        lenient().when(adHocDeductionRepository.findByEmployeeIdAndStatus(any(), any())).thenReturn(List.of());
+        lenient().when(adHocDeductionInstallmentRepository.save(any(AdHocDeductionInstallment.class))).thenAnswer(inv -> {
+            AdHocDeductionInstallment i = inv.getArgument(0);
+            if (i.getId() == null) i.setId(UUID.randomUUID());
+            return i;
+        });
+        lenient().when(adHocDeductionRepository.save(any(AdHocDeduction.class))).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(adHocDeductionInstallmentRepository.findByPayrollRunId(any())).thenReturn(List.of());
     }
 
     private SalaryComponent catalogComponent(String name, String type, boolean prorateOnLop) {
@@ -240,6 +253,112 @@ class PayrollRunServiceTest {
         assertEquals(0, new BigDecimal("5000.00").compareTo(bonusItem.getAmount()));
         // Basic: 28,000 * (26/28 rounded) = 26,000.80 (prorated); + 5,000.00 ad-hoc (not prorated).
         assertEquals(0, new BigDecimal("31000.80").compareTo(resp.getTotalGross()));
+    }
+
+    @Test
+    void generateDraft_adHocDeduction_firstInstallment_appliedAndBalanceDecremented() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.FIXED, new BigDecimal("600000"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        AdHocDeduction deduction = AdHocDeduction.builder().id(UUID.randomUUID()).employeeId(employeeId)
+                .componentId(UUID.randomUUID()).componentName("Asset Damage Recovery (ADR)")
+                .componentType(SalaryComponentType.AD_HOC_DEDUCTION)
+                .totalAmount(new BigDecimal("6000.00")).installmentAmount(new BigDecimal("2000.00"))
+                .remainingBalance(new BigDecimal("6000.00")).status(AdHocDeductionStatus.ACTIVE).build();
+        when(adHocDeductionRepository.findByEmployeeIdAndStatus(employeeId, AdHocDeductionStatus.ACTIVE)).thenReturn(List.of(deduction));
+        when(adHocDeductionInstallmentRepository.findByAdHocDeductionIdAndPayrollRunId(eq(deduction.getId()), any()))
+                .thenReturn(Optional.empty());
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        org.mockito.ArgumentCaptor<PayslipLineItem> captor = org.mockito.ArgumentCaptor.forClass(PayslipLineItem.class);
+        verify(payslipLineItemRepository, times(2)).save(captor.capture());
+        PayslipLineItem deductionItem = captor.getAllValues().stream()
+                .filter(i -> i.getComponentName().equals("Asset Damage Recovery (ADR)")).findFirst().orElseThrow();
+
+        assertFalse(deductionItem.isProrated());
+        assertEquals(0, new BigDecimal("2000.00").compareTo(deductionItem.getAmount()));
+        assertEquals(0, new BigDecimal("4000.00").compareTo(deduction.getRemainingBalance()));
+        assertEquals(AdHocDeductionStatus.ACTIVE, deduction.getStatus());
+        assertEquals(0, new BigDecimal("50000.00").compareTo(resp.getTotalGross()));
+        assertEquals(0, new BigDecimal("2000.00").compareTo(resp.getTotalDeductions()));
+    }
+
+    @Test
+    void generateDraft_adHocDeduction_lastInstallment_capsAtRemainingBalance_andCompletes() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.FIXED, new BigDecimal("600000"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        AdHocDeduction deduction = AdHocDeduction.builder().id(UUID.randomUUID()).employeeId(employeeId)
+                .componentId(UUID.randomUUID()).componentName("Asset Damage Recovery (ADR)")
+                .componentType(SalaryComponentType.AD_HOC_DEDUCTION)
+                .totalAmount(new BigDecimal("6000.00")).installmentAmount(new BigDecimal("2000.00"))
+                .remainingBalance(new BigDecimal("1500.00")).status(AdHocDeductionStatus.ACTIVE).build();
+        when(adHocDeductionRepository.findByEmployeeIdAndStatus(employeeId, AdHocDeductionStatus.ACTIVE)).thenReturn(List.of(deduction));
+        when(adHocDeductionInstallmentRepository.findByAdHocDeductionIdAndPayrollRunId(eq(deduction.getId()), any()))
+                .thenReturn(Optional.empty());
+
+        service.generateDraft(generateReq(), actorEmail);
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(deduction.getRemainingBalance()));
+        assertEquals(AdHocDeductionStatus.COMPLETED, deduction.getStatus());
+    }
+
+    @Test
+    void generateDraft_adHocDeduction_regenerate_reusesExistingInstallment_doesNotDecrementBalanceAgain() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.FIXED, new BigDecimal("600000"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        AdHocDeduction deduction = AdHocDeduction.builder().id(UUID.randomUUID()).employeeId(employeeId)
+                .componentId(UUID.randomUUID()).componentName("Asset Damage Recovery (ADR)")
+                .componentType(SalaryComponentType.AD_HOC_DEDUCTION)
+                .totalAmount(new BigDecimal("6000.00")).installmentAmount(new BigDecimal("2000.00"))
+                .remainingBalance(new BigDecimal("4000.00")).status(AdHocDeductionStatus.ACTIVE).build();
+        when(adHocDeductionRepository.findByEmployeeIdAndStatus(employeeId, AdHocDeductionStatus.ACTIVE)).thenReturn(List.of(deduction));
+        // An installment for this exact (deduction, run) pair already exists — simulating a regenerate.
+        AdHocDeductionInstallment existing = AdHocDeductionInstallment.builder().id(UUID.randomUUID())
+                .adHocDeduction(deduction).amount(new BigDecimal("2000.00")).build();
+        when(adHocDeductionInstallmentRepository.findByAdHocDeductionIdAndPayrollRunId(eq(deduction.getId()), any()))
+                .thenReturn(Optional.of(existing));
+
+        service.generateDraft(generateReq(), actorEmail);
+
+        // Balance must stay untouched — no new installment was created, the existing one was reused.
+        assertEquals(0, new BigDecimal("4000.00").compareTo(deduction.getRemainingBalance()));
+        verify(adHocDeductionRepository, never()).save(any());
+        verify(adHocDeductionInstallmentRepository, never()).save(any());
+    }
+
+    @Test
+    void rollback_reversesAdHocDeductionInstallment_restoresBalanceAndReopensCompletedPlan() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        when(payrollRunRepository.findLaterLockedRuns(payGroupId, cycleStart)).thenReturn(List.of());
+
+        AdHocDeduction deduction = AdHocDeduction.builder().id(UUID.randomUUID()).employeeId(employeeId)
+                .componentName("Asset Damage Recovery (ADR)").totalAmount(new BigDecimal("1500.00"))
+                .installmentAmount(new BigDecimal("2000.00")).remainingBalance(BigDecimal.ZERO)
+                .status(AdHocDeductionStatus.COMPLETED).build();
+        AdHocDeductionInstallment installment = AdHocDeductionInstallment.builder().id(UUID.randomUUID())
+                .adHocDeduction(deduction).payrollRun(approved).amount(new BigDecimal("1500.00")).build();
+        when(adHocDeductionInstallmentRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(installment));
+
+        RollbackRunRequest req = new RollbackRunRequest();
+        req.setReason("test rollback reverses deduction");
+        service.rollbackWholeRun(approved.getId(), req, actorEmail);
+
+        assertEquals(0, new BigDecimal("1500.00").compareTo(deduction.getRemainingBalance()));
+        assertEquals(AdHocDeductionStatus.ACTIVE, deduction.getStatus());
+        verify(adHocDeductionInstallmentRepository).delete(installment);
     }
 
     @Test
