@@ -9,6 +9,7 @@ import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -16,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -25,13 +25,12 @@ import java.util.stream.Collectors;
  * Certificates, Learning & Development) — surfaced from My Team, not a new editable surface.
  * Permission is the same DirectReportScopeService guarantee every other "see one of my reports'
  * data" feature in this codebase relies on: current direct reports only, whatever role the caller
- * holds, with HR_ADMIN/SUPER_ADMIN additionally allowed to widen.
+ * holds, with talent_skills:VIEW:ALL holders (HR_ADMIN/SUPER_ADMIN by default — the org-wide
+ * talent directory already shows them everyone's skills) additionally allowed to widen.
  */
 @Service
 @RequiredArgsConstructor
 public class TeamGrowthService {
-
-    private static final Set<String> OVERRIDE_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
 
     private final UserRepository userRepository;
     private final EmployeeRepository employeeRepository;
@@ -39,12 +38,13 @@ public class TeamGrowthService {
     private final EmployeeSkillService skillService;
     private final EmployeeCertificateService certificateService;
     private final EmployeeLearningEntryService learningEntryService;
+    private final EffectivePermissionService effectivePermissionService;
 
     @Transactional(readOnly = true)
     public TeamGrowthResponse getEmployeeGrowth(String actorEmail, UUID employeeUserId) {
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
-        boolean isOverride = actor.getRoles().stream().anyMatch(r -> OVERRIDE_ROLES.contains(r.getCode()));
+        boolean isOverride = effectivePermissionService.hasAuthority(actor, "talent_skills:VIEW:ALL");
         if (!isOverride && !directReportScopeService.isDirectReport(actorEmail, employeeUserId)) {
             throw new AccessDeniedException("This person is not your direct report");
         }

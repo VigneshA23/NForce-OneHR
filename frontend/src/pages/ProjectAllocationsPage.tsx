@@ -6,6 +6,7 @@ import { employeesApi, type EmployeeRecord } from '../api/employees';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import { projectsApi, projectAllocationsApi, type ProjectRecord, type AllocationResult } from '../api/projectAllocations';
+import ProjectsPanel from './allocations/ProjectsPanel';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10 };
 const inputStyle: React.CSSProperties = {
@@ -59,11 +60,11 @@ export default function ProjectAllocationsPage() {
   const [projects, setProjects] = useState<ProjectRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [tab, setTab] = useState<'allocate' | 'projects'>('allocate');
 
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [projectId, setProjectId] = useState('');
-  const [newProjectName, setNewProjectName] = useState('');
   const [capacityPercent, setCapacityPercent] = useState(100);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -100,17 +101,15 @@ export default function ProjectAllocationsPage() {
     });
   }
 
-  async function handleCreateProject() {
-    const name = newProjectName.trim();
-    if (!name) return;
-    try {
-      const created = await projectsApi.create(token, name);
-      setProjects(prev => [...prev, created]);
-      setProjectId(created.id);
-      setNewProjectName('');
-    } catch (e) {
-      setFormError(e instanceof Error ? e.message : 'Failed to create project');
-    }
+  // Only ACTIVE projects accept allocations (ON_HOLD/CLOSED are rejected by the backend too).
+  const activeProjects = useMemo(() => projects.filter(p => p.status === 'ACTIVE'), [projects]);
+
+  function handleProjectSaved(saved: ProjectRecord) {
+    setProjects(prev => {
+      const next = prev.some(p => p.id === saved.id) ? prev.map(p => (p.id === saved.id ? saved : p)) : [...prev, saved];
+      return next.sort((a, b) => a.name.localeCompare(b.name));
+    });
+    if (saved.id === projectId && saved.status !== 'ACTIVE') setProjectId('');
   }
 
   async function handleSubmit() {
@@ -145,9 +144,28 @@ export default function ProjectAllocationsPage() {
       <PageTitleBlock card icon={FolderKanban} style={{ marginBottom: 18 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Project Allocations</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
-          Allocate multiple employees to a project in one go - each is validated independently.
+          Maintain projects, and allocate multiple employees to a project in one go - each is validated independently.
         </p>
       </PageTitleBlock>
+
+      <div role="tablist" style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: '1px solid var(--line)' }}>
+        {([['allocate', 'Allocate'], ['projects', `Projects (${projects.length})`]] as const).map(([key, label]) => (
+          <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)}
+            style={{
+              padding: '8px 14px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
+              fontWeight: tab === key ? 700 : 500, color: tab === key ? 'var(--brand)' : 'var(--txt-mut)',
+              borderBottom: tab === key ? '2px solid var(--brand)' : '2px solid transparent', marginBottom: -1,
+            }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'projects' && (
+        <ProjectsPanel token={token} projects={projects} employees={employees} onSaved={handleProjectSaved} />
+      )}
+
+      {tab === 'allocate' && (<>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, alignItems: 'start' }}>
         {/* Employee multi-select */}
@@ -185,17 +203,12 @@ export default function ProjectAllocationsPage() {
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 10 }}>Allocation Details</div>
 
           <label style={labelStyle}>Project</label>
-          <select value={projectId} onChange={e => setProjectId(e.target.value)} style={{ ...inputStyle, width: '100%', marginBottom: 8, boxSizing: 'border-box' }}>
+          <select value={projectId} onChange={e => setProjectId(e.target.value)} style={{ ...inputStyle, width: '100%', marginBottom: 4, boxSizing: 'border-box' }}>
             <option value="">Select a project</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {activeProjects.map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}
           </select>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-            <input placeholder="New project name" value={newProjectName} onChange={e => setNewProjectName(e.target.value)}
-              style={{ ...inputStyle, flex: 1, boxSizing: 'border-box' }} />
-            <button type="button" onClick={handleCreateProject} disabled={!newProjectName.trim()}
-              style={{ padding: '7px 12px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12, color: 'var(--txt)', cursor: newProjectName.trim() ? 'pointer' : 'not-allowed' }}>
-              Add
-            </button>
+          <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 14 }}>
+            Only active projects are listed. Add or edit projects in the Projects tab.
           </div>
 
           <label style={labelStyle}>Capacity %</label>
@@ -225,6 +238,7 @@ export default function ProjectAllocationsPage() {
       </div>
 
       {results && <ResultsTable results={results} employees={employees} />}
+      </>)}
     </div>
   );
 }

@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.attendance.AttendanceRequestResponse;
 import com.nforce.onehr.service.AttendanceRequestService;
 import lombok.RequiredArgsConstructor;
@@ -40,7 +39,7 @@ public final class AttendanceRequestDataProviders {
         @Override public String id() { return "attendance-request.my-requests"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your recent Work From Home and Partial Day requests"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("attendance", "requests"); }
 
         @Override
@@ -67,9 +66,7 @@ public final class AttendanceRequestDataProviders {
         @Override public String title() { return "Work From Home and Partial Day requests waiting for your decision"; }
 
         @Override
-        public Set<AudienceBucket> audiences() {
-            return Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
-        }
+        public Set<String> authorities() { return Set.of("attendance_requests:APPROVE:TEAM"); }
 
         @Override public Set<String> modules() { return Set.of("attendance", "approvals"); }
 

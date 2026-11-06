@@ -5,10 +5,13 @@ import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.service.DocumentService;
 import com.nforce.onehr.service.search.SearchProvider;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
@@ -30,6 +33,7 @@ import static org.mockito.Mockito.*;
 class DocumentSearchProviderTest {
 
     @Mock private DocumentService documentService;
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService();
     @InjectMocks private DocumentSearchProvider provider;
 
     private User userWithRole(String roleCode) {

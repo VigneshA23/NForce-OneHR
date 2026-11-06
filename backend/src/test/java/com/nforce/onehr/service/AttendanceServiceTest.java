@@ -270,6 +270,49 @@ class AttendanceServiceTest {
                 .shift(null).user(User.builder().id(employeeId).active(true).build()).build();
     }
 
+    // ── Office-network check (record-only) ─────────────────────────────────────────────────
+    private AttendancePunch checkInFrom(String clientIp) {
+        Location office = Location.builder().name("Hyderabad").timezone("Asia/Kolkata").officeCidrs("203.0.113.0/24").build();
+        Employee employee = noShiftEmployee();
+        employee.setLocation(office);
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
+        service.checkIn(employeeEmail, null, clientIp);
+        org.mockito.ArgumentCaptor<AttendancePunch> punch = org.mockito.ArgumentCaptor.forClass(AttendancePunch.class);
+        verify(attendancePunchRepository).saveAndFlush(punch.capture());
+        return punch.getValue();
+    }
+
+    @Test
+    void checkIn_fromOfficeNetwork_recordsInOffice() {
+        AttendancePunch p = checkInFrom("203.0.113.5");
+        assertEquals("203.0.113.5", p.getCheckInIp());
+        assertEquals(Boolean.TRUE, p.getCheckInInOffice());
+    }
+
+    @Test
+    void checkIn_fromOutsideOfficeNetwork_isBlocked_soNoPunchIsRecorded() {
+        Location office = Location.builder().name("Hyderabad").timezone("Asia/Kolkata").officeCidrs("203.0.113.0/24").build();
+        Employee employee = noShiftEmployee();
+        employee.setLocation(office);
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
+
+        assertThrows(com.nforce.onehr.exception.OffOfficeNetworkException.class,
+                () -> service.checkIn(employeeEmail, null, "49.36.1.2"));
+        verify(attendancePunchRepository, never()).saveAndFlush(any(AttendancePunch.class));
+    }
+
+    @Test
+    void checkIn_whenOfficeNetworkNotConfigured_isAllowedFromAnywhere() {
+        Employee employee = noShiftEmployee();
+        employee.setLocation(Location.builder().name("Remote").timezone("Asia/Kolkata").build());
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
+
+        assertDoesNotThrow(() -> service.checkIn(employeeEmail, null, "49.36.1.2"));
+    }
+
     @Test
     void checkIn_noShiftAssigned_recordsOrdinaryPresentAttendance_withNoShiftInterpretation() {
         currentEmployeeShift = null;

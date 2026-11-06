@@ -15,7 +15,6 @@ import com.nforce.onehr.entity.ExceptionType;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
-import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.AttendancePenaltySpecifications;
@@ -27,6 +26,7 @@ import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.RegularizationRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.jpa.domain.Specification;
@@ -69,12 +69,14 @@ public class AttendancePenaltyService {
     private static final String STATUS_APPROVED = "APPROVED";
     private static final String PARTIAL_DAY_REQUEST_TYPE = "PARTIAL_DAY";
     private static final Set<String> CANCELLABLE_STATUSES = Set.of(AttendancePenaltyStatus.PENDING_REVIEW);
-    // Same convention as ExceptionService.HR_ROLES: HR_ADMIN/SUPER_ADMIN get organization-wide
-    // scope, never the "direct reports" restriction a plain Manager is subject to. Before this,
-    // list()/cancelBulk() unconditionally scoped to managerHistoryRepository.findCurrentDirectReportIds,
-    // so an HR_ADMIN/SUPER_ADMIN with no direct reports of their own — the common case — silently
-    // saw an empty penalty list and could cancel nothing, despite being authorized at the controller.
-    private static final Set<String> HR_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
+    // Holders of these (seeded: HR_ADMIN, SUPER_ADMIN) get organization-wide scope, never the
+    // "direct reports" restriction a plain Manager is subject to — same convention as
+    // ExceptionService's VIEW:ALL. Before this, list()/cancelBulk() unconditionally scoped to
+    // managerHistoryRepository.findCurrentDirectReportIds, so an HR_ADMIN/SUPER_ADMIN with no direct
+    // reports of their own — the common case — silently saw an empty penalty list and could cancel
+    // nothing, despite being authorized at the controller.
+    private static final String ORG_WIDE_VIEW_AUTHORITY = "attendance:VIEW:ALL";
+    private static final String ORG_WIDE_CANCEL_AUTHORITY = "attendance:EDIT:ALL";
     private static final DateTimeFormatter NOTIFICATION_DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
     // Row status for a detected incident with no penalty behind it (see #notPenalizedIncidents) —
     // a list/filter value only, never stored on AttendancePenalty.
@@ -97,12 +99,13 @@ public class AttendancePenaltyService {
     private final EmployeeService employeeService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
+    private final EffectivePermissionService effectivePermissionService;
 
     @Transactional(readOnly = true)
     public List<AttendancePenaltyResponse> list(String actorEmail, LocalDate from, LocalDate to, String status,
                                                  String discrepancyType, String department, String location, String search) {
         Employee actor = resolveEmployee(actorEmail);
-        return list(new ArrayList<>(resolveScopeIds(actor)), from, to, status, discrepancyType, department, location, search);
+        return list(new ArrayList<>(resolveScopeIds(actor, ORG_WIDE_VIEW_AUTHORITY)), from, to, status, discrepancyType, department, location, search);
     }
 
     /**
@@ -208,16 +211,13 @@ public class AttendancePenaltyService {
     }
 
     /**
-     * HR_ADMIN/SUPER_ADMIN see every employee ever eligible to be penalized (the same population
-     * {@code ExceptionService}/the scheduled evaluator actually evaluates — see
-     * {@code UserRepository#findEmployeeRoleUserIds}); a plain Manager is still restricted to
-     * {@code findCurrentDirectReportIds}. Resolved from the caller's roles only, never client input.
+     * Holders of {@code orgWideAuthority} (HR_ADMIN/SUPER_ADMIN) see every employee ever eligible to
+     * be penalized (the same population {@code ExceptionService}/the scheduled evaluator actually
+     * evaluates — see {@code UserRepository#findEmployeeRoleUserIds}); everyone else is restricted to
+     * {@code findCurrentDirectReportIds}. Resolved from the caller's permissions only, never client input.
      */
-    private Set<UUID> resolveScopeIds(Employee actor) {
-        Set<String> roleCodes = actor.getUser() != null
-                ? actor.getUser().getRoles().stream().map(Role::getCode).collect(Collectors.toSet())
-                : Set.of();
-        if (roleCodes.stream().anyMatch(HR_ROLES::contains)) {
+    private Set<UUID> resolveScopeIds(Employee actor, String orgWideAuthority) {
+        if (effectivePermissionService.hasAuthority(actor.getUser(), orgWideAuthority)) {
             return userRepository.findEmployeeRoleUserIds();
         }
         return new HashSet<>(managerHistoryRepository.findCurrentDirectReportIds(actor.getUserId()));
@@ -226,10 +226,10 @@ public class AttendancePenaltyService {
     @Transactional
     public PenaltyCancelResultResponse cancelBulk(String actorEmail, List<UUID> penaltyIds, String reason) {
         Employee actor = resolveEmployee(actorEmail);
-        // Snapshot the actor's scope once for the whole batch — org-wide for HR_ADMIN/SUPER_ADMIN,
-        // current direct reports for a Manager. Each item still gets its own exists/status/
-        // regularization re-check below.
-        Set<UUID> scopeIds = resolveScopeIds(actor);
+        // Snapshot the actor's scope once for the whole batch — org-wide for attendance:EDIT:ALL
+        // (HR_ADMIN/SUPER_ADMIN), current direct reports otherwise. Each item still gets its own
+        // exists/status/regularization re-check below.
+        Set<UUID> scopeIds = resolveScopeIds(actor, ORG_WIDE_CANCEL_AUTHORITY);
 
         List<UUID> succeeded = new ArrayList<>();
         List<PenaltyCancelResultResponse.BulkFailureDto> failed = new ArrayList<>();
