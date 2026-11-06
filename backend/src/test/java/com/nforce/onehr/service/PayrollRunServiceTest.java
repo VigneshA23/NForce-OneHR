@@ -37,6 +37,7 @@ class PayrollRunServiceTest {
     @Mock private PayrollLopCalculationService payrollLopCalculationService;
     @Mock private PayrollProrationService payrollProrationService;
     @Mock private ApprovalRuleEvaluationService approvalRuleEvaluationService;
+    @Mock private AdHocPaymentRepository adHocPaymentRepository;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -61,7 +62,7 @@ class PayrollRunServiceTest {
         service = new PayrollRunService(payrollRunRepository, payslipRepository, payslipLineItemRepository,
                 payGroupRepository, employeeCompensationRepository, salaryStructureComponentRepository,
                 payrollLopCalculationService, payrollProrationService, approvalRuleEvaluationService,
-                userRepository, auditService, auditSnapshot);
+                adHocPaymentRepository, userRepository, auditService, auditSnapshot);
 
         // Default actor holds HR_ADMIN — matches this app's one real approver role before US-C09,
         // and the legacy single-HR_ADMIN-stage default evaluatePayrollRun falls back to below.
@@ -94,6 +95,9 @@ class PayrollRunServiceTest {
                 PayrollLopCalculationResponse.builder().effectiveLopDays(BigDecimal.ZERO).build());
         lenient().when(payrollProrationService.recompute(any(), any())).thenReturn(
                 PayrollProrationResponse.builder().cycleDays(28).employedDays(28).prorationFactor(new BigDecimal("1.0000")).build());
+
+        // US-C24: no ad-hoc payments by default.
+        lenient().when(adHocPaymentRepository.findByPayrollRunIdAndEmployeeId(any(), any())).thenReturn(List.of());
     }
 
     private SalaryComponent catalogComponent(String name, String type, boolean prorateOnLop) {
@@ -204,6 +208,38 @@ class PayrollRunServiceTest {
         // Basic: 28,000 * 0.9286 (26/28 rounded to 4dp) = 26,000.80; Conveyance untouched (prorateOnLop=false).
         assertEquals(0, new BigDecimal("26000.80").compareTo(basicItem.getAmount()));
         assertEquals(0, new BigDecimal("1600.00").compareTo(conveyanceItem.getAmount()));
+    }
+
+    @Test
+    void generateDraft_adHocPayment_addedAtFaceValue_neverProrated() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.FIXED, new BigDecimal("336000"), null);
+
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+        // 2 LOP days out of 28 — would reduce a prorated component, but must NOT reduce the ad-hoc one.
+        when(payrollLopCalculationService.recompute(any(), any())).thenReturn(
+                PayrollLopCalculationResponse.builder().effectiveLopDays(new BigDecimal("2")).build());
+
+        UUID adHocComponentId = UUID.randomUUID();
+        AdHocPayment adHoc = AdHocPayment.builder().id(UUID.randomUUID())
+                .employeeId(employeeId).componentId(adHocComponentId).componentName("Referral Bonus")
+                .componentType(SalaryComponentType.AD_HOC_EARNING).amount(new BigDecimal("5000.00"))
+                .reason("Referral").addedBy(actorId).build();
+        when(adHocPaymentRepository.findByPayrollRunIdAndEmployeeId(any(), eq(employeeId))).thenReturn(List.of(adHoc));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        org.mockito.ArgumentCaptor<PayslipLineItem> captor = org.mockito.ArgumentCaptor.forClass(PayslipLineItem.class);
+        verify(payslipLineItemRepository, times(2)).save(captor.capture());
+        PayslipLineItem bonusItem = captor.getAllValues().stream()
+                .filter(i -> i.getComponentName().equals("Referral Bonus")).findFirst().orElseThrow();
+
+        assertFalse(bonusItem.isProrated());
+        assertEquals(0, new BigDecimal("5000.00").compareTo(bonusItem.getAmount()));
+        // Basic: 28,000 * (26/28 rounded) = 26,000.80 (prorated); + 5,000.00 ad-hoc (not prorated).
+        assertEquals(0, new BigDecimal("31000.80").compareTo(resp.getTotalGross()));
     }
 
     @Test
