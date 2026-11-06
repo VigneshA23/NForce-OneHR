@@ -1362,3 +1362,8 @@
 .lp-root section.lp-brand-section .lp-brand-overlay { border-radius: inherit; }
 .lp-root section.lp-brand-section > div:not(.lp-brand-overlay) { padding-left: 56px !important; padding-right: 56px !important; }
 @media (max-width: 700px) { .lp-root section.lp-brand-section { width: calc(100% - 28px); border-radius: 20px; margin: 32px auto; } .lp-root section.lp-brand-section > div:not(.lp-brand-overlay) { padding-left: 24px !important; padding-right: 24px !important; } }
+
+/* Photos keep faces and heads in frame: zoom from the top-centre, less aggressive hover zoom */
+.lp-xp-bg { transform-origin: 50% 25%; }
+.lp-xp-panel .lp-xp-bg { transform: scale(1.04); }
+.lp-pic:hover .lp-pic-img { transform: scale(1.06) translate(calc((var(--px) - .5) * -12px), calc((var(--py) - .5) * -8px)); }
