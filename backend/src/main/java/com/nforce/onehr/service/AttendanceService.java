@@ -368,6 +368,12 @@ public class AttendanceService {
     public AttendanceResponse checkIn(String actorEmail, String clientTimezone, String clientIp) {
         Employee employee = resolveEmployee(actorEmail);
         assertEligibleToPunch(employee);
+        // Office Check-In only from the office network, when the office has one configured
+        // (null = not configured / IP unknown = not enforced). Off-network → Work From Home.
+        Boolean inOffice = OfficeNetwork.isInOffice(clientIp, officeCidrsOf(employee));
+        if (Boolean.FALSE.equals(inOffice)) {
+            throw new com.nforce.onehr.exception.OffOfficeNetworkException();
+        }
 
         // Only an open NORMAL session blocks a fresh Check-In — deliberately independent of any
         // open Web Clock-In session, which is tracked and gated entirely separately (see
@@ -430,7 +436,7 @@ public class AttendanceService {
             Attendance saved = attendanceRepository.save(record);
             openPunch(saved.getId(), resumeNow, clientIp, employee);
             auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_IN", saved.getId());
-            return toResponse(saved, employee);
+            return withOfficeNetwork(toResponse(saved, employee), inOffice);
         }
 
         // isLate (official status, HR/penalty-relevant, grace-aware) and lateByMinutes
@@ -487,7 +493,7 @@ public class AttendanceService {
         }
 
         auditService.log(employee.getUserId(), "ATTENDANCE_CHECKED_IN", record.getId());
-        return toResponse(record, employee);
+        return withOfficeNetwork(toResponse(record, employee), inOffice);
     }
 
     private void openPunch(UUID attendanceRecordId, LocalDateTime checkInAt, String clientIp, Employee employee) {
@@ -1565,6 +1571,11 @@ public class AttendanceService {
      * folded into resolveEmployee itself, which backs many read-only call sites that must keep
      * working for an inactive employee (e.g. viewing their own history).
      */
+    private static AttendanceResponse withOfficeNetwork(AttendanceResponse response, Boolean inOffice) {
+        response.setOfficeNetwork(inOffice);
+        return response;
+    }
+
     private static String officeCidrsOf(Employee employee) {
         return employee != null && employee.getLocation() != null ? employee.getLocation().getOfficeCidrs() : null;
     }

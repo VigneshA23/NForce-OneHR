@@ -291,10 +291,26 @@ class AttendanceServiceTest {
     }
 
     @Test
-    void checkIn_fromOutsideOfficeNetwork_recordsOffNetwork_butIsNotBlocked() {
-        AttendancePunch p = checkInFrom("49.36.1.2");
-        assertEquals("49.36.1.2", p.getCheckInIp());
-        assertEquals(Boolean.FALSE, p.getCheckInInOffice());
+    void checkIn_fromOutsideOfficeNetwork_isBlocked_soNoPunchIsRecorded() {
+        Location office = Location.builder().name("Hyderabad").timezone("Asia/Kolkata").officeCidrs("203.0.113.0/24").build();
+        Employee employee = noShiftEmployee();
+        employee.setLocation(office);
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
+
+        assertThrows(com.nforce.onehr.exception.OffOfficeNetworkException.class,
+                () -> service.checkIn(employeeEmail, null, "49.36.1.2"));
+        verify(attendancePunchRepository, never()).saveAndFlush(any(AttendancePunch.class));
+    }
+
+    @Test
+    void checkIn_whenOfficeNetworkNotConfigured_isAllowedFromAnywhere() {
+        Employee employee = noShiftEmployee();
+        employee.setLocation(Location.builder().name("Remote").timezone("Asia/Kolkata").build());
+        currentEmployeeShift = null;
+        when(employeeRepository.findByUser_Email(employeeEmail)).thenReturn(Optional.of(employee));
+
+        assertDoesNotThrow(() -> service.checkIn(employeeEmail, null, "49.36.1.2"));
     }
 
     @Test

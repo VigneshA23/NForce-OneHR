@@ -58,6 +58,13 @@ public class GlobalExceptionHandler {
 
     // Temporary migration safety switch (app.employee-creation.locked) — not a per-request
     // conflict like EmployeeCodeConflictException, so it gets its own status/code.
+    // Check-In from outside the office network — the client switches to Work From Home check-in.
+    @ExceptionHandler(OffOfficeNetworkException.class)
+    public ResponseEntity<ApiError> handleOffOfficeNetwork(OffOfficeNetworkException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError(e.getMessage(), "OFF_OFFICE_NETWORK", null));
+    }
+
     @ExceptionHandler(EmployeeCreationLockedException.class)
     public ResponseEntity<ApiError> handleEmployeeCreationLocked(EmployeeCreationLockedException e) {
         return ResponseEntity.status(HttpStatus.LOCKED)

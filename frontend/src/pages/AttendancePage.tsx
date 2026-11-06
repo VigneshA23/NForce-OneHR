@@ -16,6 +16,7 @@ import {
   type SubmitRegularizationPayload,
   type RegularizationBalance,
   type Punch,
+  isOffOfficeNetwork,
 } from '../api/attendance';
 import {
   attendanceRequestApi,
@@ -32,6 +33,7 @@ import { usePreviewMode } from '../lib/previewMode';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { AttendancePolicyModal } from '../components/AttendancePolicyModal';
+import { WebClockInRequestModal } from '../components/WebClockInRequestModal';
 import { ChipGroup, TabBar } from '../components/TabBar';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
@@ -598,7 +600,7 @@ function PunchHistoryList({ date, token, refreshKey, isPreviewMode = false }: { 
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <PunchSourceGroup label="Check-In / Check-Out" sessions={officeSessions} workDate={date} />
-        <PunchSourceGroup label="Web Check-In / Check-Out" sessions={webSessions} workDate={date} />
+        <PunchSourceGroup label="Web Check-In / Check-Out (Work From Home)" sessions={webSessions} workDate={date} />
       </div>
     </div>
   );
@@ -3614,11 +3616,11 @@ function punchDateSuffix(iso: string, workDate: string): string {
 
 /** Shown only when the office-network check ran and failed (null = office network not configured). */
 function OffNetworkTag({ inOffice, ip }: { inOffice?: boolean | null; ip?: string | null }) {
-  if (inOffice !== false) return null;
+  if (inOffice == null) return null;
   return (
-    <Tooltip content={`Not on the office network${ip ? ` (IP ${ip})` : ''}`}>
-      <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--warn)', border: '1px solid currentColor', borderRadius: 3, padding: '0 4px', letterSpacing: '.04em' }}>
-        OFF-NETWORK
+    <Tooltip content={`${inOffice ? 'Punched on the office Wi-Fi' : 'Not on the office network'}${ip ? ` (IP ${ip})` : ''}`}>
+      <span style={{ fontSize: 9.5, fontWeight: 700, color: inOffice ? 'var(--ok)' : 'var(--warn)', border: '1px solid currentColor', borderRadius: 3, padding: '0 4px', letterSpacing: '.04em' }}>
+        {inOffice ? 'OFFICE WI-FI' : 'OFF-NETWORK'}
       </span>
     </Tooltip>
   );
@@ -3720,7 +3722,7 @@ function DayPunchIntervals({ info, punches, cards = false }: { info: DayInfo; pu
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: cards ? 14 : 10, maxWidth: cards ? undefined : 260 }}>
       <PunchSourceGroup label="Check-In / Check-Out" sessions={officeSessions} workDate={workDate} cards={cards} />
-      <PunchSourceGroup label="Web Check-In / Check-Out" sessions={webSessions} workDate={workDate} cards={cards} />
+      <PunchSourceGroup label="Web Check-In / Check-Out (Work From Home)" sessions={webSessions} workDate={workDate} cards={cards} />
     </div>
   );
 }
@@ -5064,6 +5066,8 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     return refreshed;
   }, [token, refreshMonth, isPreviewMode, today]);
 
+  const [wfhPrompt, setWfhPrompt] = useState(false);
+
   async function punch(kind: 'in' | 'out') {
     if (punchInFlightRef.current) return;
     punchInFlightRef.current = true;
@@ -5113,8 +5117,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       // /today call and picks up whatever latency that round trip has, making the toast read
       // later than the moment the employee actually punched in.
       const at = formatTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
-      showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
+      showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}${kind === 'in' && record.officeNetwork ? ' · Office Wi-Fi' : ''}`);
     } catch (err) {
+      if (kind === 'in' && isOffOfficeNetwork(err)) { setWfhPrompt(true); return; }
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
     } finally {
       punchInFlightRef.current = false;
@@ -5131,6 +5136,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
 
   return (
     <>
+    {wfhPrompt && <WebClockInRequestModal offNetwork onClose={() => setWfhPrompt(false)} onSubmitted={() => { void refreshTodayAndMonth(); }} />}
     <div
       className="nf-grid-proportional-collapse"
       style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '18px 16px' }}

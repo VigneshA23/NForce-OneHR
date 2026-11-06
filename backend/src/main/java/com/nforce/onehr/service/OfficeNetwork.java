@@ -17,9 +17,19 @@ public class OfficeNetwork {
     private static final java.util.regex.Pattern IP_OR_CIDR = java.util.regex.Pattern.compile("[0-9A-Fa-f:.]+(/\\d{1,3})?");
 
     private final int trustedProxyHops;
+    private final boolean devPublicIpLookup;
+    private volatile String cachedPublicIp;
+    private volatile long cachedAt;
 
-    public OfficeNetwork(@Value("${app.attendance.trusted-proxy-hops:0}") int trustedProxyHops) {
+    public OfficeNetwork(int trustedProxyHops) {
+        this(trustedProxyHops, false);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public OfficeNetwork(@Value("${app.attendance.trusted-proxy-hops:0}") int trustedProxyHops,
+                         @Value("${app.attendance.dev-public-ip-lookup:false}") boolean devPublicIpLookup) {
         this.trustedProxyHops = trustedProxyHops;
+        this.devPublicIpLookup = devPublicIpLookup;
     }
 
     /**
@@ -30,11 +40,40 @@ public class OfficeNetwork {
      */
     public String clientIp(HttpServletRequest request) {
         String xff = request.getHeader("X-Forwarded-For");
+        String ip;
         if (trustedProxyHops <= 0 || xff == null || xff.isBlank()) {
-            return request.getRemoteAddr();
+            ip = request.getRemoteAddr();
+        } else {
+            String[] hops = xff.split(",");
+            ip = hops[Math.max(0, hops.length - trustedProxyHops)].trim();
         }
-        String[] hops = xff.split(",");
-        return hops[Math.max(0, hops.length - trustedProxyHops)].trim();
+        return devPublicIpLookup && isLoopback(ip) ? machinePublicIp(ip) : ip;
+    }
+
+    private static boolean isLoopback(String ip) {
+        return ip != null && (ip.startsWith("127.") || ip.equals("::1") || ip.equals("0:0:0:0:0:0:0:1"));
+    }
+
+    /**
+     * Local dev only (app.attendance.dev-public-ip-lookup): the backend and browser share this
+     * machine, so every request arrives from loopback. Resolve the machine's real public IP so
+     * switching Wi-Fi / mobile hotspot behaves like it will in production.
+     * ponytail: calls api.ipify.org with a 15s cache; never enable in deployed environments.
+     */
+    private String machinePublicIp(String fallback) {
+        if (cachedPublicIp != null && System.currentTimeMillis() - cachedAt < 15_000) return cachedPublicIp;
+        try {
+            var client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(3)).build();
+            var req = java.net.http.HttpRequest.newBuilder(java.net.URI.create("https://api.ipify.org"))
+                    .timeout(java.time.Duration.ofSeconds(3)).build();
+            String ip = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString()).body().trim();
+            if (!IP_OR_CIDR.matcher(ip).matches()) return fallback;
+            cachedPublicIp = ip;
+            cachedAt = System.currentTimeMillis();
+            return ip;
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
     /**
