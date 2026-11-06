@@ -110,6 +110,14 @@ app:
     # window, then unset it (or redeploy without it) once the migration is verified complete.
     locked: ${EMPLOYEE_CREATION_LOCKED:false}
   attendance:
+    # How many reverse proxies sit in front of the backend and append to X-Forwarded-For.
+    # 0 = ignore the header and use the TCP peer address (local dev). Browser -> Railway = 1;
+    # browser -> Vercel rewrite -> Railway = 2. Wrong value = wrong IP, so verify on staging
+    # (punch from the office and compare the recorded IP with whatismyip) before trusting it.
+    trusted-proxy-hops: ${TRUSTED_PROXY_HOPS:0}
+    # Local dev only: when the request comes from loopback (browser + backend on one machine),
+    # look up this machine's public IP so office Wi-Fi vs mobile hotspot can be tested locally.
+    dev-public-ip-lookup: ${DEV_PUBLIC_IP_LOOKUP:false}
     # Business timezone — deploy-time default. Deliberately explicit, since the JVM default is
     # UTC on Railway. As of the Phase 2 timezone pass, the Attendance/Web-Clock-In/Regularization
     # flow no longer reads this directly — it uses AttendanceRulesService.getDefaultZoneId(), an

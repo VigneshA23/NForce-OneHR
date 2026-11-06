@@ -14,6 +14,8 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.PolicyAcknowledgmentRepository;
 import com.nforce.onehr.repository.PolicyRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +24,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.AccessDeniedException;
@@ -56,6 +59,7 @@ class PolicyServiceTest {
     @Mock private UserRepository userRepo;
     @Mock private EmployeeRepository employeeRepo;
     @Mock private NotificationService notificationService;
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService();
 
     @InjectMocks
     private PolicyService policyService;

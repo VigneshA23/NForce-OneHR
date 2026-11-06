@@ -6,6 +6,7 @@ import PageTitleBlock from '../components/PageTitleBlock';
 import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X, CalendarHeart, MapPin, List, CalendarPlus } from 'lucide-react';
 import './holidaysPolish.css';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { orgApi, type LocationRow } from '../api/org';
 
@@ -316,8 +317,13 @@ function AddHolidayModal({ token, editing, onClose, onCreated }: { token: string
 
 export default function HolidaysPage() {
   const token = useAuthStore(s => s.token)!;
-  const role = useAuthStore(s => s.user?.role);
-  const isAdmin = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  const permissions = useAuthStore(s => s.permissions);
+  // Each gate is the permission HolidayController requires for that call — all four seeded to
+  // exactly HR_ADMIN + SUPER_ADMIN (V225), the roles this page used to check.
+  const isAdmin = hasPermission(permissions, 'holidays', 'VIEW', 'ALL');
+  const canCreate = hasPermission(permissions, 'holidays', 'CREATE', 'ALL');
+  const canEdit = hasPermission(permissions, 'holidays', 'EDIT', 'ALL');
+  const canDelete = hasPermission(permissions, 'holidays', 'DELETE', 'ALL');
   const [holidays, setHolidays] = useState<HolidayRow[]>([]);
   const holPaged = usePaged(holidays);
   const [holidayError, setHolidayError] = useState('');
@@ -423,7 +429,7 @@ export default function HolidaysPage() {
               {adminLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           )}
-          {isAdmin && (
+          {canCreate && (
             <button onClick={() => setShowAddHoliday(true)} style={{ ...primaryButtonStyle, boxShadow: '0 2px 10px rgba(177,17,22,.25)' }}>
               <Plus size={14} /> Add Holiday
             </button>
@@ -505,8 +511,8 @@ export default function HolidaysPage() {
                       {isAdmin && (
                         <td style={holidayTdStyle}>
                           <ActionDock items={[
-                            { label: 'Edit', icon: Pencil, onClick: () => setEditingHoliday(h) },
-                            { label: 'Delete', icon: Trash2, onClick: () => handleDeleteHoliday(h), danger: true, disabled: deletingId === h.id },
+                            ...(canEdit ? [{ label: 'Edit', icon: Pencil, onClick: () => setEditingHoliday(h) }] : []),
+                            ...(canDelete ? [{ label: 'Delete', icon: Trash2, onClick: () => handleDeleteHoliday(h), danger: true, disabled: deletingId === h.id }] : []),
                           ]} />
                         </td>
                       )}

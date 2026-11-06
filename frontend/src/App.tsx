@@ -14,6 +14,7 @@ import TalentPerformancePage from './pages/talent/TalentPerformancePage';
 import EmployeeMasterPage from './pages/EmployeeMasterPage';
 import ExceptionDashboardPage from './pages/ExceptionDashboardPage';
 import UserManagementPage from './pages/UserManagementPage';
+import RolesPermissionsPage from './pages/RolesPermissionsPage';
 import ProfilePage from './pages/ProfilePage';
 import EmployeeProfileViewPage from './pages/EmployeeProfileViewPage';
 import UserPreferencesPage from './pages/UserPreferencesPage';
@@ -168,6 +169,8 @@ export default function App() {
         <Route path="/hierarchy-ui-preview" element={<HierarchyPreviewShell />} />
         {/* Design-review mock only: summary tiles of the module pages with invented numbers; no auth, no API calls. */}
         <Route path="/tiles-ui-preview" element={<TilesPreviewShell />} />
+        {/* Visual preview of the public landing page that does not redirect a signed-in user to the dashboard. */}
+        <Route path="/landing-preview" element={<LandingPage />} />
 
         {/* Design-review mock only — redesigned My Team page, no auth, no network, not linked from
             the app nav. ?role=manager|hr-admin|super-admin|employee picks the mock dataset only. */}
@@ -212,6 +215,7 @@ export default function App() {
           <Route path="/my-skills"    element={<MySkillsPage />} />
           <Route path="/talent-performance" element={<TalentPerformancePage />} />
           <Route path="/access"         element={<UserManagementPage />} />
+          <Route path="/roles"          element={<RolesPermissionsPage />} />
           <Route path="/masters"        element={<OrgSetupPage />} />
           <Route path="/profile"        element={<ProfilePage />} />
           <Route path="/profile/:userId" element={<EmployeeProfileViewPage />} />

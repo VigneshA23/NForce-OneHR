@@ -34,6 +34,7 @@ export interface DesignationRow {
 export interface LocationRow {
   id: string; name: string; city: string | null; state: string | null;
   country: string | null; holidayRegion: string | null; timezone: string | null;
+  officeCidrs: string | null;
   active: boolean; employeeCount: number; createdAt: string; updatedAt: string;
 }
 export interface ShiftRow {
@@ -154,11 +155,11 @@ export const orgApi = {
   listSupportedLocationTimezones: (token: string) =>
     fetch(`${BASE}/locations/timezones`, { headers: authHeaders(token) }).then(r => handle<string[]>(r)),
 
-  createLocation: (token: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string; timezone: string }) =>
+  createLocation: (token: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string; timezone: string; officeCidrs?: string }) =>
     fetch(`${BASE}/locations`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(r => handle<LocationRow>(r)),
 
-  updateLocation: (token: string, id: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string; timezone: string }) =>
+  updateLocation: (token: string, id: string, payload: { name: string; city?: string; state?: string; country?: string; holidayRegion?: string; timezone: string; officeCidrs?: string }) =>
     fetch(`${BASE}/locations/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(r => handle<LocationRow>(r)),
 

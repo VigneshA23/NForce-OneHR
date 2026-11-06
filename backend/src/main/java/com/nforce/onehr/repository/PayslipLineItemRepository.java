@@ -1,0 +1,28 @@
+package com.nforce.onehr.repository;
+
+import com.nforce.onehr.entity.PayslipLineItem;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
+
+@Repository
+public interface PayslipLineItemRepository extends JpaRepository<PayslipLineItem, UUID> {
+
+    List<PayslipLineItem> findByPayslipId(UUID payslipId);
+
+    @Modifying
+    @Query("DELETE FROM PayslipLineItem li WHERE li.payslip.payrollRun.id = :runId")
+    void deleteByPayrollRunId(@Param("runId") UUID runId);
+
+    // US-C10 reconciliation — SUM(amount) per component type across every line item in the run,
+    // compared against PayrollRun's own stored totals.
+    @Query("SELECT li.componentType, SUM(li.amount) FROM PayslipLineItem li "
+         + "WHERE li.payslip.payrollRun.id = :runId GROUP BY li.componentType")
+    List<Object[]> sumAmountByComponentType(@Param("runId") UUID runId);
+}
