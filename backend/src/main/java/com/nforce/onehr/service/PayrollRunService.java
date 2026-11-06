@@ -45,10 +45,18 @@ import java.util.stream.Collectors;
  * (restores the balance, deletes the row, reopens a COMPLETED plan if it was this installment that
  * completed it) so a discarded run never permanently shortchanges or overcharges the recovery.
  *
+ * <h2>US-C26 — salary hold ("Hold processing" only)</h2>
+ * <p>{@link #generateDraft} excludes any employee with an ACTIVE {@link SalaryHold} on this exact
+ * run entirely from the next build — no payslip, no line items, not counted in {@code
+ * employeeCount} — matching Keka's own "Hold processing" (confirmed against its help docs
+ * 2026-11-05): zero statutory deductions, as if they had no effective compensation this cycle.
+ * Keka's distinct "Hold payout" (processed normally, only the payment withheld) is NOT built here
+ * — it needs per-payslip disbursement tracking {@link #disburse} doesn't have (still whole-run).
+ *
  * <h2>Scope of this increment</h2>
  * <ul>
  *   <li><b>Not built yet:</b> US-C27's per-employee selective rollback — only {@link
- *       #rollbackWholeRun} (whole-run) exists.</li>
+ *       #rollbackWholeRun} (whole-run) exists. US-C26's "Hold payout" (see above).</li>
  *   <li><b>Which employees are included:</b> every {@link EmployeeCompensation} row effective on
  *       the cycle's last day, regardless of {@code payGroupId} — there is no employee-to-pay-group
  *       assignment mechanism yet, a gap already flagged when US-C07 was built. Fine while there's
@@ -129,6 +137,7 @@ public class PayrollRunService {
     private final AdHocPaymentRepository adHocPaymentRepository;
     private final AdHocDeductionRepository adHocDeductionRepository;
     private final AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
+    private final SalaryHoldRepository salaryHoldRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -167,15 +176,24 @@ public class PayrollRunService {
             throw new IllegalArgumentException("No employees have compensation effective for cycle " + window.start() + "-" + window.end());
         }
 
+        // US-C26 "Hold processing": an employee with an ACTIVE SalaryHold on THIS run is excluded
+        // entirely — no payslip, no line items, not counted — same as if they had no effective
+        // compensation this cycle. Checked against run.getId(), so a hold created before this
+        // regenerate takes effect now; one created after still needs the next regenerate to apply.
+        Set<UUID> heldEmployeeIds = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunId(run.getId());
+        List<EmployeeCompensation> included = compensations.stream()
+                .filter(comp -> !heldEmployeeIds.contains(comp.getEmployeeId()))
+                .collect(Collectors.toList());
+
         BigDecimal totalGross = BigDecimal.ZERO;
         BigDecimal totalDeductions = BigDecimal.ZERO;
-        for (EmployeeCompensation comp : compensations) {
+        for (EmployeeCompensation comp : included) {
             PayslipBuild build = buildPayslip(comp, window, payGroup.getId(), run, actorEmail);
             totalGross = totalGross.add(build.grossPay);
             totalDeductions = totalDeductions.add(build.totalDeductions);
         }
 
-        run.setEmployeeCount(compensations.size());
+        run.setEmployeeCount(included.size());
         run.setTotalGross(totalGross);
         run.setTotalDeductions(totalDeductions);
         run.setTotalNet(totalGross.subtract(totalDeductions));

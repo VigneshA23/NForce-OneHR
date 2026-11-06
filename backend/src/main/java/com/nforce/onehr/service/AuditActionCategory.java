@@ -107,6 +107,9 @@ public enum AuditActionCategory {
             // AdHocDeductionService — US-C25: an HR Admin creating/cancelling a deduction recovery
             // plan, same treatment.
             "PAYROLL_ADHOC_DEDUCTION_CREATED", "PAYROLL_ADHOC_DEDUCTION_CANCELLED",
+            // SalaryHoldService — US-C26: an HR Admin excluding/re-including an employee from a
+            // DRAFT run ("Hold processing"), same treatment.
+            "PAYROLL_SALARY_HOLD_CREATED", "PAYROLL_SALARY_HOLD_RELEASED",
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.
