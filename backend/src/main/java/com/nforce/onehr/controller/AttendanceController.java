@@ -26,6 +26,7 @@ import com.nforce.onehr.service.AttendanceService;
 import com.nforce.onehr.service.AttendanceStatsService;
 import com.nforce.onehr.service.ExceptionService;
 import com.nforce.onehr.service.OfficeNetwork;
+import com.nforce.onehr.exception.OffOfficeNetworkException;
 import com.nforce.onehr.service.RegularizationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -56,6 +57,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/attendance")
 @RequiredArgsConstructor
+@lombok.extern.slf4j.Slf4j
 public class AttendanceController {
 
     private final AttendanceService attendanceService;
@@ -83,7 +85,13 @@ public class AttendanceController {
     @ResponseStatus(HttpStatus.CREATED)
     public AttendanceResponse checkIn(@RequestBody(required = false) PunchTimezoneRequest req, Principal principal,
                                       HttpServletRequest http) {
-        return attendanceService.checkIn(principal.getName(), req != null ? req.getTimezone() : null, officeNetwork.clientIp(http));
+        try {
+            return attendanceService.checkIn(principal.getName(), req != null ? req.getTimezone() : null, officeNetwork.clientIp(http));
+        } catch (OffOfficeNetworkException e) {
+            String trace = officeNetwork.networkTrace(http);
+            log.warn("Off-network check-in refused for {}: detected={} ({})", principal.getName(), e.getDetectedIp(), trace);
+            throw new OffOfficeNetworkException(e.getDetectedIp(), trace);
+        }
     }
 
     @PostMapping("/check-out")

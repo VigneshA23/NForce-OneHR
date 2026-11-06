@@ -6,7 +6,7 @@ import { useAuthStore } from '../store/authStore';
 import { usePreviewMode } from '../lib/previewMode';
 import { previewToday, PREVIEW_CONFIG } from '../pages/dashboard-ui-preview/dashboardPreviewData';
 import { useToast } from '../context/ToastContext';
-import { isOffOfficeNetwork, attendanceApi, type TodayAttendance, type AttendanceConfig } from '../api/attendance';
+import { isOffOfficeNetwork, offNetworkDetail, attendanceApi, type TodayAttendance, type AttendanceConfig } from '../api/attendance';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { WebClockInRequestModal } from './WebClockInRequestModal';
 
@@ -275,7 +275,7 @@ export function AttendanceHeroBanner() {
   // are deliberately independent — see WebClockInService's own class Javadoc), so without this
   // the summary would silently ignore a Web Clock-Out entirely.
   const [webToday, setWebToday] = useState<WebClockInRecord[]>([]);
-  const [wfhPrompt, setWfhPrompt] = useState(false);
+  const [wfhPrompt, setWfhPrompt] = useState<false | { detail: string | null }>(false);
 
   // webToday is filtered by the business/Location-zone workDate the `today` fetch just resolved
   // (never the browser's own UTC calendar date), so it's fetched only once that's known.
@@ -317,7 +317,7 @@ export function AttendanceHeroBanner() {
       const at = formatClockTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}${kind === 'in' && record.officeNetwork ? ' · Office Wi-Fi' : ''}`);
     } catch (err) {
-      if (kind === 'in' && isOffOfficeNetwork(err)) { setWfhPrompt(true); return; }
+      if (kind === 'in' && isOffOfficeNetwork(err)) { setWfhPrompt({ detail: offNetworkDetail(err) }); return; }
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
     } finally {
       punchInFlightRef.current = false;
@@ -430,7 +430,7 @@ export function AttendanceHeroBanner() {
           View full record →
         </button>
         <WebClockInRow webToday={webToday} onSubmitted={refresh} />
-        {wfhPrompt && <WebClockInRequestModal offNetwork onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
+        {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
       </HeroCard>
     );
   }
@@ -471,7 +471,7 @@ export function AttendanceHeroBanner() {
           View full record →
         </button>
         <WebClockInRow webToday={webToday} onSubmitted={refresh} />
-        {wfhPrompt && <WebClockInRequestModal offNetwork onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
+        {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
       </HeroCard>
     );
   }
@@ -515,7 +515,7 @@ export function AttendanceHeroBanner() {
           </p>
         )}
         <WebClockInRow webToday={webToday} onSubmitted={refresh} />
-        {wfhPrompt && <WebClockInRequestModal offNetwork onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
+        {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
       </HeroCard>
     );
   }
@@ -562,7 +562,7 @@ export function AttendanceHeroBanner() {
         </button>
       </div>
       <WebClockInRow webToday={webToday} onSubmitted={refresh} />
-        {wfhPrompt && <WebClockInRequestModal offNetwork onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
+        {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
     </HeroCard>
   );
 }

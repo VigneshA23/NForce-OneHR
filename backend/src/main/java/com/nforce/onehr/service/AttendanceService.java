@@ -372,7 +372,7 @@ public class AttendanceService {
         // (null = not configured / IP unknown = not enforced). Off-network → Work From Home.
         Boolean inOffice = OfficeNetwork.isInOffice(clientIp, officeCidrsOf(employee));
         if (Boolean.FALSE.equals(inOffice)) {
-            throw new com.nforce.onehr.exception.OffOfficeNetworkException();
+            throw new com.nforce.onehr.exception.OffOfficeNetworkException(clientIp);
         }
 
         // Only an open NORMAL session blocks a fresh Check-In — deliberately independent of any

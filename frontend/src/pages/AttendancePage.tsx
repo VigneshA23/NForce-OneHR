@@ -17,6 +17,7 @@ import {
   type RegularizationBalance,
   type Punch,
   isOffOfficeNetwork,
+  offNetworkDetail,
 } from '../api/attendance';
 import {
   attendanceRequestApi,
@@ -5066,7 +5067,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     return refreshed;
   }, [token, refreshMonth, isPreviewMode, today]);
 
-  const [wfhPrompt, setWfhPrompt] = useState(false);
+  const [wfhPrompt, setWfhPrompt] = useState<false | { detail: string | null }>(false);
 
   async function punch(kind: 'in' | 'out') {
     if (punchInFlightRef.current) return;
@@ -5119,7 +5120,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       const at = formatTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
       showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}${kind === 'in' && record.officeNetwork ? ' · Office Wi-Fi' : ''}`);
     } catch (err) {
-      if (kind === 'in' && isOffOfficeNetwork(err)) { setWfhPrompt(true); return; }
+      if (kind === 'in' && isOffOfficeNetwork(err)) { setWfhPrompt({ detail: offNetworkDetail(err) }); return; }
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
     } finally {
       punchInFlightRef.current = false;
@@ -5136,7 +5137,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
 
   return (
     <>
-    {wfhPrompt && <WebClockInRequestModal offNetwork onClose={() => setWfhPrompt(false)} onSubmitted={() => { void refreshTodayAndMonth(); }} />}
+    {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => { void refreshTodayAndMonth(); }} />}
     <div
       className="nf-grid-proportional-collapse"
       style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '18px 16px' }}
