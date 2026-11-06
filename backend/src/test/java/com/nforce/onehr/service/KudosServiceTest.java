@@ -10,12 +10,15 @@ import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.KudosRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SeedMatrix;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -23,6 +26,7 @@ import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -44,6 +48,10 @@ class KudosServiceTest {
     @Mock private EmployeeRepository employeeRepository;
     @Mock private EmployeeManagerHistoryRepository historyRepository;
     @Mock private NotificationService notificationService;
+    // Real seed matrix (V242: kudos:CREATE:ALL for HR_ADMIN/SUPER_ADMIN) plus two custom roles.
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
+            "CUSTOM_KUDOS", Map.of("kudos:CREATE", "ALL"),
+            "CUSTOM_OTHER", Map.of("assets:VIEW", "ALL")));
 
     @InjectMocks
     private KudosService kudosService;
@@ -161,6 +169,40 @@ class KudosServiceTest {
         noRelationship();
 
         assertThat(kudosService.send(request(), senderEmail)).isNotNull();
+    }
+
+    // ── 4b. Org-wide appreciation is the kudos:CREATE:ALL permission (V242), not a role code ──
+
+    @Test
+    @DisplayName("a custom role holding kudos:CREATE:ALL can appreciate any active employee")
+    void customRoleWithOrgWideKudosCanAppreciateAnyone() {
+        asSender("CUSTOM_KUDOS");
+        asRecipient(true, null);
+        noRelationship();
+
+        assertThat(kudosService.send(request(), senderEmail)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("a custom role without kudos:CREATE:ALL keeps the relationship-scoped rule")
+    void customRoleWithoutOrgWideKudosCannotAppreciateUnrelatedPerson() {
+        asSender("CUSTOM_OTHER");
+        asRecipient(true, null);
+        noRelationship();
+
+        assertThatThrownBy(() -> kudosService.send(request(), senderEmail))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    @DisplayName("a Manager (no kudos:CREATE:ALL) still cannot appreciate someone with no relationship")
+    void managerCannotAppreciateUnrelatedPerson() {
+        asSender("MANAGER");
+        asRecipient(true, null);
+        noRelationship();
+
+        assertThatThrownBy(() -> kudosService.send(request(), senderEmail))
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     // ── 5. Regular Employee: existing restriction remains unchanged ─────────────────

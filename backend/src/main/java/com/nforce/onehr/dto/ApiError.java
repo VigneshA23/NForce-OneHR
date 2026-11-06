@@ -12,14 +12,20 @@ public class ApiError {
     private final Instant timestamp = Instant.now();
     private final String code;
     private final Instant lockedUntil;
+    private final String detail;
 
     public ApiError(String message) {
         this(message, null, null);
     }
 
     public ApiError(String message, String code, Instant lockedUntil) {
+        this(message, code, lockedUntil, null);
+    }
+
+    public ApiError(String message, String code, Instant lockedUntil, String detail) {
         this.message = message;
         this.code = code;
         this.lockedUntil = lockedUntil;
+        this.detail = detail;
     }
 }

@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.onboarding.OnboardingStatsDto;
 import com.nforce.onehr.service.OnboardingService;
 import lombok.RequiredArgsConstructor;
@@ -16,8 +15,13 @@ public final class OnboardingDataProviders {
     private OnboardingDataProviders() {}
 
     /**
-     * HR Admin only: the Onboarding page is in HR Admin's sidebar alone, and the audience mirrors
-     * where the figures are actually shown, even though the endpoint also admits a Super Admin.
+     * Behind the Onboarding page's own grant ({@code onboarding:VIEW:ALL}), but - as before - not for
+     * a Super Admin: the page is not in their sidebar, so the figures follow where they are actually
+     * shown, even though the endpoint also admits them.
+     *
+     * <p>ponytail: "not a Super Admin" is expressed as standing aside for user_management:VIEW:ALL
+     * (seeded for Super Admin alone), so a custom role holding both grants also loses these figures;
+     * gate on the caller's reachable pages instead if that combination ever matters.
      */
     @Component
     @RequiredArgsConstructor
@@ -28,7 +32,8 @@ public final class OnboardingDataProviders {
         @Override public String id() { return "org-onboarding.summary"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "Onboarding progress across new joiners"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR); }
+        @Override public Set<String> authorities() { return Set.of("onboarding:VIEW:ALL"); }
+        @Override public Set<String> standsAsideFor() { return Set.of(OrganisationDataProviders.USER_MANAGEMENT); }
         @Override public Set<String> modules() { return Set.of("onboarding"); }
 
         @Override

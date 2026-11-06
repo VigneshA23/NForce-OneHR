@@ -1,0 +1,37 @@
+name: Check migration versions
+
+# Catches exactly the failure that took staging down on 2026-11-05: two unrelated branches each
+# independently picked Flyway version 247 for a new migration. Different filenames, so git never
+# flagged a merge conflict — it only surfaced once both branches' migrations landed in the same
+# target branch, where Flyway refuses to start at all with two files claiming one version number.
+# This runs on every PR into main/dev so that collision is a failed check on the PR, not a crashed
+# deploy discovered after the fact.
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "backend/src/main/resources/db/migration/**"
+
+jobs:
+  check-duplicate-versions:
+    name: No duplicate Flyway versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail if two migrations share a version number
+        working-directory: backend/src/main/resources/db/migration
+        run: |
+          duplicates=$(ls | sed -E 's/^V([0-9]+)__.*/\1/' | sort -n | uniq -d)
+          if [ -n "$duplicates" ]; then
+            echo "::error::Duplicate Flyway migration version(s) found: $duplicates"
+            for v in $duplicates; do
+              echo "Version $v is claimed by:"
+              ls V${v}__*.sql
+            done
+            echo ""
+            echo "Rename one of the files above to the next free version number (highest existing + 1) before merging."
+            exit 1
+          fi
+          echo "No duplicate migration versions found."

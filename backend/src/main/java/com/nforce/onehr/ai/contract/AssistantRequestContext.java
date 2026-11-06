@@ -52,19 +52,34 @@ public class AssistantRequestContext {
 
     /**
      * The single UI role whose sidebar this user actually sees, mirroring
-     * {@code nav.config.ts#toShellRole}. This, not {@link #audiences}, is what authorises a
-     * navigation target: the frontend renders NAV for exactly one role, so a page is reachable
-     * only if it appears in that role's list. See {@link ShellRole} for why the two must not be
-     * conflated.
+     * {@code nav.config.ts#toShellRole}. This, not {@link #audiences}, picks the navigation the
+     * user is shown (and its labels): the frontend renders NAV for exactly one role, narrowed by
+     * {@link #authorities} and widened by {@link #customAuthorities} - see
+     * {@code PageRegistry#reachable}. See {@link ShellRole} for why it is not a bucket.
      */
     private ShellRole shellRole;
 
     /**
-     * The caller's audience buckets from {@code RoleUtils#audienceBuckets}. This is the security
-     * boundary for retrieval and for navigation authorisation — not {@link #primaryRoleCode},
-     * because a Manager legitimately holds both MANAGER and EMPLOYEE.
+     * The caller's audience buckets from {@code RoleUtils#audienceBuckets}. Content targeting only:
+     * which help/knowledge content was written for them - not {@link #primaryRoleCode}, because a
+     * Manager legitimately holds both MANAGER and EMPLOYEE. Access decisions (live data,
+     * navigation) use {@link #authorities}, so a custom role's grants count.
      */
     private Set<AudienceBucket> audiences;
+
+    /**
+     * Every cascaded permission the caller's active roles grant ({@code "module:ACTION:SCOPE"}, from
+     * {@code EffectivePermissionService#coverage}) - the same set Spring Security checks
+     * {@code hasAuthority(...)} against for this user. Null or empty grants nothing.
+     */
+    private Set<String> authorities;
+
+    /**
+     * The subset of {@link #authorities} granted by custom (non-system) roles only - what
+     * {@code GET /api/me/permissions} returns as {@code customRolePermissions}, which the sidebar
+     * uses to add gated pages outside the primary role's curated nav.
+     */
+    private Set<String> customAuthorities;
 
     /**
      * Page the user is currently on, if the client supplied one. A retrieval hint only: it is
@@ -75,4 +90,9 @@ public class AssistantRequestContext {
 
     /** Module owning {@link #currentPageId}, resolved server-side from the registry. */
     private String currentModule;
+
+    /** True when the caller's roles grant this {@code "module:ACTION:SCOPE"} authority. */
+    public boolean holds(String authority) {
+        return authorities != null && authorities.contains(authority);
+    }
 }
