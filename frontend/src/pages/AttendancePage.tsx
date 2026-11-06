@@ -3612,6 +3612,18 @@ function punchDateSuffix(iso: string, workDate: string): string {
   return differing ? ` (${formatShortDay(differing)})` : '';
 }
 
+/** Shown only when the office-network check ran and failed (null = office network not configured). */
+function OffNetworkTag({ inOffice, ip }: { inOffice?: boolean | null; ip?: string | null }) {
+  if (inOffice !== false) return null;
+  return (
+    <Tooltip content={`Not on the office network${ip ? ` (IP ${ip})` : ''}`}>
+      <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--warn)', border: '1px solid currentColor', borderRadius: 3, padding: '0 4px', letterSpacing: '.04em' }}>
+        OFF-NETWORK
+      </span>
+    </Tooltip>
+  );
+}
+
 /** One source's block of sessions within DayPunchIntervals — mirrors Keka's per-source grouping
  * (its own company-name section for normal punches, a separate "Web Clock In" section).
  * `workDate` is the attendance row's own authoritative workDate (never re-derived here — see
@@ -3620,7 +3632,8 @@ function punchDateSuffix(iso: string, workDate: string): string {
  * instead of being indistinguishable from a same-day punch. */
 function PunchSourceGroup({ label, sessions, workDate, cards = false }: {
   label: string;
-  sessions: { key: string; checkInAt: string; checkOutAt: string | null; note?: string | null }[];
+  sessions: { key: string; checkInAt: string; checkOutAt: string | null; note?: string | null;
+    checkInIp?: string | null; checkInInOffice?: boolean | null; checkOutIp?: string | null; checkOutInOffice?: boolean | null }[];
   workDate: string;
   /** Drawer look: every session is its own outlined row instead of a bare line. */
   cards?: boolean;
@@ -3650,10 +3663,12 @@ function PunchSourceGroup({ label, sessions, workDate, cards = false }: {
                   </button>
                 </Tooltip>
               )}
+              <OffNetworkTag inOffice={s.checkInInOffice} ip={s.checkInIp} />
             </span>
             {s.checkOutAt ? (
               <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--txt)', fontWeight: 600 }}>
                 <ArrowUpRight size={12} /> {outTime ? `${outTime}${punchDateSuffix(s.checkOutAt, workDate)}` : outTime}
+                <OffNetworkTag inOffice={s.checkOutInOffice} ip={s.checkOutIp} />
               </span>
             ) : (
               <span style={{ fontSize: 10, fontWeight: 700, color: '#E4373D', letterSpacing: '.04em' }}>MISSING</span>
@@ -3679,9 +3694,11 @@ function DayPunchIntervals({ info, punches, cards = false }: { info: DayInfo; pu
   // info.iso, since recordByDate is itself keyed by workDate), else info.iso as a same-value
   // fallback for the (structurally unreachable once sessions is non-empty) no-record case.
   const workDate = record?.workDate ?? info.iso;
-  const sessions: { key: string; checkInAt: string; checkOutAt: string | null; source: Punch['source']; note: string | null }[] =
+  const sessions: { key: string; checkInAt: string; checkOutAt: string | null; source: Punch['source']; note: string | null;
+    checkInIp?: string | null; checkInInOffice?: boolean | null; checkOutIp?: string | null; checkOutInOffice?: boolean | null }[] =
     punches && punches.length > 0
-      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, source: p.source, note: p.note }))
+      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, source: p.source, note: p.note,
+          checkInIp: p.checkInIp, checkInInOffice: p.checkInInOffice, checkOutIp: p.checkOutIp, checkOutInOffice: p.checkOutInOffice }))
       : record?.checkInAt
         ? [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt, source: record.source === 'WEB_REMOTE' ? 'WEB_REMOTE' : 'SYSTEM', note: null }]
         : [];

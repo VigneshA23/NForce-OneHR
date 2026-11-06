@@ -25,7 +25,9 @@ import com.nforce.onehr.service.AttendancePenaltyService;
 import com.nforce.onehr.service.AttendanceService;
 import com.nforce.onehr.service.AttendanceStatsService;
 import com.nforce.onehr.service.ExceptionService;
+import com.nforce.onehr.service.OfficeNetwork;
 import com.nforce.onehr.service.RegularizationService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -57,6 +59,7 @@ import java.util.UUID;
 public class AttendanceController {
 
     private final AttendanceService attendanceService;
+    private final OfficeNetwork officeNetwork;
     private final AttendanceStatsService attendanceStatsService;
     private final RegularizationService regularizationService;
     private final AttendancePenaltyService attendancePenaltyService;
@@ -78,13 +81,15 @@ public class AttendanceController {
 
     @PostMapping("/check-in")
     @ResponseStatus(HttpStatus.CREATED)
-    public AttendanceResponse checkIn(@RequestBody(required = false) PunchTimezoneRequest req, Principal principal) {
-        return attendanceService.checkIn(principal.getName(), req != null ? req.getTimezone() : null);
+    public AttendanceResponse checkIn(@RequestBody(required = false) PunchTimezoneRequest req, Principal principal,
+                                      HttpServletRequest http) {
+        return attendanceService.checkIn(principal.getName(), req != null ? req.getTimezone() : null, officeNetwork.clientIp(http));
     }
 
     @PostMapping("/check-out")
-    public AttendanceResponse checkOut(@RequestBody(required = false) PunchTimezoneRequest req, Principal principal) {
-        return attendanceService.checkOut(principal.getName(), req != null ? req.getTimezone() : null);
+    public AttendanceResponse checkOut(@RequestBody(required = false) PunchTimezoneRequest req, Principal principal,
+                                       HttpServletRequest http) {
+        return attendanceService.checkOut(principal.getName(), req != null ? req.getTimezone() : null, officeNetwork.clientIp(http));
     }
 
     @GetMapping("/me")
