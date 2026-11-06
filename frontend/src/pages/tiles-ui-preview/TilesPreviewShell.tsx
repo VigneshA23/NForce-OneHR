@@ -51,6 +51,7 @@ import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard,
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
+import OnboardingPage from '../OnboardingPage';
 import DocumentsPage from '../DocumentsPage';
 import HelpDeskPage from '../HelpDeskPage';
 import WorkflowStudioPage from '../WorkflowStudioPage';
@@ -86,6 +87,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'profile-page', label: 'My Profile (full page)', title: 'My Profile', subtitle: 'Sample data: About, Profile, Job and Assets tabs with the Edit popups. Use ?role=employee for the employee view.' },
   { key: 'prefs-page', label: 'User Preferences (full page)', title: 'User Preferences', subtitle: 'Appearance, Notifications and Accessibility. Changes here apply to this preview only.' },
   { key: 'change-password-page', label: 'Change Password (full page)', title: 'Change Password', subtitle: 'Add &forced=1 for the first-login version. Nothing is submitted to a server here.' },
+  { key: 'onboarding-page', label: 'Onboarding (full page)', title: 'Onboarding', subtitle: 'All four tabs, the checklist detail view and its popups, with sample data. Changes here only affect this preview.' },
   { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
   { key: 'team-reports', label: 'My Team: Reports tab', title: 'My Team: Reports', subtitle: 'The Reports tab of My Team. Cards open the real download dialogs; nothing is sent from this preview.' },
@@ -446,6 +448,101 @@ function ChangePasswordMock() {
     return () => { useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user }); };
   }, []);
   return ready ? <ChangePasswordPage /> : null;
+}
+
+function OnboardingMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample onboarding data held in memory, and an HR Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    const people = [
+      ['Aanuj Reddy K', 'NF-20261033', 'Engineering', 'Junior Sales Engineer', -58], ['Abbas DarubaiGari', 'NF-20261028', 'Engineering', null, -66],
+      ['Anil Ramtenki', 'NF-20261034', 'Engineering', 'Software Engineer', -58], ['Gbpubl Qviuldgb', 'NF-20261054', 'Engineering', 'Software Engineer III', -57],
+      ['Sanjukta Rao', 'NF-20261040', 'Finance', 'Accounts Executive', -40], ['Harvey Specter', 'NF-20261012', 'Operations & Sales', 'Sales Lead', -30],
+    ] as [string, string, string, string | null, number][];
+    let pending = people.map(([n, c, d, g, j], i) => ({ userId: 'p' + i, employeeCode: c, fullName: n, email: n.split(' ')[0].toLowerCase() + '@nforceone.com', role: 'EMPLOYEE', departmentName: d, designationName: g, joiningDate: day(j), active: true }));
+    const mkItems = (done: number) => {
+      const it = (key: string, label: string, cat: string, auto: boolean, dueIn: number | null, n: number) => ({
+        id: key, itemKey: key, label, category: cat, auto, source: auto ? (key === 'DOCS' ? 'Documents' : 'Assets') : null,
+        dueDate: dueIn === null ? null : day(dueIn), done: n < done, doneAt: null, doneByName: n < done ? (auto ? 'System' : 'Priya HR') : null, meta: null,
+      });
+      return {
+        preBoarding: [it('OFFER', 'Offer letter signed', 'PRE_BOARDING', false, -5, 0), it('BGV', 'Background verification started', 'PRE_BOARDING', false, -2, 1), it('WELCOME', 'Welcome email sent', 'PRE_BOARDING', false, 1, 2)],
+        documentsItem: it('DOCS', 'All required documents verified', 'DOCUMENTS', true, 3, 3),
+        setup: [it('EMAIL', 'Company email created', 'SETUP', false, 2, 4), it('LAPTOP_ASSIGNED', 'Laptop assigned', 'SETUP', true, 4, 5), it('ACCESS_CARD_ASSIGNED', 'Access card assigned', 'SETUP', true, 5, 6)],
+      };
+    };
+    const flows: Record<string, { name: string; code: string; dept: string; des: string | null; join: number; done: number; active: boolean; archived: boolean }> = {
+      c1: { name: 'Sri vidya', code: 'NF-20260901', dept: 'Human Resources', des: 'HR Executive', join: -20, done: 2, active: true, archived: false },
+      c2: { name: 'Praveen Gurram', code: 'NF-20260877', dept: 'Engineering', des: 'Tech Lead', join: -14, done: 4, active: true, archived: false },
+      c3: { name: 'Vyshnavi Guthala', code: 'NF-20260850', dept: 'Quality Engineering', des: 'QA Engineer', join: -9, done: 7, active: true, archived: false },
+      c4: { name: 'Testo', code: 'NF-20260700', dept: 'Human Resources', des: 'HR Executive', join: -90, done: 7, active: true, archived: true },
+      c5: { name: 'Ramesh A', code: 'NF-20260655', dept: 'Engineering', des: null, join: -75, done: 3, active: false, archived: false },
+    };
+    const summary = (id: string) => {
+      const f = flows[id];
+      return { checklistId: id, employeeUserId: 'e' + id, employeeName: f.name, employeeCode: f.code, departmentName: f.dept, designationName: f.des, joiningDate: day(f.join), active: f.active, archived: f.archived,
+        status: f.archived ? 'COMPLETE' : f.done < 3 ? 'OVERDUE' : f.done < 6 ? 'ATTENTION' : 'ON_TRACK', totalItems: 7, doneItems: f.done, nextDueLabel: f.archived ? null : 'Welcome email sent', nextDueDate: f.archived ? null : day(1),
+        completedDate: f.archived ? day(-12) : null, durationDays: f.archived ? 48 : null };
+    };
+    const detail = (id: string) => {
+      const f = flows[id]; const it = mkItems(f.done);
+      return { checklistId: id, employeeUserId: 'e' + id, employeeName: f.name, employeeCode: f.code, departmentName: f.dept, designationName: f.des, locationName: 'Bangalore', managerName: 'Harvey Specter',
+        joiningDate: day(f.join), active: f.active, archived: f.archived, status: f.archived ? 'COMPLETE' : f.done < 3 ? 'OVERDUE' : 'ON_TRACK', completedAt: f.archived ? day(-12) : null, readyToComplete: !f.archived && f.done >= 7,
+        totalItems: 7, doneItems: f.done, ...it,
+        documentsBreakdown: [{ documentTypeName: 'Aadhaar Card', status: 'VERIFIED' }, { documentTypeName: 'PAN Card', status: 'PENDING_VERIFICATION' }, { documentTypeName: 'Degree Certificate', status: 'REJECTED' }, { documentTypeName: 'Experience Letter', status: 'MISSING' }],
+        timeline: [{ at: day(f.join), text: 'Onboarding started', meta: 'Priya HR' }, { at: day(f.join + 2), text: 'Offer letter signed', meta: 'Priya HR' }, { at: day(f.join + 4), text: 'Laptop assigned', meta: 'Synced from Assets' }] };
+    };
+    const page = (rows: unknown[]) => ({ content: rows, totalElements: rows.length, totalPages: 1 });
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const path = url.split('?')[0];
+      const q = new URL(url, window.location.origin).searchParams;
+      const method = init?.method ?? 'GET';
+      const search = (q.get('search') ?? '').toLowerCase();
+      if (path === '/api/onboarding/stats') return json({ pendingCount: pending.length, startedCount: 3, completedCount: 1, overdueCount: 2, deactivatedCount: 1, completedThisMonthCount: 1, avgCompletionDays: 48 });
+      if (path === '/api/onboarding/eligible-employees') return json(page(pending.filter(p => !search || p.fullName.toLowerCase().includes(search) || p.employeeCode.toLowerCase().includes(search))));
+      if (path === '/api/onboarding' && method === 'GET') {
+        const st = q.get('status');
+        const ids = Object.keys(flows).filter(id => st === 'COMPLETED' ? flows[id].archived : st === 'DEACTIVATED' ? !flows[id].active : flows[id].active && !flows[id].archived);
+        return json(page(ids.map(summary).filter(r => !search || r.employeeName.toLowerCase().includes(search))));
+      }
+      if (path === '/api/onboarding' && method === 'POST') {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        const p = pending.find(x => x.userId === body.employeeUserId);
+        const id = 'n' + Date.now();
+        if (p) { flows[id] = { name: p.fullName, code: p.employeeCode, dept: p.departmentName ?? '', des: p.designationName, join: -3, done: 0, active: true, archived: false }; pending = pending.filter(x => x !== p); }
+        return json(detail(id));
+      }
+      const mDetail = path.match(/^\/api\/onboarding\/([^/]+)$/);
+      if (mDetail && method === 'GET') return json(detail(mDetail[1]));
+      const mToggle = path.match(/^\/api\/onboarding\/([^/]+)\/items\/([^/]+)$/);
+      if (mToggle && method === 'PATCH') { const f = flows[mToggle[1]]; f.done = Math.min(7, f.done + 1); return json(detail(mToggle[1])); }
+      const mDone = path.match(/^\/api\/onboarding\/([^/]+)\/complete$/);
+      if (mDone) { flows[mDone[1]].archived = true; return json(detail(mDone[1])); }
+      if (/\/employee\/[^/]+$/.test(path) && path.includes('documents')) {
+        return json([
+          { id: 'd1', employeeUserId: 'x', employeeName: 'x', documentTypeId: 1, documentTypeName: 'Aadhaar Card', fileName: 'aadhaar.pdf', fileUrl: '', status: 'VERIFIED', uploadedAt: day(-10) },
+          { id: 'd2', employeeUserId: 'x', employeeName: 'x', documentTypeId: 2, documentTypeName: 'PAN Card', fileName: 'pan.png', fileUrl: '', status: 'PENDING_VERIFICATION', uploadedAt: day(-8) },
+          { id: 'd3', employeeUserId: 'x', employeeName: 'x', documentTypeId: 3, documentTypeName: 'Degree Certificate', fileName: 'degree.pdf', fileUrl: '', status: 'REJECTED', rejectionReason: 'Image is blurry, please re-upload', uploadedAt: day(-6) },
+        ]);
+      }
+      if (path.endsWith('/api/assets/categories')) return json([{ id: 1, name: 'Laptop' }, { id: 2, name: 'Access Card' }]);
+      if (path.includes('/available-by-category/')) return json([{ id: 11, assetTag: 'LAP-0042', brand: 'Dell', model: 'Latitude 5440', condition: 'GOOD' }, { id: 12, assetTag: 'LAP-0047', brand: 'Apple', model: 'MacBook Air', condition: 'NEW' }]);
+      if (/\/api\/assets\/\d+\/assign$/.test(path)) return json({});
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <OnboardingPage /> : null;
 }
 
 function TeamPopupsMock() {
@@ -1333,6 +1430,8 @@ function Tiles({ page }: { page: string }) {
       return <UserPreferencesPage />;
     case 'attention-panel':
       return <AttentionMock />;
+    case 'onboarding-page':
+      return <OnboardingMock />;
     case 'team-popups':
       return <TeamPopupsMock />;
     case 'team-today':
