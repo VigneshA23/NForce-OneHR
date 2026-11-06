@@ -148,6 +148,7 @@ class SalaryHoldServiceTest {
 
     @Test
     void list_returnsAllForRun() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(draftRun()));
         SalaryHold hold = SalaryHold.builder().id(UUID.randomUUID()).payrollRun(draftRun()).employeeId(employeeId)
                 .reason("test").status(SalaryHoldStatus.ACTIVE).createdBy(actorId).build();
         when(salaryHoldRepository.findByPayrollRunId(runId)).thenReturn(List.of(hold));
@@ -155,5 +156,12 @@ class SalaryHoldServiceTest {
         List<SalaryHoldResponse> result = service.list(runId);
 
         assertEquals(1, result.size());
+    }
+
+    @Test
+    void list_unknownRun_throwsNoSuchElement() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.empty());
+
+        assertThrows(NoSuchElementException.class, () -> service.list(runId));
     }
 }
