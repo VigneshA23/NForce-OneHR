@@ -43,7 +43,7 @@ class AttendanceControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AttendanceController(attendanceService, attendanceStatsService, regularizationService, attendancePenaltyService, exceptionService);
+        controller = new AttendanceController(attendanceService, new com.nforce.onehr.service.OfficeNetwork(0), attendanceStatsService, regularizationService, attendancePenaltyService, exceptionService);
         lenient().when(principal.getName()).thenReturn("manager@test.com");
     }
 

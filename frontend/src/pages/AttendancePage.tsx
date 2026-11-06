@@ -16,6 +16,8 @@ import {
   type SubmitRegularizationPayload,
   type RegularizationBalance,
   type Punch,
+  isOffOfficeNetwork,
+  offNetworkDetail,
 } from '../api/attendance';
 import {
   attendanceRequestApi,
@@ -32,6 +34,7 @@ import { usePreviewMode } from '../lib/previewMode';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { AttendancePolicyModal } from '../components/AttendancePolicyModal';
+import { WebClockInRequestModal } from '../components/WebClockInRequestModal';
 import { ChipGroup, TabBar } from '../components/TabBar';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
@@ -598,7 +601,7 @@ function PunchHistoryList({ date, token, refreshKey, isPreviewMode = false }: { 
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <PunchSourceGroup label="Check-In / Check-Out" sessions={officeSessions} workDate={date} />
-        <PunchSourceGroup label="Web Check-In / Check-Out" sessions={webSessions} workDate={date} />
+        <PunchSourceGroup label="Web Check-In / Check-Out (Work From Home)" sessions={webSessions} workDate={date} />
       </div>
     </div>
   );
@@ -3612,6 +3615,18 @@ function punchDateSuffix(iso: string, workDate: string): string {
   return differing ? ` (${formatShortDay(differing)})` : '';
 }
 
+/** Shown only when the office-network check ran and failed (null = office network not configured). */
+function OffNetworkTag({ inOffice, ip }: { inOffice?: boolean | null; ip?: string | null }) {
+  if (inOffice == null) return null;
+  return (
+    <Tooltip content={`${inOffice ? 'Punched on the office Wi-Fi' : 'Not on the office network'}${ip ? ` (IP ${ip})` : ''}`}>
+      <span style={{ fontSize: 9.5, fontWeight: 700, color: inOffice ? 'var(--ok)' : 'var(--warn)', border: '1px solid currentColor', borderRadius: 3, padding: '0 4px', letterSpacing: '.04em' }}>
+        {inOffice ? 'OFFICE WI-FI' : 'OFF-NETWORK'}
+      </span>
+    </Tooltip>
+  );
+}
+
 /** One source's block of sessions within DayPunchIntervals — mirrors Keka's per-source grouping
  * (its own company-name section for normal punches, a separate "Web Clock In" section).
  * `workDate` is the attendance row's own authoritative workDate (never re-derived here — see
@@ -3620,7 +3635,8 @@ function punchDateSuffix(iso: string, workDate: string): string {
  * instead of being indistinguishable from a same-day punch. */
 function PunchSourceGroup({ label, sessions, workDate, cards = false }: {
   label: string;
-  sessions: { key: string; checkInAt: string; checkOutAt: string | null; note?: string | null }[];
+  sessions: { key: string; checkInAt: string; checkOutAt: string | null; note?: string | null;
+    checkInIp?: string | null; checkInInOffice?: boolean | null; checkOutIp?: string | null; checkOutInOffice?: boolean | null }[];
   workDate: string;
   /** Drawer look: every session is its own outlined row instead of a bare line. */
   cards?: boolean;
@@ -3650,10 +3666,12 @@ function PunchSourceGroup({ label, sessions, workDate, cards = false }: {
                   </button>
                 </Tooltip>
               )}
+              <OffNetworkTag inOffice={s.checkInInOffice} ip={s.checkInIp} />
             </span>
             {s.checkOutAt ? (
               <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--txt)', fontWeight: 600 }}>
                 <ArrowUpRight size={12} /> {outTime ? `${outTime}${punchDateSuffix(s.checkOutAt, workDate)}` : outTime}
+                <OffNetworkTag inOffice={s.checkOutInOffice} ip={s.checkOutIp} />
               </span>
             ) : (
               <span style={{ fontSize: 10, fontWeight: 700, color: '#E4373D', letterSpacing: '.04em' }}>MISSING</span>
@@ -3679,9 +3697,11 @@ function DayPunchIntervals({ info, punches, cards = false }: { info: DayInfo; pu
   // info.iso, since recordByDate is itself keyed by workDate), else info.iso as a same-value
   // fallback for the (structurally unreachable once sessions is non-empty) no-record case.
   const workDate = record?.workDate ?? info.iso;
-  const sessions: { key: string; checkInAt: string; checkOutAt: string | null; source: Punch['source']; note: string | null }[] =
+  const sessions: { key: string; checkInAt: string; checkOutAt: string | null; source: Punch['source']; note: string | null;
+    checkInIp?: string | null; checkInInOffice?: boolean | null; checkOutIp?: string | null; checkOutInOffice?: boolean | null }[] =
     punches && punches.length > 0
-      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, source: p.source, note: p.note }))
+      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, source: p.source, note: p.note,
+          checkInIp: p.checkInIp, checkInInOffice: p.checkInInOffice, checkOutIp: p.checkOutIp, checkOutInOffice: p.checkOutInOffice }))
       : record?.checkInAt
         ? [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt, source: record.source === 'WEB_REMOTE' ? 'WEB_REMOTE' : 'SYSTEM', note: null }]
         : [];
@@ -3703,7 +3723,7 @@ function DayPunchIntervals({ info, punches, cards = false }: { info: DayInfo; pu
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: cards ? 14 : 10, maxWidth: cards ? undefined : 260 }}>
       <PunchSourceGroup label="Check-In / Check-Out" sessions={officeSessions} workDate={workDate} cards={cards} />
-      <PunchSourceGroup label="Web Check-In / Check-Out" sessions={webSessions} workDate={workDate} cards={cards} />
+      <PunchSourceGroup label="Web Check-In / Check-Out (Work From Home)" sessions={webSessions} workDate={workDate} cards={cards} />
     </div>
   );
 }
@@ -5047,6 +5067,8 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     return refreshed;
   }, [token, refreshMonth, isPreviewMode, today]);
 
+  const [wfhPrompt, setWfhPrompt] = useState<false | { detail: string | null }>(false);
+
   async function punch(kind: 'in' | 'out') {
     if (punchInFlightRef.current) return;
     punchInFlightRef.current = true;
@@ -5096,8 +5118,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       // /today call and picks up whatever latency that round trip has, making the toast read
       // later than the moment the employee actually punched in.
       const at = formatTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
-      showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
+      showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}${kind === 'in' && record.officeNetwork ? ' · Office Wi-Fi' : ''}`);
     } catch (err) {
+      if (kind === 'in' && isOffOfficeNetwork(err)) { setWfhPrompt({ detail: offNetworkDetail(err) }); return; }
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
     } finally {
       punchInFlightRef.current = false;
@@ -5114,6 +5137,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
 
   return (
     <>
+    {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => { void refreshTodayAndMonth(); }} />}
     <div
       className="nf-grid-proportional-collapse"
       style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '18px 16px' }}
