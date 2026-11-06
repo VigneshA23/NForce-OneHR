@@ -89,6 +89,11 @@ export interface Punch {
   source: 'SYSTEM' | 'WEB_REMOTE';
   /** The Web Clock-In note, if one was provided — always null for a "SYSTEM" source punch. */
   note: string | null;
+  /** Office-network check (SYSTEM punches only). null = the location's office network isn't configured. */
+  checkInIp?: string | null;
+  checkInInOffice?: boolean | null;
+  checkOutIp?: string | null;
+  checkOutInOffice?: boolean | null;
 }
 
 export interface TodayAttendance {

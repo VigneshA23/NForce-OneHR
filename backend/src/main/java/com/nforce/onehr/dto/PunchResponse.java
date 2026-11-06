@@ -16,4 +16,9 @@ public class PunchResponse {
     private String source;
     /** The Web Clock-In note, if one was provided — always null for a "SYSTEM" source punch. */
     private String note;
+    /** Office-network check (normal punches only): null = office network not configured for the location. */
+    private String checkInIp;
+    private Boolean checkInInOffice;
+    private String checkOutIp;
+    private Boolean checkOutInOffice;
 }
