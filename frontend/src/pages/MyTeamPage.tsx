@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { ChevronDown, ChevronUp, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles, Award, BookOpen, Target, ExternalLink } from 'lucide-react';
+import { ChevronDown, ChevronUp, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles, Award, BookOpen, Target, ExternalLink, LayoutGrid, ClipboardCheck, Hourglass, Laptop, Repeat, LogIn, CalendarCheck, Timer, CalendarClock, ArrowUpRight, FileBarChart } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
@@ -34,6 +34,7 @@ import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
 import './myTeamAttention.css';
+import './myTeamReports.css';
 import { businessTodayIsoDate } from '../utils/businessDate';
 import { teamGrowthApi, type TeamGrowthSummary } from '../api/teamGrowth';
 import { DetailModalShell } from '../components/TeamGrowthModal';
@@ -1392,19 +1393,19 @@ interface ReportCardDef {
 
 const REPORT_CARDS: ReportCardDef[] = [
   { key: 'reg-summary', title: 'Attendance Regularizations Summary', description: 'Summary of attendance adjustment and regularization requests made by employees.', reportType: 'REGULARIZATION' },
-  { key: 'mobile-location', title: 'Mobile Location Punches', description: "Details of employees' location punches along with coordinates.", blockedReason: 'Requires GPS/coordinate punch tracking — not yet built.' },
+  { key: 'mobile-location', title: 'Mobile Location Punches', description: "Details of employees' location punches along with coordinates.", blockedReason: 'Requires GPS/coordinate punch tracking, not yet built.' },
   { key: 'overtime', title: 'Overtime Requests', description: 'Summary of overtime requests made by employees.', reportType: 'OVERTIME' },
   { key: 'partial-day', title: 'Partial Day Requests', description: 'Summary of partial day requests made by employees.', reportType: 'PARTIAL_DAY' },
   { key: 'remote-summary', title: 'Remote Clock-in Requests Summary', description: 'Summary of remote clock-ins and outs requests made by employees.', reportType: 'WEB_CLOCK_IN' },
   // Reuses Web Clock-In data (there is no separate remote/GPS punch entity), but its promised
   // lat/long coordinates don't exist anywhere in the backend — Coming Soon rather than
   // misrepresenting Web Clock-In rows as location punches.
-  { key: 'remote-clockins', title: 'Remote Clock-ins', description: "Details of employees' remote punch (In/Out) along with coordinates.", blockedReason: 'Requires GPS/coordinate tracking on remote punches — not yet built.' },
-  { key: 'shift-weeklyoff', title: 'Shift & Weekly Off Requests', description: 'Summary of shift/weekly off requests made by employees.', blockedReason: 'Requires Shift & Weekly Off as a request workflow — not yet built (see the Employee Assignments tab for static assignments).' },
+  { key: 'remote-clockins', title: 'Remote Clock-ins', description: "Details of employees' remote punch (In/Out) along with coordinates.", blockedReason: 'Requires GPS/coordinate tracking on remote punches, not yet built.' },
+  { key: 'shift-weeklyoff', title: 'Shift & Weekly Off Requests', description: 'Summary of shift/weekly off requests made by employees.', blockedReason: 'Requires Shift & Weekly Off as a request workflow, not yet built (see the Employee Assignments tab for static assignments).' },
   // No IP address is ever captured for a web clock-in (see WebClockInRequest) — description kept
   // to only what the report actually contains.
   { key: 'web-clockins', title: 'Web Clock-ins', description: "Details of employees' web clock-ins.", reportType: 'WEB_CLOCK_IN' },
-  { key: 'web-clockins-forgot', title: 'Web Clock-ins (includes Forgot ID requests)', description: 'Summary of web clock-ins done by employees.', blockedReason: 'Requires a Forgot ID flag on web clock-ins — not yet built.' },
+  { key: 'web-clockins-forgot', title: 'Web Clock-ins (includes Forgot ID requests)', description: 'Summary of web clock-ins done by employees.', blockedReason: 'Requires a Forgot ID flag on web clock-ins, not yet built.' },
   // There is no "OD" (on-duty) request type anywhere in the schema — only WFH is backed by real
   // data, distinguished per row by its Full Day / First Half / Second Half mode.
   { key: 'wfh-od', title: 'Working Remotely (WFH/OD) Requests', description: 'Summary of WFH requests made by employees (no separate OD workflow exists today).', reportType: 'WFH_OD' },
@@ -1415,7 +1416,7 @@ const ATTENDANCE_REPORT_CARDS: ReportCardDef[] = [
 ];
 
 const PUNCTUALITY_REPORT_CARDS: ReportCardDef[] = [
-  { key: 'punctuality-summary', title: 'Team Punctuality Report', description: 'On-time leaderboard for your direct reports — on-time days vs. expected working days.', kind: 'punctuality' },
+  { key: 'punctuality-summary', title: 'Team Punctuality Report', description: 'On-time leaderboard for your direct reports, on-time days vs. expected working days.', kind: 'punctuality' },
 ];
 
 const NEGLIGENCE_REPORT_CARDS: ReportCardDef[] = [
@@ -1481,7 +1482,7 @@ const REQUEST_MODE_LABELS: Record<string, string> = {
   SECOND_HALF: 'Second Half',
 };
 function modeLabel(mode: string | null): string {
-  if (!mode) return '—';
+  if (!mode) return '-';
   return REQUEST_MODE_LABELS[mode] ?? mode;
 }
 
@@ -1497,36 +1498,36 @@ export const REPORT_COLUMN_SETS: Record<string, ReportColumn[]> = {
   // span sized to that duration (see AttendancePage.tsx OvertimeRequestModal.handleSubmit), not
   // real clock times. Showing them here previously surfaced fake "12:00 AM"/"2:00 AM" columns.
   OVERTIME: [
-    { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+    { header: 'Employee', cell: r => r.fullName ?? '-', exportValue: r => r.fullName ?? '' },
     { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
-    { header: 'Overtime Hours', cell: r => r.hours ?? '—', exportValue: r => r.hours ?? '' },
-    { header: 'Reason', cell: r => r.reason ?? '—', exportValue: r => r.reason ?? '' },
-    { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+    { header: 'Overtime Hours', cell: r => r.hours ?? '-', exportValue: r => r.hours ?? '' },
+    { header: 'Reason', cell: r => r.reason ?? '-', exportValue: r => r.reason ?? '' },
+    { header: 'Status', cell: r => r.status ?? '-', exportValue: r => r.status ?? '' },
   ],
   PARTIAL_DAY: [
-    { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+    { header: 'Employee', cell: r => r.fullName ?? '-', exportValue: r => r.fullName ?? '' },
     { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
     { header: 'Mode', cell: r => modeLabel(r.requestMode), exportValue: r => modeLabel(r.requestMode) },
-    { header: 'Hours', cell: r => r.hours ?? '—', exportValue: r => r.hours ?? '' },
-    { header: 'Reason', cell: r => r.reason ?? '—', exportValue: r => r.reason ?? '' },
-    { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+    { header: 'Hours', cell: r => r.hours ?? '-', exportValue: r => r.hours ?? '' },
+    { header: 'Reason', cell: r => r.reason ?? '-', exportValue: r => r.reason ?? '' },
+    { header: 'Status', cell: r => r.status ?? '-', exportValue: r => r.status ?? '' },
   ],
   WFH_OD: [
-    { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+    { header: 'Employee', cell: r => r.fullName ?? '-', exportValue: r => r.fullName ?? '' },
     { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
     { header: 'Mode', cell: r => modeLabel(r.requestMode), exportValue: r => modeLabel(r.requestMode) },
-    { header: 'Day Fraction', cell: r => r.hours ?? '—', exportValue: r => r.hours ?? '' },
-    { header: 'Reason', cell: r => r.reason ?? '—', exportValue: r => r.reason ?? '' },
-    { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+    { header: 'Day Fraction', cell: r => r.hours ?? '-', exportValue: r => r.hours ?? '' },
+    { header: 'Reason', cell: r => r.reason ?? '-', exportValue: r => r.reason ?? '' },
+    { header: 'Status', cell: r => r.status ?? '-', exportValue: r => r.status ?? '' },
   ],
 };
 
 const DEFAULT_REPORT_COLUMNS: ReportColumn[] = [
-  { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+  { header: 'Employee', cell: r => r.fullName ?? '-', exportValue: r => r.fullName ?? '' },
   { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
   { header: 'Check In', cell: r => fmtTime(r.checkIn), exportValue: r => fmtTime(r.checkIn) },
   { header: 'Check Out', cell: r => fmtTime(r.checkOut), exportValue: r => fmtTime(r.checkOut) },
-  { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+  { header: 'Status', cell: r => r.status ?? '-', exportValue: r => r.status ?? '' },
 ];
 
 function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: string; onClose: () => void }) {
@@ -1574,36 +1575,39 @@ function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { run(); }, []);
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 640 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{card.title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
+          <span className="nf-rm-ico">{(() => { const Ico = CARD_ICONS[card.key] ?? FileBarChart; return <Ico size={18} />; })()}</span>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{card.title}</div>
+            <div className="nf-rm-sub">{card.description}</div>
+          </div>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <span style={{ color: 'var(--txt-dim)' }}>–</span>
-          <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <button onClick={run} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: loading ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)' }}>
+        <div className="nf-rm-bar">
+          <label className="nf-rm-field"><span>From</span><input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} /></label>
+          <label className="nf-rm-field"><span>To</span><input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} /></label>
+          <button type="button" onClick={run} disabled={loading} className="nf-rm-run">
             {loading ? 'Running…' : 'Run'}
           </button>
           <div style={{ flex: 1 }} />
-          <button onClick={exportExcel} disabled={exporting || !rows || rows.length === 0} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: exporting || !rows?.length ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+          <button type="button" onClick={exportExcel} disabled={exporting || !rows || rows.length === 0} className="nf-rm-export">
             {exporting ? 'Exporting…' : 'Export Excel'}
           </button>
         </div>
-        <div style={{ maxHeight: 360, overflowY: 'auto', overflowX: 'auto' }}>
+        <div className="nf-rm-body">
           {loading ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
+            <div className="nf-rm-empty">Loading…</div>
           ) : !rows || rows.length === 0 ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>No requests in this range.</div>
+            <div className="nf-rm-empty">No requests in this range.</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-rm-table">
               <thead>
                 <tr>
                   {columns.map(col => (
-                    <th key={col.header} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>{col.header}</th>
+                    <th key={col.header}>{col.header}</th>
                   ))}
                 </tr>
               </thead>
@@ -1611,7 +1615,7 @@ function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: 
                 {rows.map((r, i) => (
                   <tr key={i}>
                     {columns.map(col => (
-                      <td key={col.header} style={assignmentCellStyle}>{col.cell(r)}</td>
+                      <td key={col.header}>{col.cell(r)}</td>
                     ))}
                   </tr>
                 ))}
@@ -1620,7 +1624,8 @@ function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: 
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1663,48 +1668,51 @@ function AttendanceReportModal({ card, token, onClose }: { card: ReportCardDef; 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { run(); }, []);
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 720 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{card.title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
+          <span className="nf-rm-ico">{(() => { const Ico = CARD_ICONS[card.key] ?? FileBarChart; return <Ico size={18} />; })()}</span>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{card.title}</div>
+            <div className="nf-rm-sub">{card.description}</div>
+          </div>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <span style={{ color: 'var(--txt-dim)' }}>–</span>
-          <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <button onClick={run} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: loading ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)' }}>
+        <div className="nf-rm-bar">
+          <label className="nf-rm-field"><span>From</span><input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} /></label>
+          <label className="nf-rm-field"><span>To</span><input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} /></label>
+          <button type="button" onClick={run} disabled={loading} className="nf-rm-run">
             {loading ? 'Running…' : 'Run'}
           </button>
           <div style={{ flex: 1 }} />
-          <button onClick={exportExcel} disabled={!rows || rows.length === 0} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: !rows?.length ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+          <button type="button" onClick={exportExcel} disabled={!rows || rows.length === 0} className="nf-rm-export">
             Export Excel
           </button>
         </div>
-        <div style={{ maxHeight: 360, overflowY: 'auto', overflowX: 'auto' }}>
+        <div className="nf-rm-body">
           {loading ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Generating report…</div>
+            <div className="nf-rm-empty">Generating report…</div>
           ) : !rows || rows.length === 0 ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>No data available for the selected date range.</div>
+            <div className="nf-rm-empty">No data available for the selected date range.</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-rm-table">
               <thead>
                 <tr>
                   {['Employee', 'Date', 'Check In', 'Check Out', 'Worked Hours', 'Status'].map(h => (
-                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>{h}</th>
+                    <th key={h}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{fmtDateShort(r.workDate)}</td>
-                    <td style={assignmentCellStyle}>{fmtTime(r.checkInAt)}</td>
-                    <td style={assignmentCellStyle}>{fmtTime(r.checkOutAt)}</td>
-                    <td style={assignmentCellStyle}>{r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(1) : '—'}</td>
-                    <td style={assignmentCellStyle}>{r.status ?? '—'}</td>
+                    <td>{r.fullName ?? '-'}</td>
+                    <td>{fmtDateShort(r.workDate)}</td>
+                    <td>{fmtTime(r.checkInAt)}</td>
+                    <td>{fmtTime(r.checkOutAt)}</td>
+                    <td>{r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(1) : '-'}</td>
+                    <td>{r.status ?? '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1712,7 +1720,8 @@ function AttendanceReportModal({ card, token, onClose }: { card: ReportCardDef; 
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1755,47 +1764,50 @@ function PunctualityReportModal({ card, token, onClose }: { card: ReportCardDef;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { run(); }, []);
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 640 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{card.title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
+          <span className="nf-rm-ico">{(() => { const Ico = CARD_ICONS[card.key] ?? FileBarChart; return <Ico size={18} />; })()}</span>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{card.title}</div>
+            <div className="nf-rm-sub">{card.description}</div>
+          </div>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <span style={{ color: 'var(--txt-dim)' }}>–</span>
-          <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <button onClick={run} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: loading ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)' }}>
+        <div className="nf-rm-bar">
+          <label className="nf-rm-field"><span>From</span><input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} /></label>
+          <label className="nf-rm-field"><span>To</span><input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} /></label>
+          <button type="button" onClick={run} disabled={loading} className="nf-rm-run">
             {loading ? 'Running…' : 'Run'}
           </button>
           <div style={{ flex: 1 }} />
-          <button onClick={exportExcel} disabled={rows.length === 0} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: rows.length === 0 ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+          <button type="button" onClick={exportExcel} disabled={rows.length === 0} className="nf-rm-export">
             Export Excel
           </button>
         </div>
-        <div style={{ maxHeight: 360, overflowY: 'auto', overflowX: 'auto' }}>
+        <div className="nf-rm-body">
           {loading ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Generating report…</div>
+            <div className="nf-rm-empty">Generating report…</div>
           ) : rows.length === 0 ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>No data available for the selected date range.</div>
+            <div className="nf-rm-empty">No data available for the selected date range.</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-rm-table">
               <thead>
                 <tr>
                   {['Employee', 'Designation', 'On-Time Days', 'Expected Working Days', 'Percentage'].map(h => (
-                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>{h}</th>
+                    <th key={h}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.onTimeDays}</td>
-                    <td style={assignmentCellStyle}>{r.expectedWorkingDays}</td>
-                    <td style={assignmentCellStyle}>{r.percentage.toFixed(1)}%</td>
+                    <td>{r.fullName ?? '-'}</td>
+                    <td>{r.designationName ?? '-'}</td>
+                    <td>{r.onTimeDays}</td>
+                    <td>{r.expectedWorkingDays}</td>
+                    <td>{r.percentage.toFixed(1)}%</td>
                   </tr>
                 ))}
               </tbody>
@@ -1803,7 +1815,8 @@ function PunctualityReportModal({ card, token, onClose }: { card: ReportCardDef;
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1848,13 +1861,13 @@ function NegligenceReportModal({ card, token, onClose }: { card: ReportCardDef; 
 
   function miniTable(title: string, headers: string[], body: React.ReactNode) {
     return (
-      <div style={{ marginBottom: 18 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)', padding: '10px 12px 6px' }}>{title}</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="nf-rm-sect">
+        <div className="nf-rm-sect-title">{title}</div>
+        <table className="nf-rm-table">
           <thead>
             <tr>
               {headers.map(h => (
-                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>{h}</th>
+                <th key={h}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -1864,66 +1877,70 @@ function NegligenceReportModal({ card, token, onClose }: { card: ReportCardDef; 
     );
   }
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 760 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{card.title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 760 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
+          <span className="nf-rm-ico">{(() => { const Ico = CARD_ICONS[card.key] ?? FileBarChart; return <Ico size={18} />; })()}</span>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{card.title}</div>
+            <div className="nf-rm-sub">{card.description}</div>
+          </div>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <span style={{ color: 'var(--txt-dim)' }}>–</span>
-          <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <button onClick={run} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: loading ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)' }}>
+        <div className="nf-rm-bar">
+          <label className="nf-rm-field"><span>From</span><input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} /></label>
+          <label className="nf-rm-field"><span>To</span><input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} /></label>
+          <button type="button" onClick={run} disabled={loading} className="nf-rm-run">
             {loading ? 'Running…' : 'Run'}
           </button>
           <div style={{ flex: 1 }} />
-          <button onClick={exportExcel} disabled={!hasData} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: !hasData ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+          <button type="button" onClick={exportExcel} disabled={!hasData} className="nf-rm-export">
             Export Excel
           </button>
         </div>
-        <div style={{ maxHeight: 440, overflowY: 'auto', overflowX: 'auto' }}>
+        <div className="nf-rm-body">
           {loading ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Generating report…</div>
+            <div className="nf-rm-empty">Generating report…</div>
           ) : !hasData ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>No data available for the selected date range.</div>
+            <div className="nf-rm-empty">No data available for the selected date range.</div>
           ) : (
             <>
               {lateArrivals.length > 0 && miniTable('Late Arrivals', ['Employee', 'Designation', 'Late Days', 'Active Days', 'Late %'],
                 lateArrivals.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.lateDays}</td>
-                    <td style={assignmentCellStyle}>{r.activeDays}</td>
-                    <td style={assignmentCellStyle}>{r.latePct.toFixed(1)}%</td>
+                    <td>{r.fullName ?? '-'}</td>
+                    <td>{r.designationName ?? '-'}</td>
+                    <td>{r.lateDays}</td>
+                    <td>{r.activeDays}</td>
+                    <td>{r.latePct.toFixed(1)}%</td>
                   </tr>
                 )))}
               {leastHoursWorked.length > 0 && miniTable('Least Hours Worked', ['Employee', 'Designation', 'Avg Hours/Day', 'Hours Worked'],
                 leastHoursWorked.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.avgHoursPerDay.toFixed(1)}</td>
-                    <td style={assignmentCellStyle}>{r.hoursWorked.toFixed(1)}</td>
+                    <td>{r.fullName ?? '-'}</td>
+                    <td>{r.designationName ?? '-'}</td>
+                    <td>{r.avgHoursPerDay.toFixed(1)}</td>
+                    <td>{r.hoursWorked.toFixed(1)}</td>
                   </tr>
                 )))}
               {frequentBreaks.length > 0 && miniTable('Frequent Breaks', ['Employee', 'Designation', 'Total Breaks', 'Total Break Hours', 'Avg Breaks/Day'],
                 frequentBreaks.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.totalBreakCount}</td>
-                    <td style={assignmentCellStyle}>{r.totalBreakHours.toFixed(1)}</td>
-                    <td style={assignmentCellStyle}>{r.avgBreaksPerDay.toFixed(1)}</td>
+                    <td>{r.fullName ?? '-'}</td>
+                    <td>{r.designationName ?? '-'}</td>
+                    <td>{r.totalBreakCount}</td>
+                    <td>{r.totalBreakHours.toFixed(1)}</td>
+                    <td>{r.avgBreaksPerDay.toFixed(1)}</td>
                   </tr>
                 )))}
             </>
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1931,7 +1948,18 @@ function cardIsAvailable(c: ReportCardDef): boolean {
   return !!c.reportType || c.kind === 'attendance' || c.kind === 'punctuality' || c.kind === 'negligence';
 }
 
-function ReportsTab({ token }: { token: string }) {
+const CARD_ICONS: Record<string, LucideIcon> = {
+  'reg-summary': ClipboardCheck, 'mobile-location': MapPin, overtime: Clock, 'partial-day': Hourglass,
+  'remote-summary': Laptop, 'remote-clockins': Repeat, 'shift-weeklyoff': CalendarClock, 'web-clockins': LogIn,
+  'web-clockins-forgot': LogIn, 'wfh-od': Home, 'attendance-summary': CalendarCheck, 'punctuality-summary': Timer,
+  'negligence-summary': AlertTriangle,
+};
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  'Reports Home': LayoutGrid, 'Attendance Request Reports': ClipboardCheck, 'Attendance Reports': CalendarCheck,
+  'Punctuality Reports': Timer, 'Negligence Reports': AlertTriangle, 'Scheduled reports': CalendarClock,
+};
+
+export function ReportsTab({ token }: { token: string }) {
   const { showToast } = useToast();
   // ?category=… opens straight into a specific report library (ONEHR - My Team AI access), the
   // same deep-link pattern MyTeamPage's own ?tab= already uses — falls back to the original
@@ -1945,7 +1973,10 @@ function ReportsTab({ token }: { token: string }) {
   const [runningCard, setRunningCard] = useState<ReportCardDef | null>(null);
 
   const q = search.trim().toLowerCase();
-  const filteredCards = (REPORT_CATEGORY_CARDS[category] ?? []).filter(c => !q || c.title.toLowerCase().includes(q));
+  const categoryCards = REPORT_CATEGORY_CARDS[category] ?? [];
+  const filteredCards = categoryCards.filter(c => !q || c.title.toLowerCase().includes(q));
+  const readyCount = categoryCards.filter(cardIsAvailable).length;
+  const CatIcon = CATEGORY_ICONS[category] ?? FileBarChart;
 
   function openCard(card: ReportCardDef) {
     if (!cardIsAvailable(card)) {
@@ -1956,47 +1987,57 @@ function ReportsTab({ token }: { token: string }) {
   }
 
   return (
-    <div style={panelStyle}>
-      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)' }}>
-        <div style={{ borderRight: '1px solid var(--line)', padding: '14px 10px' }}>
-          {REPORT_CATEGORIES.map(cat => (
-            <div key={cat} onClick={() => setCategory(cat)} style={{
-              padding: '9px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, marginBottom: 2,
-              background: category === cat ? 'var(--brand)' : 'transparent', color: category === cat ? '#fff' : 'var(--txt-mut)',
-            }}>
-              {cat}
+    <div className="nf-rp">
+      <div className="nf-rp-grid nf-grid-side-collapse">
+        <nav className="nf-rp-side" aria-label="Report categories">
+          {REPORT_CATEGORIES.map(cat => {
+            const Ico = CATEGORY_ICONS[cat] ?? FileBarChart;
+            const n = (REPORT_CATEGORY_CARDS[cat] ?? []).length;
+            return (
+              <button type="button" key={cat} onClick={() => setCategory(cat)} className={category === cat ? 'nf-rp-cat is-on' : 'nf-rp-cat'}>
+                <Ico size={15} />
+                <span>{cat}</span>
+                {n > 0 && <b>{n}</b>}
+              </button>
+            );
+          })}
+        </nav>
+        <div className="nf-rp-main">
+          <div className="nf-rp-head">
+            <span className="nf-rp-ico"><CatIcon size={17} /></span>
+            <div className="nf-rp-title">
+              <span>{category}</span>
+              <small>{categoryCards.length === 0 ? 'Nothing here yet' : `${readyCount} of ${categoryCards.length} reports ready to download`}</small>
             </div>
-          ))}
-        </div>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-            <span style={panelTitleStyle}>{category}</span>
-            <div className="nf-filter-search">
+            <div className="nf-filter-search nf-rp-search">
               <Search size={13} />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search reports…" />
             </div>
           </div>
-          <div style={{ padding: 18 }}>
+          <div className="nf-rp-body">
             {category === 'Scheduled reports' ? (
-              <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>Not available yet.</div>
+              <div className="nf-rp-empty"><CalendarClock size={22} />Not available yet.</div>
             ) : filteredCards.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>No reports match your search.</div>
+              <div className="nf-rp-empty"><Search size={22} />No reports match your search.</div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-                {filteredCards.map(c => (
-                  <div key={c.key} onClick={() => openCard(c)} style={{
-                    background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: 14,
-                    cursor: 'pointer', opacity: cardIsAvailable(c) ? 1 : 0.55, position: 'relative',
-                  }}>
-                    {!cardIsAvailable(c) && (
-                      <span style={{ position: 'absolute', top: 10, right: 10, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'var(--raised2)', color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>
-                        Coming soon
-                      </span>
-                    )}
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 5, paddingRight: cardIsAvailable(c) ? 0 : 78 }}>{c.title}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', lineHeight: 1.4 }}>{c.description}</div>
-                  </div>
-                ))}
+              <div className="nf-rp-cards">
+                {filteredCards.map(c => {
+                  const ok = cardIsAvailable(c);
+                  const Ico = CARD_ICONS[c.key] ?? FileBarChart;
+                  return (
+                    <div key={c.key} role="button" tabIndex={0} onClick={() => openCard(c)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCard(c); } }}
+                      className={ok ? 'nf-rp-card' : 'nf-rp-card is-soon'}>
+                      <div className="nf-rp-card-top">
+                        <span className="nf-rp-card-ico"><Ico size={17} /></span>
+                        {ok ? <span className="nf-rp-go"><ArrowUpRight size={14} /></span> : <span className="nf-rp-soon">Coming soon</span>}
+                      </div>
+                      <div className="nf-rp-card-title">{c.title}</div>
+                      <div className="nf-rp-card-desc">{c.description}</div>
+                      {ok && <div className="nf-rp-card-cta">Run report</div>}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

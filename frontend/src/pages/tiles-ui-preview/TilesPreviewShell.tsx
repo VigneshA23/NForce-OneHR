@@ -47,7 +47,7 @@ import NotificationsPage from '../NotificationsPage';
 import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
-import { AttentionPanel } from '../MyTeamPage';
+import { AttentionPanel, ReportsTab as MyTeamReportsTab } from '../MyTeamPage';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
 import DocumentsPage from '../DocumentsPage';
@@ -85,6 +85,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'profile-page', label: 'My Profile (full page)', title: 'My Profile', subtitle: 'Sample data: About, Profile, Job and Assets tabs with the Edit popups. Use ?role=employee for the employee view.' },
   { key: 'prefs-page', label: 'User Preferences (full page)', title: 'User Preferences', subtitle: 'Appearance, Notifications and Accessibility. Changes here apply to this preview only.' },
   { key: 'change-password-page', label: 'Change Password (full page)', title: 'Change Password', subtitle: 'Add &forced=1 for the first-login version. Nothing is submitted to a server here.' },
+  { key: 'team-reports', label: 'My Team: Reports tab', title: 'My Team: Reports', subtitle: 'The Reports tab of My Team. Cards open the real download dialogs; nothing is sent from this preview.' },
   { key: 'attention-panel', label: 'My Team: Needs your attention', title: 'My Team: Needs your attention', subtitle: 'Sample pending requests. Approve / Reject here only change this preview.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
@@ -442,6 +443,52 @@ function ChangePasswordMock() {
     return () => { useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user }); };
   }, []);
   return ready ? <ChangePasswordPage /> : null;
+}
+
+function TeamReportsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample report data so the report dialogs open, list rows and export without a backend.
+    const prevFetch = window.fetch;
+    const people = [['Ramesh A', 'Software Engineer'], ['Lalith Kumar Ratnala', 'Senior Engineer'], ['Abuzar Siddiqui', 'QA Engineer'], ['Sri vidya', 'Business Analyst'], ['Praveen Gurram', 'Tech Lead'], ['Sanjukta', 'Designer']];
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes('/reports/attendance-requests?')) {
+        const type = new URL(url, window.location.origin).searchParams.get('type');
+        return json(people.map(([n], i) => ({
+          employeeUserId: 'u' + i, employeeCode: 'NF' + (100 + i), fullName: n, date: day(i + 1),
+          checkIn: type === 'REGULARIZATION' || type === 'WEB_CLOCK_IN' ? day(i + 1) + 'T09:' + (10 + i * 4) + ':00' : null,
+          checkOut: type === 'REGULARIZATION' || type === 'WEB_CLOCK_IN' ? day(i + 1) + 'T18:' + (10 + i * 3) + ':00' : null,
+          reason: ['Client visit', 'Forgot to punch', 'Network issue', 'Doctor appointment', 'Release support', 'Family function'][i],
+          status: ['APPROVED', 'PENDING', 'APPROVED', 'REJECTED', 'APPROVED', 'PENDING'][i],
+          requestMode: type === 'PARTIAL_DAY' ? ['LATE_ARRIVE', 'LEAVING_EARLY', 'INTERVENING_TIMEOFF'][i % 3] : type === 'WFH_OD' ? ['FULL_DAY', 'FIRST_HALF', 'SECOND_HALF'][i % 3] : null,
+          hours: type === 'OVERTIME' ? 1 + (i % 3) * 0.5 : type === 'PARTIAL_DAY' ? 2 : type === 'WFH_OD' ? [1, 0.5, 0.5][i % 3] : null,
+        })));
+      }
+      if (url.includes('/attendance/team-month')) {
+        return json(people.map(([n], i) => ({ id: 'a' + i, employeeUserId: 'u' + i, employeeCode: 'NF' + (100 + i), fullName: n, workDate: day(i + 1), checkInAt: day(i + 1) + 'T09:' + (10 + i * 4) + ':00', checkOutAt: day(i + 1) + 'T18:20:00', workedMinutes: 480 + i * 7, status: ['PRESENT', 'LATE', 'PRESENT', 'PRESENT', 'LATE', 'PRESENT'][i] })));
+      }
+      if (url.includes('/attendance/team-punctuality')) {
+        return json({ leaderboard: people.map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, onTimeDays: 20 - i, expectedWorkingDays: 21, percentage: ((20 - i) / 21) * 100 })), daily: [], summary: {} });
+      }
+      if (url.includes('/attendance/team-negligence')) {
+        return json({
+          lateArrivals: people.slice(0, 4).map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, lateDays: 6 - i, activeDays: 21, latePct: ((6 - i) / 21) * 100 })),
+          dailyLateCounts: [],
+          leastHoursWorked: people.slice(0, 3).map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, avgHoursPerDay: 6.2 + i * 0.4, hoursWorked: 120 + i * 9 })),
+          hoursHistogram: [],
+          frequentBreaks: people.slice(0, 3).map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, totalBreakCount: 40 - i * 5, totalBreakHours: 14 - i, avgBreaksPerDay: 2.4 - i * 0.3 })),
+          breaksTrend: [],
+        });
+      }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    setReady(true);
+    return () => { window.fetch = prevFetch; };
+  }, []);
+  return ready ? <MyTeamReportsTab token="mock-token" /> : null;
 }
 
 function AttentionMock() {
@@ -1220,6 +1267,8 @@ function Tiles({ page }: { page: string }) {
       return <UserPreferencesPage />;
     case 'attention-panel':
       return <AttentionMock />;
+    case 'team-reports':
+      return <TeamReportsMock />;
     case 'change-password-page':
       return <ChangePasswordMock />;
     case 'documents-page':
