@@ -31,6 +31,12 @@ public interface PayslipLineItemRepository extends JpaRepository<PayslipLineItem
                                              @Param("to") java.time.LocalDate to,
                                              @Param("statuses") java.util.Collection<String> statuses);
 
+    // US-C27 — scoped version for PayrollRunService#rollbackEmployeePayslip, same bulk-delete
+    // reasoning as deleteByPayrollRunId.
+    @Modifying
+    @Query("DELETE FROM PayslipLineItem li WHERE li.payslip.payrollRun.id = :runId AND li.payslip.employeeId = :employeeId")
+    void deleteByPayrollRunIdAndEmployeeId(@Param("runId") UUID runId, @Param("employeeId") UUID employeeId);
+
     // US-C10 reconciliation — SUM(amount) per component type across every line item in the run,
     // compared against PayrollRun's own stored totals.
     @Query("SELECT li.componentType, SUM(li.amount) FROM PayslipLineItem li "

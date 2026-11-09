@@ -110,6 +110,9 @@ public enum AuditActionCategory {
             // SalaryHoldService — US-C26: an HR Admin excluding/re-including an employee from a
             // DRAFT run ("Hold processing"), same treatment.
             "PAYROLL_SALARY_HOLD_CREATED", "PAYROLL_SALARY_HOLD_RELEASED",
+            // PayrollRunService#rollbackEmployeePayslip — US-C27: an HR Admin deleting/recomputing
+            // one employee's payslip within an otherwise-locked run, same treatment.
+            "PAYROLL_PAYSLIP_RECOMPUTED",
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.

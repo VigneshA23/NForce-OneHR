@@ -13,7 +13,7 @@ import java.security.Principal;
 import java.util.List;
 import java.util.UUID;
 
-/** US-C26 (ONEHR-579) — "Hold processing" only, see SalaryHold's own Javadoc. HR Admin/Super Admin only. */
+/** US-C26 (ONEHR-579) — both "Hold processing" and "Hold payout", see SalaryHold's own Javadoc. HR Admin/Super Admin only. */
 @RestController
 @RequestMapping("/api/payroll/runs/{runId}/salary-holds")
 @RequiredArgsConstructor

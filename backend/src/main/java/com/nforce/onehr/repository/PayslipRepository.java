@@ -52,4 +52,12 @@ public interface PayslipRepository extends JpaRepository<Payslip, UUID> {
     @Modifying
     @Query("DELETE FROM Payslip p WHERE p.payrollRun.id = :runId")
     void deleteByPayrollRunId(@Param("runId") UUID runId);
+
+    // US-C27 — same bulk-delete reasoning as deleteByPayrollRunId above, scoped to one employee:
+    // PayrollRunService#rollbackEmployeePayslip deletes this employee's old payslip and inserts a
+    // freshly recomputed one in the same transaction, so a derived delete's deferred-to-flush
+    // removal would hit the exact same uq_payslips_run_employee ordering bug.
+    @Modifying
+    @Query("DELETE FROM Payslip p WHERE p.payrollRun.id = :runId AND p.employeeId = :employeeId")
+    void deleteByPayrollRunIdAndEmployeeId(@Param("runId") UUID runId, @Param("employeeId") UUID employeeId);
 }
