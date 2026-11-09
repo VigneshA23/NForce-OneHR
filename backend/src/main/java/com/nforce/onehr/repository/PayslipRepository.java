@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,6 +20,19 @@ public interface PayslipRepository extends JpaRepository<Payslip, UUID> {
     List<Payslip> findByPayrollRunId(@Param("runId") UUID runId);
 
     Optional<Payslip> findByPayrollRunIdAndEmployeeId(UUID payrollRunId, UUID employeeId);
+
+    // US-C12 — employee-facing reads. The run status filter is part of the query itself (not a
+    // post-filter) so a DRAFT/SUBMITTED run's payslip can never be returned by any caller.
+    @Query("SELECT p FROM Payslip p JOIN FETCH p.payrollRun r WHERE p.employeeId = :employeeId "
+         + "AND r.status IN :statuses ORDER BY r.cycleEnd DESC")
+    List<Payslip> findVisibleForEmployee(@Param("employeeId") UUID employeeId,
+                                         @Param("statuses") Collection<String> statuses);
+
+    @Query("SELECT p FROM Payslip p JOIN FETCH p.payrollRun r WHERE p.employeeId = :employeeId "
+         + "AND r.cycleEnd >= :from AND r.cycleEnd <= :to AND r.status IN :statuses ORDER BY r.cycleEnd DESC")
+    List<Payslip> findVisibleForEmployeeBetween(@Param("employeeId") UUID employeeId,
+                                                @Param("from") LocalDate from, @Param("to") LocalDate to,
+                                                @Param("statuses") Collection<String> statuses);
 
     // Explicit bulk @Modifying delete, not a derived deleteBy... method — a derived delete loads
     // entities and defers their removal to Hibernate's next flush, and Hibernate's action queue
