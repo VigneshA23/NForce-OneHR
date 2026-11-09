@@ -20,4 +20,12 @@ public class RecomputeLopRequest {
 
     /** Defaults to today when omitted. */
     private LocalDate referenceDate;
+
+    /**
+     * US-C22/US-C23 — the {@code PayrollRun} this recompute is for, so review-item decisions
+     * (rejected unpaid-leave requests, no-attendance dates marked LOP) are reflected in the
+     * result. Null for the standalone {@code /api/payroll/lop/recompute} admin endpoint, which
+     * isn't tied to any run — same computation as before this story in that case.
+     */
+    private UUID runId;
 }

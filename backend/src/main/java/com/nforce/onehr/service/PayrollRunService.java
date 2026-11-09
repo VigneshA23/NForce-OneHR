@@ -57,6 +57,15 @@ import java.util.stream.Collectors;
  * SalaryHold}'s own Javadoc for the full split and {@code SalaryHoldService} for both types'
  * create/release rules.
  *
+ * <h2>US-C22/US-C23 — "Leave Applied" and "No Attendance" review steps</h2>
+ * <p>{@link #buildPayslip} calls {@link PayrollRunReviewService#generateItemsForEmployee} right
+ * after each employee's {@link PayrollLopCalculationService#recomputeWithDetails}, and {@link
+ * #submit} won't let a run leave DRAFT while either step still has a PENDING item ({@link
+ * PayrollRunReviewService#isStepComplete}). See {@code PayrollRunReviewService} and {@link
+ * PayrollRunReviewItem} for the full design — what's genuinely new versus reused, and the
+ * deliberate asymmetry between a rejected PENALTY item (durable) and a rejected LEAVE_UNPAID item
+ * (review-item-only, reset on the next regenerate).
+ *
  * <h2>Scope of this increment</h2>
  * <ul>
  *   <li><b>Which employees are included:</b> every {@link EmployeeCompensation} row effective on
@@ -140,6 +149,7 @@ public class PayrollRunService {
     private final AdHocDeductionRepository adHocDeductionRepository;
     private final AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     private final SalaryHoldRepository salaryHoldRepository;
+    private final PayrollRunReviewService payrollRunReviewService;
     private final SalaryStructureResolutionService salaryStructureResolutionService;
     private final UserRepository userRepository;
     private final AuditService auditService;
@@ -172,6 +182,12 @@ public class PayrollRunService {
         if (existing.isPresent()) {
             payslipLineItemRepository.deleteByPayrollRunId(run.getId());
             payslipRepository.deleteByPayrollRunId(run.getId());
+            // US-C22/US-C23: NOT wiped here — each included employee's review items are deleted
+            // and recreated inside buildPayslip itself, AFTER that employee's LOP recompute has
+            // already read the old ones (see PayrollRunReviewService#generateItemsForEmployee's
+            // own Javadoc for why the ordering matters). An employee excluded from THIS regenerate
+            // (see heldEmployeeIds below) never goes through buildPayslip at all, so their stale
+            // review items are wiped explicitly, right below, once we know who's excluded.
         }
 
         List<EmployeeCompensation> compensations = employeeCompensationRepository.findAllEffectiveAt(window.end());
@@ -189,6 +205,14 @@ public class PayrollRunService {
         List<EmployeeCompensation> included = compensations.stream()
                 .filter(comp -> !heldEmployeeIds.contains(comp.getEmployeeId()))
                 .collect(Collectors.toList());
+
+        // US-C22/US-C23: a held employee never goes through buildPayslip this regenerate, so their
+        // review items (from a PRIOR regenerate, before the hold existed) would otherwise linger
+        // forever as stale PENDING rows — permanently blocking submit() for a step that no longer
+        // even applies to them. Wiped explicitly; harmless no-op when there's nothing to delete.
+        for (UUID heldEmployeeId : heldEmployeeIds) {
+            payrollRunReviewService.deleteItemsForEmployee(run.getId(), heldEmployeeId);
+        }
 
         BigDecimal totalGross = BigDecimal.ZERO;
         BigDecimal totalDeductions = BigDecimal.ZERO;
@@ -215,6 +239,14 @@ public class PayrollRunService {
         PayrollRun run = requireRun(runId);
         if (!PayrollRunStatus.DRAFT.equals(run.getStatus())) {
             throw new IllegalStateException("Only a DRAFT run can be submitted (currently " + run.getStatus() + ")");
+        }
+
+        // US-C22/US-C23: both run steps must be fully decided before the run can leave DRAFT.
+        if (!payrollRunReviewService.isStepComplete(runId, PayrollRunReviewStepType.LEAVE_APPLIED)) {
+            throw new IllegalStateException("Cannot submit — the \"Leave Applied\" review step still has pending items");
+        }
+        if (!payrollRunReviewService.isStepComplete(runId, PayrollRunReviewStepType.NO_ATTENDANCE)) {
+            throw new IllegalStateException("Cannot submit — the \"No Attendance\" review step still has pending items");
         }
 
         Map<String, BigDecimal> sums = payslipLineItemRepository.sumAmountByComponentType(runId).stream()
@@ -430,7 +462,16 @@ public class PayrollRunService {
         lopReq.setEmployeeId(comp.getEmployeeId());
         lopReq.setPayGroupId(payGroupId);
         lopReq.setReferenceDate(window.start());
-        PayrollLopCalculationResponse lop = payrollLopCalculationService.recompute(lopReq, actorEmail);
+        lopReq.setRunId(run.getId());
+        PayrollLopCalculationService.RecomputeResult lopResult = payrollLopCalculationService.recomputeWithDetails(lopReq, actorEmail);
+        PayrollLopCalculationResponse lop = lopResult.response();
+
+        // US-C22/US-C23: (re)generate this employee's review items from the same unpaid-leave
+        // requests, pending penalties and needsManualReviewDates just fetched — see
+        // PayrollRunReviewService's own Javadoc for why these are passed through rather than
+        // re-queried.
+        payrollRunReviewService.generateItemsForEmployee(run, comp.getEmployeeId(), window, lop,
+                lopResult.unpaidLeaveRequests(), lopResult.pendingPenalties());
 
         RecomputeProrationRequest proReq = new RecomputeProrationRequest();
         proReq.setEmployeeId(comp.getEmployeeId());
