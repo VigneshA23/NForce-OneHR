@@ -22,5 +22,6 @@ public class PayslipResponse {
     private BigDecimal totalDeductions;
     private BigDecimal netPay;
     private boolean released;
+    private boolean paymentWithheld;
     private List<PayslipLineItemResponse> lineItems;
 }

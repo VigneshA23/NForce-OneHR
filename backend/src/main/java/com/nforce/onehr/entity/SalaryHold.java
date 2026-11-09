@@ -7,19 +7,26 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * US-C26 (ONEHR-579) — "Hold processing" (Keka's own term for this, confirmed against its help
- * docs 2026-11-06): an employee excluded ENTIRELY from a DRAFT run's payslip generation for this
- * one cycle — no payslip, no line items, zero statutory deductions, same as if they weren't
- * effective at all that cycle. Keka's docs name a second, distinct mechanism, "Hold payout" (the
- * employee IS processed normally and statutory still applies, only the actual payment is
- * withheld) — that needs per-payslip disbursement tracking this codebase doesn't have yet
- * ({@code PayrollRunService#disburse} is still whole-run-only), so it's NOT built here; see that
- * class's own Javadoc for the explicit scope note.
+ * US-C26 (ONEHR-579) — two distinct hold mechanisms, both Keka's own terms (confirmed against its
+ * help docs 2026-11-06), discriminated by {@link #getHoldType()}:
+ * <ul>
+ *   <li><b>{@link SalaryHoldType#PROCESSING}</b> — an employee excluded ENTIRELY from a DRAFT
+ *       run's payslip generation for this one cycle: no payslip, no line items, zero statutory
+ *       deductions, same as if they weren't effective at all that cycle. Only makes sense while
+ *       the run is still DRAFT — it only ever affects the NEXT {@code
+ *       PayrollRunService#generateDraft} regenerate, never an already-built payslip.</li>
+ *   <li><b>{@link SalaryHoldType#PAYOUT}</b> — the employee IS processed normally (payslip built,
+ *       statutory deductions applied); only the actual payment is withheld. Unlike PROCESSING,
+ *       this is designed to outlive DRAFT — it can be placed any time before the run is actually
+ *       disbursed, and {@code PayrollRunService#disburse} (still whole-run) flags that one
+ *       employee's {@link Payslip#isPaymentWithheld()} instead of excluding them from anything.
+ *       Releasing it after disbursement flips that flag back off — see {@code
+ *       SalaryHoldService#release}.</li>
+ * </ul>
  *
  * <p>Tied to the {@link PayrollRun} row itself, same reasoning as {@link AdHocPayment}: created
- * against an already-existing (DRAFT) run, and {@code PayrollRunService#generateDraft} only
- * excludes the held employee from the NEXT regenerate — creating the hold doesn't retroactively
- * remove an already-built payslip by itself.
+ * against an already-existing run. An employee can only have one ACTIVE hold (of either type) on
+ * a given run at a time.
  */
 @Entity
 @Table(name = "salary_holds")
@@ -43,6 +50,10 @@ public class SalaryHold {
     @Column(nullable = false, length = 20)
     @Builder.Default
     private String status = SalaryHoldStatus.ACTIVE;
+
+    @Column(name = "hold_type", nullable = false, length = 20)
+    @Builder.Default
+    private String holdType = SalaryHoldType.PROCESSING;
 
     @Column(name = "created_by", nullable = false)
     private UUID createdBy;

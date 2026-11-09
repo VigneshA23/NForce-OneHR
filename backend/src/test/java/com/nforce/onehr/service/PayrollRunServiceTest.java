@@ -113,8 +113,8 @@ class PayrollRunServiceTest {
         lenient().when(adHocDeductionRepository.save(any(AdHocDeduction.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(adHocDeductionInstallmentRepository.findByPayrollRunId(any())).thenReturn(List.of());
 
-        // US-C26: no active salary holds by default.
-        lenient().when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunId(any())).thenReturn(Set.of());
+        // US-C26: no active salary holds (of either type) by default.
+        lenient().when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(any(), any())).thenReturn(Set.of());
     }
 
     private SalaryComponent catalogComponent(String name, String type, boolean prorateOnLop) {
@@ -384,7 +384,7 @@ class PayrollRunServiceTest {
     void generateDraft_heldEmployee_excludedEntirely_noPayslipNoDeductions() {
         when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
         when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
-        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunId(any())).thenReturn(Set.of(employeeId));
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(any(), eq(SalaryHoldType.PROCESSING))).thenReturn(Set.of(employeeId));
 
         PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
 
@@ -549,6 +549,24 @@ class PayrollRunServiceTest {
 
         assertEquals(PayrollRunStatus.DISBURSED, resp.getStatus());
         assertNotNull(resp.getDisbursedAt());
+    }
+
+    @Test
+    void disburse_withActivePayoutHold_flagsThatEmployeesPaymentWithheld() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(approved.getId(), SalaryHoldType.PAYOUT))
+                .thenReturn(Set.of(employeeId));
+        Payslip heldPayslip = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        Payslip otherPayslip = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(UUID.randomUUID()).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(heldPayslip, otherPayslip));
+
+        service.disburse(approved.getId(), actorEmail);
+
+        assertTrue(heldPayslip.isPaymentWithheld());
+        assertFalse(otherPayslip.isPaymentWithheld());
+        verify(payslipRepository).save(heldPayslip);
+        verify(payslipRepository, never()).save(otherPayslip);
     }
 
     @Test

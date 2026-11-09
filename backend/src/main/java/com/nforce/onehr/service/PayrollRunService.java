@@ -45,19 +45,20 @@ import java.util.stream.Collectors;
  * (restores the balance, deletes the row, reopens a COMPLETED plan if it was this installment that
  * completed it) so a discarded run never permanently shortchanges or overcharges the recovery.
  *
- * <h2>US-C26 — salary hold ("Hold processing" only)</h2>
- * <p>{@link #generateDraft} excludes any employee with an ACTIVE {@link SalaryHold} on this exact
- * run entirely from the next build — no payslip, no line items, not counted in {@code
- * employeeCount} — matching Keka's own "Hold processing" (confirmed against its help docs
- * 2026-11-05): zero statutory deductions, as if they had no effective compensation this cycle.
- * Keka's distinct "Hold payout" (processed normally, only the payment withheld) is NOT built here
- * — it needs per-payslip disbursement tracking {@link #disburse} doesn't have (still whole-run).
+ * <h2>US-C26 — salary hold (both "Hold processing" and "Hold payout")</h2>
+ * <p>{@link #generateDraft} excludes any employee with an ACTIVE {@link SalaryHoldType#PROCESSING}
+ * {@link SalaryHold} on this exact run entirely from the next build — no payslip, no line items,
+ * not counted in {@code employeeCount} — matching Keka's own "Hold processing" (confirmed against
+ * its help docs 2026-11-05): zero statutory deductions, as if they had no effective compensation
+ * this cycle. Keka's distinct "Hold payout" ({@link SalaryHoldType#PAYOUT}) is processed normally
+ * — statutory deductions apply, nothing about {@link #buildPayslip} changes — and is only
+ * intercepted at {@link #disburse} time, which flags that one employee's {@link
+ * Payslip#isPaymentWithheld()} instead of paying them (still whole-run otherwise). See {@link
+ * SalaryHold}'s own Javadoc for the full split and {@code SalaryHoldService} for both types'
+ * create/release rules.
  *
  * <h2>Scope of this increment</h2>
  * <ul>
- *   <li><b>Not built yet:</b> US-C26's "Hold payout" (see above). US-C27's per-employee selective
- *       rollback now exists — see {@link #rollbackEmployeePayslip}, alongside {@link
- *       #rollbackWholeRun} (whole-run).</li>
  *   <li><b>Which employees are included:</b> every {@link EmployeeCompensation} row effective on
  *       the cycle's last day, regardless of {@code payGroupId} — there is no employee-to-pay-group
  *       assignment mechanism yet, a gap already flagged when US-C07 was built. Fine while there's
@@ -178,11 +179,13 @@ public class PayrollRunService {
             throw new IllegalArgumentException("No employees have compensation effective for cycle " + window.start() + "-" + window.end());
         }
 
-        // US-C26 "Hold processing": an employee with an ACTIVE SalaryHold on THIS run is excluded
-        // entirely — no payslip, no line items, not counted — same as if they had no effective
-        // compensation this cycle. Checked against run.getId(), so a hold created before this
-        // regenerate takes effect now; one created after still needs the next regenerate to apply.
-        Set<UUID> heldEmployeeIds = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunId(run.getId());
+        // US-C26 "Hold processing": an employee with an ACTIVE PROCESSING-type SalaryHold on THIS
+        // run is excluded entirely — no payslip, no line items, not counted — same as if they had
+        // no effective compensation this cycle. Checked against run.getId(), so a hold created
+        // before this regenerate takes effect now; one created after still needs the next
+        // regenerate to apply. PAYOUT-type holds do NOT exclude — they're processed normally and
+        // only intercepted later, at disburse() time.
+        Set<UUID> heldEmployeeIds = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(run.getId(), SalaryHoldType.PROCESSING);
         List<EmployeeCompensation> included = compensations.stream()
                 .filter(comp -> !heldEmployeeIds.contains(comp.getEmployeeId()))
                 .collect(Collectors.toList());
@@ -271,6 +274,20 @@ public class PayrollRunService {
         if (!PayrollRunStatus.APPROVED.equals(run.getStatus())) {
             throw new IllegalStateException("Only an APPROVED run can be disbursed (currently " + run.getStatus() + ")");
         }
+
+        // US-C26 "Hold payout": these employees' payslips were already built normally (statutory
+        // deductions applied) — this is the one moment disburse() actually exists for, so flag
+        // their payment as withheld rather than paid, instead of excluding them from anything.
+        Set<UUID> payoutHeldEmployeeIds = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(runId, SalaryHoldType.PAYOUT);
+        if (!payoutHeldEmployeeIds.isEmpty()) {
+            for (Payslip p : payslipRepository.findByPayrollRunId(runId)) {
+                if (payoutHeldEmployeeIds.contains(p.getEmployeeId())) {
+                    p.setPaymentWithheld(true);
+                    payslipRepository.save(p);
+                }
+            }
+        }
+
         return transition(run, PayrollRunStatus.DISBURSED, actorEmail, r -> r.setDisbursedAt(LocalDateTime.now()));
     }
 
@@ -650,6 +667,7 @@ public class PayrollRunService {
                 .totalDeductions(p.getTotalDeductions())
                 .netPay(p.getNetPay())
                 .released(p.isReleased())
+                .paymentWithheld(p.isPaymentWithheld())
                 .lineItems(lineItems.stream().map(li -> PayslipLineItemResponse.builder()
                         .componentId(li.getComponentId())
                         .componentName(li.getComponentName())
