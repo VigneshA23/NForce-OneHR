@@ -66,7 +66,7 @@ class PayrollRunServiceTest {
                 payGroupRepository, employeeCompensationRepository, salaryStructureComponentRepository,
                 payrollLopCalculationService, payrollProrationService, approvalRuleEvaluationService,
                 adHocPaymentRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
-                salaryHoldRepository, userRepository, auditService, auditSnapshot);
+                salaryHoldRepository, new SalaryStructureResolutionService(), userRepository, auditService, auditSnapshot);
 
         // Default actor holds HR_ADMIN — matches this app's one real approver role before US-C09,
         // and the legacy single-HR_ADMIN-stage default evaluatePayrollRun falls back to below.

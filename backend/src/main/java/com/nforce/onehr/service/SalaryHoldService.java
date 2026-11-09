@@ -77,14 +77,19 @@ public class SalaryHoldService {
 
     @Transactional(readOnly = true)
     public List<SalaryHoldResponse> list(UUID runId) {
+        requireRun(runId);
         return salaryHoldRepository.findByPayrollRunId(runId).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
     }
 
-    private PayrollRun requireDraftRun(UUID runId) {
-        PayrollRun run = payrollRunRepository.findById(runId)
+    private PayrollRun requireRun(UUID runId) {
+        return payrollRunRepository.findById(runId)
                 .orElseThrow(() -> new NoSuchElementException("Payroll run not found: " + runId));
+    }
+
+    private PayrollRun requireDraftRun(UUID runId) {
+        PayrollRun run = requireRun(runId);
         if (!PayrollRunStatus.DRAFT.equals(run.getStatus())) {
             throw new IllegalStateException("Salary holds can only be created or released while the run is DRAFT (currently " + run.getStatus() + ")");
         }
