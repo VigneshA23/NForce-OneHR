@@ -55,8 +55,9 @@ import java.util.stream.Collectors;
  *
  * <h2>Scope of this increment</h2>
  * <ul>
- *   <li><b>Not built yet:</b> US-C27's per-employee selective rollback — only {@link
- *       #rollbackWholeRun} (whole-run) exists. US-C26's "Hold payout" (see above).</li>
+ *   <li><b>Not built yet:</b> US-C26's "Hold payout" (see above). US-C27's per-employee selective
+ *       rollback now exists — see {@link #rollbackEmployeePayslip}, alongside {@link
+ *       #rollbackWholeRun} (whole-run).</li>
  *   <li><b>Which employees are included:</b> every {@link EmployeeCompensation} row effective on
  *       the cycle's last day, regardless of {@code payGroupId} — there is no employee-to-pay-group
  *       assignment mechanism yet, a gap already flagged when US-C07 was built. Fine while there's
@@ -343,6 +344,61 @@ public class PayrollRunService {
         return toPayslipResponse(payslip, payslipLineItemRepository.findByPayslipId(payslip.getId()));
     }
 
+    /**
+     * US-C27 — per-employee selective rollback: deletes and recomputes ONE employee's payslip from
+     * current inputs, without disturbing the run's own status or anyone else's payslip. Unlike
+     * {@link #rollbackWholeRun}, this never touches {@code status}/{@code pendingApprovalStage} —
+     * the run stays exactly as locked (SUBMITTED/APPROVED/DISBURSED) as it was before the call,
+     * only this one employee's figures (and the run's totals, recomputed fresh from every current
+     * line item) change. There's no prior-version history to restore to — "rollback" here means
+     * "delete and rebuild from whatever's true right now" (current compensation, current ad-hoc
+     * payments/deductions, current proration/LOP), the exact same engine {@link #buildPayslip}
+     * always uses, just scoped to one employee instead of the whole run.
+     *
+     * <p>Only valid for a run that ISN'T {@code DRAFT} — a DRAFT run already supports recomputing
+     * everyone via {@link #generateDraft}'s regenerate path; this exists for the case that path
+     * can't reach (the run is already locked, and reopening it for everyone via {@link
+     * #rollbackWholeRun} would be the wrong size of hammer for one employee's mistake).
+     */
+    @Transactional
+    public PayslipResponse rollbackEmployeePayslip(UUID runId, UUID employeeId, RollbackEmployeePayslipRequest req, String actorEmail) {
+        PayrollRun run = requireRun(runId);
+        if (PayrollRunStatus.DRAFT.equals(run.getStatus())) {
+            throw new IllegalStateException("Use generateDraft to recompute a DRAFT run — this is for a SUBMITTED, APPROVED or DISBURSED run only");
+        }
+        Payslip existing = payslipRepository.findByPayrollRunIdAndEmployeeId(runId, employeeId)
+                .orElseThrow(() -> new NoSuchElementException("No payslip for employee " + employeeId + " in run " + runId));
+        EmployeeCompensation comp = employeeCompensationRepository.findByEmployeeIdAndEffectiveAt(employeeId, run.getCycleEnd())
+                .orElseThrow(() -> new IllegalStateException("Employee " + employeeId + " has no compensation effective for this cycle — can't recompute"));
+
+        String before = auditSnapshot.toJson(payslipSnapshot(existing));
+
+        payslipLineItemRepository.deleteByPayrollRunIdAndEmployeeId(runId, employeeId);
+        payslipRepository.deleteByPayrollRunIdAndEmployeeId(runId, employeeId);
+
+        PayCycleWindow window = new PayCycleWindow(run.getCycleStart(), run.getCycleEnd());
+        buildPayslip(comp, window, run.getPayGroupId(), run, actorEmail);
+
+        // Recomputed fresh from every current line item in the run (everyone else's included,
+        // unchanged) rather than adjusted by delta — the same reconciliation aggregation #submit
+        // uses, so the run's stored totals can never silently drift from SUM(PayslipLineItem).
+        Map<String, BigDecimal> sums = payslipLineItemRepository.sumAmountByComponentType(runId).stream()
+                .collect(Collectors.toMap(row -> (String) row[0], row -> (BigDecimal) row[1]));
+        BigDecimal totalGross = sumByTypes(sums, EARNING_TYPES);
+        BigDecimal totalDeductions = sumByTypes(sums, DEDUCTION_TYPES);
+        run.setTotalGross(totalGross);
+        run.setTotalDeductions(totalDeductions);
+        run.setTotalNet(totalGross.subtract(totalDeductions));
+        payrollRunRepository.save(run);
+
+        Payslip recomputed = payslipRepository.findByPayrollRunIdAndEmployeeId(runId, employeeId)
+                .orElseThrow(() -> new IllegalStateException("Recompute did not produce a payslip for employee " + employeeId));
+        User actor = requireActor(actorEmail);
+        auditService.log(actor.getId(), "PAYROLL_PAYSLIP_RECOMPUTED", recomputed.getId(), before, auditSnapshot.toJson(payslipSnapshot(recomputed)));
+
+        return toPayslipResponse(recomputed, payslipLineItemRepository.findByPayslipId(recomputed.getId()));
+    }
+
     // ============================================================
     // Payslip computation
     // ============================================================
@@ -546,6 +602,15 @@ public class PayrollRunService {
         snapshot.put("totalNet", r.getTotalNet());
         if (r.getPendingApprovalStage() != null) snapshot.put("pendingApprovalStage", r.getPendingApprovalStage());
         if (r.getLastRollbackReason() != null) snapshot.put("lastRollbackReason", r.getLastRollbackReason());
+        return snapshot;
+    }
+
+    private Map<String, Object> payslipSnapshot(Payslip p) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("employeeId", p.getEmployeeId());
+        snapshot.put("grossPay", p.getGrossPay());
+        snapshot.put("totalDeductions", p.getTotalDeductions());
+        snapshot.put("netPay", p.getNetPay());
         return snapshot;
     }
 

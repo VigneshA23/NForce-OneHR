@@ -33,4 +33,11 @@ public interface EmployeeCompensationRepository extends JpaRepository<EmployeeCo
     @Query("SELECT c FROM EmployeeCompensation c JOIN FETCH c.structure "
          + "WHERE c.effectiveFrom <= :date AND (c.effectiveTo IS NULL OR c.effectiveTo > :date)")
     List<EmployeeCompensation> findAllEffectiveAt(@Param("date") LocalDate date);
+
+    // US-C27 — the single-employee version of findAllEffectiveAt, for rollbackEmployeePayslip's
+    // targeted recompute (reads whatever compensation is effective NOW for this employee at the
+    // run's own cycle end, same point-in-time reasoning as the bulk query above).
+    @Query("SELECT c FROM EmployeeCompensation c JOIN FETCH c.structure "
+         + "WHERE c.employeeId = :employeeId AND c.effectiveFrom <= :date AND (c.effectiveTo IS NULL OR c.effectiveTo > :date)")
+    Optional<EmployeeCompensation> findByEmployeeIdAndEffectiveAt(@Param("employeeId") UUID employeeId, @Param("date") LocalDate date);
 }

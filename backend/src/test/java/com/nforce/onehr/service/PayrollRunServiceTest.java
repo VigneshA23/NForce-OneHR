@@ -607,6 +607,76 @@ class PayrollRunServiceTest {
         assertThrows(IllegalStateException.class, () -> service.rollbackWholeRun(approved.getId(), req, actorEmail));
     }
 
+    private RollbackEmployeePayslipRequest rollbackEmployeeReq(String reason) {
+        RollbackEmployeePayslipRequest req = new RollbackEmployeePayslipRequest();
+        req.setReason(reason);
+        return req;
+    }
+
+    @Test
+    void rollbackEmployeePayslip_draftRun_rejected() {
+        PayrollRun draft = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        assertThrows(IllegalStateException.class,
+                () -> service.rollbackEmployeePayslip(draft.getId(), employeeId, rollbackEmployeeReq("test"), actorEmail));
+    }
+
+    @Test
+    void rollbackEmployeePayslip_noPayslipForEmployee_rejected() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        when(payslipRepository.findByPayrollRunIdAndEmployeeId(approved.getId(), employeeId)).thenReturn(Optional.empty());
+
+        assertThrows(NoSuchElementException.class,
+                () -> service.rollbackEmployeePayslip(approved.getId(), employeeId, rollbackEmployeeReq("test"), actorEmail));
+    }
+
+    @Test
+    void rollbackEmployeePayslip_noCurrentCompensation_rejected() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        Payslip existing = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId).build();
+        when(payslipRepository.findByPayrollRunIdAndEmployeeId(approved.getId(), employeeId)).thenReturn(Optional.of(existing));
+        when(employeeCompensationRepository.findByEmployeeIdAndEffectiveAt(employeeId, cycleEnd)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalStateException.class,
+                () -> service.rollbackEmployeePayslip(approved.getId(), employeeId, rollbackEmployeeReq("test"), actorEmail));
+    }
+
+    @Test
+    void rollbackEmployeePayslip_success_deletesRebuildsAndRefreshesRunTotals() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.FIXED, new BigDecimal("600000"), null);
+
+        PayrollRun approvedRun = run(PayrollRunStatus.APPROVED);
+        Payslip existing = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId).payrollRun(approvedRun).build();
+        Payslip recomputed = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId).payrollRun(approvedRun)
+                .grossPay(new BigDecimal("50000.00")).totalDeductions(BigDecimal.ZERO).netPay(new BigDecimal("50000.00")).build();
+
+        when(payrollRunRepository.findById(approvedRun.getId())).thenReturn(Optional.of(approvedRun));
+        when(payslipRepository.findByPayrollRunIdAndEmployeeId(approvedRun.getId(), employeeId))
+                .thenReturn(Optional.of(existing))
+                .thenReturn(Optional.of(recomputed));
+        when(employeeCompensationRepository.findByEmployeeIdAndEffectiveAt(employeeId, cycleEnd))
+                .thenReturn(Optional.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payslipLineItemRepository.sumAmountByComponentType(approvedRun.getId()))
+                .thenReturn(List.<Object[]>of(new Object[]{SalaryComponentType.EARNING, new BigDecimal("50000.00")}));
+
+        PayslipResponse resp = service.rollbackEmployeePayslip(approvedRun.getId(), employeeId, rollbackEmployeeReq("Fixed a data entry error"), actorEmail);
+
+        verify(payslipLineItemRepository).deleteByPayrollRunIdAndEmployeeId(approvedRun.getId(), employeeId);
+        verify(payslipRepository).deleteByPayrollRunIdAndEmployeeId(approvedRun.getId(), employeeId);
+        // The run's own status is untouched — still APPROVED, not reset to DRAFT like rollbackWholeRun.
+        assertEquals(PayrollRunStatus.APPROVED, approvedRun.getStatus());
+        assertEquals(0, new BigDecimal("50000.00").compareTo(approvedRun.getTotalGross()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(approvedRun.getTotalDeductions()));
+        assertEquals(0, new BigDecimal("50000.00").compareTo(approvedRun.getTotalNet()));
+        assertEquals(employeeId, resp.getEmployeeId());
+        verify(auditService).log(eq(actorId), eq("PAYROLL_PAYSLIP_RECOMPUTED"), any(), any(), any());
+    }
+
     @Test
     void get_unknownRun_throwsNoSuchElement() {
         UUID missing = UUID.randomUUID();
