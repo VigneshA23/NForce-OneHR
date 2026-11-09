@@ -51,6 +51,7 @@ import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard,
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
+import DocumentsCompliancePage from '../DocumentsCompliancePage';
 import BenchPage from '../BenchPage';
 import ProjectAllocationsPage from '../ProjectAllocationsPage';
 import OnboardingPage from '../OnboardingPage';
@@ -96,6 +97,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'attention-panel', label: 'My Team: Needs your attention', title: 'My Team: Needs your attention', subtitle: 'Sample pending requests. Approve / Reject here only change this preview.' },
   { key: 'allocations-page', label: 'Project Allocations (full page)', title: 'Project Allocations', subtitle: 'Allocate and Projects tabs with sample data. Allocating and saving only change this preview.' },
   { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
+  { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
@@ -790,6 +792,62 @@ function BenchMock() {
     };
   }, []);
   return ready ? <BenchPage /> : null;
+}
+
+function DocsComplianceMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample documents held in memory, and an HR Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    const iso = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString(); };
+    const names = ['Nikhila Reddy Mandhadi', 'Anil Ramtenki', 'Sri vidya', 'Praveen Gurram', 'Vyshnavi Guthala', 'Abuzar Siddiqui'];
+    const types = ['PAN Card', 'Identity Document', 'Employment Contract', 'Educational Certificate', 'Aadhar Card'];
+    const mk = (i: number, status: string, expiryIn: number | null) => ({
+      id: 'd' + i, employeeUserId: 'u' + (i % names.length), employeeName: names[i % names.length], documentTypeId: (i % types.length) + 1, documentTypeName: types[i % types.length],
+      requiresVerification: true, requiresExpiryDate: expiryIn !== null, fileName: ['defect evidence.png', 'Defect evidence2.png', 'scan.pdf'][i % 3], fileUrl: '',
+      issueDate: expiryIn !== null ? day(-300) : null, expiryDate: expiryIn !== null ? day(expiryIn) : null, status, verifiedBy: status === 'VERIFIED' ? 'HR' : null,
+      verifiedAt: status === 'VERIFIED' ? iso(-i) : null, rejectionReason: null, uploadedAt: iso(-i - 3), updatedAt: iso(-i), versionNumber: 1, superseded: false, previousVersionId: null,
+    });
+    let pending = Array.from({ length: 6 }, (_, i) => mk(i, 'PENDING_VERIFICATION', [null, 700, null, 12, null, -5][i]));
+    let verified = Array.from({ length: 4 }, (_, i) => mk(i + 10, 'VERIFIED', [null, 400, 20, null][i]));
+    const missing = [
+      { employeeUserId: 'u1', employeeName: names[1], documentTypeId: 2, documentTypeName: 'Identity Document' },
+      { employeeUserId: 'u2', employeeName: names[2], documentTypeId: 5, documentTypeName: 'Aadhar Card' },
+      { employeeUserId: 'u3', employeeName: names[3], documentTypeId: 1, documentTypeName: 'PAN Card' },
+    ];
+    // a tiny valid PNG so the preview frame shows an image
+    const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const path = url.split('?')[0];
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/api/documents/kpis')) return json({ pendingVerification: pending.length, employeesWithPending: 4, expiringWithin30Days: 2, totalDocuments: 48 });
+      if (path.endsWith('/api/documents/pending')) return json(pending);
+      if (path.endsWith('/api/documents/missing')) return json(missing);
+      if (path.endsWith('/api/documents') && method === 'GET') return json([...pending, ...verified]);
+      if (/\/api\/documents\/[^/]+\/history$/.test(path)) return json([{ ...pending[0], versionNumber: 2 }, { ...pending[0], id: 'old', versionNumber: 1, superseded: true, status: 'REJECTED', rejectionReason: 'Image is blurry' }]);
+      if (/\/api\/documents\/[^/]+\/file$/.test(path)) return Promise.resolve(new Response(new Blob([png], { type: 'image/png' }), { status: 200 }));
+      if (/\/api\/documents\/[^/]+\/verify$/.test(path)) {
+        const id = path.split('/').slice(-2)[0]; const body = JSON.parse(String(init?.body ?? '{}'));
+        const d = pending.find(x => x.id === id); pending = pending.filter(x => x.id !== id);
+        const updated = { ...(d ?? mk(99, 'VERIFIED', null)), status: body.action === 'VERIFY' ? 'VERIFIED' : 'REJECTED', verifiedAt: iso(0), rejectionReason: body.rejectionReason ?? null };
+        if (body.action === 'VERIFY') verified = [updated, ...verified];
+        return json(updated);
+      }
+      if (/\/api\/documents\/remind\//.test(path)) return Promise.resolve(new Response(null, { status: 204 }));
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <DocumentsCompliancePage /> : null;
 }
 
 function PoliciesMock() {
@@ -1532,6 +1590,8 @@ function Tiles({ page }: { page: string }) {
       return <AllocationsMock />;
     case 'bench-page':
       return <BenchMock />;
+    case 'docs-compliance-page':
+      return <DocsComplianceMock />;
     case 'policies-page':
       return <PoliciesMock />;
     case 'notifications-page':
