@@ -113,6 +113,9 @@ public enum AuditActionCategory {
             // PayrollRunService#rollbackEmployeePayslip — US-C27: an HR Admin deleting/recomputing
             // one employee's payslip within an otherwise-locked run, same treatment.
             "PAYROLL_PAYSLIP_RECOMPUTED",
+            // PayrollRunReviewService — US-C22/US-C23: an HR Admin deciding a run's "Leave Applied"
+            // or "No Attendance" review items before the run can be submitted, same treatment.
+            "PAYROLL_RUN_REVIEW_LEAVE_DECIDED", "PAYROLL_RUN_REVIEW_NO_ATTENDANCE_DECIDED",
             // HelpdeskService — ticket-created and reply actions are self-submitted/mixed-sender
             // (like the other *_SUBMITTED actions above) and are intentionally omitted; only the
             // two actions that are always an HR/Super Admin operational decision are included.

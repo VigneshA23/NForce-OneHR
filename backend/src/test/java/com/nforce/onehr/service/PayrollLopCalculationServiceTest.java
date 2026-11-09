@@ -40,6 +40,7 @@ class PayrollLopCalculationServiceTest {
     @Mock private LeaveTypeRepository leaveTypeRepository;
     @Mock private WorkingDayService workingDayService;
     @Mock private LeaveBalanceAvailabilityService leaveBalanceAvailabilityService;
+    @Mock private PayrollRunReviewItemRepository payrollRunReviewItemRepository;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -62,8 +63,8 @@ class PayrollLopCalculationServiceTest {
         objectMapper = new ObjectMapper().findAndRegisterModules();
         service = new PayrollLopCalculationService(payrollLopCalculationRepository, employeeRepository,
                 payGroupRepository, attendanceRepository, attendancePenaltyRepository, leaveRequestRepository,
-                leaveTypeRepository, workingDayService, leaveBalanceAvailabilityService, userRepository, objectMapper,
-                auditService, auditSnapshot);
+                leaveTypeRepository, workingDayService, leaveBalanceAvailabilityService, payrollRunReviewItemRepository,
+                userRepository, objectMapper, auditService, auditSnapshot);
 
         User actor = User.builder().id(actorId).email(actorEmail).build();
         lenient().when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
@@ -83,9 +84,11 @@ class PayrollLopCalculationServiceTest {
                 .thenReturn(List.of());
         lenient().when(leaveTypeRepository.findAll()).thenReturn(List.of(
                 leaveType("PAID"), leaveType("UNPAID")));
-        lenient().when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
-                any(), any(), any(), any(), any())).thenReturn(null);
+        lenient().when(leaveRequestRepository.findByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
+                any(), any(), any(), any(), any())).thenReturn(List.of());
         lenient().when(leaveBalanceAvailabilityService.availablePaidDays(eq(employeeId), any(Integer.class))).thenReturn(BigDecimal.ZERO);
+        lenient().when(payrollRunReviewItemRepository.findRejectedLeaveRequestIds(any(), any())).thenReturn(Set.of());
+        lenient().when(payrollRunReviewItemRepository.countMarkLopDecisions(any(), any())).thenReturn(0L);
         lenient().when(payrollLopCalculationRepository.save(any(PayrollLopCalculation.class))).thenAnswer(inv -> {
             PayrollLopCalculation c = inv.getArgument(0);
             if (c.getId() == null) c.setId(UUID.randomUUID());
@@ -124,14 +127,60 @@ class PayrollLopCalculationServiceTest {
     void recompute_unpaidLeave_countsFully() {
         when(payrollLopCalculationRepository.findByEmployeeIdAndCycleStartAndCycleEnd(employeeId, cycleStart, cycleEnd))
                 .thenReturn(Optional.empty());
-        when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
+        LeaveRequest request = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(leaveType("UNPAID")).startDate(cycleStart).endDate(cycleStart).totalDays(new BigDecimal("2"))
+                .status("APPROVED").build();
+        when(leaveRequestRepository.findByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
                 eq(employeeId), any(), eq("APPROVED"), eq(cycleStart), eq(cycleEnd)))
-                .thenReturn(new BigDecimal("2"));
+                .thenReturn(List.of(request));
 
         PayrollLopCalculationResponse resp = service.recompute(recomputeReq(), actorEmail);
 
         assertEquals(0, new BigDecimal("2").compareTo(resp.getUnpaidLeaveDays()));
         assertEquals(0, new BigDecimal("2").compareTo(resp.getComputedLopDays()));
+    }
+
+    @Test
+    void recompute_rejectedLeaveReviewItem_excludedFromSum() {
+        when(payrollLopCalculationRepository.findByEmployeeIdAndCycleStartAndCycleEnd(employeeId, cycleStart, cycleEnd))
+                .thenReturn(Optional.empty());
+        UUID requestId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        LeaveRequest request = LeaveRequest.builder().id(requestId).employeeUserId(employeeId)
+                .leaveType(leaveType("UNPAID")).startDate(cycleStart).endDate(cycleStart).totalDays(new BigDecimal("2"))
+                .status("APPROVED").build();
+        when(leaveRequestRepository.findByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
+                eq(employeeId), any(), eq("APPROVED"), eq(cycleStart), eq(cycleEnd)))
+                .thenReturn(List.of(request));
+        when(payrollRunReviewItemRepository.findRejectedLeaveRequestIds(runId, employeeId)).thenReturn(Set.of(requestId));
+
+        RecomputeLopRequest req = recomputeReq();
+        req.setRunId(runId);
+        PayrollLopCalculationResponse resp = service.recompute(req, actorEmail);
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(resp.getUnpaidLeaveDays()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(resp.getComputedLopDays()));
+    }
+
+    @Test
+    void recompute_markLopNoAttendanceDecision_addsExtraDay() {
+        LocalDate missingDate = LocalDate.of(2026, 6, 5);
+        UUID runId = UUID.randomUUID();
+        when(payrollLopCalculationRepository.findByEmployeeIdAndCycleStartAndCycleEnd(employeeId, cycleStart, cycleEnd))
+                .thenReturn(Optional.empty());
+        when(workingDayService.computeExpectedWorkingDays(any(), eq(cycleStart), eq(cycleEnd)))
+                .thenReturn(WorkingDaySchedule.builder().employeeUserId(employeeId).workingDates(Set.of(missingDate)).build());
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDateBetweenOrderByWorkDateDesc(employeeId, cycleStart, cycleEnd)).thenReturn(List.of());
+        when(leaveBalanceAvailabilityService.availablePaidDays(employeeId, 2026)).thenReturn(new BigDecimal("5"));
+        when(payrollRunReviewItemRepository.countMarkLopDecisions(runId, employeeId)).thenReturn(1L);
+
+        RecomputeLopRequest req = recomputeReq();
+        req.setRunId(runId);
+        PayrollLopCalculationResponse resp = service.recompute(req, actorEmail);
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(resp.getAutoLopNoAttendanceDays()));
+        assertEquals(0, new BigDecimal("1").compareTo(resp.getComputedLopDays()));
+        assertEquals(List.of(missingDate), resp.getNeedsManualReviewDates());
     }
 
     @Test
@@ -158,7 +207,7 @@ class PayrollLopCalculationServiceTest {
                 .thenReturn(Optional.empty());
         when(workingDayService.computeExpectedWorkingDays(any(), eq(cycleStart), eq(cycleEnd)))
                 .thenReturn(WorkingDaySchedule.builder().employeeUserId(employeeId).workingDates(Set.of(missingDate)).build());
-        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, missingDate)).thenReturn(Optional.empty());
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDateBetweenOrderByWorkDateDesc(employeeId, cycleStart, cycleEnd)).thenReturn(List.of());
         when(leaveBalanceAvailabilityService.availablePaidDays(employeeId, 2026)).thenReturn(BigDecimal.ZERO);
 
         PayrollLopCalculationResponse resp = service.recompute(recomputeReq(), actorEmail);
@@ -175,13 +224,31 @@ class PayrollLopCalculationServiceTest {
                 .thenReturn(Optional.empty());
         when(workingDayService.computeExpectedWorkingDays(any(), eq(cycleStart), eq(cycleEnd)))
                 .thenReturn(WorkingDaySchedule.builder().employeeUserId(employeeId).workingDates(Set.of(missingDate)).build());
-        when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, missingDate)).thenReturn(Optional.empty());
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDateBetweenOrderByWorkDateDesc(employeeId, cycleStart, cycleEnd)).thenReturn(List.of());
         when(leaveBalanceAvailabilityService.availablePaidDays(employeeId, 2026)).thenReturn(new BigDecimal("5"));
 
         PayrollLopCalculationResponse resp = service.recompute(recomputeReq(), actorEmail);
 
         assertEquals(0, BigDecimal.ZERO.compareTo(resp.getAutoLopNoAttendanceDays()));
         assertEquals(0, BigDecimal.ZERO.compareTo(resp.getComputedLopDays()));
+        assertEquals(List.of(missingDate), resp.getNeedsManualReviewDates());
+    }
+
+    @Test
+    void recompute_attendedDate_excludedFromNoAttendanceCount() {
+        LocalDate attendedDate = LocalDate.of(2026, 6, 5);
+        LocalDate missingDate = LocalDate.of(2026, 6, 6);
+        when(payrollLopCalculationRepository.findByEmployeeIdAndCycleStartAndCycleEnd(employeeId, cycleStart, cycleEnd))
+                .thenReturn(Optional.empty());
+        when(workingDayService.computeExpectedWorkingDays(any(), eq(cycleStart), eq(cycleEnd)))
+                .thenReturn(WorkingDaySchedule.builder().employeeUserId(employeeId).workingDates(Set.of(attendedDate, missingDate)).build());
+        Attendance attendance = Attendance.builder().employeeUserId(employeeId).workDate(attendedDate).build();
+        when(attendanceRepository.findByEmployeeUserIdAndWorkDateBetweenOrderByWorkDateDesc(employeeId, cycleStart, cycleEnd))
+                .thenReturn(List.of(attendance));
+        when(leaveBalanceAvailabilityService.availablePaidDays(employeeId, 2026)).thenReturn(new BigDecimal("5"));
+
+        PayrollLopCalculationResponse resp = service.recompute(recomputeReq(), actorEmail);
+
         assertEquals(List.of(missingDate), resp.getNeedsManualReviewDates());
     }
 
@@ -202,7 +269,6 @@ class PayrollLopCalculationServiceTest {
         PayrollLopCalculationResponse resp = service.recompute(recomputeReq(), actorEmail);
 
         // Only counted once (via penaltyLopDays), not double-counted as a separate no-attendance day.
-        verify(attendanceRepository, never()).findByEmployeeUserIdAndWorkDate(employeeId, penalizedDate);
         assertEquals(0, new BigDecimal("1").compareTo(resp.getComputedLopDays()));
     }
 
@@ -217,9 +283,12 @@ class PayrollLopCalculationServiceTest {
                 .build();
         when(payrollLopCalculationRepository.findByEmployeeIdAndCycleStartAndCycleEnd(employeeId, cycleStart, cycleEnd))
                 .thenReturn(Optional.of(existing));
-        when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
+        LeaveRequest request = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(leaveType("UNPAID")).startDate(cycleStart).endDate(cycleStart).totalDays(new BigDecimal("1"))
+                .status("APPROVED").build();
+        when(leaveRequestRepository.findByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
                 eq(employeeId), any(), eq("APPROVED"), eq(cycleStart), eq(cycleEnd)))
-                .thenReturn(new BigDecimal("1"));
+                .thenReturn(List.of(request));
 
         PayrollLopCalculationResponse resp = service.recompute(recomputeReq(), actorEmail);
 
