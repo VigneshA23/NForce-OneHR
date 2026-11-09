@@ -51,6 +51,7 @@ import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard,
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
+import BenchPage from '../BenchPage';
 import ProjectAllocationsPage from '../ProjectAllocationsPage';
 import OnboardingPage from '../OnboardingPage';
 import DocumentsPage from '../DocumentsPage';
@@ -94,6 +95,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'team-reports', label: 'My Team: Reports tab', title: 'My Team: Reports', subtitle: 'The Reports tab of My Team. Cards open the real download dialogs; nothing is sent from this preview.' },
   { key: 'attention-panel', label: 'My Team: Needs your attention', title: 'My Team: Needs your attention', subtitle: 'Sample pending requests. Approve / Reject here only change this preview.' },
   { key: 'allocations-page', label: 'Project Allocations (full page)', title: 'Project Allocations', subtitle: 'Allocate and Projects tabs with sample data. Allocating and saving only change this preview.' },
+  { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
@@ -736,6 +738,58 @@ function AllocationsMock() {
     };
   }, []);
   return ready ? <ProjectAllocationsPage /> : null;
+}
+
+function BenchMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample bench data held in memory, and an HR Admin session with bench edit rights; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    const names = ['Lalith Kumar Ratnala', 'Sanjukta Rao', 'Abuzar Siddiqui', 'Sri vidya', 'Praveen Gurram', 'Vyshnavi Guthala'];
+    const emps = names.map((n, i) => ({ userId: 'u' + i, employeeCode: 'NF-2026' + (1000 + i), fullName: n, email: n.split(' ')[0].toLowerCase() + '@nforceone.com', role: 'EMPLOYEE', departmentName: 'Engineering', designationName: 'Engineer', joiningDate: '2026-01-10', active: true }));
+    let benched = [
+      { id: 'b1', employeeId: 'u0', employeeName: names[0], reasonCode: 'PROJECT_ENDED', startDate: day(-22), daysOnBench: 22, agingBucket: '16-30 days', matchScore: 2, skills: ['Java', 'Spring Boot'] },
+      { id: 'b2', employeeId: 'u1', employeeName: names[1], reasonCode: 'NEW_JOINER_UNALLOCATED', startDate: day(-41), daysOnBench: 41, agingBucket: '31-60 days', matchScore: 1, skills: ['React'] },
+      { id: 'b3', employeeId: 'u2', employeeName: names[2], reasonCode: 'ROLE_ENDED', startDate: day(-6), daysOnBench: 6, agingBucket: '0-15 days', matchScore: 0, skills: [] },
+    ];
+    const skills = [{ id: 's1', skill: 'Java', category: 'Engineering' }, { id: 's2', skill: 'Spring Boot', category: 'Engineering' }, { id: 's3', skill: 'React', category: 'Engineering' }, { id: 's4', skill: 'Figma', category: 'Design' }, { id: 's5', skill: 'Testing', category: 'QA' }];
+    let bands = [{ id: 'k1', bandLabel: 'B1', avgCtc: 600000 }, { id: 'k2', bandLabel: 'B2', avgCtc: 950000 }];
+    let aging = { buckets: [{ label: '0-15 days', minDays: 0, maxDays: 15 }, { label: '16-30 days', minDays: 16, maxDays: 30 }, { label: '31-60 days', minDays: 31, maxDays: 60 }, { label: '60+ days', minDays: 61, maxDays: null }], notifyThresholdDays: 30 };
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const path = url.split('?')[0];
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/api/employees') && method === 'GET') return json(emps);
+      if (path.endsWith('/api/bench-status/dashboard')) return json({ benchedCount: benched.length, totalHeadcount: 64, benchPercent: (benched.length / 64) * 100, buckets: [{ bucket: '0-15 days', count: 1 }, { bucket: '16-30 days', count: 1 }, { bucket: '31-60 days', count: 1 }, { bucket: '60+ days', count: 0 }], trend: Array.from({ length: 14 }, (_, i) => ({ date: day(i - 13), benchedCount: [0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, benched.length][i], totalHeadcount: 64 })) });
+      if (path.endsWith('/api/bench-status/cost')) return json({ rows: [{ bandLabel: 'B1', benchedCount: 2, avgCtc: 600000, totalCost: 1200000 }, { bandLabel: 'B2', benchedCount: 1, avgCtc: 950000, totalCost: 950000 }], totalCost: 2150000, unbandedCount: 0 });
+      if (path.endsWith('/api/bench-status/team')) return json(benched.slice(0, 2).map(b => ({ employeeId: b.employeeId, employeeName: b.employeeName, reasonCode: b.reasonCode, startDate: b.startDate, daysOnBench: b.daysOnBench, lastProject: b.id === 'b1' ? 'Customer Portal Revamp' : null })));
+      if (path.endsWith('/api/bench-status/aging-config')) { if (method === 'PUT') aging = JSON.parse(String(init?.body ?? '{}')); return json(aging); }
+      if (/\/api\/bench-status\/[^/]+\/allocations$/.test(path)) return json([{ id: 'a1', projectName: 'Customer Portal Revamp', capacityPercent: 100, startDate: day(1), endDate: day(120) }]);
+      if (/\/api\/bench-status\/[^/]+\/end$/.test(path)) { const id = path.split('/').slice(-2)[0]; benched = benched.filter(b => b.id !== id); return json({}); }
+      if (path.endsWith('/api/bench-status') && method === 'POST') {
+        const b = JSON.parse(String(init?.body ?? '{}')); const e = emps.find(x => x.userId === b.employeeId);
+        benched = [...benched, { id: 'b' + Date.now(), employeeId: b.employeeId, employeeName: e?.fullName ?? '', reasonCode: b.reasonCode, startDate: b.startDate, daysOnBench: 0, agingBucket: '0-15 days', matchScore: 0, skills: [] }];
+        return json({ employeeName: e?.fullName ?? 'Employee' });
+      }
+      if (path.endsWith('/api/bench-status') && method === 'GET') return json(benched);
+      if (path.endsWith('/api/skill-taxonomy') && method === 'GET') return json(skills);
+      if (path.endsWith('/api/skill-taxonomy') && method === 'POST') { const b = JSON.parse(String(init?.body ?? '{}')); const c = { id: 's' + Date.now(), ...b }; skills.push(c); return json(c); }
+      if (path.endsWith('/api/compensation-bands/assignments')) { if (method === 'PUT') return json(undefined); return json(emps.slice(0, 3).map((e, i) => ({ employeeId: e.userId, employeeName: e.fullName, bandId: bands[i % 2].id, bandLabel: bands[i % 2].bandLabel }))); }
+      if (path.endsWith('/api/compensation-bands') && method === 'GET') return json(bands);
+      if (path.endsWith('/api/compensation-bands') && method === 'POST') { const b = JSON.parse(String(init?.body ?? '{}')); const c = { id: 'k' + Date.now(), ...b }; bands = [...bands, c]; return json(c); }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' }, permissions: { permissions: { bench: { EDIT: ['ALL'], VIEW: ['ALL'] } } } as never });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions });
+    };
+  }, []);
+  return ready ? <BenchPage /> : null;
 }
 
 function PoliciesMock() {
@@ -1476,6 +1530,8 @@ function Tiles({ page }: { page: string }) {
       return <OppsMock />;
     case 'allocations-page':
       return <AllocationsMock />;
+    case 'bench-page':
+      return <BenchMock />;
     case 'policies-page':
       return <PoliciesMock />;
     case 'notifications-page':

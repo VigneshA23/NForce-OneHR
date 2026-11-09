@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { EmpCode } from '../../components/EmpCode';
+import { UsersRound } from 'lucide-react';
 import { usePaged } from '../../components/usePaged';
 import { TablePagination } from '../../components/TablePagination';
 import { benchApi, BENCH_REASON_LABELS, type TeamBenchRecord } from '../../api/bench';
-import { card, CardTitle, Empty, td, th } from './ui';
+import { card, CardTitle, Empty, PersonCell, Pill, td, th } from './ui';
 
 /** US-A02: the caller's benched direct reports (the server scopes it to their own hierarchy). */
 export default function TeamBenchSection({ token }: { token: string }) {
@@ -17,21 +17,21 @@ export default function TeamBenchSection({ token }: { token: string }) {
 
   return (
     <div style={card}>
-      <CardTitle>Benched direct reports</CardTitle>
+      <CardTitle icon={<UsersRound size={16} />}>Benched direct reports</CardTitle>
       {error ? <div style={{ padding: 16, color: 'var(--risk)', fontSize: 12.5 }}>{error}</div>
         : !rows ? <Empty>Loading…</Empty>
         : rows.length === 0 ? <Empty>None of your direct reports are on bench</Empty>
         : (
           <>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="nf-bn-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr><th style={th}>Name</th><th style={th}>Bench reason</th><th style={th}>Days on bench</th><th style={th}>Last project</th></tr></thead>
             <tbody>
               {benchPaged.pageRows.map(r => (
                 <tr key={r.employeeId}>
-                  <td style={td}><div>{r.employeeName}</div><EmpCode userId={r.employeeId} /></td>
+                  <td style={td}><PersonCell userId={r.employeeId} name={r.employeeName} /></td>
                   <td style={td}>{BENCH_REASON_LABELS[r.reasonCode]}</td>
-                  <td style={td}>{r.daysOnBench}</td>
-                  <td style={{ ...td, color: r.lastProject ? 'var(--txt)' : 'var(--txt-dim)' }}>{r.lastProject ?? '—'}</td>
+                  <td style={td}><Pill tone="warn">{r.daysOnBench} days</Pill></td>
+                  <td style={{ ...td, color: r.lastProject ? 'var(--txt)' : 'var(--txt-dim)' }}>{r.lastProject ?? '-'}</td>
                 </tr>
               ))}
             </tbody>

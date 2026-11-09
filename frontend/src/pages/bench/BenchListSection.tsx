@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { EmpCode } from '../../components/EmpCode';
+import { Download, Filter, UsersRound, UserCheck } from 'lucide-react';
 import { usePaged } from '../../components/usePaged';
 import { TablePagination } from '../../components/TablePagination';
 import * as XLSX from 'xlsx';
 import { benchApi, BENCH_REASON_LABELS, CLOSE_REASON_LABELS, type AgingConfig, type AllocationOption, type BenchCloseReason, type BenchListRow } from '../../api/bench';
 import { skillsApi, type Skill } from '../../api/skills';
 import { toExportRows } from './benchExport';
-import { card, CardTitle, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, Pill, primaryBtn, td, th, todayLocal } from './ui';
+import { card, CardTitle, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, PersonCell, Pill, primaryBtn, td, th, todayLocal } from './ui';
 
 function EndBenchPanel({ token, row, onDone, onCancel }: { token: string; row: BenchListRow; onDone: () => void; onCancel: () => void }) {
   const [allocations, setAllocations] = useState<AllocationOption[]>([]);
@@ -38,7 +38,7 @@ function EndBenchPanel({ token, row, onDone, onCancel }: { token: string; row: B
 
   return (
     <div style={{ ...card, marginBottom: 12, borderColor: 'var(--brand)' }}>
-      <CardTitle>End bench — {row.employeeName}</CardTitle>
+      <CardTitle icon={<UserCheck size={16} />}>End bench: {row.employeeName}</CardTitle>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <div>
           <label style={labelStyle}>Link an allocation</label>
@@ -109,6 +109,7 @@ export default function BenchListSection({ token }: { token: string }) {
   return (
     <div>
       <div style={{ ...card, marginBottom: 12 }}>
+        <CardTitle icon={<Filter size={16} />}>Filters</CardTitle>
         <div style={{ display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ width: 200 }}>
             <label style={labelStyle}>Aging bucket</label>
@@ -120,10 +121,10 @@ export default function BenchListSection({ token }: { token: string }) {
           <div style={{ flex: 1, minWidth: 260 }}>
             <label style={labelStyle}>Skills ({skillIds.length} selected)</label>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {taxonomy.length === 0 && <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No skills in the taxonomy yet — add some in Settings.</span>}
+              {taxonomy.length === 0 && <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No skills in the taxonomy yet. Add some in Settings.</span>}
               {taxonomy.map(s => (
                 <button key={s.id} type="button" onClick={() => toggleSkill(s.id)} aria-pressed={skillIds.includes(s.id)}
-                  style={{ ...ghostBtn, background: skillIds.includes(s.id) ? 'var(--brand)' : 'var(--raised)', color: skillIds.includes(s.id) ? '#fff' : 'var(--txt)' }}>
+                  className={skillIds.includes(s.id) ? 'nf-bn-chip is-on' : 'nf-bn-chip'}>
                   {s.skill}
                 </button>
               ))}
@@ -136,18 +137,18 @@ export default function BenchListSection({ token }: { token: string }) {
               <option value="AND">All selected skills (AND)</option>
             </select>
           </div>
-          <button type="button" onClick={exportXlsx} disabled={!rows?.length} style={{ ...primaryBtn(!rows?.length) }}>Export Excel</button>
+          <button type="button" onClick={exportXlsx} disabled={!rows?.length} style={{ ...primaryBtn(!rows?.length), display: 'inline-flex', alignItems: 'center', gap: 7 }}><Download size={15} />Export Excel</button>
         </div>
       </div>
 
       {ending && <EndBenchPanel token={token} row={ending} onCancel={() => setEnding(null)} onDone={() => { setEnding(null); load(); }} />}
 
       <div style={card}>
-        <CardTitle>Employees on bench {rows ? `(${rows.length})` : ''}</CardTitle>
+        <CardTitle icon={<UsersRound size={16} />}>Employees on bench {rows ? `(${rows.length})` : ''}</CardTitle>
         <ErrorBox message={error} />
         {!rows ? <Empty>Loading…</Empty> : rows.length === 0 ? <Empty>No benched employees match these filters</Empty> : (
           <>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="nf-bn-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
                 <th style={th}>Employee</th><th style={th}>Reason</th><th style={th}>Days</th><th style={th}>Bucket</th>
@@ -157,12 +158,12 @@ export default function BenchListSection({ token }: { token: string }) {
             <tbody>
               {benchPaged.pageRows.map(r => (
                 <tr key={r.id}>
-                  <td style={td}><div>{r.employeeName}</div><EmpCode userId={r.employeeId} /></td>
+                  <td style={td}><PersonCell userId={r.employeeId} name={r.employeeName} /></td>
                   <td style={td}>{BENCH_REASON_LABELS[r.reasonCode]}</td>
-                  <td style={td}>{r.daysOnBench}</td>
-                  <td style={td}>{r.agingBucket ? <Pill tone="warn">{r.agingBucket}</Pill> : '—'}</td>
-                  {skillIds.length > 0 && <td style={td}>{r.matchScore}/{skillIds.length}</td>}
-                  <td style={{ ...td, color: r.skills.length ? 'var(--txt)' : 'var(--txt-dim)' }}>{r.skills.join(', ') || '—'}</td>
+                  <td style={td}><Pill tone="warn">{r.daysOnBench} days</Pill></td>
+                  <td style={td}>{r.agingBucket ? <Pill tone="info">{r.agingBucket}</Pill> : '-'}</td>
+                  {skillIds.length > 0 && <td style={td}><Pill tone="ok">{r.matchScore}/{skillIds.length}</Pill></td>}
+                  <td style={td}>{r.skills.length ? <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>{r.skills.map(sk => <span key={sk} className="nf-bn-chip is-static">{sk}</span>)}</div> : <span style={{ color: 'var(--txt-dim)' }}>-</span>}</td>
                   <td style={{ ...td, textAlign: 'right' }}><button type="button" style={ghostBtn} onClick={() => setEnding(r)}>End bench</button></td>
                 </tr>
               ))}
