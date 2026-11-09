@@ -28,6 +28,15 @@ public interface PayslipRepository extends JpaRepository<Payslip, UUID> {
     List<Payslip> findVisibleForEmployee(@Param("employeeId") UUID employeeId,
                                          @Param("statuses") Collection<String> statuses);
 
+    // US-C17 YTD — one row: [payslip count, SUM gross, SUM deductions, SUM net, SUM LOP days]. The sums are
+    // null when there are no matching payslips. A payslip belongs to the fiscal year its pay cycle ENDS in.
+    @Query("SELECT COUNT(p), SUM(p.grossPay), SUM(p.totalDeductions), SUM(p.netPay), SUM(p.lopDays) "
+         + "FROM Payslip p WHERE p.employeeId = :employeeId AND p.payrollRun.cycleEnd >= :from "
+         + "AND p.payrollRun.cycleEnd <= :to AND p.payrollRun.status IN :statuses")
+    List<Object[]> summarizeForEmployee(@Param("employeeId") UUID employeeId,
+                                        @Param("from") LocalDate from, @Param("to") LocalDate to,
+                                        @Param("statuses") Collection<String> statuses);
+
     @Query("SELECT p FROM Payslip p JOIN FETCH p.payrollRun r WHERE p.employeeId = :employeeId "
          + "AND r.cycleEnd >= :from AND r.cycleEnd <= :to AND r.status IN :statuses ORDER BY r.cycleEnd DESC")
     List<Payslip> findVisibleForEmployeeBetween(@Param("employeeId") UUID employeeId,

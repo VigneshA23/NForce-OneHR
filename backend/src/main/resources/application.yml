@@ -109,6 +109,11 @@ app:
     # set EMPLOYEE_CREATION_LOCKED=true only for the duration of a live Employee ID migration
     # window, then unset it (or redeploy without it) once the migration is verified complete.
     locked: ${EMPLOYEE_CREATION_LOCKED:false}
+  payroll:
+    # Month (1-12) the fiscal year starts in, used by the Year-to-Date payroll view (US-C17).
+    # 4 = April-March, the Indian standard. 1 = calendar year. UNCONFIRMED for this org
+    # (Decision #13) — flipping it later is this one value, no code change.
+    fiscal-year-start-month: ${PAYROLL_FISCAL_YEAR_START_MONTH:4}
   attendance:
     # How many reverse proxies sit in front of the backend and append to X-Forwarded-For.
     # 0 = ignore the header and use the TCP peer address (local dev). Browser -> Railway = 1;
