@@ -2,14 +2,14 @@
 
 /* ── KPI tiles ── */
 .nf-ob-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 20px; }
-.nf-ob-kpi { --mk: var(--brand); position: relative; box-sizing: border-box; padding: 16px 18px 15px; overflow: hidden; border-radius: 16px; background: linear-gradient(160deg, color-mix(in srgb, var(--mk) 9%, var(--panel)) 0%, var(--panel) 62%); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(16, 24, 40, .05); }
-.nf-ob-kpi::after { content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 0 3px 3px 0; background: var(--mk); opacity: .75; }
-.nf-ob-kpi-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.nf-ob-kpi-ico { flex-shrink: 0; width: 30px; height: 30px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--mk); background: color-mix(in srgb, var(--mk) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--mk) 28%, transparent); }
-.nf-ob-kpi-label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--txt-mut); }
-.nf-ob-kpi-val { font-family: Inter, sans-serif; font-size: 34px; font-weight: 800; line-height: 1; letter-spacing: -.02em; color: var(--txt); }
+.nf-ob-kpi { --mk: var(--brand); position: relative; box-sizing: border-box; display: flex; flex-direction: column; min-height: 128px; padding: 16px 18px 14px 22px; overflow: hidden; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--mk) 22%, var(--line)); border-left: 6px solid var(--mk); background: linear-gradient(135deg, var(--panel) 42%, color-mix(in srgb, var(--mk) 11%, var(--panel)) 100%); box-shadow: 0 4px 14px rgba(16, 24, 40, .05); }
+.nf-ob-kpi-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.nf-ob-kpi-ico { flex-shrink: 0; width: 44px; height: 44px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--mk); background: color-mix(in srgb, var(--mk) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--mk) 28%, transparent); }
+.nf-ob-kpi-ico svg { width: 20px; height: 20px; }
+.nf-ob-kpi-label { padding-top: 2px; font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-mut); }
+.nf-ob-kpi-val { margin-top: auto; padding-top: 6px; font-family: Inter, sans-serif; font-size: 40px; font-weight: 800; line-height: 1; letter-spacing: -.02em; color: var(--txt); }
 .nf-ob-kpi[style*='--risk'] .nf-ob-kpi-val { color: var(--risk); }
-.nf-ob-kpi-note { margin-top: 6px; font-size: 12px; line-height: 1.4; color: var(--txt-dim); }
+.nf-ob-kpi-note { margin-top: 6px; font-size: 12.5px; line-height: 1.4; color: var(--txt-dim); }
 
 /* ── toolbar ── */
 .nf-ob-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-bottom: 14px; }

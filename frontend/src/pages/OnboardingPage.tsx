@@ -59,8 +59,8 @@ function Kpi({ icon, label, value, note, danger, tone }: { icon: React.ReactNode
   return (
     <div className="nf-ob-kpi" style={{ ['--mk' as string]: danger ? 'var(--risk)' : tone }}>
       <div className="nf-ob-kpi-top">
-        <span className="nf-ob-kpi-ico">{icon}</span>
         <span className="nf-ob-kpi-label">{label}</span>
+        <span className="nf-ob-kpi-ico">{icon}</span>
       </div>
       <div className="nf-ob-kpi-val">{value}</div>
       <div className="nf-ob-kpi-note">{note}</div>
