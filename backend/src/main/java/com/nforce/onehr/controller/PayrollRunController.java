@@ -11,7 +11,7 @@ import java.security.Principal;
 import java.util.List;
 import java.util.UUID;
 
-/** US-C08 (ONEHR-614) / US-C10 / US-C11 / US-C27 (whole-run rollback only), Phase 3. HR Admin/Super Admin only. */
+/** US-C08 (ONEHR-614) / US-C10 / US-C11 / US-C27 (whole-run and per-employee rollback), Phase 3. HR Admin/Super Admin only. */
 @RestController
 @RequestMapping("/api/payroll/runs")
 @RequiredArgsConstructor
@@ -71,5 +71,12 @@ public class PayrollRunController {
     @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
     public PayslipResponse getPayslip(@PathVariable UUID runId, @PathVariable UUID employeeId) {
         return payrollRunService.getPayslip(runId, employeeId);
+    }
+
+    @PostMapping("/{runId}/payslips/{employeeId}/rollback")
+    @PreAuthorize("hasAuthority('payroll:CONFIGURE:ALL')")
+    public PayslipResponse rollbackEmployeePayslip(@PathVariable UUID runId, @PathVariable UUID employeeId,
+            @Valid @RequestBody RollbackEmployeePayslipRequest req, Principal principal) {
+        return payrollRunService.rollbackEmployeePayslip(runId, employeeId, req, principal.getName());
     }
 }
