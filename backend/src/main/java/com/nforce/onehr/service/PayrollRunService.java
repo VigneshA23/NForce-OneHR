@@ -138,6 +138,7 @@ public class PayrollRunService {
     private final AdHocDeductionRepository adHocDeductionRepository;
     private final AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     private final SalaryHoldRepository salaryHoldRepository;
+    private final SalaryStructureResolutionService salaryStructureResolutionService;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -374,7 +375,7 @@ public class PayrollRunService {
         List<SalaryStructureComponent> components = salaryStructureComponentRepository.findByStructureId(comp.getStructure().getId());
         // Resolved in annual terms first (matching Keka's own "Update Annual salary structure"
         // convention), divided down to a monthly base only afterward — see the class javadoc.
-        Map<UUID, BigDecimal> annualByComponentId = resolveRawValues(components, comp.getCtc());
+        Map<UUID, BigDecimal> annualByComponentId = salaryStructureResolutionService.resolveAnnualValues(components, comp.getCtc());
 
         Payslip payslip = payslipRepository.save(Payslip.builder()
                 .payrollRun(run)
@@ -479,55 +480,6 @@ public class PayrollRunService {
         adHocDeductionRepository.save(deduction);
 
         return installment;
-    }
-
-    /**
-     * FIXED → PERCENT_OF_COMPONENT (iterative, cycle-safe) → PERCENT_OF_GROSS → BALANCING_REMAINDER.
-     * Everything resolved here is an ANNUAL figure — {@code ctcAnnual} is the raw, undivided CTC.
-     */
-    private Map<UUID, BigDecimal> resolveRawValues(List<SalaryStructureComponent> components, BigDecimal ctcAnnual) {
-        Map<UUID, BigDecimal> resolved = new HashMap<>();
-        List<SalaryStructureComponent> percentOfComponent = new ArrayList<>();
-        SalaryStructureComponent balancingRemainder = null;
-
-        for (SalaryStructureComponent sc : components) {
-            switch (sc.getCalcType()) {
-                case SalaryCalculationType.FIXED -> resolved.put(sc.getId(), sc.getValue());
-                case SalaryCalculationType.PERCENT_OF_COMPONENT -> percentOfComponent.add(sc);
-                case SalaryCalculationType.PERCENT_OF_GROSS -> resolved.put(sc.getId(),
-                        sc.getValue().divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP).multiply(ctcAnnual));
-                case SalaryCalculationType.BALANCING_REMAINDER -> balancingRemainder = sc;
-                default -> throw new IllegalStateException("Unknown calcType: " + sc.getCalcType());
-            }
-        }
-
-        int remaining = percentOfComponent.size();
-        while (remaining > 0) {
-            boolean progressed = false;
-            for (SalaryStructureComponent sc : percentOfComponent) {
-                if (resolved.containsKey(sc.getId())) continue;
-                BigDecimal referenceValue = resolved.get(sc.getReferenceStructureComponentId());
-                if (referenceValue != null) {
-                    resolved.put(sc.getId(), sc.getValue().divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP).multiply(referenceValue));
-                    remaining--;
-                    progressed = true;
-                }
-            }
-            if (!progressed) {
-                throw new IllegalStateException("Could not resolve PERCENT_OF_COMPONENT reference chain — circular reference in structure");
-            }
-        }
-
-        if (balancingRemainder != null) {
-            final SalaryStructureComponent remainder = balancingRemainder;
-            BigDecimal sumOfOthers = components.stream()
-                    .filter(sc -> sc != remainder && EARNING_TYPES.contains(sc.getComponent().getType()))
-                    .map(sc -> resolved.get(sc.getId()))
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            resolved.put(remainder.getId(), ctcAnnual.subtract(sumOfOthers));
-        }
-
-        return resolved;
     }
 
     // ============================================================
