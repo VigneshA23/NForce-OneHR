@@ -1,4 +1,5 @@
-import { Field, inputStyle } from '../formPrimitives';
+import { UserRound, IdCard, Phone, HeartPulse } from 'lucide-react';
+import { Field, Section, inputStyle } from '../formPrimitives';
 import { GENDERS, MARITAL_STATUSES, digitsOnly } from '../../profile/shared';
 import { composeFullName } from '../wizardLogic';
 import type { CreateUserPayload } from '../../../api/employees';
@@ -24,7 +25,8 @@ export function BasicInfoStep({ form, setForm, nameTouched, setNameTouched }: Ba
   }
 
   return (
-    <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+    <div className="nf-ce-stack">
+      <Section icon={UserRound} title="Identity" hint="How the employee's name and company email appear across OneHR.">
       <Field label="First Name"><input style={inputStyle} value={form.firstName ?? ''} onChange={e => setNamePart('firstName', e.target.value)} placeholder="Jane" /></Field>
       <Field label="Middle Name"><input style={inputStyle} value={form.middleName ?? ''} onChange={e => setNamePart('middleName', e.target.value)} placeholder="Optional" /></Field>
       <Field label="Last Name"><input style={inputStyle} value={form.lastName ?? ''} onChange={e => setNamePart('lastName', e.target.value)} placeholder="Smith" /></Field>
@@ -34,6 +36,8 @@ export function BasicInfoStep({ form, setForm, nameTouched, setNameTouched }: Ba
       <Field label="Company Email *" span="full">
         <input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" />
       </Field>
+      </Section>
+      <Section icon={IdCard} title="Personal details">
       <Field label="Date of Birth"><input type="date" style={inputStyle} value={form.dateOfBirth ?? ''} onChange={e => setForm(f => ({ ...f, dateOfBirth: e.target.value || undefined }))} /></Field>
       <Field label="Gender">
         <select style={inputStyle} value={form.gender ?? ''} onChange={e => setForm(f => ({ ...f, gender: e.target.value || undefined }))}>
@@ -47,11 +51,16 @@ export function BasicInfoStep({ form, setForm, nameTouched, setNameTouched }: Ba
           {MARITAL_STATUSES.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
       </Field>
+      </Section>
+      <Section icon={Phone} title="Contact">
       <Field label="Phone Number"><input style={inputStyle} value={form.phone ?? ''} onChange={e => setForm(f => ({ ...f, phone: digitsOnly(e.target.value) || undefined }))} placeholder="9876543210" /></Field>
       <Field label="Personal Email"><input type="email" style={inputStyle} value={form.personalEmail ?? ''} onChange={e => setForm(f => ({ ...f, personalEmail: e.target.value || undefined }))} placeholder="jane.personal@example.com" /></Field>
+      </Section>
+      <Section icon={HeartPulse} title="Emergency contact" hint="Optional, used only if HR needs to reach someone on the employee's behalf.">
       <Field label="Emergency Contact Name"><input style={inputStyle} value={form.emergencyContactName ?? ''} onChange={e => setForm(f => ({ ...f, emergencyContactName: e.target.value || undefined }))} /></Field>
       <Field label="Emergency Contact Phone"><input style={inputStyle} value={form.emergencyContactPhone ?? ''} onChange={e => setForm(f => ({ ...f, emergencyContactPhone: digitsOnly(e.target.value) || undefined }))} /></Field>
       <Field label="Emergency Contact Relationship" span="full"><input style={inputStyle} value={form.emergencyContactRelationship ?? ''} onChange={e => setForm(f => ({ ...f, emergencyContactRelationship: e.target.value || undefined }))} placeholder="e.g. Spouse, Parent" /></Field>
+      </Section>
     </div>
   );
 }

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, UserPlus, ArrowLeft, ArrowRight, Check as CheckIcon } from 'lucide-react';
+import './createEmployee.css';
 import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload } from '../../api/employees';
 import { onboardingApi } from '../../api/onboarding';
 import { useToast } from '../../context/ToastContext';
 import { businessTodayIsoDate } from '../../utils/businessDate';
-import { primaryBtnStyle, secondaryBtnStyle } from './formPrimitives';
 import { ROLES, fmtEffectiveDate, type OrgOptions } from './orgOptionsHelpers';
 import { WizardSteps } from './WizardSteps';
 import { BasicInfoStep } from './steps/BasicInfoStep';
@@ -172,9 +172,9 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
     return (
       <div className="nf-um-page" style={{ minHeight: pageMinHeight }}>
         {/* Success header — compact: small indicator, heading, one short line. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '18px 24px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(47,182,124,.15)', color: '#2FB67C', flexShrink: 0 }}>
-            <CheckCircle2 size={18} />
+        <div className="nf-ce-okhead">
+          <span className="nf-ce-okico">
+            <CheckCircle2 size={22} />
           </span>
           <div style={{ minWidth: 0 }}>
             <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 18, fontWeight: 700, color: 'var(--txt)' }}>Employee Created Successfully</div>
@@ -199,8 +199,8 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
           {/* Secondary section — credentials, compensation status, onboarding status. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {created.tempPassword && (
-              <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>Account Credentials</div>
+              <div className="nf-ce-cred">
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 10 }}>Account Credentials</div>
                 <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Login Email</div>
                 <div style={{ fontSize: 13, color: 'var(--txt)', marginBottom: 10, wordBreak: 'break-all' }}>{created.email}</div>
                 <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginBottom: 3 }}>Temporary Password</div>
@@ -240,7 +240,7 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
             {/* Compensation status — a single muted line, not a bordered card, so it doesn't
                 visually compete with the employee overview next to it. */}
             <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-              <b style={{ color: 'var(--txt)' }}>Compensation:</b> not configured yet — can be set up later.
+              <b style={{ color: 'var(--txt)' }}>Compensation:</b> not configured yet, can be set up later.
             </div>
 
             {onboardingOutcome === null && (
@@ -250,7 +250,7 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
             )}
             {onboardingOutcome === 'started' && (
               <div style={{ background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 8, padding: 12, fontSize: 12.5, color: '#4C8DD6' }}>
-                Onboarding checklist started - find it under Onboarding → Onboarding Started.
+                Onboarding checklist started. Find it under Onboarding, then Onboarding Started.
               </div>
             )}
             {onboardingOutcome === 'failed' && (
@@ -270,7 +270,7 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
         </div>
 
         <div style={{ padding: '0 24px 24px', maxWidth: 1080 }}>
-          <button onClick={onClose} style={{ ...primaryBtnStyle, width: '100%', maxWidth: 320, padding: '11px 16px', fontSize: 14 }}>Done</button>
+          <button onClick={onClose} className="nf-ce-next" style={{ width: '100%', maxWidth: 320, justifyContent: 'center' }}>Done</button>
         </div>
       </div>
     );
@@ -278,18 +278,19 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
 
   return (
     <div className="nf-um-page" style={{ minHeight: pageMinHeight, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ position: 'sticky', top: SHELL_TOPBAR_HEIGHT, zIndex: 20, background: 'var(--panel)', borderBottom: '1px solid var(--line)' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, padding: '18px 24px 4px' }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 19, fontWeight: 700, color: 'var(--txt)' }}>Create Employee</div>
-            <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 3 }}>Add a new employee in four steps.</div>
+      <div className="nf-ce-top" style={{ top: SHELL_TOPBAR_HEIGHT }}>
+        <div className="nf-ce-head">
+          <span className="nf-ce-head-ico"><UserPlus size={20} /></span>
+          <div className="nf-ce-head-txt">
+            <div className="nf-ce-title">Create Employee</div>
+            <div className="nf-ce-sub">Add a new employee in four steps.</div>
           </div>
-          <button type="button" onClick={onClose} style={{ ...secondaryBtnStyle, flexShrink: 0 }}>Cancel</button>
+          <button type="button" onClick={onClose} className="nf-ce-cancel">Cancel</button>
         </div>
         <WizardSteps current={step} />
       </div>
-      <div style={{ padding: 24, flex: 1, display: 'grid', gridTemplateColumns: '1fr', gap: 16, alignContent: 'start' }}>
-        {error && <div style={{ color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
+      <div className="nf-ce-body">
+        {error && <div role="alert" className="nf-ce-error">{error}</div>}
         {step === 0 && <BasicInfoStep form={form} setForm={setForm} nameTouched={nameTouched} setNameTouched={setNameTouched} />}
         {step === 1 && (
           <EmploymentStep
@@ -307,8 +308,8 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
         {/* Only reachable after a successful creation (handleSubmit sets step to 3) — never via
             handleContinue, so there's no way to land here without an employee already existing. */}
         {step === 3 && created && (
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', marginBottom: 12 }}>
+          <div className="nf-ce-sec" style={{ padding: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>
               {created.fullName} has been created successfully.
             </div>
             <CompensationFollowUp />
@@ -318,24 +319,19 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
           </div>
         )}
       </div>
-      <div className="nf-um-foot" style={{ margin: 0, padding: '16px 24px', display: 'flex', gap: 10, justifyContent: step === 3 ? 'flex-end' : 'space-between', alignItems: 'center' }}>
+      <div className="nf-um-foot nf-ce-foot" style={{ justifyContent: step === 3 ? 'flex-end' : 'space-between' }}>
         {step !== 3 && (
-          <button
-            type="button"
-            onClick={handleBack}
-            disabled={step === 0}
-            style={{ ...secondaryBtnStyle, opacity: step === 0 ? 0.45 : 1, cursor: step === 0 ? 'not-allowed' : 'pointer' }}
-          >
-            Back
+          <button type="button" onClick={handleBack} disabled={step === 0} className="nf-ce-back">
+            <ArrowLeft size={15} /> Back
           </button>
         )}
         {step === 3 ? (
-          <button type="button" onClick={handleSkipCompensation} style={primaryBtnStyle}>Skip for Now</button>
+          <button type="button" onClick={handleSkipCompensation} className="nf-ce-next">Skip for Now</button>
         ) : step < 2 ? (
-          <button type="button" onClick={handleContinue} style={primaryBtnStyle}>Continue</button>
+          <button type="button" onClick={handleContinue} className="nf-ce-next">Continue <ArrowRight size={15} /></button>
         ) : (
-          <button type="button" onClick={handleSubmit} disabled={submitting} style={{ ...primaryBtnStyle, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
-            {submitting ? 'Creating…' : 'Save & Continue'}
+          <button type="button" onClick={handleSubmit} disabled={submitting} className="nf-ce-next">
+            {submitting ? 'Creating…' : <>Save &amp; Continue <CheckIcon size={15} /></>}
           </button>
         )}
       </div>

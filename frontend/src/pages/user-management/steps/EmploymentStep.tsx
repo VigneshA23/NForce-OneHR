@@ -1,4 +1,5 @@
-import { Field, inputStyle } from '../formPrimitives';
+import { Briefcase, Building2 } from 'lucide-react';
+import { Field, Section, inputStyle } from '../formPrimitives';
 import { CreatableLocationSelect } from '../SharedControls';
 import { ROLES, EMPLOYMENT_TYPES, WORK_MODES, getDepartmentOptions, getDesignationOptions, getLocationOptions, getManagersForRole, type OrgOptions } from '../orgOptionsHelpers';
 import type { CreateUserPayload } from '../../../api/employees';
@@ -24,7 +25,8 @@ export function EmploymentStep({ form, setForm, opts, token, employeeCodeConflic
   const set = (key: keyof CreateUserPayload, val: any) => setForm(f => ({ ...f, [key]: val || undefined }));
 
   return (
-    <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+    <div className="nf-ce-stack">
+      <Section icon={Briefcase} title="Employment" hint="Role decides who the employee can report to, so choose it first.">
       <Field label="Employee ID">
         <input
           style={inputStyle}
@@ -73,6 +75,8 @@ export function EmploymentStep({ form, setForm, opts, token, employeeCodeConflic
           {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
         </select>
       </Field>
+      </Section>
+      <Section icon={Building2} title="Organisation" hint="Where the employee sits and who they report to.">
       <Field label="Business Unit">
         <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
           <option value="">Select Business Unit</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -103,7 +107,7 @@ export function EmploymentStep({ form, setForm, opts, token, employeeCodeConflic
           <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
             <select style={inputStyle} value={form.managerId ?? ''} disabled={noRoleYet} onChange={e => set('managerId', e.target.value)}>
               <option value="">
-                {noRoleYet ? '– Select a Role first –' : isSA ? '– None (optional) –' : '– Select a Reporting Manager –'}
+                {noRoleYet ? 'Select a Role first' : isSA ? 'None (optional)' : 'Select a Reporting Manager'}
               </option>
               {mgrList.map((m: any) => (
                 <option key={m.userId} value={m.userId} disabled={m.active === false}>
@@ -119,6 +123,7 @@ export function EmploymentStep({ form, setForm, opts, token, employeeCodeConflic
           </Field>
         );
       })()}
+      </Section>
     </div>
   );
 }

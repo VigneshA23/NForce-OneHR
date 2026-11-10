@@ -51,6 +51,7 @@ import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard,
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
+import RolesPermissionsPage from '../RolesPermissionsPage';
 import DocumentsCompliancePage from '../DocumentsCompliancePage';
 import BenchPage from '../BenchPage';
 import ProjectAllocationsPage from '../ProjectAllocationsPage';
@@ -98,6 +99,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'allocations-page', label: 'Project Allocations (full page)', title: 'Project Allocations', subtitle: 'Allocate and Projects tabs with sample data. Allocating and saving only change this preview.' },
   { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
+  { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
@@ -850,6 +852,73 @@ function DocsComplianceMock() {
   return ready ? <DocumentsCompliancePage /> : null;
 }
 
+function RolesMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample roles held in memory, and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const catalogue = [
+      { code: 'attendance', name: 'Attendance', configurable: true, actions: ['VIEW', 'CREATE', 'EDIT', 'APPROVE', 'EXPORT'] },
+      { code: 'leave', name: 'Leave', configurable: true, actions: ['VIEW', 'CREATE', 'EDIT', 'APPROVE', 'EXPORT'] },
+      { code: 'reports', name: 'Reports', configurable: true, actions: ['VIEW', 'EXPORT'] },
+      { code: 'bench', name: 'Bench management', configurable: true, actions: ['VIEW', 'EDIT'] },
+      { code: 'roles', name: 'Roles & permissions', configurable: true, actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'CONFIGURE'] },
+      { code: 'payroll', name: 'Payroll', configurable: false, actions: ['VIEW'] },
+    ];
+    const mkRole = (id: number, code: string, name: string, description: string, system: boolean, userCount: number, permissionCount: number, active = true) => ({
+      id, code, name, description, system, active, permissionsEditable: code !== 'SUPER_ADMIN', metadataEditable: !system, userCount, permissionCount,
+      createdAt: '2026-10-01T10:00:00', updatedAt: '2026-10-22T10:00:00', version: 1,
+    });
+    let roles = [
+      mkRole(1, 'EMPLOYEE', 'Employee', 'Base role held by every user: self-service features.', true, 65, 0),
+      mkRole(2, 'MANAGER', 'Manager', 'Team-scoped approvals and visibility. Granted automatically when someone has direct reports.', true, 13, 29),
+      mkRole(3, 'HR_ADMIN', 'HR Admin', 'Organization-wide HR administration.', true, 4, 86),
+      mkRole(4, 'SUPER_ADMIN', 'Super Admin', 'Full system access, including user management and roles & permissions.', true, 2, 114),
+      mkRole(5, 'PAYROLL_VIEWER', 'Payroll Viewer', 'Read-only access to payroll reports.', false, 1, 4),
+    ];
+    const members = [
+      { userId: 'm1', fullName: 'Priya Nair', email: 'priya@nforceone.com', employeeCode: 'NF-20261001', active: true },
+      { userId: 'm2', fullName: 'Rohit Sharma', email: 'rohit@nforceone.com', employeeCode: 'NF-20261002', active: true },
+    ];
+    const grantsFor = (id: number) => id === 5
+      ? [{ module: 'reports', action: 'VIEW', scope: 'ALL' }, { module: 'reports', action: 'EXPORT', scope: 'ALL' }, { module: 'attendance', action: 'VIEW', scope: 'TEAM' }, { module: 'leave', action: 'VIEW', scope: 'TEAM' }]
+      : id === 1 ? [] : [{ module: 'attendance', action: 'VIEW', scope: 'ALL' }, { module: 'leave', action: 'APPROVE', scope: 'TEAM' }, { module: 'reports', action: 'VIEW', scope: 'ALL' }];
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const path = url.split('?')[0];
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/api/permissions/catalogue')) return json(catalogue);
+      if (path.endsWith('/api/roles') && method === 'GET') return json(roles);
+      if (path.endsWith('/api/roles') && method === 'POST') {
+        const b = JSON.parse(String(init?.body ?? '{}'));
+        const r = mkRole(Date.now() % 100000, 'CUSTOM_' + Date.now(), b.name, b.description ?? '', false, 0, (b.grants ?? []).length);
+        roles = [...roles, r]; return json({ role: r, grants: b.grants ?? [], members: [] });
+      }
+      const mRole = path.match(/\/api\/roles\/(\d+)$/);
+      if (mRole && method === 'GET') { const r = roles.find(x => x.id === Number(mRole[1]))!; return json({ role: r, grants: grantsFor(r.id), members: r.userCount > 0 ? members.slice(0, Math.min(2, r.userCount)) : [] }); }
+      if (mRole && method === 'DELETE') { roles = roles.filter(x => x.id !== Number(mRole[1])); return json(null); }
+      const mStatus = path.match(/\/api\/roles\/(\d+)\/status$/);
+      if (mStatus) { const b = JSON.parse(String(init?.body ?? '{}')); roles = roles.map(x => (x.id === Number(mStatus[1]) ? { ...x, active: b.active } : x)); const r = roles.find(x => x.id === Number(mStatus[1]))!; return json({ role: r, grants: grantsFor(r.id), members: [] }); }
+      if (/\/api\/roles\/\d+(\/permissions)?$/.test(path) && method === 'PUT') { const id = Number(path.split('/').slice(-1)[0] === 'permissions' ? path.split('/').slice(-2)[0] : path.split('/').pop()); const r = roles.find(x => x.id === id)!; return json({ role: r, grants: grantsFor(id), members: [] }); }
+      if (path.endsWith('/users')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    const all = ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'APPROVE', 'EXPORT', 'CONFIGURE'];
+    const perms: Record<string, Record<string, string[]>> = {};
+    ['attendance', 'leave', 'reports', 'bench', 'roles', 'payroll'].forEach(m => { perms[m] = Object.fromEntries(all.map(a => [a, ['ALL']])); });
+    perms.user_roles = { EDIT: ['ALL'] }; perms.user_management = { VIEW: ['ALL'] };
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { primaryRole: 'SUPER_ADMIN', roles: ['SUPER_ADMIN'], permissions: perms } as never });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions });
+    };
+  }, []);
+  return ready ? <RolesPermissionsPage /> : null;
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -1592,6 +1661,8 @@ function Tiles({ page }: { page: string }) {
       return <BenchMock />;
     case 'docs-compliance-page':
       return <DocsComplianceMock />;
+    case 'roles-page':
+      return <RolesMock />;
     case 'policies-page':
       return <PoliciesMock />;
     case 'notifications-page':

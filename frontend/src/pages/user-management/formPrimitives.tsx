@@ -36,6 +36,22 @@ export function ModalHeader({ title, subtitle, onClose }: { title: string; subti
   );
 }
 
+/** A titled card that groups related fields of a wizard step. Presentation only. */
+export function Section({ icon: Icon, title, hint, children }: { icon: React.ComponentType<{ size?: number }>; title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section className="nf-ce-sec">
+      <div className="nf-ce-sec-head">
+        <span className="nf-ce-sec-ico"><Icon size={16} /></span>
+        <div>
+          <h3>{title}</h3>
+          {hint && <p>{hint}</p>}
+        </div>
+      </div>
+      <div className="nf-ce-grid nf-grid-2col-collapse">{children}</div>
+    </section>
+  );
+}
+
 export function Field({ label, span, children }: { label: string; span?: 'full'; children: React.ReactNode }) {
   return <div style={span === 'full' ? { gridColumn: '1/-1' } : undefined}><label style={labelStyle}>{label}</label>{children}</div>;
 }

@@ -1,3 +1,5 @@
+import { Check } from 'lucide-react';
+
 // Non-interactive progress indicator for the four-step employee creation wizard — deliberately
 // not clickable (no free-jump between steps, unlike components/TabBar.tsx): Continue is the only
 // way to advance, and it's gated on the current step's own validation (see CreateEmployeeWizard's
@@ -6,30 +8,21 @@ const STEP_LABELS = ['Basic Information', 'Employment & Job Details', 'Work & Po
 
 export function WizardSteps({ current }: { current: number }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', padding: '12px 24px 16px', overflowX: 'auto' }}>
+    <ol className="nf-ce-steps" aria-label="Create employee progress">
       {STEP_LABELS.map((label, i) => {
         const completed = i < current;
         const active = i === current;
         return (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', flex: i < STEP_LABELS.length - 1 ? 1 : undefined, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
-              <span style={{
-                width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 10.5, fontWeight: 700, flexShrink: 0, boxSizing: 'border-box',
-                background: completed ? 'var(--brand)' : 'transparent',
-                border: active ? '1.5px solid var(--brand)' : completed ? 'none' : '1.5px solid var(--line2)',
-                color: completed ? '#fff' : active ? 'var(--brand)' : 'var(--txt-dim)',
-              }}>
-                {completed ? '✓' : i + 1}
-              </span>
-              <span style={{ fontSize: 12.5, fontWeight: active ? 600 : 500, color: active ? 'var(--txt)' : completed ? 'var(--txt-mut)' : 'var(--txt-dim)', whiteSpace: 'nowrap' }}>
-                {label}
-              </span>
-            </div>
-            {i < STEP_LABELS.length - 1 && <div style={{ flex: 1, height: 1, background: completed ? 'var(--brand)' : 'var(--line)', minWidth: 16, margin: '0 10px' }} />}
-          </div>
+          <li key={label} className={`nf-ce-step${completed ? ' is-done' : ''}${active ? ' is-on' : ''}`} aria-current={active ? 'step' : undefined}>
+            <span className="nf-ce-step-dot">{completed ? <Check size={13} strokeWidth={3} /> : i + 1}</span>
+            <span className="nf-ce-step-label">
+              <small>Step {i + 1}</small>
+              {label}
+            </span>
+            {i < STEP_LABELS.length - 1 && <span className="nf-ce-step-line" aria-hidden="true" />}
+          </li>
         );
       })}
-    </div>
+    </ol>
   );
 }
