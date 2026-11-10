@@ -2,6 +2,7 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.*;
+import com.nforce.onehr.dto.penalization.CreateAllocationRequest;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
 import com.nforce.onehr.security.ForceLogoutBroadcaster;
@@ -61,6 +62,16 @@ public class UserManagementService {
     // Only for the "Effective From cannot be in the past" check below — the org-wide business-day
     // clock (see AttendanceProperties.zone's own Javadoc), never the JVM default (UTC on Railway).
     private final AttendanceProperties attendanceProperties;
+    // Four-step wizard, Step 3: Weekly-Off Policy assignment at creation — reuses
+    // EmployeeAssignmentService#assignWeeklyOffAtCreation (same validation/entity-creation code
+    // CSV import and the manager bulk-assign endpoint already use), called as a separate injected
+    // bean so its own plain @Transactional (default REQUIRED propagation) joins THIS method's
+    // transaction rather than running independently.
+    private final EmployeeAssignmentService employeeAssignmentService;
+    // Step 3: Attendance (Penalisation) Policy assignment at creation — reuses
+    // PenalizationPolicyAllocationService#allocate as-is (already not manager-scoped, unlike the
+    // Weekly-Off bulk path), same same-transaction reasoning as employeeAssignmentService above.
+    private final PenalizationPolicyAllocationService penalizationPolicyAllocationService;
 
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
@@ -90,11 +101,28 @@ public class UserManagementService {
         Employee emp = Employee.builder()
                 .user(newUser)
                 .employeeCode(code)
+                // fullName stays exactly as submitted — its own independent, required field (see
+                // CreateUserRequest's own comment on why the Step 1 name-part fields below are
+                // never derived back into it).
                 .fullName(req.getFullName().trim())
                 .employmentType(req.getEmploymentType() != null ? req.getEmploymentType() : "FULL_TIME")
                 .workMode(req.getWorkMode() != null ? req.getWorkMode() : "ONSITE")
                 .joiningDate(req.getJoiningDate())
                 .createdBy(actor.getId())
+                // Four-step wizard, Step 1 (Basic Information) — same nullable Employee columns
+                // ProfileService#updateProfile already sets; trimmed the same way that method
+                // trims its own string inputs. All optional, left null if not supplied.
+                .firstName(trimOrNull(req.getFirstName()))
+                .middleName(trimOrNull(req.getMiddleName()))
+                .lastName(trimOrNull(req.getLastName()))
+                .dateOfBirth(req.getDateOfBirth())
+                .gender(trimOrNull(req.getGender()))
+                .maritalStatus(trimOrNull(req.getMaritalStatus()))
+                .phone(trimOrNull(req.getPhone()))
+                .personalEmail(trimOrNull(req.getPersonalEmail()))
+                .emergencyContactName(trimOrNull(req.getEmergencyContactName()))
+                .emergencyContactPhone(trimOrNull(req.getEmergencyContactPhone()))
+                .emergencyContactRelationship(trimOrNull(req.getEmergencyContactRelationship()))
                 .build();
 
         if (req.getBusinessUnitId() != null)
@@ -186,6 +214,31 @@ public class UserManagementService {
                     .changedBy(actor.getId())
                     .build());
             managerRoleSyncService.grantIfNewManager(req.getManagerId(), actor.getId());
+        }
+
+        // Four-step wizard, Step 3 — Weekly-Off Policy and Attendance (Penalisation) Policy, both
+        // optional. Both calls are separate injected beans whose own plain @Transactional (default
+        // REQUIRED propagation) joins THIS method's transaction: a failure in either rolls back
+        // the entire employee creation (User + Employee + Shift/manager/leave-balances above)
+        // rather than leaving a partially-configured employee behind. No new assignment logic is
+        // introduced — both reuse existing, already-tested services (see each method's own
+        // Javadoc).
+        if (req.getWeeklyOffPolicyId() != null) {
+            if (req.getWeeklyOffEffectiveFrom() == null) {
+                throw new IllegalArgumentException("Weekly-Off Effective From is required when a Weekly-Off Policy is selected");
+            }
+            employeeAssignmentService.assignWeeklyOffAtCreation(
+                    newUser.getId(), req.getWeeklyOffPolicyId(), req.getWeeklyOffEffectiveFrom(), actor.getId());
+        }
+        if (req.getPenalisationPolicyId() != null) {
+            if (req.getPenalisationEffectiveFrom() == null) {
+                throw new IllegalArgumentException("Attendance Policy Effective From is required when an Attendance Policy is selected");
+            }
+            CreateAllocationRequest allocationReq = new CreateAllocationRequest();
+            allocationReq.setEmployeeUserId(newUser.getId());
+            allocationReq.setPenalisationPolicyId(req.getPenalisationPolicyId());
+            allocationReq.setEffectiveFrom(req.getPenalisationEffectiveFrom());
+            penalizationPolicyAllocationService.allocate(allocationReq, actorEmail);
         }
 
         auditService.log(actor.getId(), "USER_CREATED", newUser.getId());
@@ -840,6 +893,13 @@ public class UserManagementService {
     private String generateTempPassword() {
         int digits = 100000 + RANDOM.nextInt(900000);
         return "OneHR@" + digits;
+    }
+
+    /** Null/blank-safe trim for the optional Step 1 fields — mirrors ProfileService's own trimming of these same columns. */
+    private static String trimOrNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private void forceLogoutAfterCommit(UUID userId) {

@@ -62,6 +62,8 @@ class UserManagementServiceTest {
     @Mock private EmployeeShiftAssignmentRepository employeeShiftAssignmentRepository;
     @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
     @Mock private AttendanceProperties attendanceProperties;
+    @Mock private EmployeeAssignmentService employeeAssignmentService;
+    @Mock private PenalizationPolicyAllocationService penalizationPolicyAllocationService;
 
     @InjectMocks private UserManagementService userManagementService;
 
@@ -691,6 +693,189 @@ class UserManagementServiceTest {
 
             verify(employeeRepository).save(argThat(e -> e.getShift() == null));
             verifyNoInteractions(employeeShiftAssignmentRepository);
+        }
+
+        // Four-step wizard, Step 1 (Basic Information) — optional fields map straight onto the
+        // same Employee columns ProfileService/My Profile already read/write; fullName stays
+        // exactly as submitted (see CreateUserRequest's own comment on why it's never derived
+        // from these).
+        @Test
+        void step1BasicInfoFields_areMappedOntoTheSavedEmployee() {
+            req.setFirstName(" Jane ");
+            req.setMiddleName("");
+            req.setLastName("Smith");
+            req.setDateOfBirth(LocalDate.of(1990, 5, 20));
+            req.setGender("Female");
+            req.setMaritalStatus("Single");
+            req.setPhone(" 555-0100 ");
+            req.setPersonalEmail("jane.personal@example.com");
+            req.setEmergencyContactName("John Smith");
+            req.setEmergencyContactPhone("555-0101");
+            req.setEmergencyContactRelationship("Spouse");
+            when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+
+            userManagementService.createUser(req, actorEmail);
+
+            verify(employeeRepository).save(argThat(e ->
+                    "Jane Smith".equals(e.getFullName()) // untouched, directly-submitted fullName
+                            && "Jane".equals(e.getFirstName())
+                            && e.getMiddleName() == null // blank input normalized to null, not stored as ""
+                            && "Smith".equals(e.getLastName())
+                            && LocalDate.of(1990, 5, 20).equals(e.getDateOfBirth())
+                            && "Female".equals(e.getGender())
+                            && "Single".equals(e.getMaritalStatus())
+                            && "555-0100".equals(e.getPhone())
+                            && "jane.personal@example.com".equals(e.getPersonalEmail())
+                            && "John Smith".equals(e.getEmergencyContactName())
+                            && "555-0101".equals(e.getEmergencyContactPhone())
+                            && "Spouse".equals(e.getEmergencyContactRelationship())));
+        }
+
+        @Test
+        void step1BasicInfoFields_allOptional_absentLeavesThemNull() {
+            when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+
+            userManagementService.createUser(req, actorEmail);
+
+            verify(employeeRepository).save(argThat(e ->
+                    e.getFirstName() == null && e.getMiddleName() == null && e.getLastName() == null
+                            && e.getDateOfBirth() == null && e.getGender() == null && e.getMaritalStatus() == null
+                            && e.getPhone() == null && e.getPersonalEmail() == null
+                            && e.getEmergencyContactName() == null && e.getEmergencyContactPhone() == null
+                            && e.getEmergencyContactRelationship() == null));
+        }
+
+        // Step 3 — Weekly-Off Policy assignment at creation. Routed through
+        // EmployeeAssignmentService#assignWeeklyOffAtCreation (a separate injected bean), never a
+        // duplicated insert here — see that method's own tests in EmployeeAssignmentServiceTest
+        // for its validation behavior.
+        @Nested
+        class WeeklyOffAssignmentAtCreation {
+
+            private final UUID weeklyOffPolicyId = UUID.randomUUID();
+
+            @BeforeEach
+            void setUp() {
+                when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+            }
+
+            @Test
+            void policyAndEffectiveFromProvided_delegatesToEmployeeAssignmentService() {
+                LocalDate effectiveFrom = LocalDate.now().plusDays(2);
+                req.setWeeklyOffPolicyId(weeklyOffPolicyId);
+                req.setWeeklyOffEffectiveFrom(effectiveFrom);
+
+                userManagementService.createUser(req, actorEmail);
+
+                verify(employeeAssignmentService).assignWeeklyOffAtCreation(
+                        targetUserId, weeklyOffPolicyId, effectiveFrom, actorId);
+            }
+
+            @Test
+            void noPolicySelected_neverCallsEmployeeAssignmentService() {
+                userManagementService.createUser(req, actorEmail);
+
+                verifyNoInteractions(employeeAssignmentService);
+            }
+
+            @Test
+            void policySelected_missingEffectiveFrom_throwsAndNeverDelegates() {
+                req.setWeeklyOffPolicyId(weeklyOffPolicyId);
+
+                IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                        () -> userManagementService.createUser(req, actorEmail));
+
+                assertTrue(ex.getMessage().contains("Effective From"));
+                verifyNoInteractions(employeeAssignmentService);
+            }
+
+            /**
+             * Propagation proof (see Decisions Log #2 / #5): this repo has no real-database test
+             * infrastructure (see EmployeeCodeGeneratorTest's own documented precedent) so true
+             * cross-table rollback is a Spring @Transactional guarantee exercised at the database
+             * level, not re-provable here. What IS provable at this level: a failure from the
+             * reused assignment service is never caught/swallowed inside createUser — it propagates
+             * straight out, before the USER_CREATED audit entry or the invite email are ever sent,
+             * which is exactly the behavior Spring's proxy needs to see in order to mark the
+             * surrounding (shared, REQUIRED-propagation) transaction for rollback.
+             */
+            @Test
+            void assignmentFailure_propagatesUncaught_beforeAuditOrInviteEmail() {
+                LocalDate effectiveFrom = LocalDate.now().plusDays(2);
+                req.setWeeklyOffPolicyId(weeklyOffPolicyId);
+                req.setWeeklyOffEffectiveFrom(effectiveFrom);
+                doThrow(new IllegalArgumentException("Weekly off policy not found"))
+                        .when(employeeAssignmentService)
+                        .assignWeeklyOffAtCreation(any(), any(), any(), any());
+
+                assertThrows(IllegalArgumentException.class, () -> userManagementService.createUser(req, actorEmail));
+
+                verifyNoInteractions(auditService);
+                verifyNoInteractions(emailService);
+            }
+        }
+
+        // Step 3 — Attendance (Penalisation) Policy assignment at creation. Reuses
+        // PenalizationPolicyAllocationService#allocate as-is (no new service method needed — see
+        // the plan's own rationale for why this one, unlike Weekly-Off, needed no wrapper).
+        @Nested
+        class PenalisationPolicyAssignmentAtCreation {
+
+            private final UUID penalisationPolicyId = UUID.randomUUID();
+
+            @BeforeEach
+            void setUp() {
+                when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+            }
+
+            @Test
+            void policyAndEffectiveFromProvided_delegatesToAllocationService() {
+                LocalDate effectiveFrom = LocalDate.now();
+                req.setPenalisationPolicyId(penalisationPolicyId);
+                req.setPenalisationEffectiveFrom(effectiveFrom);
+
+                userManagementService.createUser(req, actorEmail);
+
+                verify(penalizationPolicyAllocationService).allocate(argThat(a ->
+                        targetUserId.equals(a.getEmployeeUserId())
+                                && penalisationPolicyId.equals(a.getPenalisationPolicyId())
+                                && effectiveFrom.equals(a.getEffectiveFrom())
+                                && a.getEffectiveTo() == null), eq(actorEmail));
+            }
+
+            @Test
+            void noPolicySelected_neverCallsAllocationService() {
+                userManagementService.createUser(req, actorEmail);
+
+                verifyNoInteractions(penalizationPolicyAllocationService);
+            }
+
+            @Test
+            void policySelected_missingEffectiveFrom_throwsAndNeverDelegates() {
+                req.setPenalisationPolicyId(penalisationPolicyId);
+
+                IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                        () -> userManagementService.createUser(req, actorEmail));
+
+                assertTrue(ex.getMessage().contains("Effective From"));
+                verifyNoInteractions(penalizationPolicyAllocationService);
+            }
+
+            /** Propagation proof — see WeeklyOffAssignmentAtCreation's identical test for the full rationale. */
+            @Test
+            void assignmentFailure_propagatesUncaught_beforeAuditOrInviteEmail() {
+                LocalDate effectiveFrom = LocalDate.now();
+                req.setPenalisationPolicyId(penalisationPolicyId);
+                req.setPenalisationEffectiveFrom(effectiveFrom);
+                doThrow(new IllegalStateException("This employee already has an allocation..."))
+                        .when(penalizationPolicyAllocationService)
+                        .allocate(any(), any());
+
+                assertThrows(IllegalStateException.class, () -> userManagementService.createUser(req, actorEmail));
+
+                verifyNoInteractions(auditService);
+                verifyNoInteractions(emailService);
+            }
         }
     }
 
