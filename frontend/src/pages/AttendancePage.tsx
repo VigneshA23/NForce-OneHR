@@ -16,6 +16,8 @@ import {
   type SubmitRegularizationPayload,
   type RegularizationBalance,
   type Punch,
+  isOffOfficeNetwork,
+  offNetworkDetail,
 } from '../api/attendance';
 import {
   attendanceRequestApi,
@@ -32,6 +34,7 @@ import { usePreviewMode } from '../lib/previewMode';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { AttendancePolicyModal } from '../components/AttendancePolicyModal';
+import { WebClockInRequestModal } from '../components/WebClockInRequestModal';
 import { ChipGroup, TabBar } from '../components/TabBar';
 import { holidaysApi, type HolidayRow } from '../api/holidays';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
@@ -39,6 +42,8 @@ import { profileApi } from '../api/profile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole, type Role } from '../lib/nav.config';
+import { hasPermission } from '../lib/permissions';
+import type { MyPermissionsResponse } from '../api/me';
 import { previewRegularizations, previewAttendanceRequests, previewOvertimeRequests, previewRoster, previewRosterEmails } from './attendance-ui-preview/attendancePreviewData';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
 import { TimeFormatProvider, useTimeFormat, formatLateBySeconds } from '../context/TimeFormatContext';
@@ -596,7 +601,7 @@ function PunchHistoryList({ date, token, refreshKey, isPreviewMode = false }: { 
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <PunchSourceGroup label="Check-In / Check-Out" sessions={officeSessions} workDate={date} />
-        <PunchSourceGroup label="Web Check-In / Check-Out" sessions={webSessions} workDate={date} />
+        <PunchSourceGroup label="Web Check-In / Check-Out (Work From Home)" sessions={webSessions} workDate={date} />
       </div>
     </div>
   );
@@ -993,7 +998,7 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
     } finally { setSubmitting(false); }
   }
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={modalStyle}>
         <ModalHeader title={editing ? 'Edit Regularization Request' : 'Request Attendance Regularization'} onClose={onClose} />
@@ -1045,8 +1050,8 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
             )}
           </div>
 
-          <div className="nf-am-callout" style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <input type="radio" checked readOnly style={{ marginTop: 3 }} />
+          <div className="nf-am-callout" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="radio" checked readOnly aria-label="Raise regularization request" />
             <span style={{ fontSize: 12.5, color: 'var(--txt)' }}>
               Raise regularization request to exempt this day from penalization policy.
             </span>
@@ -1118,7 +1123,8 @@ function RequestModal({ onClose, onSaved, token, editing, approvedDates, isSuper
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1149,7 +1155,7 @@ function RequestDetailsModal({ request, onClose }: { request: RegularizationReco
   const approverName = request.status === 'PENDING' || request.status === 'PARTIALLY_APPROVED'
     ? request.assignedApproverName : request.reviewedByName;
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 460, overflowX: 'hidden' }}>
         <ModalHeader title="Regularization Request Details" onClose={onClose} />
@@ -1221,7 +1227,8 @@ function RequestDetailsModal({ request, onClose }: { request: RegularizationReco
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1247,7 +1254,7 @@ function ConfirmApproveModal({ request, onClose, onApproved, token }: {
     }
   }
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 420 }}>
         <ModalHeader title={`Approve · ${request.employeeName}`} onClose={onClose} />
@@ -1271,7 +1278,8 @@ function ConfirmApproveModal({ request, onClose, onApproved, token }: {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1297,7 +1305,7 @@ function RejectModal({ request, onClose, onRejected, token }: { request: Regular
     } finally { setSubmitting(false); }
   }
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 420 }}>
         <ModalHeader title={`Reject · ${request.employeeName}`} onClose={onClose} />
@@ -1319,7 +1327,8 @@ function RejectModal({ request, onClose, onRejected, token }: { request: Regular
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1365,7 +1374,7 @@ function BulkActionModal({ action, ids, token, onClose, onDone }: {
   }
 
   const isReject = action === 'REJECT';
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 420 }}>
         <ModalHeader title={`${isReject ? 'Reject' : 'Approve'} ${ids.length} Request${ids.length === 1 ? '' : 's'}`} onClose={onClose} />
@@ -1394,7 +1403,8 @@ function BulkActionModal({ action, ids, token, onClose, onDone }: {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -2339,7 +2349,7 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
     && (requestType !== 'PARTIAL_DAY' || (!timeRequiredError && Number(partialDayMinutes) > 0
       && Number(partialDayMinutes) <= PARTIAL_DAY_MONTHLY_LIMIT_HOURS * 60));
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 440 }}>
         <ModalHeader title={presetType === 'WFH' ? 'Work From Home' : presetType === 'PARTIAL_DAY' ? 'Request Partial Day' : 'New Attendance Request'} onClose={onClose} />
@@ -2588,7 +2598,8 @@ function AttendanceRequestModal({ presetType, onClose, onSaved, token, initialDa
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -3604,6 +3615,18 @@ function punchDateSuffix(iso: string, workDate: string): string {
   return differing ? ` (${formatShortDay(differing)})` : '';
 }
 
+/** Shown only when the office-network check ran and failed (null = office network not configured). */
+function OffNetworkTag({ inOffice, ip }: { inOffice?: boolean | null; ip?: string | null }) {
+  if (inOffice == null) return null;
+  return (
+    <Tooltip content={`${inOffice ? 'Punched on the office Wi-Fi' : 'Not on the office network'}${ip ? ` (IP ${ip})` : ''}`}>
+      <span style={{ fontSize: 9.5, fontWeight: 700, color: inOffice ? 'var(--ok)' : 'var(--warn)', border: '1px solid currentColor', borderRadius: 3, padding: '0 4px', letterSpacing: '.04em' }}>
+        {inOffice ? 'OFFICE WI-FI' : 'OFF-NETWORK'}
+      </span>
+    </Tooltip>
+  );
+}
+
 /** One source's block of sessions within DayPunchIntervals — mirrors Keka's per-source grouping
  * (its own company-name section for normal punches, a separate "Web Clock In" section).
  * `workDate` is the attendance row's own authoritative workDate (never re-derived here — see
@@ -3612,7 +3635,8 @@ function punchDateSuffix(iso: string, workDate: string): string {
  * instead of being indistinguishable from a same-day punch. */
 function PunchSourceGroup({ label, sessions, workDate, cards = false }: {
   label: string;
-  sessions: { key: string; checkInAt: string; checkOutAt: string | null; note?: string | null }[];
+  sessions: { key: string; checkInAt: string; checkOutAt: string | null; note?: string | null;
+    checkInIp?: string | null; checkInInOffice?: boolean | null; checkOutIp?: string | null; checkOutInOffice?: boolean | null }[];
   workDate: string;
   /** Drawer look: every session is its own outlined row instead of a bare line. */
   cards?: boolean;
@@ -3642,10 +3666,12 @@ function PunchSourceGroup({ label, sessions, workDate, cards = false }: {
                   </button>
                 </Tooltip>
               )}
+              <OffNetworkTag inOffice={s.checkInInOffice} ip={s.checkInIp} />
             </span>
             {s.checkOutAt ? (
               <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--txt)', fontWeight: 600 }}>
                 <ArrowUpRight size={12} /> {outTime ? `${outTime}${punchDateSuffix(s.checkOutAt, workDate)}` : outTime}
+                <OffNetworkTag inOffice={s.checkOutInOffice} ip={s.checkOutIp} />
               </span>
             ) : (
               <span style={{ fontSize: 10, fontWeight: 700, color: '#E4373D', letterSpacing: '.04em' }}>MISSING</span>
@@ -3671,9 +3697,11 @@ function DayPunchIntervals({ info, punches, cards = false }: { info: DayInfo; pu
   // info.iso, since recordByDate is itself keyed by workDate), else info.iso as a same-value
   // fallback for the (structurally unreachable once sessions is non-empty) no-record case.
   const workDate = record?.workDate ?? info.iso;
-  const sessions: { key: string; checkInAt: string; checkOutAt: string | null; source: Punch['source']; note: string | null }[] =
+  const sessions: { key: string; checkInAt: string; checkOutAt: string | null; source: Punch['source']; note: string | null;
+    checkInIp?: string | null; checkInInOffice?: boolean | null; checkOutIp?: string | null; checkOutInOffice?: boolean | null }[] =
     punches && punches.length > 0
-      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, source: p.source, note: p.note }))
+      ? punches.map((p) => ({ key: p.id, checkInAt: p.checkInAt, checkOutAt: p.checkOutAt, source: p.source, note: p.note,
+          checkInIp: p.checkInIp, checkInInOffice: p.checkInInOffice, checkOutIp: p.checkOutIp, checkOutInOffice: p.checkOutInOffice }))
       : record?.checkInAt
         ? [{ key: info.iso, checkInAt: record.checkInAt, checkOutAt: record.checkOutAt, source: record.source === 'WEB_REMOTE' ? 'WEB_REMOTE' : 'SYSTEM', note: null }]
         : [];
@@ -3695,7 +3723,7 @@ function DayPunchIntervals({ info, punches, cards = false }: { info: DayInfo; pu
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: cards ? 14 : 10, maxWidth: cards ? undefined : 260 }}>
       <PunchSourceGroup label="Check-In / Check-Out" sessions={officeSessions} workDate={workDate} cards={cards} />
-      <PunchSourceGroup label="Web Check-In / Check-Out" sessions={webSessions} workDate={workDate} cards={cards} />
+      <PunchSourceGroup label="Web Check-In / Check-Out (Work From Home)" sessions={webSessions} workDate={workDate} cards={cards} />
     </div>
   );
 }
@@ -5039,6 +5067,8 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     return refreshed;
   }, [token, refreshMonth, isPreviewMode, today]);
 
+  const [wfhPrompt, setWfhPrompt] = useState<false | { detail: string | null }>(false);
+
   async function punch(kind: 'in' | 'out') {
     if (punchInFlightRef.current) return;
     punchInFlightRef.current = true;
@@ -5088,8 +5118,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       // /today call and picks up whatever latency that round trip has, making the toast read
       // later than the moment the employee actually punched in.
       const at = formatTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
-      showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
+      showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}${kind === 'in' && record.officeNetwork ? ' · Office Wi-Fi' : ''}`);
     } catch (err) {
+      if (kind === 'in' && isOffOfficeNetwork(err)) { setWfhPrompt({ detail: offNetworkDetail(err) }); return; }
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
     } finally {
       punchInFlightRef.current = false;
@@ -5106,6 +5137,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
 
   return (
     <>
+    {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => { void refreshTodayAndMonth(); }} />}
     <div
       className="nf-grid-proportional-collapse"
       style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '18px 16px' }}
@@ -5683,8 +5715,8 @@ export interface RegularizationSectionHandle {
   openNewRequest: () => void;
 }
 
-const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: string; canApprove: boolean; isSuperAdmin: boolean; isManager: boolean; isPreview?: boolean }>(
-  function RegularizationSection({ token, canApprove, isSuperAdmin, isManager, isPreview = false }, ref) {
+const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: string; canApprove: boolean; isSuperAdmin: boolean; canViewAuditTrail: boolean; isManager: boolean; isPreview?: boolean }>(
+  function RegularizationSection({ token, canApprove, isSuperAdmin, canViewAuditTrail, isManager, isPreview = false }, ref) {
   const { showToast } = useToast();
   const { formatTime, formatDuration } = useTimeFormat();
   const [myRequests, setMyRequests] = useState<RegularizationRecord[]>([]);
@@ -5776,7 +5808,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <SectionHeading title="Attendance Regularization" hint="Request corrections for missed or incorrect punches." />
-        {isSuperAdmin && (
+        {canViewAuditTrail && (
           <Link to="/attendance/regularization/all" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 14px', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
             <ShieldCheck size={13} /> View All & Audit Trail
           </Link>
@@ -7178,7 +7210,7 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
     }
   }
 
-  return (
+  return createPortal(
     <div style={overlayStyle}>
       <div className="nf-modal" style={{ ...modalStyle, maxWidth: 460 }}>
         <ModalHeader title="Request Overtime (OT)" onClose={onClose} />
@@ -7270,7 +7302,8 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -7395,13 +7428,57 @@ function DayRoster({ scope, isPreview = false }: { scope: 'team' | 'all'; isPrev
 // outer bar can match Keka's exact 4-tab list (Overtime Requests moved out to its own main tab).
 type AttendanceRequestsSubTab = 'REGULARIZATION' | 'WFH_PARTIAL_DAY';
 
+export interface AttendanceAccess {
+  canApproveRegularization: boolean;
+  canApproveAttendanceRequests: boolean;
+  canApproveOvertime: boolean;
+  /** May act on legacy PARTIALLY_APPROVED regularizations — HR/Super Admin only server-side. */
+  regularizationFinalStage: boolean;
+  /** No lookback window / monthly limit on one's own regularization requests (V234 regularization:CONFIGURE:ALL — Super Admin by default). */
+  regularizationUnlimited: boolean;
+  /** "View All & Audit Trail" — GET /attendance/regularization/all (V234 regularization:EXPORT:ALL — Super Admin by default). */
+  regularizationAuditTrail: boolean;
+  roster: 'team' | 'all' | null;
+}
+
+/** Each approval queue / roster is gated on the permission its own endpoint requires
+ *  (AttendanceController, AttendanceRequestController, OvertimeRequestController) — every one
+ *  seeded to exactly the role set this page used to check (V225): the *:APPROVE:TEAM trio to
+ *  Manager/HR Admin/Super Admin, regularization:APPROVE:ALL and attendance:VIEW:ALL to HR Admin/
+ *  Super Admin, attendance:VIEW:TEAM to Manager (+ HR/SA, who take the 'all' branch first). */
+export function attendanceAccess(permissions: MyPermissionsResponse | null | undefined): AttendanceAccess {
+  return {
+    canApproveRegularization: hasPermission(permissions, 'regularization', 'APPROVE', 'TEAM'),
+    canApproveAttendanceRequests: hasPermission(permissions, 'attendance_requests', 'APPROVE', 'TEAM'),
+    canApproveOvertime: hasPermission(permissions, 'overtime', 'APPROVE', 'TEAM'),
+    regularizationFinalStage: hasPermission(permissions, 'regularization', 'APPROVE', 'ALL'),
+    regularizationUnlimited: hasPermission(permissions, 'regularization', 'CONFIGURE', 'ALL'),
+    regularizationAuditTrail: hasPermission(permissions, 'regularization', 'EXPORT', 'ALL'),
+    roster: hasPermission(permissions, 'attendance', 'VIEW', 'ALL') ? 'all'
+      : hasPermission(permissions, 'attendance', 'VIEW', 'TEAM') ? 'team' : null,
+  };
+}
+
 function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }: { forcePreview?: boolean; previewRole?: Role }) {
   // The router has no role guard, so — like Shell — the page resolves the role itself.
   const token = useAuthStore((s) => s.token)!;
   const authRole = toShellRole(useAuthStore((s) => s.user?.role));
-  // Preview route only: the role is chosen by the preview frame, since there is no signed-in user.
+  const permissions = useAuthStore((s) => s.permissions);
+  // Preview route only: the role is chosen by the preview frame, since there is no signed-in user
+  // (and so no permissions) — its access mirrors what that role's seeded permissions grant.
   const role: Role = forcePreview ? previewRole : authRole;
-  const canApprove = role === 'Manager' || role === 'HR Admin' || role === 'Super Admin';
+  const isOrgRole = role === 'HR Admin' || role === 'Super Admin';
+  const access: AttendanceAccess = forcePreview
+    ? {
+        canApproveRegularization: role !== 'Employee',
+        canApproveAttendanceRequests: role !== 'Employee',
+        canApproveOvertime: role !== 'Employee',
+        regularizationFinalStage: isOrgRole,
+        regularizationUnlimited: role === 'Super Admin',
+        regularizationAuditTrail: role === 'Super Admin',
+        roster: isOrgRole ? 'all' : role === 'Manager' ? 'team' : null,
+      }
+    : attendanceAccess(permissions);
 
   const subtitle = role === 'Manager'
     ? 'Review daily attendance for the selected month, and your team’s attendance for any day.'
@@ -7519,7 +7596,7 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
       <div style={{ display: 'flex', flexDirection: 'column', gap: 30 }}>
         <MyAttendance
           ref={myAttendanceRef}
-          isSuperAdmin={role === 'Super Admin'}
+          isSuperAdmin={access.regularizationUnlimited}
           logsTab={logsTab}
           onLogsTabChange={setLogsTab}
           isPreviewMode={isPreviewMode}
@@ -7539,20 +7616,19 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
                   />
                 </div>
                 {requestsSubTab === 'REGULARIZATION' && (
-                  <RegularizationSection ref={regularizationRef} token={token} canApprove={canApprove} isSuperAdmin={role === 'Super Admin'} isManager={role === 'Manager'} isPreview={forcePreview} />
+                  <RegularizationSection ref={regularizationRef} token={token} canApprove={access.canApproveRegularization} isSuperAdmin={access.regularizationUnlimited} canViewAuditTrail={access.regularizationAuditTrail} isManager={!access.regularizationFinalStage} isPreview={forcePreview} />
                 )}
                 {requestsSubTab === 'WFH_PARTIAL_DAY' && (
-                  <AttendanceRequestsSection token={token} canApprove={canApprove} isPreview={forcePreview} />
+                  <AttendanceRequestsSection token={token} canApprove={access.canApproveAttendanceRequests} isPreview={forcePreview} />
                 )}
               </div>
             ) : logsTab === 'OVERTIME' ? (
-              <OvertimeRequestsSection token={token} canApprove={canApprove} isPreview={forcePreview} />
+              <OvertimeRequestsSection token={token} canApprove={access.canApproveOvertime} isPreview={forcePreview} />
             ) : null
           }
         />
 
-        {role === 'Manager' && <DayRoster scope="team" isPreview={forcePreview} />}
-        {(role === 'HR Admin' || role === 'Super Admin') && <DayRoster scope="all" isPreview={forcePreview} />}
+        {access.roster && <DayRoster scope={access.roster} isPreview={forcePreview} />}
       </div>
     </div>
   );

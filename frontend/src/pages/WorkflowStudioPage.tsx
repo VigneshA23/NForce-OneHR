@@ -316,7 +316,7 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
                     onClick={() => toggleSecondApprovalRole(role)}
                     className={`nf-wf-chip opt${checked ? ' on' : ''}`}
                   >
-                    {checked ? '+ ' : ''}{role.replace('_', ' ')} Approval
+                    {checked ? '+ ' : ''}{metadata.approvalRoleLabels?.[role] ?? role.replace('_', ' ')} Approval
                   </button>
                 );
               })}

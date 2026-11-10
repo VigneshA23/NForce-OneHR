@@ -274,7 +274,7 @@ export function DashboardTab() {
                     <PersonAvatar userId={r.employeeUserId} name={r.employeeName} size={38} />
                     <div style={{ minWidth: 0 }}>
                       <div className="nf-tl-name">{r.employeeName}</div>
-                      <div className="nf-tl-meta">{r.employeeCode} · {r.departmentName ?? '–'}</div>
+                      <div className="nf-tl-meta">{r.employeeCode} · {r.departmentName ?? '-'}</div>
                     </div>
                   </div>
                   <div className="nf-tl-chips">

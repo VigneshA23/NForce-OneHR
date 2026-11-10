@@ -1,0 +1,48 @@
+/* Notifications page — filter bar, list, detail pane, pager. Presentation only; theme tokens throughout. */
+
+/* toolbar */
+.nf-nt-bar select { transition: border-color .15s, box-shadow .15s; cursor: pointer; }
+.nf-nt-bar select:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-nt-bar select:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
+.nf-nt-bar .nf-filter-search { border-radius: 11px; }
+
+/* list */
+.nf-notif-row { transition: background .12s, border-color .12s, transform .12s; }
+.nf-notif-row:hover { transform: translateX(1px); }
+
+/* detail pane */
+.nf-nd { height: 100%; overflow-y: auto; padding: 24px 28px 28px; display: flex; flex-direction: column; gap: 18px; }
+.nf-nd-hero { display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px; border-radius: 16px; background: linear-gradient(120deg, color-mix(in srgb, var(--nd-c) 12%, var(--panel)) 0%, var(--panel) 75%); border: 1px solid color-mix(in srgb, var(--nd-c) 22%, var(--line)); }
+.nf-nd-ico { flex-shrink: 0; width: 52px; height: 52px; border-radius: 15px; display: inline-flex; align-items: center; justify-content: center; }
+.nf-nd-ico svg { width: 22px; height: 22px; }
+.nf-nd-titles { flex: 1; min-width: 0; }
+.nf-nd-title { margin: 0; font-family: Inter, sans-serif; font-size: 19px; font-weight: 700; line-height: 1.35; letter-spacing: -.01em; color: var(--txt); overflow-wrap: anywhere; }
+.nf-nd-when { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-nd-when svg { color: var(--txt-dim); }
+
+.nf-nd-sec { padding: 16px 18px; border-radius: 14px; background: var(--raised); border: 1px solid var(--line); }
+.nf-nd-label { margin-bottom: 8px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-dim); }
+.nf-nd-msg { margin: 0; font-size: 14px; line-height: 1.7; color: var(--txt); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.nf-nd-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.nf-nd-fact { display: flex; align-items: center; gap: 11px; padding: 12px 14px; border-radius: 13px; background: var(--panel); border: 1px solid var(--line); }
+.nf-nd-fact-ico { flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 11%, var(--panel)); }
+.nf-nd-fact div { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.nf-nd-fact span:not(.nf-nd-fact-ico) { font-size: 11px; font-weight: 600; color: var(--txt-dim); }
+.nf-nd-fact b { font-size: 13.5px; font-weight: 700; color: var(--txt); overflow-wrap: anywhere; }
+
+.nf-nd-act { display: flex; }
+.nf-nd-open { display: inline-flex; align-items: center; gap: 7px; padding: 10px 20px; border: none; border-radius: 11px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000)); box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 28%, transparent); transition: transform .15s; }
+.nf-nd-open:hover { transform: translateY(-1px); }
+
+/* nothing selected */
+.nf-nd-empty { height: 100%; min-height: 280px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; }
+.nf-nd-empty-ico { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; margin-bottom: 16px; color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 24%, transparent); }
+.nf-nd-empty-title { font-size: 15px; font-weight: 700; color: var(--txt); margin-bottom: 5px; }
+.nf-nd-empty-sub { max-width: 260px; font-size: 12.5px; line-height: 1.5; color: var(--txt-dim); }
+.nf-nd-empty-hint { display: inline-flex; align-items: center; gap: 6px; margin-top: 16px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line2); }
+.nf-nd-empty-hint svg { color: var(--brand); }
+
+/* pager */
+.nf-nt-pager button { width: 34px; height: 34px; justify-content: center; border-radius: 11px !important; background: var(--panel) !important; border-color: var(--line2) !important; padding: 0 !important; }
+.nf-nt-pager button:not(:disabled):hover { border-color: var(--brand) !important; color: var(--brand) !important; }

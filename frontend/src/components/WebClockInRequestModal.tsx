@@ -24,7 +24,14 @@ function formatClockTime(iso: string | null): string | null {
  * every later cycle the same day skips this modal entirely (see the caller). Shared by
  * DashboardPage and AttendancePage's own Web Check-In action.
  */
-export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: (r: WebClockInRecord) => void | Promise<void> }) {
+export function WebClockInRequestModal({ onClose, onSubmitted, offNetwork = false, networkDetail }: {
+  onClose: () => void;
+  onSubmitted: (r: WebClockInRecord) => void | Promise<void>;
+  /** Opened because office Check-In was refused off the office network: ask for a WFH reason. */
+  offNetwork?: boolean;
+  /** Server note with the network IP it detected — lets an admin compare it with the office IPs. */
+  networkDetail?: string | null;
+}) {
   const token = useAuthStore(s => s.token) ?? '';
   const { showToast } = useToast();
   const [reason, setReason] = useState('');
@@ -66,18 +73,24 @@ export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () =
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 }}>
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>
-          Web Clock-In Request
+          {offNetwork ? 'Work From Home Check-In' : 'Web Clock-In Request'}
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <p style={{ margin: 0, fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-            Adding a comment is required for a web clock-in request.
+            {offNetwork
+              ? "You're not connected to the office Wi-Fi, so you can't check in as in office. Add a reason for working from home to check in."
+              : 'Adding a comment is required for a web clock-in request.'}
           </p>
+          {offNetwork && networkDetail && (
+            <p style={{ margin: 0, fontSize: 11, color: 'var(--txt-dim)', lineHeight: 1.4, wordBreak: 'break-all' }}>{networkDetail}</p>
+          )}
           <div>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value.slice(0, 1024))}
               rows={4}
               autoFocus
+              placeholder={offNetwork ? 'Reason for working from home' : undefined}
               maxLength={1024}
               style={{ width: '100%', resize: 'vertical', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 10px', fontSize: 13, background: 'var(--raised)', color: 'var(--txt)', fontFamily: 'inherit' }}
             />
@@ -92,7 +105,7 @@ export function WebClockInRequestModal({ onClose, onSubmitted }: { onClose: () =
               disabled={submitting || !reason.trim()}
               style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: (submitting || !reason.trim()) ? 'not-allowed' : 'pointer', opacity: (submitting || !reason.trim()) ? 0.7 : 1 }}
             >
-              {submitting ? 'Confirming…' : 'Confirm'}
+              {submitting ? 'Confirming…' : offNetwork ? 'Check in as WFH' : 'Confirm'}
             </button>
           </div>
         </div>

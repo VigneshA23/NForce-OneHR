@@ -14,6 +14,8 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -166,6 +168,39 @@ class PageRegistryParityTest {
                         .isEqualTo("/" + ref.getPageId());
             }
         }
+    }
+
+    private static final Path PERMISSIONS_TS = Path.of("..", "frontend", "src", "lib", "permissions.ts");
+    private static final Pattern REQUIREMENT_ENTRY = Pattern.compile("'?([\\w-]+)'?:\\s*\\[(.*?)\\]", Pattern.DOTALL);
+    private static final Pattern REQUIREMENT = Pattern.compile(
+            "module:\\s*'(\\w+)',\\s*action:\\s*'(\\w+)'(?:,\\s*scope:\\s*'(\\w+)')?");
+
+    @Test
+    void pagePermissionsMatchTheSidebarRequirements() throws IOException {
+        // The registry's per-page `permissions` decide which gated pages a caller's sidebar shows
+        // (PageRegistry#reachable). They mirror permissions.ts NAV_ITEM_REQUIREMENTS; drift would
+        // offer a page the sidebar hides, or hide one it shows.
+        String source = Files.readString(PERMISSIONS_TS);
+        int start = source.indexOf("const NAV_ITEM_REQUIREMENTS");
+        String block = source.substring(start, source.indexOf("};", start));
+        Map<String, Set<String>> frontend = new TreeMap<>();
+        Matcher entry = REQUIREMENT_ENTRY.matcher(block.substring(block.indexOf('{') + 1));
+        while (entry.find()) {
+            Set<String> any = new TreeSet<>();
+            Matcher r = REQUIREMENT.matcher(entry.group(2));
+            while (r.find()) any.add(r.group(1) + ":" + r.group(2) + ":" + (r.group(3) == null ? "OWN" : r.group(3)));
+            frontend.put(entry.group(1), any);
+        }
+        assertThat(frontend).as("NAV_ITEM_REQUIREMENTS parse").containsKey("approvals").hasSizeGreaterThan(10);
+        assertThat(frontend.get("approvals")).hasSize(5);
+
+        Map<String, Set<String>> registered = new TreeMap<>();
+        for (ShellRole role : ShellRole.values()) {
+            for (PageReference ref : registry.forRole(role)) {
+                if (!ref.getPermissions().isEmpty()) registered.put(ref.getPageId(), new TreeSet<>(ref.getPermissions()));
+            }
+        }
+        assertThat(registered).isEqualTo(frontend);
     }
 
     private static final Set<String> NON_NAV_PAGES = Set.of(

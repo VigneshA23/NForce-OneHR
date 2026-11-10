@@ -5,7 +5,7 @@ import {
   Bell, CheckCheck, Search, RefreshCw, Inbox, ArrowUpRight, Check,
   ChevronLeft, ChevronRight, AlertCircle,
   CalendarDays, Wallet, FileText, HelpCircle, Star, Shield, UserPlus, KeyRound,
-  ClipboardCheck, XCircle, Clock, Loader2, Users, Cake,
+  ClipboardCheck, XCircle, Clock, Loader2, Users, Cake, Tag, Flag, MailOpen, CalendarClock, MousePointerClick,
 } from 'lucide-react';
 import { notificationsApi, type NotificationItem } from '../api/notifications';
 import { useAuthStore } from '../store/authStore';
@@ -14,6 +14,7 @@ import {
   ALL_CATEGORIES,
   type NotificationCategory, type NotificationPriority,
 } from '../lib/notificationPriority';
+import './notificationsPolish.css';
 
 // ── Metadata ─────────────────────────────────────────────────────────────────
 
@@ -139,8 +140,8 @@ function useIsWide(bp = 900): boolean {
 function Pill({ color, bg, children }: { color: string; bg: string; children: React.ReactNode }) {
   return (
     <span style={{
-      fontSize: 10, fontWeight: 600, color, background: bg,
-      padding: '2px 7px', borderRadius: 20, lineHeight: 1.6, whiteSpace: 'nowrap', flexShrink: 0,
+      fontSize: 11, fontWeight: 700, color, background: bg,
+      padding: '2px 9px', borderRadius: 20, lineHeight: 1.6, whiteSpace: 'nowrap', flexShrink: 0,
     }}>
       {children}
     </span>
@@ -208,20 +209,20 @@ function NotifRow({
       style={{
         position: 'relative',
         display: 'flex', alignItems: 'flex-start', gap: 10,
-        padding: '10px 30px 10px 11px',
-        marginBottom: 4,
-        borderRadius: 8,
-        border: '1px solid ' + (selected ? 'var(--line2)' : 'transparent'),
+        padding: '12px 34px 12px 12px',
+        marginBottom: 6,
+        borderRadius: 12,
+        border: '1px solid ' + (selected ? 'color-mix(in srgb, var(--brand) 38%, transparent)' : 'transparent'),
         borderLeft: n.read
-          ? (selected ? '1px solid var(--line2)' : '3px solid transparent')
+          ? (selected ? '1px solid color-mix(in srgb, var(--brand) 38%, transparent)' : '3px solid transparent')
           : '3px solid var(--brand-bright)',
-        background: selected ? 'var(--raised2)' : n.read ? 'transparent' : 'rgba(228,55,61,.05)',
+        background: selected ? 'color-mix(in srgb, var(--brand) 9%, var(--panel))' : n.read ? 'transparent' : 'color-mix(in srgb, var(--brand) 4%, var(--panel))',
         cursor: 'pointer',
         transition: 'background 120ms ease, border-color 120ms ease',
       }}
     >
       <div style={{
-        width: 30, height: 30, borderRadius: 8, background: meta.bg, color: meta.color,
+        width: 36, height: 36, borderRadius: 11, background: meta.bg, color: meta.color,
         display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
       }}>
         {meta.icon}
@@ -230,7 +231,7 @@ function NotifRow({
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
           <span style={{
-            fontSize: 12.5, fontWeight: n.read ? 500 : 650,
+            fontSize: 13.5, fontWeight: n.read ? 500 : 650,
             color: n.read ? 'var(--txt-mut)' : 'var(--txt)',
             flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
@@ -246,7 +247,7 @@ function NotifRow({
 
         {n.message && (
           <div style={{
-            fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 2,
+            fontSize: 12.5, color: 'var(--txt-dim)', marginTop: 3,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
             {n.message}
@@ -288,20 +289,11 @@ function NotifRow({
 function DetailPane({ n, navigate }: { n: NotificationItem | null; navigate: ReturnType<typeof useNavigate> }) {
   if (!n) {
     return (
-      <div style={{
-        height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        padding: 40, textAlign: 'center',
-      }}>
-        <div style={{
-          width: 56, height: 56, borderRadius: '50%', background: 'var(--raised2)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14,
-        }}>
-          <Inbox size={24} style={{ color: 'var(--txt-dim)' }} />
-        </div>
-        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 4 }}>No notification selected</div>
-        <div style={{ fontSize: 12, color: 'var(--txt-dim)', maxWidth: 240 }}>
-          Select a notification from the list to see its full details here.
-        </div>
+      <div className="nf-nd-empty">
+        <div className="nf-nd-empty-ico"><Inbox size={26} /></div>
+        <div className="nf-nd-empty-title">No notification selected</div>
+        <div className="nf-nd-empty-sub">Select a notification from the list to see its full details here.</div>
+        <div className="nf-nd-empty-hint"><MousePointerClick size={13} />Opening one also marks it as read</div>
       </div>
     );
   }
@@ -310,18 +302,16 @@ function DetailPane({ n, navigate }: { n: NotificationItem | null; navigate: Ret
   const cat  = getCategory(n);
   const pri  = getPriority(n);
   const ps   = PRIORITY_STYLE[pri];
+  const when = new Date(n.createdAt);
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', padding: '26px 30px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        <div style={{
-          width: 42, height: 42, borderRadius: 10, background: meta.bg, color: meta.color,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 6,
-        }}>
-          {meta.icon}
+    <div className="nf-nd" style={{ ['--nd-c' as string]: meta.color }}>
+      <div className="nf-nd-hero">
+        <span className="nf-nd-ico" style={{ background: meta.bg, color: meta.color }}>{meta.icon}</span>
+        <div className="nf-nd-titles">
+          <h2 className="nf-nd-title">{n.title}</h2>
+          <div className="nf-nd-when"><CalendarClock size={13} />{when.toLocaleString()} · {timeAgo(n.createdAt)}</div>
         </div>
-        <Pill color={meta.color} bg={meta.bg}>{cat}</Pill>
-        <Pill color={ps.color} bg={ps.bg}>{ps.label} priority</Pill>
         <Pill
           color={n.read ? 'var(--txt-dim)' : 'var(--brand-bright)'}
           bg={n.read ? 'var(--raised2)' : 'rgba(228,55,61,.14)'}
@@ -330,39 +320,24 @@ function DetailPane({ n, navigate }: { n: NotificationItem | null; navigate: Ret
         </Pill>
       </div>
 
-      <h2 style={{
-        fontFamily: 'Inter, sans-serif',
-        fontSize: 19, fontWeight: 700, color: 'var(--txt)',
-        margin: '0 0 6px', lineHeight: 1.35, overflowWrap: 'break-word',
-      }}>
-        {n.title}
-      </h2>
-
-      <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 18 }}>
-        {new Date(n.createdAt).toLocaleString()}
+      <div className="nf-nd-sec">
+        <div className="nf-nd-label">Message</div>
+        <p className="nf-nd-msg">{n.message || 'No additional details provided.'}</p>
       </div>
 
-      <div style={{ height: 1, background: 'var(--line)', margin: '0 0 18px' }} />
-
-      <p style={{
-        fontSize: 13.5, color: 'var(--txt-mut)', lineHeight: 1.7,
-        whiteSpace: 'pre-wrap', overflowWrap: 'break-word', margin: '0 0 24px',
-      }}>
-        {n.message || 'No additional details provided.'}
-      </p>
+      <div className="nf-nd-facts">
+        <div className="nf-nd-fact"><span className="nf-nd-fact-ico"><Tag size={14} /></span><div><span>Category</span><b>{cat}</b></div></div>
+        <div className="nf-nd-fact"><span className="nf-nd-fact-ico" style={{ color: ps.color, background: ps.bg }}><Flag size={14} /></span><div><span>Priority</span><b>{ps.label}</b></div></div>
+        <div className="nf-nd-fact"><span className="nf-nd-fact-ico"><MailOpen size={14} /></span><div><span>Status</span><b>{n.read ? 'Read' : 'Unread'}</b></div></div>
+        <div className="nf-nd-fact"><span className="nf-nd-fact-ico"><CalendarClock size={14} /></span><div><span>Received</span><b>{when.toLocaleDateString()}</b></div></div>
+      </div>
 
       {n.linkPath && (
-        <button
-          onClick={() => navigate(n.linkPath!)}
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '9px 16px', borderRadius: 8,
-            background: 'var(--brand)', color: '#fff', border: 'none',
-            fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-          }}
-        >
-          Open related page <ArrowUpRight size={14} aria-hidden="true" />
-        </button>
+        <div className="nf-nd-act">
+          <button onClick={() => navigate(n.linkPath!)} className="nf-nd-open">
+            Open related page <ArrowUpRight size={14} aria-hidden="true" />
+          </button>
+        </div>
       )}
     </div>
   );
@@ -374,10 +349,10 @@ type StatusFilter = 'all' | 'unread' | 'read';
 type SortOrder = 'newest' | 'oldest';
 
 const SELECT_STYLE: React.CSSProperties = {
-  padding: '7px 10px',
-  background: 'var(--shell)',
+  padding: '9px 12px',
+  background: 'var(--panel)',
   border: '1px solid var(--line2)',
-  borderRadius: 6,
+  borderRadius: 11,
   color: 'var(--txt)',
   fontSize: 12,
   outline: 'none',
@@ -554,10 +529,10 @@ export default function NotificationsPage() {
       </div>
 
       {/* Toolbar */}
-      <div style={{
+      <div className="nf-nt-bar" style={{
         display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14,
-        padding: '10px 12px', background: 'var(--panel)',
-        border: '1px solid var(--line)', borderRadius: 10,
+        padding: '12px 14px', background: 'var(--panel)',
+        border: '1px solid var(--line)', borderRadius: 14,
       }}>
         <div className="nf-filter-search" style={{ flex: '1 1 260px', maxWidth: 360 }}>
           <Search size={13} style={{ color: 'var(--txt-dim)', flexShrink: 0 }} aria-hidden="true" />
@@ -629,8 +604,8 @@ export default function NotificationsPage() {
         </div>
       ) : (
         <div className="nf-notif-body" style={{
-          display: 'flex', border: '1px solid var(--line)', borderRadius: 10,
-          background: 'var(--panel)', overflow: 'hidden', flex: 1, minHeight: 0,
+          display: 'flex', border: '1px solid var(--line)', borderRadius: 16,
+          background: 'var(--panel)', overflow: 'hidden', boxShadow: '0 6px 20px rgba(16, 24, 40, .07)', flex: 1, minHeight: 0,
         }}>
           {/* Master pane */}
           <div className="nf-notif-list-pane" style={{ overflowY: 'auto', padding: '8px 8px 8px 10px', minWidth: 0 }}>
@@ -667,7 +642,7 @@ export default function NotificationsPage() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, flexShrink: 0 }}>
+        <div className="nf-nt-pager" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, flexShrink: 0 }}>
           <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
             Page {page + 1} of {totalPages}
           </span>

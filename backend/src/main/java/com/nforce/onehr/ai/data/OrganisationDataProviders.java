@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.DirectoryEntryDto;
 import com.nforce.onehr.dto.EmployeeResponse;
@@ -48,9 +47,9 @@ import java.util.stream.Collectors;
  *
  * <p>The service methods behind these screens mostly take no actor at all: {@code listUsers},
  * {@code getOrgDashboard}, {@code getDayForAll} and {@code listOrgLeave} are protected only by the
- * {@code @PreAuthorize} on the controller that serves them. So each provider's {@link #audiences}
- * mirrors that controller exactly - never wider - and {@code DataProviderSafetyTest} holds every
- * {@link DataScope#ORGANISATION} provider to HR/Admin audiences.
+ * {@code @PreAuthorize} on the controller that serves them. So each provider's
+ * {@link AssistantDataProvider#authorities} mirrors that controller exactly - never wider - and
+ * {@code DataProviderSafetyTest} holds every {@link DataScope#ORGANISATION} provider to ALL-scope grants.
  *
  * <p>Where a screen computes its figure in the browser, the same computation is repeated here from
  * the same read, so the assistant and the screen agree to the unit (e.g. "active" is exactly
@@ -63,6 +62,9 @@ public final class OrganisationDataProviders {
 
     private static final int MAX_NAMES = 25;
     private static final int MAX_GROUPS = 15;
+
+    /** User Management's own grant ({@code UserManagementController}); seeded for Super Admin only. */
+    static final String USER_MANAGEMENT = "user_management:VIEW:ALL";
 
     /**
      * User accounts as User Management lists them: totals, active vs inactive, by role, by
@@ -80,7 +82,7 @@ public final class OrganisationDataProviders {
         @Override public String id() { return "org-users.summary"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "User accounts in User Management"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.ADMIN); }
+        @Override public Set<String> authorities() { return Set.of(USER_MANAGEMENT); }
         @Override public Set<String> modules() { return Set.of("users", "headcount", "access", "administration"); }
 
         @Override
@@ -119,8 +121,9 @@ public final class OrganisationDataProviders {
 
     /**
      * Organisation headcount as the HR Home dashboard and Reports compute it, from the same
-     * {@code getOrgDashboard} read. HR Admin only: a Super Admin gets the richer
-     * {@link UserAccounts} view of the same people instead of a second copy competing for the turn.
+     * {@code getOrgDashboard} read ({@code employees:VIEW:ALL}). Stands aside for anyone who can run
+     * the richer {@link UserAccounts} view of the same people (a Super Admin), instead of a second
+     * copy competing for the turn - so with the default roles, HR Admin only, as before.
      */
     @Component
     @RequiredArgsConstructor
@@ -132,7 +135,8 @@ public final class OrganisationDataProviders {
         @Override public String id() { return "org-headcount.summary"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "Organisation headcount"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR); }
+        @Override public Set<String> authorities() { return Set.of("employees:VIEW:ALL"); }
+        @Override public Set<String> standsAsideFor() { return Set.of(USER_MANAGEMENT); }
         @Override public Set<String> modules() { return Set.of("headcount", "users", "people", "reports"); }
 
         @Override
@@ -184,7 +188,7 @@ public final class OrganisationDataProviders {
         @Override public String id() { return "org-attendance.today"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "Organisation attendance for one day, by department"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR, AudienceBucket.ADMIN); }
+        @Override public Set<String> authorities() { return Set.of("attendance:VIEW:ALL"); }
         @Override public Set<String> modules() { return Set.of("org-attendance", "attendance"); }
 
         @Override
@@ -278,7 +282,7 @@ public final class OrganisationDataProviders {
         @Override public String id() { return "org-leave.upcoming"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "Approved leave across the organisation, today and the next 14 days"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR, AudienceBucket.ADMIN); }
+        @Override public Set<String> authorities() { return Set.of("leave:VIEW:ALL"); }
         @Override public Set<String> modules() { return Set.of("org-leave", "leave"); }
 
         @Override
@@ -306,7 +310,7 @@ public final class OrganisationDataProviders {
         @Override public String id() { return "org-penalties.active"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "Active attendance penalties across the organisation, last 30 days"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR, AudienceBucket.ADMIN); }
+        @Override public Set<String> authorities() { return Set.of("attendance:VIEW:ALL"); }
         @Override public Set<String> modules() { return Set.of("org-penalties", "penalties"); }
 
         @Override
@@ -334,7 +338,7 @@ public final class OrganisationDataProviders {
         @Override public String id() { return "org-structure.summary"; }
         @Override public DataScope scope() { return DataScope.ORGANISATION; }
         @Override public String title() { return "Organisation structure and master data"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.HR, AudienceBucket.ADMIN); }
+        @Override public Set<String> authorities() { return Set.of("organization:EDIT:ALL"); }
         @Override public Set<String> modules() { return Set.of("organization", "administration", "leave-types"); }
 
         @Override

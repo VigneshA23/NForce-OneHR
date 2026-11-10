@@ -17,6 +17,8 @@ import { ROLES, EMPLOYMENT_TYPES, WORK_MODES, fmtEffectiveDate, getShiftOptions,
 import { overlayStyle, modalStyle, inputStyle, labelStyle, primaryBtnStyle, secondaryBtnStyle, ModalHeader, Field } from './user-management/formPrimitives';
 import { EMAIL_PATTERN } from './user-management/wizardLogic';
 import { CreateEmployeeWizard } from './user-management/CreateEmployeeWizard';
+import { hasPermission } from '../lib/permissions';
+import ManageUserRolesModal from '../components/ManageUserRolesModal';
 import './userManagementPolish.css';
 
 /** Today as "YYYY-MM-DD" in the org's business timezone (see businessTodayIsoDate's own doc
@@ -522,6 +524,10 @@ function DeleteModal({ user, onClose, onDeleted, token }: { user: EmployeeRecord
 export default function UserManagementPage() {
   const token = useAuthStore(s => s.token)!;
   const currentUserEmail = useAuthStore(s => s.user?.email)?.toLowerCase();
+  const permissions = useAuthStore(s => s.permissions);
+  // Manage Roles needs the user's role view (user_roles) and the role list (roles) — see RoleController.
+  const canManageRoles = hasPermission(permissions, 'user_roles', 'VIEW', 'ALL') && hasPermission(permissions, 'roles', 'VIEW', 'ALL');
+  const [managingRoles, setManagingRoles] = useState<EmployeeRecord | null>(null);
   const [users, setUsers] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -713,7 +719,19 @@ export default function UserManagementPage() {
                         <PersonCell userId={u.userId} name={u.fullName} code={u.employeeCode} />
                       </td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{u.email}</td>
-                      <td style={tdStyle}><RoleBadge role={u.role} /></td>
+                      <td style={tdStyle}>
+                        <RoleBadge role={u.role} />
+                        {(() => {
+                          // Roles beyond the primary one (custom roles, a manager who is also HR…);
+                          // Employee is implied for everyone so it isn't counted.
+                          const extra = (u.roleNames ?? []).filter(n => n !== 'Employee' && n !== ROLE_LABEL[u.role]);
+                          return extra.length > 0 && (
+                            <span title={extra.join(', ')} style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', borderRadius: 6, padding: '3px 7px', whiteSpace: 'nowrap' }}>
+                              +{extra.length}
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
                       <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
                       <td style={tdStyle}><StatusBadge active={u.active} /></td>
@@ -724,6 +742,7 @@ export default function UserManagementPage() {
                           onClose={() => setOpenMenuId(null)}
                           items={[
                           { label: 'Edit', onClick: () => setEditing(u) },
+                          ...(canManageRoles ? [{ label: 'Manage Roles', onClick: () => setManagingRoles(u) }] : []),
                           { label: 'Reset Password', onClick: () => setResetting(u) },
                           // Deactivate is hidden outright for the logged-in Super Admin's own row
                           // and for the last remaining active Super Admin — both are unrecoverable
@@ -787,6 +806,12 @@ export default function UserManagementPage() {
         setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
         setOrgOptions(o => ({ ...o, managers: syncManagerOption(o.managers, updated) }));
       }} />}
+      {managingRoles && (
+        <ManageUserRolesModal token={token} userId={managingRoles.userId}
+          isSelf={!!currentUserEmail && managingRoles.email.toLowerCase() === currentUserEmail}
+          onClose={() => setManagingRoles(null)}
+          onSaved={() => { usersApi.list(token).then(setUsers).catch(() => {}); }} />
+      )}
       {resetting && <ResetPasswordModal user={resetting} token={token} onClose={() => setResetting(null)} />}
       {toggling && (
         <StatusModal

@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { ChevronDown, ChevronUp, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles, Award, BookOpen, Target, ExternalLink } from 'lucide-react';
+import { ChevronDown, ChevronUp, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles, Award, BookOpen, Target, ExternalLink, LayoutGrid, ClipboardCheck, Hourglass, Laptop, Repeat, LogIn, CalendarCheck, Timer, CalendarClock, ArrowUpRight, FileBarChart } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
+import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import {
@@ -33,6 +34,10 @@ import { kudosApi } from '../api/kudos';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
+import './myTeamAttention.css';
+import './myTeamReports.css';
+import './myTeamPanels.css';
+import PageTitleBlock from '../components/PageTitleBlock';
 import { businessTodayIsoDate } from '../utils/businessDate';
 import { teamGrowthApi, type TeamGrowthSummary } from '../api/teamGrowth';
 import { DetailModalShell } from '../components/TeamGrowthModal';
@@ -84,9 +89,9 @@ function toISO(d: Date): string {
 // this appended '+05:30' (assumed IST) and let toLocaleTimeString re-project into the viewer's
 // local zone, mislabeling and re-shifting any non-IST employee's recorded time.
 function fmtTime(iso?: string | null) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const d = new Date(iso + 'Z');
-  if (isNaN(d.getTime())) return '—';
+  if (isNaN(d.getTime())) return '-';
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' });
 }
 // Shift start/end are plain LocalTime strings (e.g. "20:30:00") with no date/zone component at
@@ -100,10 +105,10 @@ function fmtShiftRange(start: string, end: string): string {
     const hour12 = h % 12 === 0 ? 12 : h % 12;
     return `${hour12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
   };
-  return `${fmt(start)} – ${fmt(end)}`;
+  return `${fmt(start)} to ${fmt(end)}`;
 }
 function fmtDateShort(iso?: string | null) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 /** "Sep 16, 2026" — full date incl. year, for Effective From displays (a scheduled date can be far enough out that the bare day/month above would be ambiguous). */
@@ -181,7 +186,7 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
     setBusy(true);
     try {
       await approveCall();
-      showToast('success', `Approved — ${item.employeeName}`);
+      showToast('success', `Approved: ${item.employeeName}`);
       onDone(item.id);
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Approve failed');
@@ -194,7 +199,7 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
     setBusy(true);
     try {
       await rejectCall(reason.trim());
-      showToast('success', `Rejected — ${item.employeeName}`);
+      showToast('success', `Rejected: ${item.employeeName}`);
       onDone(item.id);
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Reject failed');
@@ -203,7 +208,7 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
   }
 
   const detail = type === 'LEAVE'
-    ? `${item.leaveTypeName} · ${fmtDateShort(item.leaveStartDate)}${item.leaveStartDate !== item.leaveEndDate ? ` – ${fmtDateShort(item.leaveEndDate)}` : ''} (${item.leaveTotalDays} day${item.leaveTotalDays !== 1 ? 's' : ''})`
+    ? `${item.leaveTypeName} · ${fmtDateShort(item.leaveStartDate)}${item.leaveStartDate !== item.leaveEndDate ? ` to ${fmtDateShort(item.leaveEndDate)}` : ''} (${item.leaveTotalDays} day${item.leaveTotalDays !== 1 ? 's' : ''})`
     : type === 'EXPENSE'
     ? `${item.expenseCategoryName} · ₹${item.expenseAmount?.toFixed(2)}${item.approvalStage === 'FINAL' ? ' · awaiting final approval' : ''}`
     : type === 'ASSET_REQUEST'
@@ -211,14 +216,17 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
     : `${fmtDateShort(item.attendanceDate)} · missing ${item.requestedCheckIn && item.requestedCheckOut ? 'check-in & check-out' : item.requestedCheckIn ? 'check-in' : 'check-out'}`;
 
   return (
-    <div style={{ padding: '13px 18px', borderBottom: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 7 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{item.employeeName}</span>
+    <div className="nf-att-item">
+      <div className="nf-att-who">
+        <Avatar userId={item.employeeUserId} name={item.employeeName} size={32} />
+        <div className="nf-att-txt">
+          <div className="nf-att-name">{item.employeeName}</div>
+          <div className="nf-att-detail">{detail}</div>
+        </div>
         <TypeBadge type={type} />
       </div>
-      <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{detail}</div>
       {rejecting ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
+        <div className="nf-att-reject">
           <textarea
             autoFocus
             value={reason}
@@ -226,20 +234,20 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
             placeholder="Reason for rejecting…"
             style={{ ...inputStyle, minHeight: 56, resize: 'vertical', fontFamily: 'inherit' }}
           />
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => { setRejecting(false); setReason(''); }} style={{ flex: 1, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', borderRadius: 6, cursor: 'pointer', border: '1px solid var(--line2)', background: 'var(--raised2)', color: 'var(--txt-mut)' }}>Cancel</button>
-            <button onClick={reject} disabled={!reason.trim() || busy} style={{ flex: 1, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', borderRadius: 6, cursor: !reason.trim() || busy ? 'not-allowed' : 'pointer', border: '1px solid transparent', background: reason.trim() ? 'rgba(228,55,61,.18)' : 'var(--raised2)', color: reason.trim() ? 'var(--risk)' : 'var(--txt-dim)' }}>
+          <div className="nf-att-actions">
+            <button onClick={() => { setRejecting(false); setReason(''); }} className="nf-att-btn">Cancel</button>
+            <button onClick={reject} disabled={!reason.trim() || busy} className="nf-att-btn is-danger">
               {busy ? 'Rejecting…' : 'Confirm reject'}
             </button>
           </div>
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-          <button onClick={approve} disabled={busy} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', borderRadius: 6, cursor: busy ? 'not-allowed' : 'pointer', border: '1px solid transparent', background: 'rgba(47,182,124,.14)', color: 'var(--ok)' }}>
-            <Check size={12} /> Approve
+        <div className="nf-att-actions">
+          <button onClick={approve} disabled={busy} className="nf-att-btn is-ok">
+            <Check size={13} /> Approve
           </button>
-          <button onClick={() => setRejecting(true)} disabled={busy} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, padding: '6px 8px', borderRadius: 6, cursor: busy ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--raised2)', color: 'var(--txt-mut)' }}>
-            <X size={12} /> Reject
+          <button onClick={() => setRejecting(true)} disabled={busy} className="nf-att-btn">
+            <X size={13} /> Reject
           </button>
         </div>
       )}
@@ -247,8 +255,50 @@ function AttentionQueueItem({ item, token, onDone }: { item: ApprovalItem; token
   );
 }
 
+/* ── Needs your attention: the pending queue. The list scrolls inside the card (so the page itself
+ *  stays short), and the type chips only narrow what is shown — they never change what is pending. ── */
+export function AttentionPanel({ items, token, onDone }: { items: ApprovalItem[]; token: string; onDone: (id: string) => void }) {
+  const [filter, setFilter] = useState<RequestType | 'ALL'>('ALL');
+  const order: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST'];
+  const counts = order.map(t => ({ type: t, count: items.filter(i => i.requestType === t).length })).filter(c => c.count > 0);
+  const active = filter !== 'ALL' && counts.some(c => c.type === filter) ? filter : 'ALL';
+  const visible = active === 'ALL' ? items : items.filter(i => i.requestType === active);
+
+  return (
+    <div className="nf-att">
+      <div className="nf-att-head">
+        <span className="nf-att-ico"><AlertTriangle size={15} /></span>
+        <div className="nf-att-title">
+          <span>Needs your attention</span>
+          <small>{items.length === 0 ? 'All caught up' : 'Approve or reject without leaving this page'}</small>
+        </div>
+        <span className="nf-att-count">{items.length} pending</span>
+      </div>
+      {counts.length > 1 && (
+        <div className="nf-att-chips" role="tablist" aria-label="Filter pending requests">
+          <button role="tab" aria-selected={active === 'ALL'} className={active === 'ALL' ? 'is-on' : ''} onClick={() => setFilter('ALL')}>All <b>{items.length}</b></button>
+          {counts.map(c => (
+            <button key={c.type} role="tab" aria-selected={active === c.type} className={active === c.type ? 'is-on' : ''} onClick={() => setFilter(c.type)}>
+              {TYPE_LABELS[c.type] ?? c.type} <b>{c.count}</b>
+            </button>
+          ))}
+        </div>
+      )}
+      {items.length === 0 ? (
+        <div className="nf-att-empty"><CheckCircle2 size={20} />Nothing pending right now.</div>
+      ) : (
+        <div className="nf-att-list">
+          {visible.map(item => (
+            <AttentionQueueItem key={`${item.requestType}:${item.id}`} item={item} token={token} onDone={onDone} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Roster card "View" detail modal ── */
-function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => void }) {
+export function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => void }) {
   const { dr, record, status, requests } = row;
   const regRequest = requests.find(r => r.requestType === 'REGULARIZATION');
   const missingFlag = regRequest
@@ -256,55 +306,55 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
       : regRequest.requestedCheckIn ? 'Missing check-in swipe' : 'Missing check-out swipe') + ` on ${fmtDateShort(regRequest.attendanceDate)}`
     : null;
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={modalStyle} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
           <Avatar userId={dr.userId} name={dr.fullName} size={40} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{dr.fullName}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{dr.designationName ?? '—'}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{dr.employeeCode}</div>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{dr.fullName}</div>
+            <div className="nf-rm-sub">{dr.designationName ?? '-'}</div>
+            <div className="nf-pm-code">{dr.employeeCode}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div className="nf-pm-body">
           <div>
-            <div style={labelStyle}>Today's attendance</div>
+            <div className="nf-pm-sec">Today's attendance</div>
             <Row label="Status" value={STATUS_LABEL[status]} />
             {/* sessionStartedAt reflects the latest check-in of the day (checkInAt is fixed to
                 the day's very first one and never updated on a same-day checkout+checkin resume
-                — see AttendanceService.checkIn) — same fallback AttendanceHeroBanner/
+               , see AttendanceService.checkIn), same fallback AttendanceHeroBanner/
                 AttendancePage already use, so a direct report's most recent check-in shows here
                 too instead of a frozen original time. */}
             <Row label="Actual check-in" value={fmtTime(record?.sessionStartedAt ?? record?.checkInAt)} />
             <Row label="Actual check-out" value={fmtTime(record?.checkOutAt)} />
             {/* record.timezone is the employee's OWN effective timezone (locked in at their
-                check-in — see Attendance.timezone), not the viewer's. Labeled explicitly so it's
+                check-in, see Attendance.timezone), not the viewer's. Labeled explicitly so it's
                 never ambiguous which zone the times above are in when viewing another employee. */}
             {record?.timezone && <Row label="Employee's timezone" value={record.timezone} />}
             {!!record?.lateByMinutes && <Row label="Late by" value={`${record.lateByMinutes} minutes`} />}
             {missingFlag && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 600, padding: '8px 10px', borderRadius: 8, marginTop: 8, background: 'rgba(228,55,61,.13)', color: 'var(--risk)' }}>
+              <div className="nf-pm-flag">
                 <AlertTriangle size={14} /> {missingFlag}
               </div>
             )}
           </div>
           <div>
-            <div style={labelStyle}>Open requests</div>
+            <div className="nf-pm-sec">Open requests</div>
             {requests.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No open requests.</div>
+              <div className="nf-pm-none"><CheckCircle2 size={16} />No open requests.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {requests.map(r => (
-                  <div key={`${r.requestType}:${r.id}`} style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <div key={`${r.requestType}:${r.id}`} className="nf-pm-req">
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                       <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{TYPE_LABELS[r.requestType]}</span>
                       <TypeBadge type={r.requestType} />
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
                       {r.requestType === 'LEAVE'
-                        ? `${r.leaveTypeName} · ${fmtDateShort(r.leaveStartDate)}${r.leaveStartDate !== r.leaveEndDate ? ` – ${fmtDateShort(r.leaveEndDate)}` : ''}`
+                        ? `${r.leaveTypeName} · ${fmtDateShort(r.leaveStartDate)}${r.leaveStartDate !== r.leaveEndDate ? ` to ${fmtDateShort(r.leaveEndDate)}` : ''}`
                         : r.requestType === 'EXPENSE'
                         ? `${r.expenseCategoryName} · ₹${r.expenseAmount?.toFixed(2)}`
                         : r.requestType === 'ASSET_REQUEST'
@@ -318,7 +368,8 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -330,40 +381,41 @@ function EmployeeDetailModal({ row, onClose }: { row: RosterRow; onClose: () => 
  * DirectoryEntry itself already comes from the org-wide, unrestricted "/employees/directory" and
  * "/employees/my-peers" endpoints — no manager-only gating needed.
  */
-function EmployeeDetailsModal({ entry, onClose }: { entry: DirectoryEntry; onClose: () => void }) {
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={modalStyle} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
+export function EmployeeDetailsModal({ entry, onClose }: { entry: DirectoryEntry; onClose: () => void }) {
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
           <Avatar userId={entry.userId} name={entry.fullName} size={40} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{entry.fullName}</div>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>{entry.designationName ?? '—'}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{entry.employeeCode}</div>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{entry.fullName}</div>
+            <div className="nf-rm-sub">{entry.designationName ?? '-'}</div>
+            <div className="nf-pm-code">{entry.employeeCode}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: 18 }}>
-          <div style={labelStyle}>Employment details</div>
-          <Row label="Employee code" value={entry.employeeCode || '—'} />
-          <Row label="Work email" value={entry.email || '—'} />
-          <Row label="Department" value={entry.departmentName || '—'} />
-          <Row label="Designation" value={entry.designationName || '—'} />
-          <Row label="Location" value={entry.locationName || '—'} />
-          <Row label="Work mode" value={entry.workMode ? entry.workMode.replace('_', ' ') : '—'} />
-          <Row label="Employment type" value={entry.employmentType ? entry.employmentType.replace('_', ' ') : '—'} />
-          <Row label="Manager" value={entry.managerName || '—'} />
+        <div className="nf-pm-body">
+          <div className="nf-pm-sec">Employment details</div>
+          <Row label="Employee code" value={entry.employeeCode || '-'} />
+          <Row label="Work email" value={entry.email || '-'} />
+          <Row label="Department" value={entry.departmentName || '-'} />
+          <Row label="Designation" value={entry.designationName || '-'} />
+          <Row label="Location" value={entry.locationName || '-'} />
+          <Row label="Work mode" value={entry.workMode ? entry.workMode.replace('_', ' ') : '-'} />
+          <Row label="Employment type" value={entry.employmentType ? entry.employmentType.replace('_', ' ') : '-'} />
+          <Row label="Manager" value={entry.managerName || '-'} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
-      <span style={{ color: 'var(--txt-mut)' }}>{label}</span>
-      <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{value}</span>
+    <div className="nf-pm-kv">
+      <span>{label}</span>
+      <b>{value}</b>
     </div>
   );
 }
@@ -374,33 +426,34 @@ function Row({ label, value }: { label: string; value: string }) {
  * card (or this modal) without bound. Reuses the same overlay/modal chrome and Avatar as
  * EmployeeDetailModal rather than introducing a second list/modal system.
  */
-function NotInYetListModal({ people, onSelect, onClose }: {
+export function NotInYetListModal({ people, onSelect, onClose }: {
   people: { userId: string; fullName: string }[];
   onSelect: (userId: string) => void;
   onClose: () => void;
 }) {
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
           <span style={panelTitleStyle}>Employees not in yet today</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+        <div className="nf-pm-list">
           {people.map(p => (
             <button
               key={p.userId}
               title={p.fullName}
               onClick={() => onSelect(p.userId)}
-              style={{ all: 'unset', boxSizing: 'border-box', width: '100%', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}
+              className="nf-pm-person"
             >
               <Avatar userId={p.userId} name={p.fullName} size={30} />
-              <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{p.fullName}</span>
+              <span>{p.fullName}</span>
             </button>
           ))}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -520,39 +573,110 @@ function KpiEmployeesModal({ title, description, people, onClose }: {
  * that opens KpiEmployeesModal, with a "Click to view employees" tooltip as the hover/focus
  * affordance; cards with no employee-level drilldown (e.g. Team size, Needs your attention)
  * stay static, exactly as before. ── */
-function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string; onClick?: () => void }) {
-  const [hover, setHover] = useState(false);
+export function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string; onClick?: () => void }) {
   const card = (
     <div
+      className={onClick ? 'nf-mk is-click' : 'nf-mk'}
+      style={{ ['--mk' as string]: iconColor }}
       {...(onClick ? {
         role: 'button' as const,
         tabIndex: 0,
         onClick,
         onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } },
-        onMouseEnter: () => setHover(true),
-        onMouseLeave: () => setHover(false),
-        onFocus: () => setHover(true),
-        onBlur: () => setHover(false),
-        'aria-label': `${label} — click to view employees`,
+        'aria-label': `${label}, click to view employees`,
       } : {})}
-      style={{
-        // height: 100% keeps every card the height of its grid row — clickable cards are wrapped
-        // in Tooltip's <span>, so without it they'd shrink to their content instead of stretching.
-        height: '100%', boxSizing: 'border-box',
-        background: 'var(--panel)', borderRadius: 10, padding: '16px 18px',
-        border: `1px solid ${onClick && hover ? 'var(--brand-bright)' : 'var(--line)'}`,
-        cursor: onClick ? 'pointer' : 'default', transition: 'border-color .15s ease',
-      }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, color: iconColor }}>
-        {icon}
-        <span style={{ fontSize: 11.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--txt-mut)' }}>{label}</span>
+      <div className="nf-mk-top">
+        <span className="nf-mk-ico">{icon}</span>
+        <span className="nf-mk-label">{label}</span>
       </div>
-      <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 30, color: 'var(--txt)', lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>{note}</div>
+      <div className="nf-mk-val">{value}</div>
+      <div className="nf-mk-note">{note}</div>
     </div>
   );
   return onClick ? <Tooltip content="Click to view employees">{card}</Tooltip> : card;
+}
+
+/* ── Today panels (leave / not in yet), shared by the Direct Reports and Project Team views ── */
+function TodayPanel({ icon, tone, title, count, children }: { icon: React.ReactNode; tone: 'leave' | 'wait'; title: string; count: string; children: React.ReactNode }) {
+  return (
+    <div className="nf-mp">
+      <div className="nf-mp-head">
+        <span className={`nf-mp-ico is-${tone}`}>{icon}</span>
+        <span className="nf-mp-title">{title}</span>
+        <span className="nf-mp-count">{count}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+const peopleCount = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`;
+
+export function LeaveTodayPanel({ rows, emptyText }: { rows: { key: string; userId: string; name: string; leaveType: string; active: boolean }[]; emptyText: string }) {
+  return (
+    <TodayPanel icon={<CalendarClock size={15} />} tone="leave" title="Who's on leave today" count={peopleCount(rows.length)}>
+      {rows.length === 0 ? (
+        <div className="nf-mp-empty"><CheckCircle2 size={20} />{emptyText}</div>
+      ) : (
+        <div className="nf-mp-list">
+          {rows.map(r => (
+            <div key={r.key} className="nf-mp-row" style={inactiveDimStyle(r.active)}>
+              <Avatar userId={r.userId} name={r.name} size={32} />
+              <span className="nf-mp-name">{r.name}</span>
+              {!r.active && <StatusBadge active={false} />}
+              <span className="nf-mp-tag">{r.leaveType}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </TodayPanel>
+  );
+}
+
+/** Not in yet. variant "list" = scrolling rows (Direct Reports), "chips" = compact name chips (Project Team). */
+export function NotInYetPanel({ loading, people, emptyText, variant, limit = 6, onPick, onViewAll }: {
+  loading: boolean; people: { userId: string; name: string }[]; emptyText: string; variant: 'list' | 'chips'; limit?: number;
+  onPick: (userId: string) => void; onViewAll: () => void;
+}) {
+  const shown = variant === 'chips' ? people.slice(0, limit) : people;
+  return (
+    <TodayPanel icon={<Clock size={15} />} tone="wait" title="Not in yet today" count={peopleCount(people.length)}>
+      {loading ? (
+        <div className="nf-mp-empty">Loading…</div>
+      ) : people.length === 0 ? (
+        <div className="nf-mp-empty"><CheckCircle2 size={20} />{emptyText}</div>
+      ) : (
+        <>
+          {variant === 'list' ? (
+            <div className="nf-mp-list">
+              {shown.map(r => (
+                <div key={r.userId} className="nf-mp-row is-click" title={r.name} onClick={() => onPick(r.userId)}>
+                  <Avatar userId={r.userId} name={r.name} size={32} />
+                  <span className="nf-mp-name">{r.name}</span>
+                  <span className="nf-mp-wait">Not in yet</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="nf-mp-chips">
+              {shown.map(r => (
+                <button type="button" key={r.userId} className="nf-mp-chip" title={r.name} onClick={() => onPick(r.userId)}>
+                  <Avatar userId={r.userId} name={r.name} size={22} />{r.name}
+                </button>
+              ))}
+              {people.length > limit && (
+                <button type="button" className="nf-mp-chip is-more" title="View all employees not in yet" onClick={onViewAll}>+{people.length - limit} more</button>
+              )}
+            </div>
+          )}
+          <div className="nf-mp-foot">
+            <button type="button" onClick={onViewAll}>View employees <ArrowUpRight size={13} /></button>
+          </div>
+        </>
+      )}
+    </TodayPanel>
+  );
 }
 
 /* ── Calendar day-cell classification ── */
@@ -618,7 +742,7 @@ function DateRangeControl({ from, to, onFrom, onTo }: { from: string; to: string
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
       <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--txt-mut)' }}>Date range</span>
       <input type="date" value={from} max={to} onChange={e => onFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-      <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>–</span>
+      <span style={{ color: 'var(--txt-dim)', fontSize: 12 }}>to</span>
       <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => onTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
     </div>
   );
@@ -654,7 +778,7 @@ function EffortRow({ entry }: { entry: TeamEffortEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ flex: 1, minWidth: 100 }}>
         <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
@@ -676,7 +800,7 @@ function PunctualityRow({ entry }: { entry: PunctualityLeaderboardEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ minWidth: 150 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ flex: 1, minWidth: 100 }}>
         <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
@@ -730,7 +854,7 @@ function PunctualitySection({ from, to, token }: { from: string; to: string; tok
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>On-Time Leaderboard</span>
-          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} to {fmtDateShort(to)}</span>
         </div>
         <div className="nf-team-leaderboard-scroll">
           <div className="nf-team-leaderboard-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 0 }}>
@@ -766,7 +890,7 @@ function EffortTab({ token }: { token: string }) {
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Avg. Work Hours Leaderboard</span>
-          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} to {fmtDateShort(to)}</span>
         </div>
         <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
         {loading ? (
@@ -792,7 +916,7 @@ function LateArrivalRow({ entry }: { entry: TeamLateArrivalEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{entry.lateDays} / {entry.activeDays} Late Arrivals</div>
@@ -826,7 +950,7 @@ function LeastHoursRow({ entry }: { entry: TeamLeastHoursEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>Avg. {entry.avgHoursPerDay.toFixed(1)} hrs/day</div>
@@ -867,7 +991,7 @@ function FrequentBreaksRow({ entry }: { entry: TeamFrequentBreaksEntry }) {
       <Avatar userId={entry.employeeUserId} name={entry.fullName} size={30} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{entry.fullName}</div>
-        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '—'}</div>
+        <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>{entry.totalBreakHours.toFixed(1)} hrs in {entry.totalBreakCount} breaks</div>
@@ -898,7 +1022,7 @@ function BreaksTrend({ data }: { data: { date: string; avgBreaks: number }[] }) 
         })}
       </svg>
       <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 6 }}>
-        Avg. breaks/day across flagged employees — {trendingUp ? 'trending up' : 'trending down'} this range
+        Avg. breaks/day across flagged employees, {trendingUp ? 'trending up' : 'trending down'} this range
       </div>
     </div>
   );
@@ -927,7 +1051,7 @@ function NegligenceTab({ token }: { token: string }) {
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Late Arrivals</span>
-          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} to {fmtDateShort(to)}</span>
         </div>
         <DateRangeControl from={from} to={to} onFrom={setFrom} onTo={setTo} />
         {data.lateArrivals.length === 0 ? (
@@ -945,7 +1069,7 @@ function NegligenceTab({ token }: { token: string }) {
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Least Hours Worked</span>
-          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} to {fmtDateShort(to)}</span>
         </div>
         {data.leastHoursWorked.length === 0 ? (
           <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No attendance data for this range.</div>
@@ -962,7 +1086,7 @@ function NegligenceTab({ token }: { token: string }) {
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Frequent Breaks</span>
-          <span style={panelCountStyle}>{fmtDateShort(from)} – {fmtDateShort(to)}</span>
+          <span style={panelCountStyle}>{fmtDateShort(from)} to {fmtDateShort(to)}</span>
         </div>
         {data.frequentBreaks.length === 0 ? (
           <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No breaks recorded in this range.</div>
@@ -1095,7 +1219,7 @@ function AssignmentsTab({ token }: { token: string }) {
         kind: 'import',
         succeeded: result.succeeded,
         failures: result.results.filter(r => !r.success)
-          .map(r => ({ label: `Row ${r.row} (${r.employeeCode || '—'})`, reason: r.error ?? 'Unknown error' })),
+          .map(r => ({ label: `Row ${r.row} (${r.employeeCode || '-'})`, reason: r.error ?? 'Unknown error' })),
       });
       setImportOpen(false);
       setImportFile(null);
@@ -1176,7 +1300,7 @@ function AssignmentsTab({ token }: { token: string }) {
       {lastResult && (
         <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', background: lastResult.failures.length ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: lastResult.failures.length ? 6 : 0 }}>
-            {lastResult.kind === 'import' ? 'Import' : 'Bulk update'} — {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
+            {lastResult.kind === 'import' ? 'Import' : 'Bulk update'}: {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
           </div>
           {lastResult.failures.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -1217,10 +1341,10 @@ function AssignmentsTab({ token }: { token: string }) {
                   </div>
                 </td>
                 <td style={assignmentCellStyle}>{r.employeeCode}</td>
-                <td style={assignmentCellStyle}>{r.departmentName ?? '—'}</td>
-                <td style={assignmentCellStyle}>{r.locationName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.departmentName ?? '-'}</td>
+                <td style={assignmentCellStyle}>{r.locationName ?? '-'}</td>
                 <td style={assignmentCellStyle}>
-                  {r.shiftName ?? '—'}
+                  {r.shiftName ?? '-'}
                   {r.shiftName && r.shiftStartTime && r.shiftEndTime && (
                     <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', marginTop: 2 }}>
                       {fmtShiftRange(r.shiftStartTime, r.shiftEndTime)}
@@ -1243,7 +1367,7 @@ function AssignmentsTab({ token }: { token: string }) {
                   )}
                 </td>
                 <td style={assignmentCellStyle}>
-                  {r.weeklyOffPolicyName ?? '—'}
+                  {r.weeklyOffPolicyName ?? '-'}
                   {r.pendingWeeklyOffPolicyName && (
                     <div style={{
                       display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, fontSize: 10,
@@ -1254,7 +1378,7 @@ function AssignmentsTab({ token }: { token: string }) {
                     </div>
                   )}
                 </td>
-                <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.penalisationPolicyName ?? '-'}</td>
               </tr>
             ))}
           </tbody>
@@ -1315,7 +1439,7 @@ function AssignmentsTab({ token }: { token: string }) {
             <div style={{ padding: 18, borderBottom: '1px solid var(--line)', fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>Import Shifts &amp; Weekly Offs</div>
             <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-                CSV with columns <code>employee_code,shift_name,shift_effective_from,weekly_off_policy_name,weekly_off_effective_from</code>. Leave a cell blank to leave that field untouched. <code>shift_effective_from</code>/<code>weekly_off_effective_from</code> (YYYY-MM-DD) are each required whenever the matching name column is set — today or any future date, never a past one.
+                CSV with columns <code>employee_code,shift_name,shift_effective_from,weekly_off_policy_name,weekly_off_effective_from</code>. Leave a cell blank to leave that field untouched. <code>shift_effective_from</code>/<code>weekly_off_effective_from</code> (YYYY-MM-DD) are each required whenever the matching name column is set, today or any future date, never a past one.
               </div>
               <input type="file" accept=".csv,text/csv" onChange={e => setImportFile(e.target.files?.[0] ?? null)} style={{ fontSize: 12.5, color: 'var(--txt)' }} />
             </div>
@@ -1346,19 +1470,19 @@ interface ReportCardDef {
 
 const REPORT_CARDS: ReportCardDef[] = [
   { key: 'reg-summary', title: 'Attendance Regularizations Summary', description: 'Summary of attendance adjustment and regularization requests made by employees.', reportType: 'REGULARIZATION' },
-  { key: 'mobile-location', title: 'Mobile Location Punches', description: "Details of employees' location punches along with coordinates.", blockedReason: 'Requires GPS/coordinate punch tracking — not yet built.' },
+  { key: 'mobile-location', title: 'Mobile Location Punches', description: "Details of employees' location punches along with coordinates.", blockedReason: 'Requires GPS/coordinate punch tracking, not yet built.' },
   { key: 'overtime', title: 'Overtime Requests', description: 'Summary of overtime requests made by employees.', reportType: 'OVERTIME' },
   { key: 'partial-day', title: 'Partial Day Requests', description: 'Summary of partial day requests made by employees.', reportType: 'PARTIAL_DAY' },
   { key: 'remote-summary', title: 'Remote Clock-in Requests Summary', description: 'Summary of remote clock-ins and outs requests made by employees.', reportType: 'WEB_CLOCK_IN' },
   // Reuses Web Clock-In data (there is no separate remote/GPS punch entity), but its promised
   // lat/long coordinates don't exist anywhere in the backend — Coming Soon rather than
   // misrepresenting Web Clock-In rows as location punches.
-  { key: 'remote-clockins', title: 'Remote Clock-ins', description: "Details of employees' remote punch (In/Out) along with coordinates.", blockedReason: 'Requires GPS/coordinate tracking on remote punches — not yet built.' },
-  { key: 'shift-weeklyoff', title: 'Shift & Weekly Off Requests', description: 'Summary of shift/weekly off requests made by employees.', blockedReason: 'Requires Shift & Weekly Off as a request workflow — not yet built (see the Employee Assignments tab for static assignments).' },
+  { key: 'remote-clockins', title: 'Remote Clock-ins', description: "Details of employees' remote punch (In/Out) along with coordinates.", blockedReason: 'Requires GPS/coordinate tracking on remote punches, not yet built.' },
+  { key: 'shift-weeklyoff', title: 'Shift & Weekly Off Requests', description: 'Summary of shift/weekly off requests made by employees.', blockedReason: 'Requires Shift & Weekly Off as a request workflow, not yet built (see the Employee Assignments tab for static assignments).' },
   // No IP address is ever captured for a web clock-in (see WebClockInRequest) — description kept
   // to only what the report actually contains.
   { key: 'web-clockins', title: 'Web Clock-ins', description: "Details of employees' web clock-ins.", reportType: 'WEB_CLOCK_IN' },
-  { key: 'web-clockins-forgot', title: 'Web Clock-ins (includes Forgot ID requests)', description: 'Summary of web clock-ins done by employees.', blockedReason: 'Requires a Forgot ID flag on web clock-ins — not yet built.' },
+  { key: 'web-clockins-forgot', title: 'Web Clock-ins (includes Forgot ID requests)', description: 'Summary of web clock-ins done by employees.', blockedReason: 'Requires a Forgot ID flag on web clock-ins, not yet built.' },
   // There is no "OD" (on-duty) request type anywhere in the schema — only WFH is backed by real
   // data, distinguished per row by its Full Day / First Half / Second Half mode.
   { key: 'wfh-od', title: 'Working Remotely (WFH/OD) Requests', description: 'Summary of WFH requests made by employees (no separate OD workflow exists today).', reportType: 'WFH_OD' },
@@ -1369,7 +1493,7 @@ const ATTENDANCE_REPORT_CARDS: ReportCardDef[] = [
 ];
 
 const PUNCTUALITY_REPORT_CARDS: ReportCardDef[] = [
-  { key: 'punctuality-summary', title: 'Team Punctuality Report', description: 'On-time leaderboard for your direct reports — on-time days vs. expected working days.', kind: 'punctuality' },
+  { key: 'punctuality-summary', title: 'Team Punctuality Report', description: 'On-time leaderboard for your direct reports, on-time days vs. expected working days.', kind: 'punctuality' },
 ];
 
 const NEGLIGENCE_REPORT_CARDS: ReportCardDef[] = [
@@ -1435,7 +1559,7 @@ const REQUEST_MODE_LABELS: Record<string, string> = {
   SECOND_HALF: 'Second Half',
 };
 function modeLabel(mode: string | null): string {
-  if (!mode) return '—';
+  if (!mode) return '-';
   return REQUEST_MODE_LABELS[mode] ?? mode;
 }
 
@@ -1451,36 +1575,36 @@ export const REPORT_COLUMN_SETS: Record<string, ReportColumn[]> = {
   // span sized to that duration (see AttendancePage.tsx OvertimeRequestModal.handleSubmit), not
   // real clock times. Showing them here previously surfaced fake "12:00 AM"/"2:00 AM" columns.
   OVERTIME: [
-    { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+    { header: 'Employee', cell: r => r.fullName ?? '-', exportValue: r => r.fullName ?? '' },
     { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
-    { header: 'Overtime Hours', cell: r => r.hours ?? '—', exportValue: r => r.hours ?? '' },
-    { header: 'Reason', cell: r => r.reason ?? '—', exportValue: r => r.reason ?? '' },
-    { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+    { header: 'Overtime Hours', cell: r => r.hours ?? '-', exportValue: r => r.hours ?? '' },
+    { header: 'Reason', cell: r => r.reason ?? '-', exportValue: r => r.reason ?? '' },
+    { header: 'Status', cell: r => r.status ?? '-', exportValue: r => r.status ?? '' },
   ],
   PARTIAL_DAY: [
-    { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+    { header: 'Employee', cell: r => r.fullName ?? '-', exportValue: r => r.fullName ?? '' },
     { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
     { header: 'Mode', cell: r => modeLabel(r.requestMode), exportValue: r => modeLabel(r.requestMode) },
-    { header: 'Hours', cell: r => r.hours ?? '—', exportValue: r => r.hours ?? '' },
-    { header: 'Reason', cell: r => r.reason ?? '—', exportValue: r => r.reason ?? '' },
-    { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+    { header: 'Hours', cell: r => r.hours ?? '-', exportValue: r => r.hours ?? '' },
+    { header: 'Reason', cell: r => r.reason ?? '-', exportValue: r => r.reason ?? '' },
+    { header: 'Status', cell: r => r.status ?? '-', exportValue: r => r.status ?? '' },
   ],
   WFH_OD: [
-    { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+    { header: 'Employee', cell: r => r.fullName ?? '-', exportValue: r => r.fullName ?? '' },
     { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
     { header: 'Mode', cell: r => modeLabel(r.requestMode), exportValue: r => modeLabel(r.requestMode) },
-    { header: 'Day Fraction', cell: r => r.hours ?? '—', exportValue: r => r.hours ?? '' },
-    { header: 'Reason', cell: r => r.reason ?? '—', exportValue: r => r.reason ?? '' },
-    { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+    { header: 'Day Fraction', cell: r => r.hours ?? '-', exportValue: r => r.hours ?? '' },
+    { header: 'Reason', cell: r => r.reason ?? '-', exportValue: r => r.reason ?? '' },
+    { header: 'Status', cell: r => r.status ?? '-', exportValue: r => r.status ?? '' },
   ],
 };
 
 const DEFAULT_REPORT_COLUMNS: ReportColumn[] = [
-  { header: 'Employee', cell: r => r.fullName ?? '—', exportValue: r => r.fullName ?? '' },
+  { header: 'Employee', cell: r => r.fullName ?? '-', exportValue: r => r.fullName ?? '' },
   { header: 'Date', cell: r => fmtDateShort(r.date), exportValue: r => r.date ?? '' },
   { header: 'Check In', cell: r => fmtTime(r.checkIn), exportValue: r => fmtTime(r.checkIn) },
   { header: 'Check Out', cell: r => fmtTime(r.checkOut), exportValue: r => fmtTime(r.checkOut) },
-  { header: 'Status', cell: r => r.status ?? '—', exportValue: r => r.status ?? '' },
+  { header: 'Status', cell: r => r.status ?? '-', exportValue: r => r.status ?? '' },
 ];
 
 function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: string; onClose: () => void }) {
@@ -1528,36 +1652,39 @@ function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { run(); }, []);
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 640 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{card.title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
+          <span className="nf-rm-ico">{(() => { const Ico = CARD_ICONS[card.key] ?? FileBarChart; return <Ico size={18} />; })()}</span>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{card.title}</div>
+            <div className="nf-rm-sub">{card.description}</div>
+          </div>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <span style={{ color: 'var(--txt-dim)' }}>–</span>
-          <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <button onClick={run} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: loading ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)' }}>
+        <div className="nf-rm-bar">
+          <label className="nf-rm-field"><span>From</span><input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} /></label>
+          <label className="nf-rm-field"><span>To</span><input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} /></label>
+          <button type="button" onClick={run} disabled={loading} className="nf-rm-run">
             {loading ? 'Running…' : 'Run'}
           </button>
           <div style={{ flex: 1 }} />
-          <button onClick={exportExcel} disabled={exporting || !rows || rows.length === 0} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: exporting || !rows?.length ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+          <button type="button" onClick={exportExcel} disabled={exporting || !rows || rows.length === 0} className="nf-rm-export">
             {exporting ? 'Exporting…' : 'Export Excel'}
           </button>
         </div>
-        <div style={{ maxHeight: 360, overflowY: 'auto', overflowX: 'auto' }}>
+        <div className="nf-rm-body">
           {loading ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
+            <div className="nf-rm-empty">Loading…</div>
           ) : !rows || rows.length === 0 ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>No requests in this range.</div>
+            <div className="nf-rm-empty">No requests in this range.</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-rm-table">
               <thead>
                 <tr>
                   {columns.map(col => (
-                    <th key={col.header} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>{col.header}</th>
+                    <th key={col.header}>{col.header}</th>
                   ))}
                 </tr>
               </thead>
@@ -1565,7 +1692,7 @@ function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: 
                 {rows.map((r, i) => (
                   <tr key={i}>
                     {columns.map(col => (
-                      <td key={col.header} style={assignmentCellStyle}>{col.cell(r)}</td>
+                      <td key={col.header}>{col.cell(r)}</td>
                     ))}
                   </tr>
                 ))}
@@ -1574,7 +1701,8 @@ function ReportRunModal({ card, token, onClose }: { card: ReportCardDef; token: 
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1617,48 +1745,51 @@ function AttendanceReportModal({ card, token, onClose }: { card: ReportCardDef; 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { run(); }, []);
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 720 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{card.title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
+          <span className="nf-rm-ico">{(() => { const Ico = CARD_ICONS[card.key] ?? FileBarChart; return <Ico size={18} />; })()}</span>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{card.title}</div>
+            <div className="nf-rm-sub">{card.description}</div>
+          </div>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <span style={{ color: 'var(--txt-dim)' }}>–</span>
-          <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <button onClick={run} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: loading ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)' }}>
+        <div className="nf-rm-bar">
+          <label className="nf-rm-field"><span>From</span><input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} /></label>
+          <label className="nf-rm-field"><span>To</span><input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} /></label>
+          <button type="button" onClick={run} disabled={loading} className="nf-rm-run">
             {loading ? 'Running…' : 'Run'}
           </button>
           <div style={{ flex: 1 }} />
-          <button onClick={exportExcel} disabled={!rows || rows.length === 0} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: !rows?.length ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+          <button type="button" onClick={exportExcel} disabled={!rows || rows.length === 0} className="nf-rm-export">
             Export Excel
           </button>
         </div>
-        <div style={{ maxHeight: 360, overflowY: 'auto', overflowX: 'auto' }}>
+        <div className="nf-rm-body">
           {loading ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Generating report…</div>
+            <div className="nf-rm-empty">Generating report…</div>
           ) : !rows || rows.length === 0 ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>No data available for the selected date range.</div>
+            <div className="nf-rm-empty">No data available for the selected date range.</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-rm-table">
               <thead>
                 <tr>
                   {['Employee', 'Date', 'Check In', 'Check Out', 'Worked Hours', 'Status'].map(h => (
-                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>{h}</th>
+                    <th key={h}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{fmtDateShort(r.workDate)}</td>
-                    <td style={assignmentCellStyle}>{fmtTime(r.checkInAt)}</td>
-                    <td style={assignmentCellStyle}>{fmtTime(r.checkOutAt)}</td>
-                    <td style={assignmentCellStyle}>{r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(1) : '—'}</td>
-                    <td style={assignmentCellStyle}>{r.status ?? '—'}</td>
+                    <td>{r.fullName ?? '-'}</td>
+                    <td>{fmtDateShort(r.workDate)}</td>
+                    <td>{fmtTime(r.checkInAt)}</td>
+                    <td>{fmtTime(r.checkOutAt)}</td>
+                    <td>{r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(1) : '-'}</td>
+                    <td>{r.status ?? '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1666,7 +1797,8 @@ function AttendanceReportModal({ card, token, onClose }: { card: ReportCardDef; 
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1709,47 +1841,50 @@ function PunctualityReportModal({ card, token, onClose }: { card: ReportCardDef;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { run(); }, []);
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 640 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{card.title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
+          <span className="nf-rm-ico">{(() => { const Ico = CARD_ICONS[card.key] ?? FileBarChart; return <Ico size={18} />; })()}</span>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{card.title}</div>
+            <div className="nf-rm-sub">{card.description}</div>
+          </div>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <span style={{ color: 'var(--txt-dim)' }}>–</span>
-          <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <button onClick={run} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: loading ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)' }}>
+        <div className="nf-rm-bar">
+          <label className="nf-rm-field"><span>From</span><input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} /></label>
+          <label className="nf-rm-field"><span>To</span><input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} /></label>
+          <button type="button" onClick={run} disabled={loading} className="nf-rm-run">
             {loading ? 'Running…' : 'Run'}
           </button>
           <div style={{ flex: 1 }} />
-          <button onClick={exportExcel} disabled={rows.length === 0} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: rows.length === 0 ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+          <button type="button" onClick={exportExcel} disabled={rows.length === 0} className="nf-rm-export">
             Export Excel
           </button>
         </div>
-        <div style={{ maxHeight: 360, overflowY: 'auto', overflowX: 'auto' }}>
+        <div className="nf-rm-body">
           {loading ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Generating report…</div>
+            <div className="nf-rm-empty">Generating report…</div>
           ) : rows.length === 0 ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>No data available for the selected date range.</div>
+            <div className="nf-rm-empty">No data available for the selected date range.</div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-rm-table">
               <thead>
                 <tr>
                   {['Employee', 'Designation', 'On-Time Days', 'Expected Working Days', 'Percentage'].map(h => (
-                    <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>{h}</th>
+                    <th key={h}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.onTimeDays}</td>
-                    <td style={assignmentCellStyle}>{r.expectedWorkingDays}</td>
-                    <td style={assignmentCellStyle}>{r.percentage.toFixed(1)}%</td>
+                    <td>{r.fullName ?? '-'}</td>
+                    <td>{r.designationName ?? '-'}</td>
+                    <td>{r.onTimeDays}</td>
+                    <td>{r.expectedWorkingDays}</td>
+                    <td>{r.percentage.toFixed(1)}%</td>
                   </tr>
                 ))}
               </tbody>
@@ -1757,7 +1892,8 @@ function PunctualityReportModal({ card, token, onClose }: { card: ReportCardDef;
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1802,13 +1938,13 @@ function NegligenceReportModal({ card, token, onClose }: { card: ReportCardDef; 
 
   function miniTable(title: string, headers: string[], body: React.ReactNode) {
     return (
-      <div style={{ marginBottom: 18 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)', padding: '10px 12px 6px' }}>{title}</div>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="nf-rm-sect">
+        <div className="nf-rm-sect-title">{title}</div>
+        <table className="nf-rm-table">
           <thead>
             <tr>
               {headers.map(h => (
-                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', borderBottom: '1px solid var(--line)' }}>{h}</th>
+                <th key={h}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -1818,66 +1954,70 @@ function NegligenceReportModal({ card, token, onClose }: { card: ReportCardDef; 
     );
   }
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={{ ...modalStyle, maxWidth: 760 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 18, borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{card.title}</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 760 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
+          <span className="nf-rm-ico">{(() => { const Ico = CARD_ICONS[card.key] ?? FileBarChart; return <Ico size={18} />; })()}</span>
+          <div className="nf-rm-titles">
+            <div className="nf-rm-title">{card.title}</div>
+            <div className="nf-rm-sub">{card.description}</div>
+          </div>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <span style={{ color: 'var(--txt-dim)' }}>–</span>
-          <input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} style={{ ...inputStyle, width: 'auto', padding: '6px 9px' }} />
-          <button onClick={run} disabled={loading} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: loading ? 'not-allowed' : 'pointer', border: '1px solid var(--line2)', background: 'var(--shell)', color: 'var(--txt)' }}>
+        <div className="nf-rm-bar">
+          <label className="nf-rm-field"><span>From</span><input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} /></label>
+          <label className="nf-rm-field"><span>To</span><input type="date" value={to} min={from} max={todayIsoDate()} onChange={e => setTo(e.target.value)} /></label>
+          <button type="button" onClick={run} disabled={loading} className="nf-rm-run">
             {loading ? 'Running…' : 'Run'}
           </button>
           <div style={{ flex: 1 }} />
-          <button onClick={exportExcel} disabled={!hasData} style={{ fontSize: 12, fontWeight: 600, padding: '7px 12px', borderRadius: 6, cursor: !hasData ? 'not-allowed' : 'pointer', border: 'none', background: 'var(--brand)', color: '#fff' }}>
+          <button type="button" onClick={exportExcel} disabled={!hasData} className="nf-rm-export">
             Export Excel
           </button>
         </div>
-        <div style={{ maxHeight: 440, overflowY: 'auto', overflowX: 'auto' }}>
+        <div className="nf-rm-body">
           {loading ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>Generating report…</div>
+            <div className="nf-rm-empty">Generating report…</div>
           ) : !hasData ? (
-            <div style={{ padding: 18, fontSize: 12.5, color: 'var(--txt-dim)' }}>No data available for the selected date range.</div>
+            <div className="nf-rm-empty">No data available for the selected date range.</div>
           ) : (
             <>
               {lateArrivals.length > 0 && miniTable('Late Arrivals', ['Employee', 'Designation', 'Late Days', 'Active Days', 'Late %'],
                 lateArrivals.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.lateDays}</td>
-                    <td style={assignmentCellStyle}>{r.activeDays}</td>
-                    <td style={assignmentCellStyle}>{r.latePct.toFixed(1)}%</td>
+                    <td>{r.fullName ?? '-'}</td>
+                    <td>{r.designationName ?? '-'}</td>
+                    <td>{r.lateDays}</td>
+                    <td>{r.activeDays}</td>
+                    <td>{r.latePct.toFixed(1)}%</td>
                   </tr>
                 )))}
               {leastHoursWorked.length > 0 && miniTable('Least Hours Worked', ['Employee', 'Designation', 'Avg Hours/Day', 'Hours Worked'],
                 leastHoursWorked.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.avgHoursPerDay.toFixed(1)}</td>
-                    <td style={assignmentCellStyle}>{r.hoursWorked.toFixed(1)}</td>
+                    <td>{r.fullName ?? '-'}</td>
+                    <td>{r.designationName ?? '-'}</td>
+                    <td>{r.avgHoursPerDay.toFixed(1)}</td>
+                    <td>{r.hoursWorked.toFixed(1)}</td>
                   </tr>
                 )))}
               {frequentBreaks.length > 0 && miniTable('Frequent Breaks', ['Employee', 'Designation', 'Total Breaks', 'Total Break Hours', 'Avg Breaks/Day'],
                 frequentBreaks.map((r, i) => (
                   <tr key={i}>
-                    <td style={assignmentCellStyle}>{r.fullName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.designationName ?? '—'}</td>
-                    <td style={assignmentCellStyle}>{r.totalBreakCount}</td>
-                    <td style={assignmentCellStyle}>{r.totalBreakHours.toFixed(1)}</td>
-                    <td style={assignmentCellStyle}>{r.avgBreaksPerDay.toFixed(1)}</td>
+                    <td>{r.fullName ?? '-'}</td>
+                    <td>{r.designationName ?? '-'}</td>
+                    <td>{r.totalBreakCount}</td>
+                    <td>{r.totalBreakHours.toFixed(1)}</td>
+                    <td>{r.avgBreaksPerDay.toFixed(1)}</td>
                   </tr>
                 )))}
             </>
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1885,7 +2025,18 @@ function cardIsAvailable(c: ReportCardDef): boolean {
   return !!c.reportType || c.kind === 'attendance' || c.kind === 'punctuality' || c.kind === 'negligence';
 }
 
-function ReportsTab({ token }: { token: string }) {
+const CARD_ICONS: Record<string, LucideIcon> = {
+  'reg-summary': ClipboardCheck, 'mobile-location': MapPin, overtime: Clock, 'partial-day': Hourglass,
+  'remote-summary': Laptop, 'remote-clockins': Repeat, 'shift-weeklyoff': CalendarClock, 'web-clockins': LogIn,
+  'web-clockins-forgot': LogIn, 'wfh-od': Home, 'attendance-summary': CalendarCheck, 'punctuality-summary': Timer,
+  'negligence-summary': AlertTriangle,
+};
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  'Reports Home': LayoutGrid, 'Attendance Request Reports': ClipboardCheck, 'Attendance Reports': CalendarCheck,
+  'Punctuality Reports': Timer, 'Negligence Reports': AlertTriangle, 'Scheduled reports': CalendarClock,
+};
+
+export function ReportsTab({ token }: { token: string }) {
   const { showToast } = useToast();
   // ?category=… opens straight into a specific report library (ONEHR - My Team AI access), the
   // same deep-link pattern MyTeamPage's own ?tab= already uses — falls back to the original
@@ -1899,7 +2050,10 @@ function ReportsTab({ token }: { token: string }) {
   const [runningCard, setRunningCard] = useState<ReportCardDef | null>(null);
 
   const q = search.trim().toLowerCase();
-  const filteredCards = (REPORT_CATEGORY_CARDS[category] ?? []).filter(c => !q || c.title.toLowerCase().includes(q));
+  const categoryCards = REPORT_CATEGORY_CARDS[category] ?? [];
+  const filteredCards = categoryCards.filter(c => !q || c.title.toLowerCase().includes(q));
+  const readyCount = categoryCards.filter(cardIsAvailable).length;
+  const CatIcon = CATEGORY_ICONS[category] ?? FileBarChart;
 
   function openCard(card: ReportCardDef) {
     if (!cardIsAvailable(card)) {
@@ -1910,47 +2064,57 @@ function ReportsTab({ token }: { token: string }) {
   }
 
   return (
-    <div style={panelStyle}>
-      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: '220px minmax(0,1fr)' }}>
-        <div style={{ borderRight: '1px solid var(--line)', padding: '14px 10px' }}>
-          {REPORT_CATEGORIES.map(cat => (
-            <div key={cat} onClick={() => setCategory(cat)} style={{
-              padding: '9px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12.5, fontWeight: 600, marginBottom: 2,
-              background: category === cat ? 'var(--brand)' : 'transparent', color: category === cat ? '#fff' : 'var(--txt-mut)',
-            }}>
-              {cat}
+    <div className="nf-rp">
+      <div className="nf-rp-grid nf-grid-side-collapse">
+        <nav className="nf-rp-side" aria-label="Report categories">
+          {REPORT_CATEGORIES.map(cat => {
+            const Ico = CATEGORY_ICONS[cat] ?? FileBarChart;
+            const n = (REPORT_CATEGORY_CARDS[cat] ?? []).length;
+            return (
+              <button type="button" key={cat} onClick={() => setCategory(cat)} className={category === cat ? 'nf-rp-cat is-on' : 'nf-rp-cat'}>
+                <Ico size={15} />
+                <span>{cat}</span>
+                {n > 0 && <b>{n}</b>}
+              </button>
+            );
+          })}
+        </nav>
+        <div className="nf-rp-main">
+          <div className="nf-rp-head">
+            <span className="nf-rp-ico"><CatIcon size={17} /></span>
+            <div className="nf-rp-title">
+              <span>{category}</span>
+              <small>{categoryCards.length === 0 ? 'Nothing here yet' : `${readyCount} of ${categoryCards.length} reports ready to download`}</small>
             </div>
-          ))}
-        </div>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
-            <span style={panelTitleStyle}>{category}</span>
-            <div className="nf-filter-search">
+            <div className="nf-filter-search nf-rp-search">
               <Search size={13} />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search reports…" />
             </div>
           </div>
-          <div style={{ padding: 18 }}>
+          <div className="nf-rp-body">
             {category === 'Scheduled reports' ? (
-              <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>Not available yet.</div>
+              <div className="nf-rp-empty"><CalendarClock size={22} />Not available yet.</div>
             ) : filteredCards.length === 0 ? (
-              <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>No reports match your search.</div>
+              <div className="nf-rp-empty"><Search size={22} />No reports match your search.</div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-                {filteredCards.map(c => (
-                  <div key={c.key} onClick={() => openCard(c)} style={{
-                    background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: 14,
-                    cursor: 'pointer', opacity: cardIsAvailable(c) ? 1 : 0.55, position: 'relative',
-                  }}>
-                    {!cardIsAvailable(c) && (
-                      <span style={{ position: 'absolute', top: 10, right: 10, fontSize: 9.5, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'var(--raised2)', color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>
-                        Coming soon
-                      </span>
-                    )}
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 5, paddingRight: cardIsAvailable(c) ? 0 : 78 }}>{c.title}</div>
-                    <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', lineHeight: 1.4 }}>{c.description}</div>
-                  </div>
-                ))}
+              <div className="nf-rp-cards">
+                {filteredCards.map(c => {
+                  const ok = cardIsAvailable(c);
+                  const Ico = CARD_ICONS[c.key] ?? FileBarChart;
+                  return (
+                    <div key={c.key} role="button" tabIndex={0} onClick={() => openCard(c)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCard(c); } }}
+                      className={ok ? 'nf-rp-card' : 'nf-rp-card is-soon'}>
+                      <div className="nf-rp-card-top">
+                        <span className="nf-rp-card-ico"><Ico size={17} /></span>
+                        {ok ? <span className="nf-rp-go"><ArrowUpRight size={14} /></span> : <span className="nf-rp-soon">Coming soon</span>}
+                      </div>
+                      <div className="nf-rp-card-title">{c.title}</div>
+                      <div className="nf-rp-card-desc">{c.description}</div>
+                      {ok && <div className="nf-rp-card-cta">Run report</div>}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -2009,51 +2173,42 @@ export function KudosModal({ target, token, onClose }: { target: KudosTarget | n
     }
   }
 
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={modalStyle} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 18, borderBottom: '1px solid var(--line)' }}>
+  return createPortal(
+    <div className="nf-rm-overlay" onClick={onClose}>
+      <div className="nf-rm-dlg" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div className="nf-rm-head">
           <Avatar userId={target.userId} name={target.name} size={36} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10.5, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700 }}>Appreciating</div>
-            <div style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>{target.name}</div>
+          <div className="nf-rm-titles">
+            <div className="nf-pm-kicker">Appreciating</div>
+            <div className="nf-rm-title">{target.name}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 5, borderRadius: 6 }}><X size={16} /></button>
+          <button type="button" className="nf-rm-x" aria-label="Close" onClick={onClose}><X size={16} /></button>
         </div>
-        <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="nf-pm-body">
           <div>
-            <div style={labelStyle}>What for?</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <div className="nf-pm-sec">What for?</div>
+            <div className="nf-pm-choices">
               {KUDOS_CATEGORIES.map(c => (
-                <button key={c} onClick={() => setCategory(c)} style={{
-                  fontSize: 12, fontWeight: 600, padding: '8px 12px', borderRadius: 9, cursor: 'pointer',
-                  border: category === c ? '1px solid var(--brand-bright)' : '1px solid var(--line2)',
-                  background: category === c ? 'rgba(228,55,61,.10)' : 'var(--raised)',
-                  color: category === c ? 'var(--txt)' : 'var(--txt-mut)',
-                }}>{c}</button>
+                <button type="button" key={c} onClick={() => setCategory(c)} className={category === c ? 'nf-pm-choice is-on' : 'nf-pm-choice'}>{c}</button>
               ))}
             </div>
           </div>
           <div>
-            <div style={labelStyle}>Note (optional)</div>
+            <div className="nf-pm-sec">Note (optional)</div>
             <textarea
               value={note}
               onChange={e => setNote(e.target.value)}
-              placeholder="e.g. Thanks for jumping on the prod issue last night — huge help!"
-              style={{ ...inputStyle, minHeight: 72, resize: 'vertical', fontFamily: 'inherit' }}
+              placeholder="e.g. Thanks for jumping on the prod issue last night, huge help!"
+              className="nf-pm-area"
             />
           </div>
-          <button onClick={send} disabled={!category || sending} style={{
-            width: '100%', padding: 11, borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13,
-            cursor: !category || sending ? 'not-allowed' : 'pointer',
-            background: !category || sending ? 'var(--raised2)' : 'var(--brand)',
-            color: !category || sending ? 'var(--txt-dim)' : '#fff',
-          }}>
+          <button type="button" onClick={send} disabled={!category || sending} className="nf-pm-send">
             {sending ? 'Sending…' : 'Send Kudos'}
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -2212,12 +2367,12 @@ function PeersView({ token }: { token: string }) {
 
       <MemberGridSection
         title={`Project Team (${filteredPeers.length})`}
-        subtitle="Avatar, designation, live status, location, department and email — find and reach a teammate without leaving this page."
+        subtitle="Avatar, designation, live status, location, department and email, find and reach a teammate without leaving this page."
         search={search} onSearch={setSearch} searchPlaceholder="Search by name, designation, or department…"
       >
         <MemberGrid empty={
           loading ? 'Loading…'
-            : peers.length === 0 ? "No project team members found — you don't currently share a manager with anyone else in the system."
+            : peers.length === 0 ? "No project team members found. You don't currently share a manager with anyone else in the system."
             : filteredPeers.length === 0 ? 'No one matches this filter.' : undefined
         }>
           {filteredPeers.map(row => {
@@ -2257,7 +2412,7 @@ function PeersView({ token }: { token: string }) {
        * instead of auto-fit computing more tracks than there are cards and leaving a gap.
        * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
        * row of fixed-width cards instead of squeezing all 4 into the narrow viewport. */}
-      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '…' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '…' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
         <KpiCard icon={<Home size={14} />} iconColor="var(--info)" label="WFH / On duty" value={loading ? '…' : wfhOnDutyCount} note="remote or hybrid today" onClick={wfhOnDutyCount > 0 ? () => setKpiModal('wfh') : undefined} />
@@ -2278,72 +2433,20 @@ function PeersView({ token }: { token: string }) {
       )}
 
       {/* Who's on leave / Not in yet */}
-      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-        <div style={panelStyle}>
-          <div style={panelHeadStyle}>
-            <span style={panelTitleStyle}>Who's on leave today</span>
-            <span style={panelCountStyle}>{onLeaveList.length} {onLeaveList.length === 1 ? 'person' : 'people'}</span>
-          </div>
-          {onLeaveList.length === 0 ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your project team is on leave today.</div>
-          ) : (
-            onLeaveList.map(r => (
-              <div key={r.peer.userId} style={{ ...inactiveDimStyle(r.peer.active), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                <Avatar userId={r.peer.userId} name={r.peer.fullName} size={30} />
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{r.peer.fullName}</span>
-                {!r.peer.active && <StatusBadge active={false} />}
-                <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{r.leaveTypeName}</span>
-              </div>
-            ))
-          )}
-        </div>
-        <div style={panelStyle}>
-          <div style={panelHeadStyle}>
-            <span style={panelTitleStyle}>Not in yet today</span>
-            <span style={panelCountStyle}>{notInYet.length} {notInYet.length === 1 ? 'person' : 'people'}</span>
-          </div>
-          {loading ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
-          ) : notInYet.length === 0 ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Everyone's checked in.</div>
-          ) : (
-            <div style={{ padding: '14px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex' }}>
-                  {notInYet.slice(0, OVERFLOW_LIMIT).map((r, i) => (
-                    <div
-                      key={r.peer.userId}
-                      title={r.peer.fullName}
-                      onClick={() => setViewingEmployeeDetails(r.peer)}
-                      style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid var(--panel)', borderRadius: '50%', cursor: 'pointer' }}
-                    >
-                      <Avatar userId={r.peer.userId} name={r.peer.fullName} size={30} />
-                    </div>
-                  ))}
-                </div>
-                {notInYet.length > OVERFLOW_LIMIT && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllNotIn(true)}
-                    title="View all employees not in yet"
-                    style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', padding: '4px 9px', borderRadius: 20, border: 'none', cursor: 'pointer' }}
-                  >
-                    +{notInYet.length - OVERFLOW_LIMIT} more
-                  </button>
-                )}
-                <span style={{ fontSize: 12, color: 'var(--txt-dim)', flexBasis: '100%' }}>
-                  {notInYet.slice(0, OVERFLOW_LIMIT).map(r => r.peer.fullName).join(', ')}
-                  {notInYet.length > OVERFLOW_LIMIT ? `, +${notInYet.length - OVERFLOW_LIMIT} more` : ''}
-                </span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={() => setShowAllNotIn(true)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--info)' }}>
-                  View employees
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+        <LeaveTodayPanel
+          emptyText="No one on your project team is on leave today."
+          rows={onLeaveList.map(r => ({ key: r.peer.userId, userId: r.peer.userId, name: r.peer.fullName, leaveType: r.leaveTypeName ?? '', active: r.peer.active }))}
+        />
+        <NotInYetPanel
+          variant="chips"
+          limit={OVERFLOW_LIMIT}
+          loading={loading}
+          emptyText="Everyone's checked in."
+          people={notInYet.map(r => ({ userId: r.peer.userId, name: r.peer.fullName }))}
+          onPick={userId => { const row = notInYet.find(r => r.peer.userId === userId); if (row) setViewingEmployeeDetails(row.peer); }}
+          onViewAll={() => setShowAllNotIn(true)}
+        />
       </div>
       {viewingEmployeeDetails && <EmployeeDetailsModal entry={viewingEmployeeDetails} onClose={() => setViewingEmployeeDetails(null)} />}
       {showAllNotIn && (
@@ -2396,7 +2499,7 @@ const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
 };
 
 function fmtDateTimeShort(iso?: string | null) {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -2464,6 +2567,10 @@ function PenaltiesTab({ token }: { token: string }) {
   const [cancelBusy, setCancelBusy] = useState(false);
   const [lastResult, setLastResult] = useState<{ succeeded: number; failures: { label: string; reason: string }[] } | null>(null);
   const [historyFor, setHistoryFor] = useState<PenaltyRow | null>(null);
+  // Cancelling is a write — POST /attendance/penalties/cancel needs attendance:EDIT:TEAM (V234),
+  // seeded to the same Manager/HR Admin/Super Admin holders as viewing, so only a custom role
+  // granted view-only loses the action.
+  const canCancel = hasPermission(useAuthStore(s => s.permissions), 'attendance', 'EDIT', 'TEAM');
 
   // Department/location option lists — sourced from the Org master data (Super Admin
   // configuration), same as SuperAdminRegularizationPage/PenalizationPolicyAllocationSection,
@@ -2577,7 +2684,7 @@ function PenaltiesTab({ token }: { token: string }) {
       </div>
 
       <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <BulkButton label="Cancel Penalty" disabled={selected.size === 0} onClick={() => { setCancelOpen(true); setCancelReason(''); }} />
+        {canCancel && <BulkButton label="Cancel Penalty" disabled={selected.size === 0} onClick={() => { setCancelOpen(true); setCancelReason(''); }} />}
         <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
           Total: <b style={{ color: 'var(--txt)' }}>{rows.length}</b>{selected.size > 0 && <> · {selected.size} selected</>}
         </span>
@@ -2586,7 +2693,7 @@ function PenaltiesTab({ token }: { token: string }) {
       {lastResult && (
         <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)', background: lastResult.failures.length ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)', marginBottom: lastResult.failures.length ? 6 : 0 }}>
-            Cancellation — {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
+            Cancellation: {lastResult.succeeded} succeeded{lastResult.failures.length ? `, ${lastResult.failures.length} failed` : ''}
           </div>
           {lastResult.failures.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -2632,8 +2739,8 @@ function PenaltiesTab({ token }: { token: string }) {
                 <td style={assignmentCellStyle}>{fmtDateShort(r.incidentDate)}</td>
                 <td style={assignmentCellStyle}>{fmtDateTimeShort(r.penalizedOn)}</td>
                 <td style={assignmentCellStyle}><PenaltyStatusBadge status={r.status} /></td>
-                <td style={assignmentCellStyle}>{r.locationName ?? '—'}</td>
-                <td style={assignmentCellStyle}>{r.departmentName ?? '—'}</td>
+                <td style={assignmentCellStyle}>{r.locationName ?? '-'}</td>
+                <td style={assignmentCellStyle}>{r.departmentName ?? '-'}</td>
                 <td style={assignmentCellStyle}>{DISCREPANCY_TYPE_LABEL[r.discrepancyType] ?? r.discrepancyType}</td>
                 <td style={{ padding: '4px 8px', borderBottom: '1px solid var(--line)', textAlign: 'right' }}>
                   <KebabMenu items={[{ label: 'View Regularization History', onClick: () => setHistoryFor(r) }]} />
@@ -2708,7 +2815,7 @@ function growthLimit<T>(items: T[], expanded: boolean): { visible: T[]; overflow
   return { visible: items.slice(0, GROWTH_PREVIEW_LIMIT), overflow: items.length - GROWTH_PREVIEW_LIMIT };
 }
 function growthFmtDate(d: string | null): string {
-  if (!d) return '—';
+  if (!d) return '-';
   return growthParseLocalDate(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 function growthCertificateStatusLabel(expiry: string | null): { label: string; tone: string } | null {
@@ -2740,8 +2847,8 @@ function CertificateDetailModal({ cert, onClose }: { cert: CertificateEntry; onC
       )}
       onClose={onClose}
     >
-      <GrowthDetailRow label="Issuing Organization">{cert.issuingOrganization ?? '—'}</GrowthDetailRow>
-      <GrowthDetailRow label="Credential ID">{cert.credentialId ?? '—'}</GrowthDetailRow>
+      <GrowthDetailRow label="Issuing Organization">{cert.issuingOrganization ?? '-'}</GrowthDetailRow>
+      <GrowthDetailRow label="Credential ID">{cert.credentialId ?? '-'}</GrowthDetailRow>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <GrowthDetailRow label="Issue Date">{growthFmtDate(cert.issueDate)}</GrowthDetailRow>
         <GrowthDetailRow label="Expiry Date">{growthFmtDate(cert.expiryDate)}</GrowthDetailRow>
@@ -2751,7 +2858,7 @@ function CertificateDetailModal({ cert, onClose }: { cert: CertificateEntry; onC
           <a href={cert.credentialUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--brand-bright)', textDecoration: 'none', fontWeight: 600 }}>
             View credential <ExternalLink size={12} />
           </a>
-        ) : '—'}
+        ) : '-'}
       </GrowthDetailRow>
     </DetailModalShell>
   );
@@ -2770,7 +2877,7 @@ function LearningDetailModal({ entry, onClose }: { entry: LearningEntry; onClose
     >
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <GrowthDetailRow label="Type">{entry.learningType}</GrowthDetailRow>
-        <GrowthDetailRow label="Provider">{entry.provider ?? '—'}</GrowthDetailRow>
+        <GrowthDetailRow label="Provider">{entry.provider ?? '-'}</GrowthDetailRow>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
         <GrowthDetailRow label="Started On">{growthFmtDate(entry.startDate)}</GrowthDetailRow>
@@ -2849,7 +2956,7 @@ function GrowthColumn({ icon: Icon, label, category, count, empty, children }: {
           <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)' }}>({count})</span>
         )}
       </div>
-      {empty ? <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>—</span> : (
+      {empty ? <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>-</span> : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{children}</div>
       )}
     </div>
@@ -3002,7 +3109,12 @@ export default function MyTeamPage() {
   const token = useAuthStore(s => s.token)!;
   const user = useAuthStore(s => s.user);
   const role = toShellRole(user?.role);
-  const isEmployee = role === 'Employee';
+  const permissions = useAuthStore(s => s.permissions);
+  // "Employee" here means "no direct-reports view": the roster/calendar below is built on
+  // /attendance/team + /attendance/team-month, which require attendance:VIEW:TEAM — seeded to
+  // exactly Manager/HR Admin/Super Admin, the non-Employee roles. Until permissions have loaded,
+  // fall back to the role so viewMode's one-time initializer below doesn't lock a manager into Peers.
+  const isEmployee = permissions ? !hasPermission(permissions, 'attendance', 'VIEW', 'TEAM') : role === 'Employee';
   // Efforts/Punctuality, Negligence, Penalties and Employee Assignments are manager tools for
   // monitoring one's own reports — not part of HR Admin's My Team view. Reports stays: HR relies
   // on its org-wide Overtime/WFH/Partial Day request reports (see ReportsService), which have no
@@ -3279,16 +3391,16 @@ export default function MyTeamPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div className={viewMode === 'direct' && tab !== 'overview' ? 'nf-page-hdr' : undefined} style={{ display: 'flex', alignItems: viewMode === 'direct' && tab !== 'overview' ? 'center' : 'flex-end', justifyContent: 'space-between', gap: 16, marginBottom: viewMode === 'direct' && tab !== 'overview' ? 18 : 16, flexWrap: 'wrap' }}>
         {/* The redesigned Overview / Project Team views carry their own "My Team" hero title;
             the classic title only shows above the manager-tool tabs, which keep their old layout. */}
         {viewMode === 'direct' && tab !== 'overview' ? (
-          <div>
+          <PageTitleBlock icon={Users}>
             <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
             <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>
               Attendance, leave, and open requests for your direct reports, in one place, so you don't have to check four separate pages to know how your team is doing today.
             </p>
-          </div>
+          </PageTitleBlock>
         ) : <span />}
         {!isEmployee && directReportCount > 0 && (
           // A view toggle (whose team), not page navigation — so a chip group, not tabs.
@@ -3399,19 +3511,7 @@ export default function MyTeamPage() {
 
         {/* Right column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div style={panelStyle}>
-            <div style={panelHeadStyle}>
-              <span style={panelTitleStyle}>Needs your attention</span>
-              <span style={panelCountStyle}>{attentionItems.length} pending</span>
-            </div>
-            {attentionItems.length === 0 ? (
-              <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Nothing pending right now.</div>
-            ) : (
-              attentionItems.map(item => (
-                <AttentionQueueItem key={`${item.requestType}:${item.id}`} item={item} token={token} onDone={removeAttentionItem} />
-              ))
-            )}
-          </div>
+          <AttentionPanel items={attentionItems} token={token} onDone={removeAttentionItem} />
 
           <div style={panelStyle}>
             <div style={panelHeadStyle}>
@@ -3454,7 +3554,7 @@ export default function MyTeamPage() {
        * onto its own row and left the rest of that row empty.
        * On mobile (see .nf-kpi-scroll in index.css) this becomes a horizontally scrollable
        * row of fixed-width cards instead of squeezing all 6 into the narrow viewport. */}
-      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="nf-kpi-scroll" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 14, marginBottom: 20 }}>
         <KpiCard icon={<Users size={14} />} iconColor="var(--brand-bright)" label="Team size" value={loading ? '…' : directReports.length} note="direct reports" onClick={directReports.length > 0 ? () => setKpiModal('teamSize') : undefined} />
         <KpiCard icon={<CheckCircle2 size={14} />} iconColor="var(--ok)" label="Employees on time" value={loading ? '…' : onTimeCount} note="arrived on schedule" onClick={onTimeCount > 0 ? () => setKpiModal('onTime') : undefined} />
         <KpiCard icon={<Clock size={14} />} iconColor="var(--warn)" label="Late arrivals" value={loading ? '…' : lateCount} note={lateCount > 0 ? 'arrived late today' : 'none today'} onClick={lateCount > 0 ? () => setKpiModal('late') : undefined} />
@@ -3493,63 +3593,19 @@ export default function MyTeamPage() {
       )}
 
       {/* Who's on leave / Not in yet */}
-      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-        <div style={panelStyle}>
-          <div style={panelHeadStyle}>
-            <span style={panelTitleStyle}>Who's on leave today</span>
-            <span style={panelCountStyle}>{todayLeave.length} {todayLeave.length === 1 ? 'person' : 'people'}</span>
-          </div>
-          {todayLeave.length === 0 ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>No one on your team is on leave today.</div>
-          ) : (
-            todayLeave.map(l => {
-              const active = directReportsById.get(l.employeeUserId)?.active ?? true;
-              return (
-                <div key={l.id} style={{ ...inactiveDimStyle(active), display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
-                  <Avatar userId={l.employeeUserId} name={l.employeeName} size={30} />
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{l.employeeName}</span>
-                  {!active && <StatusBadge active={false} />}
-                  <span style={{ fontSize: 11.5, fontWeight: 600, padding: '4px 9px', borderRadius: 20, background: 'rgba(99,102,241,.18)', color: '#818CF8' }}>{l.leaveTypeName}</span>
-                </div>
-              );
-            })
-          )}
-        </div>
-        <div style={panelStyle}>
-          <div style={panelHeadStyle}>
-            <span style={panelTitleStyle}>Not in yet today</span>
-            <span style={panelCountStyle}>{notInYet.length} {notInYet.length === 1 ? 'person' : 'people'}</span>
-          </div>
-          {loading ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading…</div>
-          ) : notInYet.length === 0 ? (
-            <div style={{ padding: '16px 18px', fontSize: 12.5, color: 'var(--txt-dim)' }}>Everyone has checked in.</div>
-          ) : (
-            <>
-              {/* Capped height + scroll so a 100+-person team can't grow this card without
-                  bound or push neighboring cards around — see NotInYetListModal for the full,
-                  independently-scrollable list opened by "View employees" below. */}
-              <div style={{ maxHeight: 258, overflowY: 'auto' }}>
-                {notInYet.map(r => (
-                  <div
-                    key={r.dr.userId}
-                    title={r.dr.fullName}
-                    onClick={() => { const entry = directoryByEmployee.get(r.dr.userId); if (entry) setViewingEmployeeDetails(entry); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
-                  >
-                    <Avatar userId={r.dr.userId} name={r.dr.fullName} size={30} />
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', flex: 1 }}>{r.dr.fullName}</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 18px', borderTop: '1px solid var(--line)' }}>
-                <button onClick={() => setShowAllNotIn(true)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, fontWeight: 600, color: 'var(--info)' }}>
-                  View employees
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+      <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+        <LeaveTodayPanel
+          emptyText="No one on your team is on leave today."
+          rows={todayLeave.map(l => ({ key: l.id, userId: l.employeeUserId, name: l.employeeName, leaveType: l.leaveTypeName, active: directReportsById.get(l.employeeUserId)?.active ?? true }))}
+        />
+        <NotInYetPanel
+          variant="list"
+          loading={loading}
+          emptyText="Everyone has checked in."
+          people={notInYet.map(r => ({ userId: r.dr.userId, name: r.dr.fullName }))}
+          onPick={userId => { const entry = directoryByEmployee.get(userId); if (entry) setViewingEmployeeDetails(entry); }}
+          onViewAll={() => setShowAllNotIn(true)}
+        />
       </div>
 
       {viewing && <EmployeeDetailModal row={viewing} onClose={() => setViewing(null)} />}

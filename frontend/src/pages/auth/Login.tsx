@@ -1,12 +1,16 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { motion, useReducedMotion } from 'framer-motion';
-import { Eye, EyeOff, AlertCircle, Lock } from 'lucide-react';
+import { Eye, EyeOff, AlertCircle, Lock, ArrowRight } from 'lucide-react';
 import { authApi, LoginLockedError } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
 import { consumeSessionMessage } from '../../lib/authFetch';
-import { SyncLoginPanel } from './AuthLayoutSync';
-import { LoginArtwork } from './LoginArtwork';
+import wordmarkUrl from '../../assets/nforce-wordmark.png';
+import '../login.css';
+
+// "NForce One" in the surrounding text colour, "HR" in brand red.
+function BrandName() {
+  return <>NForce One<i className="nf-lg-hr">HR</i></>;
+}
 
 // Persists only the lock expiry the server already returned, so a page refresh keeps
 // showing the locked state without sending another login request. Not a client-side
@@ -48,23 +52,10 @@ function formatRemainingLockTime(lockedUntilIso: string): string {
   return `Please try again after ${hours} ${hours === 1 ? 'hour' : 'hours'}.`;
 }
 
-function MicrosoftIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden="true" focusable="false" style={{ width: 'calc(16 * var(--u))', height: 'calc(16 * var(--u))' }}>
-      <rect x="0"  y="0"  width="10" height="10" fill="#F25022" />
-      <rect x="11" y="0"  width="10" height="10" fill="#7FBA00" />
-      <rect x="0"  y="11" width="10" height="10" fill="#00A4EF" />
-      <rect x="11" y="11" width="10" height="10" fill="#FFB900" />
-    </svg>
-  );
-}
-
-
 export default function Login() {
   const navigate   = useNavigate();
   const setAuth    = useAuthStore((s) => s.setAuth);
   const clearAuth  = useAuthStore((s) => s.clearAuth);
-  const reduced    = useReducedMotion();
   const emailId    = useId();
   const passId     = useId();
   const errorId    = useId();
@@ -78,6 +69,8 @@ export default function Login() {
   // message here for this exact banner to pick up on first render.
   const [error,      setError]      = useState<string | null>(() => consumeSessionMessage());
   const [submitting, setSubmitting] = useState(false);
+  // Brief "signed in" confirmation (green tick) shown on the button before moving on to the app.
+  const [signedIn, setSignedIn] = useState(false);
   const [lock,       setLock]       = useState<StoredLock | null>(() => readStoredLock());
   const emailRef = useRef<HTMLInputElement>(null);
 
@@ -144,6 +137,8 @@ export default function Login() {
         mustChangePassword: data.mustChangePassword,
         role: data.role,
       }, rememberMe);
+      setSignedIn(true);
+      await new Promise((resolve) => window.setTimeout(resolve, 950));
       if (data.mustChangePassword) {
         // Not `replace: true` — keeps /login in history so the browser back
         // button can return the user to sign-in from the password-setup page.
@@ -170,383 +165,144 @@ export default function Login() {
   const hasError = Boolean(error);
 
   return (
-    <div
-      data-theme="dark"
-      className="nf-login-root"
-      style={{ position: 'relative', minHeight: '100dvh', background: '#e7eaf0', overflow: 'hidden', fontFamily: 'Inter, "Segoe UI", sans-serif' }}
-    >
-      {/* Deployed OneHR visual (left ~65%): decorative artwork + real DOM text. Only its right
-          edge eases into the page background so both areas read as one continuous screen. */}
-      <LoginArtwork />
+    <div className="nf-lg">
+      {/* Left brand panel — hidden on small screens */}
+      <aside className="nf-lg-brand">
+        <div className="nf-lg-top">
+          <img src={wordmarkUrl} alt="NForce One" className="nf-lg-wordmark" />
+          <span className="nf-lg-divider" aria-hidden="true" />
+          <span className="nf-lg-product"><BrandName /></span>
+        </div>
 
-      <div
-        className="nf-login-grid"
-        style={{ position: 'relative', zIndex: 1, display: 'grid', gridTemplateColumns: 'minmax(0, 62fr) minmax(0, 38fr)', minHeight: '100dvh' }}
-      >
-        {/* Empty grid cell; the artwork above is decorative and non-interactive. */}
-        <div className="nf-login-spacer" style={{ pointerEvents: 'none' }} />
-
-
-      {/* RIGHT PANEL — Sync-style login container (presentation only) */}
-      <SyncLoginPanel>
-      <motion.div
-        variants={reduced ? undefined : containerVariants}
-        initial={reduced ? undefined : 'hidden'}
-        animate={reduced ? undefined : 'show'}
-      >
-        {/* Header */}
-        <motion.div variants={reduced ? undefined : itemVariants} style={{ marginBottom: u(32), position: 'relative' }}>
-          <h1 style={headingStyle}>Welcome back</h1>
-          <p style={{ fontSize: u(13), color: '#5b6270', lineHeight: 1.58, margin: 0 }}>
-            Sign in to manage your workforce
+        <div className="nf-lg-hero">
+          <h1 className="nf-lg-headline">
+            The modern way to<br />
+            manage <em>your workforce.</em>
+          </h1>
+          <p className="nf-lg-sub">
+            Streamline HR processes, empower your people and build a stronger tomorrow, together.
           </p>
-        </motion.div>
+        </div>
 
+        <img src="/assets/brand/hero-wave.webp" alt="" aria-hidden="true" className="nf-lg-art" />
+        <p className="nf-lg-copy">© {new Date().getFullYear()} NForce One</p>
+      </aside>
 
-        {/* Microsoft SSO */}
-        <motion.div variants={reduced ? undefined : itemVariants}>
-          <button
-            type="button"
-            disabled
-            title="Microsoft SSO arrives in a later phase, once Azure AD coordination is ready"
-            aria-label="Microsoft SSO — coming soon"
-            style={{
-              ...ssoButtonStyle,
-              opacity: 0.75,
-              cursor: 'not-allowed',
-            }}
-          >
-            <MicrosoftIcon />
-            <span>Continue with Microsoft SSO</span>
-          </button>
-        </motion.div>
-
-        {/* OR divider */}
-        <motion.div variants={reduced ? undefined : itemVariants}>
-          <div style={dividerStyle}>
-            <span style={dividerLineStyle} />
-            <span style={dividerTextStyle}>or use company credentials</span>
-            <span style={dividerLineStyle} />
+      {/* Right form panel */}
+      <main className="nf-lg-main">
+        <div className="nf-lg-card">
+          {/* Small screens: the brand sits at the top of the card */}
+          <div className="nf-lg-mobile-brand">
+            <img src={wordmarkUrl} alt="NForce One" />
+            <span><BrandName /></span>
           </div>
-        </motion.div>
 
+          <h2 className="nf-lg-title">Welcome back</h2>
+          <p className="nf-lg-lead">Sign in to <BrandName /></p>
 
-        {/* Lock banner */}
-        {locked && (
-          <motion.div
-            initial={reduced ? undefined : { opacity: 0, y: -6 }}
-            animate={reduced ? undefined : { opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            role="alert"
-            aria-live="assertive"
-            id={errorId}
-            style={errorBannerStyle}
-          >
-            <Lock size={14} style={{ flexShrink: 0, width: u(14), height: u(14), marginTop: 1, color: 'var(--risk)' }} aria-hidden="true" />
-            <span>Your account {lock.email} has been locked due to multiple incorrect login attempts. {formatRemainingLockTime(lock.lockedUntil)}</span>
-          </motion.div>
-        )}
+          {/* Lock banner */}
+          {locked && (
+            <div role="alert" aria-live="assertive" id={errorId} className="nf-lg-alert">
+              <Lock size={15} aria-hidden="true" />
+              <span>Your account {lock.email} has been locked due to multiple incorrect login attempts. {formatRemainingLockTime(lock.lockedUntil)}</span>
+            </div>
+          )}
 
-        {/* Error alert */}
-        {!locked && hasError && (
-          <motion.div
-            initial={reduced ? undefined : { opacity: 0, y: -6 }}
-            animate={reduced ? undefined : { opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            role="alert"
-            aria-live="polite"
-            id={errorId}
-            style={errorBannerStyle}
-          >
-            <AlertCircle size={14} style={{ flexShrink: 0, width: u(14), height: u(14), marginTop: 1, color: 'var(--risk)' }} aria-hidden="true" />
-            <span>{error}</span>
-          </motion.div>
-        )}
+          {/* Error alert */}
+          {!locked && hasError && (
+            <div role="alert" aria-live="polite" id={errorId} className="nf-lg-alert">
+              <AlertCircle size={15} aria-hidden="true" />
+              <span>{error}</span>
+            </div>
+          )}
 
+          {/* Credentials form */}
+          <form onSubmit={handleCredentialSubmit} noValidate>
+            <div className="nf-lg-field">
+              <label htmlFor={emailId} className="nf-lg-label">Email address</label>
+              <input
+                ref={emailRef}
+                id={emailId}
+                type="text"
+                inputMode="email"
+                autoComplete="email"
+                placeholder="you@nforceone.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={locked}
+                aria-invalid={hasError}
+                aria-describedby={(hasError || locked) ? errorId : undefined}
+                className={`nf-lg-input${hasError ? ' has-error' : ''}`}
+              />
+            </div>
 
-        {/* Credentials form */}
-        <form onSubmit={handleCredentialSubmit} noValidate>
-          <motion.div variants={reduced ? undefined : itemVariants}>
-            <div className="nfs-field" style={{ marginBottom: u(16) }}>
-              <label htmlFor={emailId} style={labelStyle} className="nfs-label">Email</label>
-              <div className="nfs-input-wrap">
+            <div className="nf-lg-field">
+              <div className="nf-lg-label-row">
+                <label htmlFor={passId} className="nf-lg-label">Password</label>
+                {!locked && <Link to="/forgot-password" className="nf-lg-forgot">Forgot password?</Link>}
+              </div>
+              <div className="nf-lg-pw">
                 <input
-                  ref={emailRef}
-                  id={emailId}
-                  type="text"
-                  inputMode="email"
-                  autoComplete="email"
-                  placeholder="you@nforceone.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  id={passId}
+                  type={showPass ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="••••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   disabled={locked}
                   aria-invalid={hasError}
                   aria-describedby={(hasError || locked) ? errorId : undefined}
-                  className="nfs-input-inner"
+                  className={`nf-lg-input${hasError ? ' has-error' : ''}`}
                 />
+                <button
+                  type="button"
+                  aria-label={showPass ? 'Hide password' : 'Show password'}
+                  onClick={() => setShowPass((v) => !v)}
+                  disabled={locked}
+                  className="nf-lg-eye"
+                >
+                  {showPass ? <EyeOff size={17} aria-hidden="true" /> : <Eye size={17} aria-hidden="true" />}
+                </button>
               </div>
             </div>
-          </motion.div>
 
-          <motion.div variants={reduced ? undefined : itemVariants}>
-            <div className="nfs-field" style={{ marginBottom: u(16) }}>
-              <label htmlFor={passId} style={labelStyle} className="nfs-label">Password</label>
-              <div className="nfs-input-wrap">
-                <div style={{ position: 'relative' }}>
-                  <input
-                    id={passId}
-                    type={showPass ? 'text' : 'password'}
-                    autoComplete="current-password"
-                    placeholder="••••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={locked}
-                    aria-invalid={hasError}
-                    aria-describedby={(hasError || locked) ? errorId : undefined}
-                    className="nfs-input-inner"
-                    style={{ paddingRight: u(46) }}
-                  />
-                  <button
-                    type="button"
-                    aria-label={showPass ? 'Hide password' : 'Show password'}
-                    onClick={() => setShowPass((v) => !v)}
-                    disabled={locked}
-                    className="nfs-eye"
-                    style={{ ...eyeButtonStyle, cursor: locked ? 'not-allowed' : 'pointer', zIndex: 2 }}
-                  >
-                    {showPass
-                      ? <Eye    size={15} style={{ width: u(15), height: u(15) }} aria-hidden="true" />
-                      : <EyeOff size={15} style={{ width: u(15), height: u(15) }} aria-hidden="true" />
-                    }
-                  </button>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Remember me + Forgot link row */}
-          <motion.div
-            variants={reduced ? undefined : itemVariants}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: u(22), marginTop: u(-4) }}
-          >
-            <label htmlFor={rememberMeId} style={{ display: 'flex', alignItems: 'center', gap: u(8), cursor: locked ? 'not-allowed' : 'pointer' }}>
+            <label htmlFor={rememberMeId} className={`nf-lg-remember${locked ? ' is-disabled' : ''}`}>
               <input
                 id={rememberMeId}
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
                 disabled={locked}
-                style={{ accentColor: '#E4373D', width: u(14), height: u(14), cursor: 'inherit' }}
               />
-              <span style={{ fontSize: u(12), color: '#5b6270', userSelect: 'none' }}>Remember me</span>
+              <span>Remember me</span>
             </label>
-            {!locked && (
-              <Link
-                to="/forgot-password"
-                style={mutedLinkStyle}
-                onMouseEnter={(e) => (e.currentTarget.style.color = '#8f0f14')}
-                onMouseLeave={(e) => (e.currentTarget.style.color = '#c8141b')}
-              >
-                Forgot password?
-              </Link>
-            )}
-          </motion.div>
 
-          {/* Sign in button */}
-          <motion.div variants={reduced ? undefined : itemVariants}>
-            <button
-              type="submit"
-              className="nfs-submit-btn"
-              disabled={submitting || locked}
-              style={{
-                ...submitButtonStyle,
-                opacity: locked ? 0.45 : 1,
-                cursor: submitting || locked ? 'not-allowed' : 'pointer',
-              }}
-              onMouseEnter={(e) => {
-                if (!submitting && !locked) Object.assign(e.currentTarget.style, submitButtonHoverStyle);
-              }}
-              onMouseLeave={(e) => Object.assign(e.currentTarget.style, {
-                ...submitButtonStyle,
-                opacity: locked ? 0.45 : 1,
-                cursor: submitting || locked ? 'not-allowed' : 'pointer',
-              })}
-            >
-              {submitting ? (
+            <button type="submit" className={`nf-lg-submit${signedIn ? ' is-done' : ''}`} disabled={submitting || locked || signedIn}>
+              {signedIn ? (
                 <>
-                  <motion.div
-                    animate={reduced ? undefined : { rotate: 360 }}
-                    transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-                    style={{ display: 'inline-flex' }}
-                  >
-                    <div style={{ width: u(14), height: u(14), borderRadius: '50%', border: '2px solid rgba(255,255,255,.3)', borderTopColor: '#fff' }} />
-                  </motion.div>
+                  <svg className="nf-lg-tick" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle className="nf-lg-tick-ring" cx="12" cy="12" r="10" />
+                    <path className="nf-lg-tick-mark" d="M7 12.5l3.2 3.2L17 9" />
+                  </svg>
+                  Signed in
+                </>
+              ) : submitting ? (
+                <>
+                  <span className="nf-lg-spin" aria-hidden="true" />
                   Signing in…
                 </>
               ) : (
-                'Sign in'
+                <>Sign in <ArrowRight size={16} aria-hidden="true" /></>
               )}
             </button>
-          </motion.div>
-        </form>
+          </form>
 
-      </motion.div>
-      </SyncLoginPanel>
-
-      </div>
-
-      <style>{`
-        @media (max-width: 1024px) {
-          .nf-login-grid { grid-template-columns: 1fr !important; }
-          .nf-login-spacer { display: none !important; }
-          .nf-login-grid { min-height: auto !important; }
-          .nfs-auth-panel { min-height: auto !important; }
-        }
-        /* Phones: sign-in card only — hide the stacked artwork and keep the card centred. */
-        @media (max-width: 768px) {
-          .nf-login-art { display: none !important; }
-          .nf-login-grid { min-height: auto !important; }
-          .nfs-auth-panel { min-height: auto !important; justify-content: flex-start !important; margin-top: -40px; padding-bottom: 32px !important; }
-        }
-      `}</style>
+          <div className="nf-lg-help">
+            <b>Need help signing in?</b>
+            <span>Contact your HR team for account support.</span>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
-
-
-// ── Styles (ported from the Sync login) ─────────────────────────────
-
-// The card scales as one unit with the window: --u (set on the panel) is 1px on roomy windows and
-// shrinks smoothly on small / short ones. Every card metric below is expressed in that unit.
-const u = (n: number) => `calc(${n} * var(--u))`;
-
-const containerVariants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.045 } },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 10 },
-  show:   { opacity: 1, y: 0, transition: { duration: 0.28, ease: [0.23, 1, 0.32, 1] as const } },
-};
-
-const headingStyle: React.CSSProperties = {
-  fontFamily: '"Inter", "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif',
-  fontSize: u(26),
-  fontWeight: 700,
-  letterSpacing: '-0.03em',
-  color: '#0f1014',
-  margin: `0 0 ${u(6)}`,
-};
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: u(11),
-  fontWeight: 600,
-  color: '#3d4350',
-  marginBottom: u(8),
-  letterSpacing: '0.07em',
-  textTransform: 'uppercase',
-};
-
-const eyeButtonStyle: React.CSSProperties = {
-  position: 'absolute',
-  right: u(11),
-  top: '50%',
-  transform: 'translateY(-50%)',
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-  color: '#6b7280',
-  display: 'flex',
-  alignItems: 'center',
-  padding: u(4),
-  borderRadius: u(4),
-};
-
-const mutedLinkStyle: React.CSSProperties = {
-  fontSize: u(12),
-  color: '#c8141b',
-  textDecoration: 'none',
-  cursor: 'pointer',
-  transition: 'color 0.14s',
-};
-
-const submitButtonStyle: React.CSSProperties = {
-  width: '100%',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: u(8),
-  padding: `${u(13)} ${u(16)}`,
-  background: 'linear-gradient(180deg, #d4181f 0%, #b01016 100%)',
-  boxShadow: '0 6px 14px rgba(200,20,27,0.28)',
-  border: 'none',
-  borderRadius: u(8),
-  color: '#fff',
-  fontSize: u(14),
-  fontWeight: 600,
-  cursor: 'pointer',
-  transition: 'background 0.14s, transform 0.14s',
-  fontFamily: 'Inter, sans-serif',
-  letterSpacing: '0.01em',
-};
-
-const submitButtonHoverStyle: React.CSSProperties = {
-  ...submitButtonStyle,
-  background: 'linear-gradient(180deg, #c8141b 0%, #9c0d12 100%)',
-  transform: 'translateY(-1px)',
-};
-
-const ssoButtonStyle: React.CSSProperties = {
-  width: '100%',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: u(10),
-  padding: `${u(13)} ${u(16)}`,
-  background: '#fdeeee',
-  color: '#8f0f14',
-  border: '1px solid rgba(200,20,27,0.28)',
-  borderRadius: u(8),
-  fontSize: u(14),
-  fontWeight: 600,
-  marginBottom: u(4),
-  fontFamily: 'Inter, sans-serif',
-  letterSpacing: '0.01em',
-};
-
-const dividerStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: u(14),
-  margin: `${u(20)} 0`,
-};
-
-const dividerLineStyle: React.CSSProperties = {
-  flex: 1,
-  height: 1,
-  background: 'rgba(20,24,40,0.12)',
-  display: 'block',
-};
-
-const dividerTextStyle: React.CSSProperties = {
-  fontSize: u(11),
-  color: '#8a909c',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-};
-
-const errorBannerStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'flex-start',
-  gap: u(9),
-  padding: `${u(11)} ${u(13)}`,
-  borderRadius: u(7),
-  background: 'rgba(228,55,61,0.08)',
-  border: '1px solid rgba(228,55,61,0.2)',
-  color: 'var(--risk)',
-  fontSize: u(13),
-  marginBottom: u(18),
-  lineHeight: 1.45,
-};

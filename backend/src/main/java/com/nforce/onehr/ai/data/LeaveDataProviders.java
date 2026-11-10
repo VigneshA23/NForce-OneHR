@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.entity.AttendancePenalty;
@@ -57,7 +56,7 @@ public final class LeaveDataProviders {
         @Override public String id() { return "leave.balances"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your current leave balances, and what reduced them"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("leave", "leave-balances"); }
 
         @Override
@@ -145,7 +144,7 @@ public final class LeaveDataProviders {
         @Override public String id() { return "leave.my-requests"; }
         @Override public DataScope scope() { return DataScope.SELF; }
         @Override public String title() { return "Your leave requests"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.values()); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("leave", "requests", "leave-requests"); }
 
         @Override
@@ -207,9 +206,7 @@ public final class LeaveDataProviders {
         @Override public String title() { return "Leave requests waiting for your decision"; }
 
         @Override
-        public Set<AudienceBucket> audiences() {
-            return Set.of(AudienceBucket.MANAGER, AudienceBucket.HR, AudienceBucket.ADMIN);
-        }
+        public Set<String> authorities() { return Set.of("leave:APPROVE:TEAM"); }
 
         @Override public Set<String> modules() { return Set.of("leave", "approvals"); }
 

@@ -6,7 +6,7 @@ import { useAuthStore } from '../store/authStore';
 import { usePreviewMode } from '../lib/previewMode';
 import { previewToday, PREVIEW_CONFIG } from '../pages/dashboard-ui-preview/dashboardPreviewData';
 import { useToast } from '../context/ToastContext';
-import { attendanceApi, type TodayAttendance, type AttendanceConfig } from '../api/attendance';
+import { isOffOfficeNetwork, offNetworkDetail, attendanceApi, type TodayAttendance, type AttendanceConfig } from '../api/attendance';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { WebClockInRequestModal } from './WebClockInRequestModal';
 
@@ -28,7 +28,7 @@ function formatClockTime(iso: string | null): string | null {
 }
 
 function formatWorkedMinutes(mins: number | null): string {
-  if (mins == null) return '–';
+  if (mins == null) return '-';
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   if (h === 0) return `${m}m`;
@@ -210,7 +210,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
       {openWeb && (
         <>
           <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
-            Web clocked in since {formatClockTime(openWeb.requestedCheckIn) ?? '–'}
+            Web clocked in since {formatClockTime(openWeb.requestedCheckIn) ?? '-'}
           </span>
           <button
             onClick={handleCheckOut}
@@ -275,6 +275,7 @@ export function AttendanceHeroBanner() {
   // are deliberately independent — see WebClockInService's own class Javadoc), so without this
   // the summary would silently ignore a Web Clock-Out entirely.
   const [webToday, setWebToday] = useState<WebClockInRecord[]>([]);
+  const [wfhPrompt, setWfhPrompt] = useState<false | { detail: string | null }>(false);
 
   // webToday is filtered by the business/Location-zone workDate the `today` fetch just resolved
   // (never the browser's own UTC calendar date), so it's fetched only once that's known.
@@ -314,8 +315,9 @@ export function AttendanceHeroBanner() {
       // from a second, later `/today` call and picks up whatever latency that round trip has,
       // making the toast read later than the moment the employee actually punched in.
       const at = formatClockTime(kind === 'in' ? (record.sessionStartedAt ?? record.checkInAt) : record.checkOutAt);
-      showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}`);
+      showToast('success', `Checked ${kind} ${at ? `at ${at}` : 'successfully'}${kind === 'in' && record.officeNetwork ? ' · Office Wi-Fi' : ''}`);
     } catch (err) {
+      if (kind === 'in' && isOffOfficeNetwork(err)) { setWfhPrompt({ detail: offNetworkDetail(err) }); return; }
       showToast('error', err instanceof Error ? err.message : `Check ${kind} failed`);
     } finally {
       punchInFlightRef.current = false;
@@ -428,6 +430,7 @@ export function AttendanceHeroBanner() {
           View full record →
         </button>
         <WebClockInRow webToday={webToday} onSubmitted={refresh} />
+        {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
       </HeroCard>
     );
   }
@@ -468,6 +471,7 @@ export function AttendanceHeroBanner() {
           View full record →
         </button>
         <WebClockInRow webToday={webToday} onSubmitted={refresh} />
+        {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
       </HeroCard>
     );
   }
@@ -511,6 +515,7 @@ export function AttendanceHeroBanner() {
           </p>
         )}
         <WebClockInRow webToday={webToday} onSubmitted={refresh} />
+        {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
       </HeroCard>
     );
   }
@@ -557,6 +562,7 @@ export function AttendanceHeroBanner() {
         </button>
       </div>
       <WebClockInRow webToday={webToday} onSubmitted={refresh} />
+        {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
     </HeroCard>
   );
 }

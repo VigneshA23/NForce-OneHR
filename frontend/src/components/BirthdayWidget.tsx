@@ -65,7 +65,7 @@ function BirthdayRow({ entry, tier, onSendWishes, isSelf }: { entry: BirthdayEnt
           {entry.fullName}
         </div>
         <div style={{ fontSize: 11, color: 'var(--txt-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {entry.departmentName ?? '–'} · {MONTH_NAMES[entry.birthdayMonth - 1]} {entry.birthdayDay}
+          {entry.departmentName ?? '-'} · {MONTH_NAMES[entry.birthdayMonth - 1]} {entry.birthdayDay}
         </div>
       </div>
 

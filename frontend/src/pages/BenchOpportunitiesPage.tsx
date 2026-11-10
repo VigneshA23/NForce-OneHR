@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { Briefcase, Check, Clock, Megaphone, Send, UserCheck, UserRound, Users } from 'lucide-react';
+import { Briefcase, CalendarRange, Check, Clock, Gauge, Info, Megaphone, Send, UserCheck, UserRound, Users } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { hasPermission } from '../lib/permissions';
 import { opportunitiesApi, type InterestedEmployee, type Opportunity } from '../api/opportunities';
 import { skillsApi, type Skill } from '../api/skills';
 import { projectsApi, type ProjectRecord } from '../api/projectAllocations';
-import { card, CardTitle, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, primaryBtn, todayLocal } from './bench/ui';
+import { card, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, primaryBtn, todayLocal } from './bench/ui';
+import './benchOpportunities.css';
 
 function PostForm({ token, skills, onPosted }: { token: string; skills: Skill[]; onPosted: () => void }) {
   const [title, setTitle] = useState('');
@@ -70,7 +72,7 @@ function AssignPanel({ token, opp, onDone, onCancel }: { token: string; opp: Opp
 
   useEffect(() => {
     opportunitiesApi.interests(token, opp.id).then(setInterested).catch(() => setInterested([]));
-    projectsApi.list(token).then(p => setProjects(p.filter(x => x.active))).catch(() => setProjects([]));
+    projectsApi.list(token).then(p => setProjects(p.filter(x => x.status === 'ACTIVE'))).catch(() => setProjects([]));
   }, [token, opp.id]);
 
   async function submit() {
@@ -87,37 +89,63 @@ function AssignPanel({ token, opp, onDone, onCancel }: { token: string; opp: Opp
     }
   }
 
+  const spanDays = start && end && end >= start ? Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000) + 1 : null;
+
   return (
-    <div style={{ ...card, marginTop: 10, borderColor: 'var(--brand)' }}>
-      <CardTitle>Assign — {opp.title}</CardTitle>
-      <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginBottom: 10 }}>
-        This creates the project allocation, ends the employee's bench status and closes the opportunity together — if any step fails, none of them happen.
+    <div className="nf-asg">
+      <div className="nf-asg-head">
+        <span className="nf-asg-ico"><UserCheck size={19} /></span>
+        <div className="nf-asg-titles">
+          <div className="nf-asg-title">Assign this opportunity</div>
+          <div className="nf-asg-sub">{opp.title}</div>
+        </div>
+        <span className="nf-asg-count"><Users size={13} />{interested.length} interested</span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 10 }}>
-        <div>
-          <label style={labelStyle}>Employee (interested)</label>
-          <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
-            <option value="">{interested.length ? 'Select an employee' : 'Nobody has expressed interest yet'}</option>
-            {interested.map(i => <option key={i.employeeId} value={i.employeeId}>{i.employeeName}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={labelStyle}>Project</label>
-          <select value={projectId} onChange={e => setProjectId(e.target.value)} style={inputStyle}>
-            <option value="">Select a project</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-        <div><label style={labelStyle}>Capacity %</label><input type="number" min={1} max={100} value={capacity} onChange={e => setCapacity(Number(e.target.value))} style={inputStyle} /></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}><label style={labelStyle}>Start</label><input type="date" value={start} onChange={e => setStart(e.target.value)} style={inputStyle} /></div>
-          <div style={{ flex: 1 }}><label style={labelStyle}>End</label><input type="date" value={end} onChange={e => setEnd(e.target.value)} style={inputStyle} /></div>
-        </div>
+      <div className="nf-asg-note">
+        <Info size={15} />
+        <span>This creates the project allocation, ends the employee's bench status and closes the opportunity together — if any step fails, none of them happen.</span>
       </div>
-      <ErrorBox message={error} />
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button type="button" style={primaryBtn(saving)} disabled={saving} onClick={submit}>{saving ? 'Assigning…' : 'Assign & close'}</button>
+      <div className="nf-asg-body">
+        <div className="nf-asg-sec">
+          <div className="nf-asg-sec-h"><Users size={14} />Who and where</div>
+          <div className="nf-asg-grid">
+            <div>
+              <label style={labelStyle}>Employee (interested)</label>
+              <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
+                <option value="">{interested.length ? 'Select an employee' : 'Nobody has expressed interest yet'}</option>
+                {interested.map(i => <option key={i.employeeId} value={i.employeeId}>{i.employeeName}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Project</label>
+              <select value={projectId} onChange={e => setProjectId(e.target.value)} style={inputStyle}>
+                <option value="">Select a project</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="nf-asg-sec">
+          <div className="nf-asg-sec-h"><CalendarRange size={14} />Allocation</div>
+          <div className="nf-asg-grid nf-asg-grid--3">
+            <div>
+              <label style={labelStyle}>Capacity %</label>
+              <input type="number" min={1} max={100} value={capacity} onChange={e => setCapacity(Number(e.target.value))} style={inputStyle} />
+            </div>
+            <div><label style={labelStyle}>Start</label><input type="date" value={start} onChange={e => setStart(e.target.value)} style={inputStyle} /></div>
+            <div><label style={labelStyle}>End</label><input type="date" value={end} onChange={e => setEnd(e.target.value)} style={inputStyle} /></div>
+          </div>
+          <div className="nf-asg-chips">
+            <span><Gauge size={13} />{capacity || 0}% of their time</span>
+            <span><Clock size={13} />Opportunity runs {opp.durationWeeks} week{opp.durationWeeks === 1 ? '' : 's'}</span>
+            {spanDays !== null && <span><CalendarRange size={13} />{spanDays} day{spanDays === 1 ? '' : 's'} selected</span>}
+          </div>
+        </div>
+        <ErrorBox message={error} />
+      </div>
+      <div className="nf-asg-foot">
         <button type="button" style={ghostBtn} onClick={onCancel}>Cancel</button>
+        <button type="button" style={primaryBtn(saving)} disabled={saving} onClick={submit}>{saving ? 'Assigning…' : 'Assign & close'}</button>
       </div>
     </div>
   );
@@ -126,9 +154,11 @@ function AssignPanel({ token, opp, onDone, onCancel }: { token: string; opp: Opp
 /** US-A10/A11/A12: internal opportunities — post (HR/Manager), express interest (benched), assign & close (HR). */
 export default function BenchOpportunitiesPage() {
   const token = useAuthStore(s => s.token) ?? '';
-  const role = useAuthStore(s => s.user?.role);
-  const canPost = role === 'HR_ADMIN' || role === 'SUPER_ADMIN' || role === 'MANAGER';
-  const canAssign = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  // V241 — the permissions OpportunityController requires, seeded to the old role sets:
+  // CREATE to Manager/HR Admin/Super Admin, APPROVE (assign & close) to HR Admin/Super Admin.
+  const permissions = useAuthStore(s => s.permissions);
+  const canPost = hasPermission(permissions, 'opportunities', 'CREATE', 'ALL');
+  const canAssign = hasPermission(permissions, 'opportunities', 'APPROVE', 'ALL');
 
   const [opps, setOpps] = useState<Opportunity[] | null>(null);
   const [skills, setSkills] = useState<Skill[]>([]);

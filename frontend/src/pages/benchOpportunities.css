@@ -1,0 +1,32 @@
+/* Internal Opportunities — Assign panel. Presentation only; theme tokens throughout. */
+
+.nf-asg { margin-top: 14px; overflow: hidden; border-radius: 16px; background: var(--panel); border: 1px solid color-mix(in srgb, var(--brand) 45%, var(--line)); box-shadow: 0 12px 30px color-mix(in srgb, var(--brand) 12%, transparent); animation: nf-asg-rise .2s ease-out; }
+@keyframes nf-asg-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.nf-asg-head { display: flex; align-items: center; gap: 14px; padding: 16px 20px; background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line); }
+.nf-asg-ico { flex-shrink: 0; width: 40px; height: 40px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-asg-titles { flex: 1; min-width: 0; }
+.nf-asg-title { font-family: Inter, sans-serif; font-size: 16px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); }
+.nf-asg-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nf-asg-count { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--brand); background: color-mix(in srgb, var(--brand) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 26%, transparent); }
+
+.nf-asg-note { display: flex; align-items: flex-start; gap: 10px; margin: 16px 20px 0; padding: 10px 14px; border-radius: 12px; font-size: 12.5px; line-height: 1.5; color: var(--txt-mut); background: color-mix(in srgb, var(--info) 8%, var(--panel)); border: 1px solid color-mix(in srgb, var(--info) 24%, transparent); }
+.nf-asg-note svg { flex-shrink: 0; margin-top: 2px; color: var(--info); }
+
+.nf-asg-body { display: grid; gap: 14px; padding: 16px 20px 18px; }
+.nf-asg-sec { padding: 14px 16px 16px; border-radius: 14px; background: var(--raised); border: 1px solid var(--line); }
+.nf-asg-sec-h { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 12.5px; font-weight: 700; color: color-mix(in srgb, var(--txt) 80%, var(--panel)); }
+.nf-asg-sec-h svg { color: var(--brand); }
+.nf-asg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.nf-asg-grid--3 { grid-template-columns: 1fr 1fr 1fr; }
+.nf-asg-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.nf-asg-chips span { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--txt-mut); background: var(--panel); border: 1px solid var(--line2); }
+.nf-asg-chips svg { color: var(--brand); }
+
+.nf-asg input, .nf-asg select { background: var(--panel) !important; border-radius: 11px !important; padding: 10px 13px !important; transition: border-color .15s, box-shadow .15s; }
+.nf-asg input:hover, .nf-asg select:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-asg input:focus, .nf-asg select:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+
+.nf-asg-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; background: var(--panel); border-top: 1px solid var(--line); }
+.nf-asg-foot button { border-radius: 11px !important; padding: 9px 22px !important; font-weight: 700 !important; }
+
+@media (max-width: 720px) { .nf-asg-grid, .nf-asg-grid--3 { grid-template-columns: 1fr; } .nf-asg-count { display: none; } }

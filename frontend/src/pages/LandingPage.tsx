@@ -4,12 +4,25 @@ import { motion, useScroll, useTransform } from 'framer-motion';
 import {
   Users, User, Clock, FileText, Package, Shield, GitBranch, AlertTriangle,
   MessageCircle, FileCheck, CheckSquare, Building2, LogIn,
-  ChevronRight, ChevronDown, Bot, MapPin, Check,
+  ChevronRight, ChevronDown, Bot, MapPin, Check, ShieldCheck, Workflow, ScrollText, Sparkles, CalendarCheck, Lock, KeyRound, Plus, ArrowRight, Mail, ArrowUp,
 } from 'lucide-react';
 import * as NavigationMenu from '@radix-ui/react-navigation-menu';
 import * as Popover from '@radix-ui/react-popover';
 import { BrandMark } from '../components/BrandMark';
 import './LandingPage.css';
+
+// The landing page is always red on black. These values are set directly on the page (and on the mobile
+// menu, which renders in a portal outside it) so the signed-in user's theme / accent-colour setting can never
+// recolour it. Green and amber status colours are mapped to red as well.
+const LP_PALETTE = {
+  '--brand': '#B11116', '--brand-bright': '#E4373D', '--brand-deep': '#7A0C10',
+  '--shell': '#0E0F12', '--panel': '#16181D', '--raised': '#1E2128',
+  '--line': '#2A2E37', '--line2': '#353A45',
+  '--txt': '#E8EAED', '--txt-mut': '#9BA1AC', '--txt-dim': '#6B7280',
+  '--ok': '#E4373D', '--warn': '#E4373D',
+  // Content width: uses the screen instead of a narrow centred column (side gutters stay ~24-28px on small screens).
+  '--lp-wrap': 'min(1840px, 100%)', '--lp-wrap-media': 'min(1180px, 100%)',
+} as React.CSSProperties;
 
 // ── Section-level reveal (whole section rises as one unit — Keka pattern) ────
 function SectionReveal({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
@@ -77,15 +90,29 @@ const OTHER_NAV = [
   { label: 'Platform',     href: '#platform' },
   { label: 'How it Works', href: '#how-it-works' },
   { label: 'Pricing',      href: '#pricing' },
+  { label: 'Security',     href: '#security' },
+  { label: 'FAQ',          href: '#faq' },
 ];
 
 function LandingNav() {
   const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [spy, setSpy] = useState('');
 
   useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 24);
+    // Highlights the nav item for the section currently under the header.
+    const ids = ['features', 'ai-agents', 'role-guides', 'platform', 'how-it-works', 'pricing', 'security', 'faq'];
+    const fn = () => {
+      setScrolled(window.scrollY > 24);
+      let current = '';
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el && el.getBoundingClientRect().top <= 140 && el.getBoundingClientRect().bottom > 140) current = id;
+      }
+      setSpy(current);
+    };
+    fn();
     window.addEventListener('scroll', fn, { passive: true });
     return () => window.removeEventListener('scroll', fn);
   }, []);
@@ -97,7 +124,7 @@ function LandingNav() {
 
   return (
     <nav className={`lp-nav${scrolled ? ' lp-nav-scrolled' : ''}`}>
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 28px', height: 76, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto', padding: '0 28px', height: 76, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
 
         {/* Logo */}
         <div className="lp-nav-logo" style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', flexShrink: 0 }} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
@@ -113,7 +140,7 @@ function LandingNav() {
 
             {/* Features — with mega-menu */}
             <NavigationMenu.Item>
-              <NavigationMenu.Trigger className="lp-nav-trigger">
+              <NavigationMenu.Trigger className={`lp-nav-trigger${spy === 'features' || spy === 'ai-agents' ? ' is-active' : ''}`}>
                 Features <ChevronDown size={12} className="lp-nav-chevron" />
               </NavigationMenu.Trigger>
               <NavigationMenu.Content className="lp-nav-content">
@@ -129,7 +156,7 @@ function LandingNav() {
                           className="lp-nav-feature-item"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 12px', borderRadius: 8, textAlign: 'left', display: 'flex', alignItems: 'flex-start', gap: 12 }}
                         >
-                          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(177,17,22,0.1)', border: '1px solid rgba(177,17,22,0.16)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                          <div className="lp-ico" style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(177,17,22,0.1)', border: '1px solid rgba(177,17,22,0.16)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
                             <Icon size={14} color="var(--brand-bright)" />
                           </div>
                           <div>
@@ -150,7 +177,7 @@ function LandingNav() {
                 <NavigationMenu.Link asChild>
                   <button
                     onClick={() => scrollTo(l.href)}
-                    className="lp-nav-link-btn"
+                    className={`lp-nav-link-btn${spy === l.href.slice(1) ? ' is-active' : ''}`}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: 13.5, fontFamily: 'inherit', fontWeight: 500, padding: '6px 10px', borderRadius: 6, transition: 'color 0.15s, background 0.15s' }}
                     onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt)'; (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.04)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--txt-mut)'; (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}
@@ -204,7 +231,7 @@ function LandingNav() {
               className="lp-mobile-nav"
               align="end"
               sideOffset={10}
-              style={{ zIndex: 200 }}
+              style={{ ...LP_PALETTE, zIndex: 200 }}
             >
               {/* Features section */}
               <div style={{ padding: '4px 0 12px', borderBottom: '1px solid var(--line)', marginBottom: 8 }}>
@@ -233,8 +260,27 @@ function LandingNav() {
 }
 
 // ── Hero ─────────────────────────────────────────────────────────────────────
+function useHeroTilt() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    function onMove(e: PointerEvent) {
+      const r = el!.getBoundingClientRect();
+      const x = ((e.clientX - (r.left + r.width / 2)) / window.innerWidth) * 2;
+      const y = ((e.clientY - (r.top + r.height / 2)) / window.innerHeight) * 2;
+      el!.style.setProperty('--tilt-y', `${(-6 + x * 5).toFixed(2)}deg`);
+      el!.style.setProperty('--tilt-x', `${(2 - y * 4).toFixed(2)}deg`);
+    }
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onMove);
+  }, []);
+  return ref;
+}
+
 function LandingHero() {
   const navigate = useNavigate();
+  const tiltRef = useHeroTilt();
   function scrollTo(id: string) { document.querySelector(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
   return (
     <section className="lp-hero-section" style={{ position: 'relative', padding: '120px 24px 100px', overflow: 'hidden' }}>
@@ -247,7 +293,7 @@ function LandingHero() {
         <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.013) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.013) 1px, transparent 1px)', backgroundSize: '52px 52px' }} />
       </div>
 
-      <div className="lp-hero-grid" style={{ maxWidth: 1200, margin: '0 auto', position: 'relative' }}>
+      <div className="lp-hero-grid" style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto', position: 'relative' }}>
         {/* Left — text */}
         <div>
           <FadeIn>
@@ -282,7 +328,7 @@ function LandingHero() {
           <FadeIn delay={70}>
             <h1 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2.6rem, 5.5vw, 4.8rem)', lineHeight: 1.06, letterSpacing: '-0.043em', margin: '0 0 24px', background: 'linear-gradient(172deg, #ffffff 0%, rgba(255,255,255,0.68) 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
               Put AI agents<br className="lp-hero-break" />to work for your{' '}
-              <span style={{ WebkitTextFillColor: 'var(--brand-bright)', color: 'var(--brand-bright)' }}>HR team.</span>
+              <span className="lp-hero-shimmer">HR team.</span>
             </h1>
           </FadeIn>
 
@@ -315,26 +361,32 @@ function LandingHero() {
           </FadeIn>
         </div>
 
-        {/* Right — image cluster */}
+        {/* Right — live product window with floating workflow cards */}
         <div className="lp-hero-img-cluster">
           <FadeIn delay={100} variant="right">
-            <div style={{ position: 'relative', height: 460 }}>
-              {/* Primary image */}
-              <div style={{ position: 'absolute', top: 0, right: 0, width: '90%', borderRadius: 18, overflow: 'hidden', boxShadow: '0 32px 80px rgba(0,0,0,0.65)', transform: 'rotate(1.8deg)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                <img src="/assets/photos/hr-team.jpg" alt="HR team collaboration" style={{ width: '100%', height: 300, objectFit: 'cover', display: 'block' }} />
-              </div>
-              {/* Secondary image */}
-              <div style={{ position: 'absolute', bottom: 0, left: 0, width: '58%', borderRadius: 14, overflow: 'hidden', boxShadow: '0 20px 56px rgba(0,0,0,0.55)', transform: 'rotate(-2.2deg)', border: '2px solid rgba(255,255,255,0.06)' }}>
-                <img src="/assets/photos/hr-professionals.jpg" alt="HR professionals" style={{ width: '100%', height: 190, objectFit: 'cover', display: 'block' }} />
-              </div>
-              {/* Floating live stat chip */}
-              <div className="lp-glass-chip" style={{ position: 'absolute', top: '42%', left: '-2%', zIndex: 10 }}>
-                <div style={{ fontSize: 10, color: 'var(--brand-bright)', fontWeight: 700, letterSpacing: '0.06em', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--brand-bright)', boxShadow: '0 0 6px rgba(228,55,61,0.7)', display: 'inline-block', animation: 'lp-cta-pulse 2.5s ease-in-out infinite' }} />
-                  ENTERPRISE READY
+            <div className="lp-hero-product" ref={tiltRef}>
+              <div className="lp-hero-product-glow" />
+              <div className="lp-hero-window">
+                <div className="lp-hero-window-bar">
+                  <span style={{ background: '#FF5F57' }} /><span style={{ background: '#FFBD2E' }} /><span style={{ background: '#28C840' }} />
+                  <em>app.nforceone.com</em>
                 </div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--txt)', fontFamily: "Inter, sans-serif", lineHeight: 1.1 }}>4 Roles. One Platform.</div>
-                <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 2 }}>Every team member, covered</div>
+                <img src="/assets/screenshots/fresh/landing-superadmin-home.webp" alt="NForce OneHR dashboard" />
+              </div>
+
+              <div className="lp-glass-chip lp-hero-float lp-hero-float--a">
+                <span className="lp-hero-float-ico"><Workflow size={15} /></span>
+                <div>
+                  <div className="lp-hero-float-title">Rule-driven approvals</div>
+                  <div className="lp-hero-float-sub">Manager <ChevronRight size={11} /> HR Admin <ChevronRight size={11} /> Super Admin</div>
+                </div>
+              </div>
+              <div className="lp-glass-chip lp-hero-float lp-hero-float--b">
+                <span className="lp-hero-float-ico lp-hero-float-ico--ok"><CalendarCheck size={15} /></span>
+                <div>
+                  <div className="lp-hero-float-title">Clock in from the browser</div>
+                  <div className="lp-hero-float-sub">Hours and leave balances update instantly</div>
+                </div>
               </div>
             </div>
           </FadeIn>
@@ -344,31 +396,70 @@ function LandingHero() {
   );
 }
 
+// ── Proof strip — what the platform guarantees, straight under the hero ─────────
+const PROOF_POINTS = [
+  { icon: Users,       title: '4 role-based workspaces', desc: 'Employee, Manager, HR Admin and Super Admin each see only what they need.' },
+  { icon: Workflow,    title: 'Rule-driven approvals',   desc: 'Route requests by amount and type through Workflow Studio - no code.' },
+  { icon: ScrollText,  title: 'Complete audit trail',    desc: 'Every HR action and access change is recorded and exportable.' },
+  { icon: ShieldCheck, title: 'Permission-based access', desc: 'Granular, server-enforced permissions - not just hidden buttons.' },
+  { icon: Sparkles,    title: 'AI agents, coming soon',  desc: 'Agents that take on repetitive HR work alongside your team.' },
+];
+
+function LandingProofStrip() {
+  return (
+    <section className="lp-proof" aria-label="Platform highlights">
+      <div className="lp-proof-inner">
+        {PROOF_POINTS.map(p => (
+          <div key={p.title} className="lp-proof-item">
+            <span className="lp-proof-ico"><p.icon size={18} /></span>
+            <div>
+              <div className="lp-proof-title">{p.title}</div>
+              <div className="lp-proof-desc">{p.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ── Product showcase — tabbed switcher ────────────────────────────────────────
+const SHOWCASE_INTERVAL_MS = 6500;
 const SHOWCASE_TABS = [
   {
     label: 'Super Admin',
     view: 'Dashboard',
-    src: '/assets/screenshots/fresh/real-dashboard-live.png',
-    desc: "Super Admin home: live attendance banner, module tiles (User Management, Org Masters, Audit & Security, Approval Center), real-time org stats.",
+    icon: ShieldCheck,
+    src: '/assets/screenshots/fresh/landing-superadmin-home-new.webp',
+    desc: 'Super Admin home: check-in banner, module tiles (User Management, Org Masters, Audit & Security, Approval Center) and live org stats.',
   },
   {
     label: 'Org Hierarchy',
     view: 'Organization',
-    src: '/assets/screenshots/fresh/fresh-superadmin-hierarchy.png',
-    desc: '21 direct reports under the Chief Executive. Every reporting line, every role - navigable in seconds.',
+    icon: GitBranch,
+    src: '/assets/screenshots/fresh/landing-org-hierarchy.webp',
+    desc: 'Every reporting line in one live chart - headcount, departments and levels at a glance, with search, export to PNG or PDF, and a detail panel for whoever you click.',
   },
   {
     label: 'HR Admin',
     view: 'HR Dashboard',
-    src: '/assets/screenshots/fresh/fresh-hradmin-dashboard.png',
-    desc: '95 employees, org-wide active count, and a live employee list - all on the first screen after login.',
+    icon: Users,
+    src: '/assets/screenshots/fresh/landing-hradmin-dashboard.webp',
+    desc: 'Headcount, active and present-today tiles, the full employee list with IDs and roles, and joiners per month - all on the first screen after login.',
   },
 ];
 
 function LandingProductShowcase() {
   const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
   const sectionRef = useRef<HTMLDivElement>(null);
+  // Auto-advance (progress bar under the active tab). Paused on hover / focus; off for reduced-motion visitors.
+  const reduceMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  useEffect(() => {
+    if (paused || reduceMotion) return;
+    const t = window.setTimeout(() => setActive(a => (a + 1) % SHOWCASE_TABS.length), SHOWCASE_INTERVAL_MS);
+    return () => window.clearTimeout(t);
+  }, [active, paused, reduceMotion]);
 
   const { scrollYProgress } = useScroll({
     target: sectionRef,
@@ -383,30 +474,40 @@ function LandingProductShowcase() {
   return (
     <section ref={sectionRef} id="platform" style={{ padding: '96px 24px', background: 'var(--shell)' }}>
       <SectionReveal>
-      <div style={{ maxWidth: 1060, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap-media)', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 48 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>SEE IT IN ACTION</p></FadeIn>
           <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 2.9rem)', letterSpacing: '-0.035em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
-            This is what your team actually sees.
+            This is what your team <em className="lp-serif">actually sees.</em>
           </h2></FadeIn>
           <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15.5, maxWidth: 480, margin: '0 auto', lineHeight: 1.6 }}>
             Three roles. One platform. Every screen built around what that person actually needs.
           </p></FadeIn>
         </div>
 
-        {/* Tab bar */}
+        {/* Tab bar — segmented glass control with a sliding red indicator and an auto-advance progress line */}
         <FadeIn delay={80}>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 28, flexWrap: 'wrap' }}>
-            {SHOWCASE_TABS.map((t, i) => (
-              <button
-                key={i}
-                onClick={() => setActive(i)}
-                className={`lp-tab${active === i ? ' lp-tab-active' : ''}`}
-              >
-                <span style={{ fontSize: 9.5, display: 'block', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 2, color: active === i ? 'var(--brand-bright)' : 'var(--txt-dim)', transition: 'color 0.2s' }}>{t.label}</span>
-                {t.view}
-              </button>
-            ))}
+          <div className="lp-seg-wrap">
+            <div className="lp-seg" role="tablist" aria-label="Product views"
+              onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}
+              onFocus={() => setPaused(true)} onBlur={() => setPaused(false)}>
+              {SHOWCASE_TABS.map((t, i) => {
+                const Icon = t.icon;
+                const on = active === i;
+                return (
+                  <button key={i} role="tab" aria-selected={on} onClick={() => setActive(i)} className={`lp-seg-tab${on ? ' is-on' : ''}`}>
+                    {on && <motion.span layoutId="lp-seg-pill" className="lp-seg-pill" transition={{ type: 'spring', stiffness: 380, damping: 32 }} />}
+                    <span className="lp-seg-ico"><Icon size={16} /></span>
+                    <span className="lp-seg-text">
+                      <span className="lp-seg-eyebrow">{t.label}</span>
+                      <span className="lp-seg-view">{t.view}</span>
+                    </span>
+                    <span className="lp-seg-num">0{i + 1}</span>
+                    {on && !reduceMotion && <span key={`${active}-${paused}`} className={`lp-seg-progress${paused ? ' is-paused' : ''}`} style={{ animationDuration: `${SHOWCASE_INTERVAL_MS}ms` }} />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </FadeIn>
 
@@ -474,12 +575,12 @@ function LandingFeatures() {
   return (
     <section id="features" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
       <SectionReveal>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 64, alignItems: 'center', marginBottom: 64 }} className="lp-features-header">
           <div>
             <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>WHAT'S INSIDE</p></FadeIn>
             <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.038em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.08 }}>
-              Everything HR runs on - all in one place.
+              Everything HR runs on - <em className="lp-serif">all in one place.</em>
             </h2></FadeIn>
             <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 16, lineHeight: 1.65, margin: 0 }}>
               Pick any HR process your team currently manages across multiple tools or email threads. It's probably already here.
@@ -487,7 +588,7 @@ function LandingFeatures() {
           </div>
           <FadeIn delay={120} variant="right">
             <div style={{ borderRadius: 16, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <img src="/assets/photos/hr-meeting.jpg" alt="HR team" style={{ width: '100%', height: 260, objectFit: 'cover', display: 'block' }} />
+              <img src="/assets/photos/hr-meeting.jpg" alt="HR team" style={{ width: '100%', height: 340, objectFit: 'cover', objectPosition: 'center 6%', display: 'block' }} />
             </div>
           </FadeIn>
         </div>
@@ -496,7 +597,7 @@ function LandingFeatures() {
             const Icon = f.icon;
             return (
               <FadeIn key={f.title} delay={Math.floor(i / 2) * 70 + (i % 2) * 35}>
-                <div className="lp-feature-card" style={{ background: 'var(--panel)', padding: '36px 30px', height: '100%', boxSizing: 'border-box' }}>
+                <div className="lp-feature-card lp-spot" style={{ background: 'var(--panel)', padding: '36px 30px', height: '100%', boxSizing: 'border-box' }}>
                   <div className="lp-icon-glow" style={{ width: 46, height: 46, borderRadius: 11, background: 'rgba(177,17,22,0.11)', border: '1px solid rgba(177,17,22,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
                     <Icon size={20} color="var(--brand-bright)" />
                   </div>
@@ -520,6 +621,7 @@ const AGENT_LIST = [
     name: 'HR Assistant Agent',
     icon: MessageCircle,
     img: '/assets/photos/hr-agent-person.jpg',
+    pos: '50% 26%',
     desc: "Your HR inbox has 20 questions that come back every month: 'How many leaves do I have?' 'What's the WFH policy for Fridays?' 'Do I need a receipt for this amount?' This agent handles those - immediately, correctly - so your team spends time on things that actually need HR judgment.",
   },
   {
@@ -527,6 +629,7 @@ const AGENT_LIST = [
     name: 'Compliance Guardian',
     icon: FileCheck,
     img: '/assets/photos/hr-compliance.jpg',
+    pos: '46% 28%',
     desc: "Document expiry dates don't announce themselves. This agent tracks every form, acknowledgment, and certification across your whole team, and flags what's about to lapse in time for someone to actually do something about it - not after an audit already found it.",
   },
   {
@@ -534,6 +637,7 @@ const AGENT_LIST = [
     name: 'Attendance Monitor',
     icon: AlertTriangle,
     img: '/assets/photos/hr-ai-team.jpg',
+    pos: '50% 50%',
     desc: "A manager shouldn't need to run a report to notice someone has been clocking in 45 minutes late every Monday for six weeks. This agent tracks those patterns - inconsistent clock-ins, early exits, hours that don't line up with approved WFH - and flags them early.",
   },
   {
@@ -541,18 +645,20 @@ const AGENT_LIST = [
     name: 'Org Development Agent',
     icon: Building2,
     img: '/assets/photos/hr-professionals.jpg',
+    pos: '50% 40%',
     desc: "When one manager has 14 direct reports and another has 3, it usually surfaces as a performance issue before anyone realizes the structure underneath is the problem. This agent maps span-of-control across the org and flags where the reporting structure is working against people.",
   },
 ];
 
 function LandingAI() {
+  const [openAgent, setOpenAgent] = useState(0);
   return (
     <section id="ai-agents" style={{ position: 'relative', padding: '96px 0', overflow: 'hidden', background: 'var(--shell)' }}>
       <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 75% 65% at 50% 45%, rgba(177,17,22,0.08) 0%, transparent 72%)', pointerEvents: 'none' }} />
       <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(228,55,61,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(228,55,61,0.025) 1px, transparent 1px)', backgroundSize: '72px 72px', pointerEvents: 'none' }} />
 
       <SectionReveal>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px', position: 'relative' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto', padding: '0 24px', position: 'relative' }}>
         {/* Header */}
         <FadeIn>
           <div style={{ marginBottom: 56 }}>
@@ -561,7 +667,7 @@ function LandingAI() {
               <span style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase' }}>Roadmap - Actively Being Built</span>
             </div>
             <h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2.3rem, 5.5vw, 3.8rem)', letterSpacing: '-0.043em', margin: '0 0 18px', color: 'var(--txt)', lineHeight: 1.03 }}>
-              Meet the agents<br />joining your HR team.
+              Meet the agents<br />joining your <em className="lp-serif">HR team.</em>
             </h2>
             <p style={{ color: 'var(--txt-mut)', fontSize: 17, lineHeight: 1.68, maxWidth: 540, margin: 0 }}>
               Not chatbots. Agents that watch for specific things, take defined actions, and only escalate when something actually needs a human.
@@ -583,7 +689,7 @@ function LandingAI() {
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--brand-bright)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 2 }}>ROUTES</div>
                     <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', fontWeight: 500 }}>Featured Agent</div>
                   </div>
-                  <span style={{ marginLeft: 'auto', background: 'rgba(224,169,59,0.1)', color: 'var(--warn)', border: '1px solid rgba(224,169,59,0.2)', borderRadius: 999, padding: '5px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', whiteSpace: 'nowrap', flexShrink: 0 }}>COMING SOON</span>
+                  <span style={{ marginLeft: 'auto', background: 'rgba(228,55,61,0.1)', color: 'var(--brand-bright)', border: '1px solid rgba(228,55,61,0.22)', borderRadius: 999, padding: '5px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', whiteSpace: 'nowrap', flexShrink: 0 }}>COMING SOON</span>
                 </div>
                 <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.45rem, 2.8vw, 2rem)', color: 'var(--txt)', margin: '0 0 16px', lineHeight: 1.18, letterSpacing: '-0.028em' }}>The Approvals Agent</h3>
                 <p style={{ color: 'var(--txt-mut)', fontSize: 15, lineHeight: 1.72, margin: 0 }}>
@@ -598,36 +704,41 @@ function LandingAI() {
           </div>
         </FadeIn>
 
-        {/* Numbered editorial list */}
-        <div>
+        {/* Agent panels — expanding accordion: hover or tap a panel and it opens to a full-bleed story */}
+        <div className="lp-xp" role="tablist" aria-label="AI agents">
           {AGENT_LIST.map((agent, i) => {
             const Icon = agent.icon;
+            const on = openAgent === i;
             return (
-              <FadeIn key={agent.name} delay={i * 70}>
-                <div className="lp-agent-row">
-                  {/* Large faint number */}
-                  <div className="lp-agent-number">
-                    {String(i + 1).padStart(2, '0')}
-                  </div>
-                  {/* Content */}
-                  <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr auto', gap: 24, alignItems: 'start' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(228,55,61,0.1)', border: '1px solid rgba(228,55,61,0.16)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          <Icon size={14} color="var(--brand-bright)" />
-                        </div>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--brand-bright)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{agent.verb}</span>
-                      </div>
-                      <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 18, color: 'var(--txt)', margin: '0 0 10px', lineHeight: 1.2 }}>{agent.name}</h3>
-                      <p style={{ color: 'var(--txt-mut)', fontSize: 14, lineHeight: 1.68, margin: 0 }}>{agent.desc}</p>
-                    </div>
-                    {/* Agent photo thumbnail */}
-                    <div style={{ width: 120, height: 88, borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }} className="lp-agent-thumb">
-                      <img src={agent.img} alt={agent.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                    </div>
-                  </div>
+              <article
+                key={agent.name}
+                role="tab"
+                tabIndex={0}
+                aria-selected={on}
+                className={`lp-xp-panel${on ? ' is-open' : ''}`}
+                onMouseEnter={() => setOpenAgent(i)}
+                onFocus={() => setOpenAgent(i)}
+                onClick={() => setOpenAgent(i)}
+              >
+                <img className="lp-xp-bg" src={agent.img} alt="" style={{ objectPosition: agent.pos }} />
+                <span className="lp-xp-shade" />
+                <span className="lp-xp-num">{String(i + 1).padStart(2, '0')}</span>
+
+                {/* collapsed state: vertical title */}
+                <div className="lp-xp-rail">
+                  <span className="lp-xp-gem lp-xp-gem--sm"><Icon size={16} /></span>
+                  <span className="lp-xp-rail-title">{agent.name}</span>
                 </div>
-              </FadeIn>
+
+                {/* open state: the full story */}
+                <div className="lp-xp-body">
+                  <span className="lp-xp-verb">{agent.verb}</span>
+                  <span className="lp-xp-gem"><Icon size={22} /></span>
+                  <h3>{agent.name}</h3>
+                  <p>{agent.desc}</p>
+                  <span className="lp-xp-status"><i /> In development</span>
+                </div>
+              </article>
             );
           })}
         </div>
@@ -658,21 +769,22 @@ function LandingBrandMoment() {
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', zIndex: 0 }}
       />
       <div className="lp-brand-overlay" />
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '80px 24px', position: 'relative', zIndex: 2, width: '100%' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto', padding: '80px 24px', position: 'relative', zIndex: 2, width: '100%' }}>
         <FadeIn variant="left">
-          <div style={{ maxWidth: 560 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18, color: 'var(--brand-bright)', fontSize: 12, fontWeight: 600 }}>
+          <div style={{ maxWidth: 'min(900px, 100%)' }}>
+            <div className="lp-brand-loc">
               <MapPin size={13} /> Hyderabad · Dallas
             </div>
-            <h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(2rem, 4vw, 3.1rem)', letterSpacing: '-0.036em', margin: '0 0 28px', color: 'var(--txt)', lineHeight: 1.1 }}>
-              Built by NForce One.<br />
-              <span style={{ color: 'var(--brand-bright)' }}>Used by NForce One.</span>
+            <h2 className="lp-brand-title">
+              <span className="lp-brand-l1">Built by NForce One.</span>
+              <span className="lp-brand-l2">Used by NForce One.</span>
             </h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <img
                 src="/assets/brand/nforce-logo.png"
                 alt="NForce One"
-                style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}
+                className="lp-logo"
+                style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.14)', flexShrink: 0, transform: 'none', filter: 'none' }}
               />
               <div>
                 <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>NForce One</div>
@@ -688,9 +800,9 @@ function LandingBrandMoment() {
 
 // ── Roles ─────────────────────────────────────────────────────────────────────
 const ROLES = [
-  { slug: 'employee',    label: 'Employee',    icon: User,      color: '#2FB67C', bg: 'rgba(47,182,124,0.1)',  desc: 'Clock in, check your leave balance, submit requests, and track your own documents - without asking HR every time.' },
-  { slug: 'manager',     label: 'Manager',     icon: Users,     color: '#4C8DD6', bg: 'rgba(76,141,214,0.1)',  desc: "Your team's attendance, pending leave requests, and outstanding approvals - visible from your dashboard without digging through reports." },
-  { slug: 'hr-admin',    label: 'HR Admin',    icon: Building2, color: '#E0A93B', bg: 'rgba(224,169,59,0.1)', desc: 'Manage employee records, run compliance checks, process documents, and enforce policies - with the full context you need to make good calls.' },
+  { slug: 'employee',    label: 'Employee',    icon: User,      color: '#E4373D', bg: 'rgba(228,55,61,0.1)',  desc: 'Clock in, check your leave balance, submit requests, and track your own documents - without asking HR every time.' },
+  { slug: 'manager',     label: 'Manager',     icon: Users,     color: '#E4373D', bg: 'rgba(228,55,61,0.1)',  desc: "Your team's attendance, pending leave requests, and outstanding approvals - visible from your dashboard without digging through reports." },
+  { slug: 'hr-admin',    label: 'HR Admin',    icon: Building2, color: '#E4373D', bg: 'rgba(228,55,61,0.1)', desc: 'Manage employee records, run compliance checks, process documents, and enforce policies - with the full context you need to make good calls.' },
   { slug: 'super-admin', label: 'Super Admin', icon: Shield,    color: '#E4373D', bg: 'rgba(228,55,61,0.1)',  desc: 'Full access to every user, every role assignment, every audit trail, and every system setting - with nothing hidden.' },
 ];
 
@@ -699,7 +811,7 @@ function LandingRoles() {
   return (
     <section id="role-guides" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
       <SectionReveal>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 56 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>ROLE GUIDES</p></FadeIn>
           <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
@@ -714,8 +826,8 @@ function LandingRoles() {
             const Icon = r.icon;
             return (
               <FadeIn key={r.slug} delay={i * 60}>
-                <div className="lp-role-card" onClick={() => navigate(`/role-guide/${r.slug}`)} style={{ padding: '28px 24px 24px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14 }}>
-                  <div style={{ width: 48, height: 48, borderRadius: 12, background: r.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                <div className="lp-role-card lp-spot" onClick={() => navigate(`/role-guide/${r.slug}`)} style={{ padding: '28px 24px 24px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14 }}>
+                  <div className="lp-ico" style={{ width: 48, height: 48, borderRadius: 12, background: r.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
                     <Icon size={22} color={r.color} />
                   </div>
                   <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 16, color: 'var(--txt)', margin: '0 0 10px' }}>{r.label}</h3>
@@ -745,11 +857,11 @@ function LandingHowItWorks() {
   return (
     <section id="how-it-works" style={{ padding: '96px 24px', background: 'var(--shell)' }}>
       <SectionReveal>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 72 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>HOW IT WORKS</p></FadeIn>
           <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: 0, color: 'var(--txt)', lineHeight: 1.1 }}>
-            Running in a day. No consultants needed.
+            <em className="lp-serif">Running in a day.</em> No consultants needed.
           </h2></FadeIn>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 32, position: 'relative' }}>
@@ -776,7 +888,7 @@ function LandingHowItWorks() {
         {/* Photo strip — real office imagery */}
         <FadeIn delay={200} style={{ marginTop: 64 }}>
           <div className="lp-photo-strip" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, borderRadius: 18, overflow: 'hidden', boxShadow: '0 24px 72px rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <img src="/assets/photos/hr-discussion.jpg" alt="Team in discussion" style={{ width: '100%', height: 240, objectFit: 'cover', display: 'block' }} />
+            <img src="/assets/photos/hr-discussion.jpg" alt="Team in discussion" style={{ width: '100%', height: 240, objectFit: 'cover', objectPosition: 'center 10%', display: 'block' }} />
             <img src="/assets/photos/hr-office.jpg" alt="Modern office" style={{ width: '100%', height: 240, objectFit: 'cover', display: 'block' }} />
           </div>
         </FadeIn>
@@ -797,11 +909,11 @@ function LandingPricing() {
   return (
     <section id="pricing" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
       <SectionReveal>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 60 }}>
           <FadeIn><p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 14px' }}>PRICING</p></FadeIn>
           <FadeIn delay={80} variant="scale"><h2 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.9rem, 4vw, 3rem)', letterSpacing: '-0.036em', margin: '0 0 14px', color: 'var(--txt)', lineHeight: 1.1 }}>
-            Pricing that doesn't punish growth.
+            Pricing that <em className="lp-serif">doesn't punish growth.</em>
           </h2></FadeIn>
           <FadeIn delay={160}><p style={{ color: 'var(--txt-mut)', fontSize: 15, margin: 0 }}>
             We're figuring out the right numbers. Get in touch and we'll find something that works.
@@ -810,7 +922,7 @@ function LandingPricing() {
         <div className="lp-pricing-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
           {TIERS.map((t, i) => (
             <FadeIn key={t.name} delay={i * 70}>
-              <div className={`lp-pricing-card${t.highlight ? ' lp-pricing-highlight' : ''}`} style={{ padding: '32px 28px', background: t.highlight ? 'var(--raised)' : 'var(--panel)', border: `1px solid ${t.highlight ? 'rgba(228,55,61,0.35)' : 'var(--line)'}`, borderRadius: 14, position: 'relative' }}>
+              <div className={`lp-pricing-card lp-spot${t.highlight ? ' lp-pricing-highlight' : ''}`} style={{ padding: '32px 28px', background: t.highlight ? 'var(--raised)' : 'var(--panel)', border: `1px solid ${t.highlight ? 'rgba(228,55,61,0.35)' : 'var(--line)'}`, borderRadius: 14, position: 'relative' }}>
                 {t.highlight && <div style={{ position: 'absolute', top: -1, left: '50%', transform: 'translateX(-50%)', background: 'var(--brand)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '3px 14px', borderRadius: '0 0 8px 8px', letterSpacing: '0.06em' }}>MOST POPULAR</div>}
                 <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 20, color: 'var(--txt)', margin: '0 0 6px' }}>{t.name}</h3>
                 <p style={{ color: 'var(--txt-mut)', fontSize: 13, margin: '0 0 20px', lineHeight: 1.5 }}>{t.target}</p>
@@ -833,6 +945,269 @@ function LandingPricing() {
         </div>
       </div>
       </SectionReveal>
+    </section>
+  );
+}
+
+
+// ── Motion background — drifting red nodes joined by faint lines (always red on black) ──────────
+// Canvas fills its positioned parent. Cheap by design: few nodes, capped frame work, paused while the tab is
+// hidden or off-screen, and a single static frame when the visitor prefers reduced motion.
+function LandingMotionBg({ density = 1, fixed = false }: { density?: number; fixed?: boolean }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let w = 0, h = 0, raf = 0, visible = true;
+    type Node = { x: number; y: number; vx: number; vy: number; r: number };
+    let nodes: Node[] = [];
+
+    function resize() {
+      const rect = canvas!.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = rect.width; h = rect.height;
+      canvas!.width = Math.round(w * dpr); canvas!.height = Math.round(h * dpr);
+      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const count = Math.max(14, Math.min(110, Math.round((w * h) / 20000 * density)));
+      nodes = Array.from({ length: count }, () => ({
+        x: Math.random() * w, y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 0.28, vy: (Math.random() - 0.5) * 0.28,
+        r: 1 + Math.random() * 1.6,
+      }));
+    }
+
+    const mouse = { x: -9999, y: -9999, on: false };
+    function onMove(e: PointerEvent) {
+      const r = canvas!.getBoundingClientRect();
+      mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top;
+      mouse.on = mouse.x >= 0 && mouse.y >= 0 && mouse.x <= r.width && mouse.y <= r.height;
+    }
+    window.addEventListener('pointermove', onMove, { passive: true });
+
+    function frame() {
+      ctx!.clearRect(0, 0, w, h);
+      const reach = 130;
+      for (const n of nodes) {
+        if (!reduce) {
+          if (mouse.on) {
+            const mx = mouse.x - n.x, my = mouse.y - n.y, md = Math.hypot(mx, my);
+            if (md < 190 && md > 1) { n.x += (mx / md) * 0.35; n.y += (my / md) * 0.35; }
+          }
+          n.x += n.vx; n.y += n.vy;
+          if (n.x < -10) n.x = w + 10; else if (n.x > w + 10) n.x = -10;
+          if (n.y < -10) n.y = h + 10; else if (n.y > h + 10) n.y = -10;
+        }
+      }
+      for (let i = 0; i < nodes.length; i++) {
+        const a = nodes[i];
+        for (let j = i + 1; j < nodes.length; j++) {
+          const b = nodes[j];
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < reach * reach) {
+            ctx!.strokeStyle = `rgba(228,55,61,${(1 - Math.sqrt(d2) / reach) * 0.22})`;
+            ctx!.lineWidth = 1;
+            ctx!.beginPath(); ctx!.moveTo(a.x, a.y); ctx!.lineTo(b.x, b.y); ctx!.stroke();
+          }
+        }
+      }
+      if (mouse.on) {
+        for (const n of nodes) {
+          const d = Math.hypot(n.x - mouse.x, n.y - mouse.y);
+          if (d < 190) {
+            ctx!.strokeStyle = `rgba(255,120,124,${(1 - d / 190) * 0.55})`;
+            ctx!.lineWidth = 1.2;
+            ctx!.beginPath(); ctx!.moveTo(n.x, n.y); ctx!.lineTo(mouse.x, mouse.y); ctx!.stroke();
+          }
+        }
+        const g = ctx!.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, 160);
+        g.addColorStop(0, 'rgba(228,55,61,0.16)'); g.addColorStop(1, 'rgba(228,55,61,0)');
+        ctx!.fillStyle = g; ctx!.fillRect(mouse.x - 160, mouse.y - 160, 320, 320);
+      }
+      for (const n of nodes) {
+        ctx!.fillStyle = 'rgba(228,55,61,0.75)';
+        ctx!.shadowColor = 'rgba(228,55,61,0.8)'; ctx!.shadowBlur = 8;
+        ctx!.beginPath(); ctx!.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx!.fill();
+      }
+      ctx!.shadowBlur = 0;
+      if (!reduce && visible && !document.hidden) raf = requestAnimationFrame(frame);
+    }
+
+    function start() { cancelAnimationFrame(raf); raf = requestAnimationFrame(frame); }
+    resize(); frame();
+    const ro = new ResizeObserver(() => { resize(); if (reduce) frame(); });
+    ro.observe(canvas);
+    const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !reduce) start(); });
+    io.observe(canvas);
+    const onVis = () => { if (!document.hidden && visible && !reduce) start(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { window.removeEventListener('pointermove', onMove); cancelAnimationFrame(raf); ro.disconnect(); io.disconnect(); document.removeEventListener('visibilitychange', onVis); };
+  }, [density]);
+  return <canvas ref={ref} className={`lp-motion-canvas${fixed ? ' lp-motion-fixed' : ''}`} aria-hidden="true" />;
+}
+
+// Cards glow where the pointer is (CSS reads --mx / --my). One delegated listener for the whole page.
+function useCardSpotlight(rootRef: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    function onMove(e: PointerEvent) {
+      const card = (e.target as HTMLElement | null)?.closest?.('.lp-spot') as HTMLElement | null;
+      if (!card) return;
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      card.style.setProperty('--my', `${e.clientY - r.top}px`);
+    }
+    root.addEventListener('pointermove', onMove, { passive: true });
+    return () => root.removeEventListener('pointermove', onMove);
+  }, [rootRef]);
+}
+
+// Pictures react to the pointer: zoom + parallax pan, red spotlight, light sweep, glow (CSS reads --px / --py).
+// Tags every landing image's wrapper once; one delegated listener tracks the pointer inside a tagged wrapper.
+function usePictureMotion(rootRef: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    root.querySelectorAll('img').forEach(img => {
+      // Logos stay exactly as they are: no zoom, glow or sweep.
+      if (img.src.includes('nforce-logo') || img.classList.contains('lp-logo') || img.classList.contains('lp-xp-bg')) return;
+      const host = img.parentElement;
+      if (!host || host.closest('.lp-nav, .lp-nav-root, .lp-mobile-nav, footer') || host.classList.contains('lp-hero-window')) return;
+      img.classList.add('lp-pic-img');
+      host.classList.add('lp-pic');
+      if (getComputedStyle(host).position === 'static') host.classList.add('lp-pic--rel');
+    });
+    function onMove(e: PointerEvent) {
+      const host = (e.target as HTMLElement | null)?.closest?.('.lp-pic') as HTMLElement | null;
+      if (!host) return;
+      const r = host.getBoundingClientRect();
+      host.style.setProperty('--px', ((e.clientX - r.left) / r.width).toFixed(3));
+      host.style.setProperty('--py', ((e.clientY - r.top) / r.height).toFixed(3));
+    }
+    root.addEventListener('pointermove', onMove, { passive: true });
+    return () => root.removeEventListener('pointermove', onMove);
+  }, [rootRef]);
+}
+
+// ── Scroll progress — thin red bar under the nav ──────────────────────────────────────────────
+function LandingScrollProgress() {
+  const { scrollYProgress } = useScroll();
+  return <motion.div className="lp-scroll-progress" style={{ scaleX: scrollYProgress }} aria-hidden="true" />;
+}
+
+// ── Security & control ────────────────────────────────────────────────────────────────────────────────
+const SECURITY_POINTS = [
+  { icon: KeyRound,    title: 'Role-based access',       desc: 'Employee, Manager, HR Admin and Super Admin each get their own workspace and permissions.' },
+  { icon: Lock,        title: 'Server-enforced rules',   desc: 'Permissions are checked on the server for every request, so a hidden button is never the only safeguard.' },
+  { icon: ScrollText,  title: 'Audit & Security log',    desc: 'HR actions and access-control events are recorded with who, what and when - searchable and exportable to Excel.' },
+  { icon: Workflow,    title: 'Approvals you control',   desc: 'Define who approves what in Workflow Studio. Changes apply to new requests; requests already in flight are untouched.' },
+];
+
+function LandingSecurity() {
+  return (
+    <section id="security" style={{ padding: '96px 24px', background: 'var(--panel)' }}>
+      <SectionReveal>
+        <div style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: 48 }}>
+            <FadeIn><p className="lp-eyebrow">SECURITY & CONTROL</p></FadeIn>
+            <FadeIn delay={80} variant="scale"><h2 className="lp-h2">Built so the right people see the right things.</h2></FadeIn>
+            <FadeIn delay={160}><p className="lp-lede">Access, approvals and accountability are part of the platform, not an afterthought.</p></FadeIn>
+          </div>
+          <div className="lp-sec-grid">
+            {SECURITY_POINTS.map((pt, i) => (
+              <FadeIn key={pt.title} delay={i * 70}>
+                <div className="lp-sec-card lp-spot">
+                  <span className="lp-sec-ico"><pt.icon size={20} /></span>
+                  <h3>{pt.title}</h3>
+                  <p>{pt.desc}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </SectionReveal>
+    </section>
+  );
+}
+
+// ── FAQ ─────────────────────────────────────────────────────────────────────────────────────────────
+const FAQS = [
+  { icon: Users, q: 'Who can use NForce OneHR?', a: 'Every employee. Each person signs in to the workspace for their role - Employee, Manager, HR Admin or Super Admin - and sees only what that role allows.' },
+  { icon: Workflow, q: 'How do approvals work?', a: 'New requests are routed to a Manager and then on to HR Admin or Super Admin according to the active rule for that request type. Admins set the rules in Workflow Studio.' },
+  { icon: GitBranch, q: 'Can we change who approves what?', a: 'Yes. Rules are data-driven (for example, expense claims above an amount need a second approval). Activating a new rule affects new requests only; requests already in flight keep their route.' },
+  { icon: KeyRound, q: 'How are accounts created?', a: 'Your admin creates and manages accounts. There is no self-signup, so only people your organisation adds can sign in.' },
+  { icon: ScrollText, q: 'Is there an audit trail?', a: 'Yes. Audit & Security records HR actions and access-control events, and can be filtered by person and date and exported to Excel.' },
+  { icon: Sparkles, q: 'What about AI agents?', a: 'AI agents for repetitive HR work are on the roadmap and are marked as coming soon.' },
+];
+
+function LandingFaq() {
+  const [open, setOpen] = useState<number | null>(0);
+  return (
+    <section id="faq" style={{ padding: '96px 24px', background: 'var(--shell)' }}>
+      <SectionReveal>
+        <div className="lp-faq2">
+          {/* Left: sticky heading + contact card */}
+          <aside className="lp-faq2-side">
+            <FadeIn><p className="lp-eyebrow">FAQ</p></FadeIn>
+            <FadeIn delay={80} variant="scale"><h2 className="lp-h2" style={{ textAlign: 'left' }}>Questions, <em className="lp-serif">answered.</em></h2></FadeIn>
+            <FadeIn delay={140}><p className="lp-lede" style={{ margin: '0 0 28px', textAlign: 'left' }}>The short answers to what teams ask us most before they switch.</p></FadeIn>
+            <FadeIn delay={200}>
+              <div className="lp-faq2-card lp-spot">
+                <span className="lp-faq2-card-ico"><MessageCircle size={20} /></span>
+                <h4>Still have a question?</h4>
+                <p>Talk to us - we'll walk you through the parts that matter to your team.</p>
+                <a href="mailto:demo@nforceone.com?subject=NForce%20OneHR%20Question" className="lp-cta-btn" style={{ padding: '11px 22px', fontSize: 14 }}>
+                  Ask us <ArrowRight size={15} />
+                </a>
+              </div>
+            </FadeIn>
+          </aside>
+
+          {/* Right: numbered accordion */}
+          <div className="lp-faq2-list">
+            {FAQS.map((f, i) => {
+              const isOpen = open === i;
+              const Icon = f.icon;
+              return (
+                <FadeIn key={f.q} delay={i * 50}>
+                  <div className={`lp-faq2-item lp-spot${isOpen ? ' is-open' : ''}`}>
+                    <button className="lp-faq2-q" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : i)}>
+                      <span className="lp-faq2-num">{String(i + 1).padStart(2, '0')}</span>
+                      <span className="lp-faq2-ico"><Icon size={16} /></span>
+                      <span className="lp-faq2-text">{f.q}</span>
+                      <span className="lp-faq2-toggle"><Plus size={16} /></span>
+                    </button>
+                    <div className="lp-faq-a" style={{ gridTemplateRows: isOpen ? '1fr' : '0fr' }}>
+                      <div><p>{f.a}</p></div>
+                    </div>
+                  </div>
+                </FadeIn>
+              );
+            })}
+          </div>
+        </div>
+      </SectionReveal>
+    </section>
+  );
+}
+
+// ── Closing call to action ────────────────────────────────────────────────────────────────
+function LandingCta() {
+  return (
+    <section style={{ padding: '0 24px 96px', background: 'var(--shell)' }}>
+      <div className="lp-cta-band">
+        <LandingMotionBg density={1.6} />
+        <div className="lp-cta-copy">
+          <h2>See NForce OneHR with your own team.</h2>
+          <p>Book a walkthrough and we'll show you attendance, approvals and the org chart working together.</p>
+        </div>
+        <a href="mailto:demo@nforceone.com?subject=NForce%20OneHR%20Demo%20Request" className="lp-cta-btn">
+          Book a demo <ArrowRight size={16} />
+        </a>
+      </div>
     </section>
   );
 }
@@ -867,40 +1242,6 @@ function LandingSignIn() {
   );
 }
 
-// ── Connect With Us ───────────────────────────────────────────────────────────
-function LandingConnect() {
-  return (
-    <section className="lp-connect-section" style={{ padding: '72px 24px', background: 'var(--panel)', borderTop: '1px solid var(--line)', textAlign: 'center' }}>
-      <FadeIn>
-        <p style={{ color: 'var(--brand-bright)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', margin: '0 0 12px' }}>CONNECT</p>
-        <h3 style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 'clamp(1.4rem, 3vw, 2rem)', letterSpacing: '-0.03em', color: 'var(--txt)', margin: '0 0 32px', lineHeight: 1.2 }}>
-          Find us online.
-        </h3>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 20, alignItems: 'center' }}>
-          {/* Instagram */}
-          <a href="https://www.instagram.com/nforce_one/" target="_blank" rel="noopener noreferrer" className="lp-social-btn lp-social-ig" aria-label="NForce One on Instagram">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-              <circle cx="12" cy="12" r="4" />
-              <circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" stroke="none" />
-            </svg>
-            <span>Instagram</span>
-          </a>
-          {/* LinkedIn */}
-          <a href="https://www.linkedin.com/company/nforceone/" target="_blank" rel="noopener noreferrer" className="lp-social-btn lp-social-li" aria-label="NForce One on LinkedIn">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
-              <rect x="2" y="9" width="4" height="12" />
-              <circle cx="4" cy="4" r="2" />
-            </svg>
-            <span>LinkedIn</span>
-          </a>
-        </div>
-      </FadeIn>
-    </section>
-  );
-}
-
 // ── Footer ────────────────────────────────────────────────────────────────────
 const FOOTER_LINKS = {
   Product:   ['Features', 'AI Agents', 'How it Works', 'Pricing'],
@@ -914,7 +1255,8 @@ function LandingFooter() {
   const sectionMap: Record<string, string> = { 'Features': '#features', 'AI Agents': '#ai-agents', 'How it Works': '#how-it-works', 'Pricing': '#pricing' };
   return (
     <footer className="lp-footer" style={{ background: 'var(--panel)', borderTop: '1px solid var(--line)', padding: '72px 24px 40px' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      <div className="lp-foot-mark" aria-hidden="true">NFORCE ONEHR</div>
+      <div className="lp-foot-content" style={{ maxWidth: 'var(--lp-wrap)', margin: '0 auto', position: 'relative', zIndex: 1 }}>
         <div className="lp-footer-grid" style={{ display: 'grid', gridTemplateColumns: '260px repeat(4, 1fr)', gap: 48, marginBottom: 56 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
@@ -922,8 +1264,19 @@ function LandingFooter() {
               <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>NForce <span style={{ color: 'var(--brand-bright)' }}>OneHR</span></span>
             </div>
             <p style={{ color: 'var(--txt-dim)', fontSize: 13, lineHeight: 1.65, margin: '0 0 12px' }}>The HR platform your team actually uses.</p>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--txt-dim)', fontSize: 12, marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--txt-dim)', fontSize: 12, marginBottom: 10 }}>
               <MapPin size={11} /> Hyderabad · Dallas
+            </div>
+            <a href="mailto:demo@nforceone.com" className="lp-foot-mail"><Mail size={12} /> demo@nforceone.com</a>
+            <div className="lp-foot-social">
+              <a href="https://www.instagram.com/nforce_one/" target="_blank" rel="noopener noreferrer" className="lp-social-btn lp-social-ig" aria-label="NForce One on Instagram">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r="0.8" fill="currentColor" stroke="none" /></svg>
+                <span>Instagram</span>
+              </a>
+              <a href="https://www.linkedin.com/company/nforceone/" target="_blank" rel="noopener noreferrer" className="lp-social-btn lp-social-li" aria-label="NForce One on LinkedIn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" /><rect x="2" y="9" width="4" height="12" /><circle cx="4" cy="4" r="2" /></svg>
+                <span>LinkedIn</span>
+              </a>
             </div>
           </div>
           {Object.entries(FOOTER_LINKS).map(([col, links]) => (
@@ -931,7 +1284,7 @@ function LandingFooter() {
               <h4 style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12, color: 'var(--txt)', margin: '0 0 16px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{col}</h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {links.map(l => (
-                  <button key={l} onClick={() => sectionMap[l] ? scrollTo(sectionMap[l]) : undefined} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: 13.5, fontFamily: 'inherit', padding: 0, textAlign: 'left', transition: 'color 0.15s' }}
+                  <button key={l} className="lp-foot-link" onClick={() => sectionMap[l] ? scrollTo(sectionMap[l]) : undefined} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: 13.5, fontFamily: 'inherit', padding: 0, textAlign: 'left', transition: 'color 0.15s' }}
                     onMouseEnter={e => (e.currentTarget.style.color = 'var(--txt)')}
                     onMouseLeave={e => (e.currentTarget.style.color = 'var(--txt-mut)')}
                   >{l}</button>
@@ -942,7 +1295,12 @@ function LandingFooter() {
         </div>
         <div style={{ borderTop: '1px solid var(--line)', paddingTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <p style={{ color: 'var(--txt-dim)', fontSize: 12, margin: 0 }}>© 2026 NForce One. All rights reserved.</p>
-          <p style={{ color: 'var(--txt-dim)', fontSize: 12, margin: 0 }}>Built with care in India 🇮🇳</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+            <p style={{ color: 'var(--txt-dim)', fontSize: 12, margin: 0 }}>Built with care in India 🇮🇳</p>
+            <button className="lp-foot-top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} aria-label="Back to top">
+              <ArrowUp size={14} /> Top
+            </button>
+          </div>
         </div>
       </div>
     </footer>
@@ -951,11 +1309,17 @@ function LandingFooter() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function LandingPage() {
+  const rootRef = useRef<HTMLDivElement>(null);
+  useCardSpotlight(rootRef);
+  usePictureMotion(rootRef);
   return (
-    <div data-theme="dark" style={{ background: 'var(--shell)', color: 'var(--txt)', minHeight: 'var(--app-height, 100dvh)', overflowX: 'clip' }}>
+    <div ref={rootRef} className="lp-root" data-theme="dark" style={{ ...LP_PALETTE, background: 'var(--shell)', color: 'var(--txt)', minHeight: 'var(--app-height, 100dvh)', overflowX: 'clip' }}>
+      <LandingMotionBg fixed density={2.2} />
       <LandingNav />
-      <div style={{ paddingTop: 76 }}>
+      <LandingScrollProgress />
+      <div style={{ paddingTop: 76, position: 'relative', zIndex: 1 }}>
         <LandingHero />
+        <LandingProofStrip />
         <LandingProductShowcase />
         <div className="lp-divider" />
         <LandingFeatures />
@@ -969,8 +1333,12 @@ export default function LandingPage() {
         <LandingHowItWorks />
         <div className="lp-divider" />
         <LandingPricing />
+        <div className="lp-divider" />
+        <LandingSecurity />
+        <div className="lp-divider" />
+        <LandingFaq />
+        <LandingCta />
         <LandingSignIn />
-        <LandingConnect />
         <LandingFooter />
       </div>
     </div>

@@ -1,0 +1,39 @@
+/* My Team — "Needs your attention" queue. The list scrolls inside the card so the page stays short; chips only
+ * narrow the view. Presentation only; theme tokens throughout. */
+
+.nf-att { display: flex; flex-direction: column; overflow: hidden; border-radius: 16px; background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 4%, var(--panel)) 0%, var(--panel) 90px); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(16, 24, 40, .07); }
+
+.nf-att-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.nf-att-ico { flex-shrink: 0; width: 34px; height: 34px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 26%, transparent); }
+.nf-att-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.nf-att-title span { font-family: Inter, sans-serif; font-size: 14.5px; font-weight: 700; letter-spacing: -.01em; color: color-mix(in srgb, var(--txt) 88%, var(--panel)); }
+.nf-att-title small { font-size: 11.5px; color: var(--txt-dim); }
+.nf-att-count { flex-shrink: 0; padding: 4px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 700; color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 26%, transparent); }
+
+.nf-att-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.nf-att-chips button { flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line2); border-radius: 999px; transition: color .15s, border-color .15s, background .15s; }
+.nf-att-chips button b { padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 700; color: var(--txt-mut); background: var(--panel); }
+.nf-att-chips button:hover { border-color: var(--brand); color: var(--brand); }
+.nf-att-chips button.is-on { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000)); }
+.nf-att-chips button.is-on b { color: var(--brand); }
+
+/* the list scrolls inside the card, so the page does not get long */
+.nf-att-list { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px; max-height: clamp(260px, calc(100dvh - 330px), 560px); overflow-y: auto; scrollbar-width: thin; }
+.nf-att-empty { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 26px 16px; font-size: 13px; color: var(--txt-dim); }
+.nf-att-empty svg { color: var(--ok); }
+
+.nf-att-item { display: flex; flex-direction: column; gap: 10px; padding: 11px 12px; border-radius: 13px; background: var(--raised); border: 1px solid var(--line); transition: border-color .15s, box-shadow .15s; }
+.nf-att-item:hover { border-color: color-mix(in srgb, var(--brand) 32%, var(--line)); box-shadow: 0 6px 16px rgba(16, 24, 40, .06); }
+.nf-att-who { display: flex; align-items: center; gap: 10px; }
+.nf-att-txt { flex: 1; min-width: 0; }
+.nf-att-name { font-size: 13px; font-weight: 700; color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nf-att-detail { margin-top: 1px; font-size: 12px; line-height: 1.4; color: var(--txt-mut); }
+
+.nf-att-actions { display: flex; gap: 8px; }
+.nf-att-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700; color: var(--txt-mut); background: var(--panel); border: 1px solid var(--line2); border-radius: 10px; transition: background .15s, color .15s, border-color .15s; }
+.nf-att-btn:hover:not(:disabled) { color: var(--txt); border-color: var(--txt-dim); }
+.nf-att-btn.is-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--panel)); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.nf-att-btn.is-ok:hover:not(:disabled) { color: #fff; background: var(--ok); border-color: var(--ok); }
+.nf-att-btn.is-danger { color: var(--risk); background: color-mix(in srgb, var(--risk) 10%, var(--panel)); border-color: color-mix(in srgb, var(--risk) 30%, transparent); }
+.nf-att-btn:disabled { cursor: not-allowed; opacity: .6; }
+.nf-att-reject { display: flex; flex-direction: column; gap: 8px; }

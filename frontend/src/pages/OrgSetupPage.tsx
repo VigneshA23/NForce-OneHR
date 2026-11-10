@@ -425,6 +425,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
   const [state, setState] = useState(() => (editRow && isLocations ? ((editRow as LocationRow).state ?? '') : ''));
   const [country, setCountry] = useState(() => (editRow && isLocations ? ((editRow as LocationRow).country ?? '') : ''));
   const [holidayRegion, setHolidayRegion] = useState(() => (editRow && isLocations ? ((editRow as LocationRow).holidayRegion ?? '') : ''));
+  const [officeCidrs, setOfficeCidrs] = useState(() => (editRow && isLocations ? ((editRow as LocationRow).officeCidrs ?? '') : ''));
   // Unlike Name/City/State/Country (freely editable, any number of Locations can be created),
   // Timezone must be one of a fixed, supported set — see OrgService.SUPPORTED_TIMEZONES on the
   // backend, which independently enforces the same set regardless of what this dropdown offers.
@@ -500,7 +501,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
             name: trimmed,
             city: city.trim() || undefined, state: state.trim() || undefined,
             country: country.trim() || undefined, holidayRegion: holidayRegion.trim() || undefined,
-            timezone: timezone.trim(),
+            timezone: timezone.trim(), officeCidrs: officeCidrs.trim() || undefined,
           });
         }
       } else {
@@ -515,7 +516,7 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
             name: trimmed,
             city: city.trim() || undefined, state: state.trim() || undefined,
             country: country.trim() || undefined, holidayRegion: holidayRegion.trim() || undefined,
-            timezone: timezone.trim(),
+            timezone: timezone.trim(), officeCidrs: officeCidrs.trim() || undefined,
           });
         }
       }
@@ -623,6 +624,13 @@ function AddEditModal({ tab, editRow, onClose, onSaved, token, departments }: Ad
                   <input value={holidayRegion} onChange={e => setHolidayRegion(e.target.value)} placeholder="e.g. TN" style={inputStyle} />
                 </label>
               </div>
+              <label style={labelStyle}>
+                <span style={labelTextStyle}>Office Network IPs</span>
+                <input id="location-office-cidrs" value={officeCidrs} onChange={e => setOfficeCidrs(e.target.value)} placeholder="e.g. 203.0.113.10, 198.51.100.0/28" style={inputStyle} />
+                <span style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
+                  The office's public IP address(es). Check-ins from these are marked as in office. Leave blank to skip the check.
+                </span>
+              </label>
               <label style={labelStyle}>
                 <span style={labelTextStyle}>
                   Timezone <span style={{ color: 'var(--risk)' }}>*</span>

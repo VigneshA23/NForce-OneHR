@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ChevronRight } from 'lucide-react';
+import './sidebarNav.css';
 import { buildRoleNav, findActiveAncestors, isNavItemDisabled, navItemDisplayPhase, type ResolvedNavNode, type ResolvedNavGroup, type Role, type NavItem } from '../lib/nav.config';
 
 interface SidebarNavProps {
@@ -8,6 +10,8 @@ interface SidebarNavProps {
   /** Narrows NAV[role] down to what the current user's live permissions actually grant — see
    *  buildRoleNav's own doc comment. Omitted shows the role's full default set. */
   isVisible?: (item: NavItem) => boolean;
+  /** Items outside NAV[role] granted by the user's custom roles — see permissions.ts customRoleNavItems. */
+  extraItems?: NavItem[];
   /** Called when a real (non-placeholder) module link is clicked — lets the shell close the mobile drawer. */
   onNavigate?: () => void;
 }
@@ -28,10 +32,10 @@ interface SidebarNavProps {
  * artwork just shows through (or gets covered by) whatever's currently in front — no separate
  * "make room for the artwork" logic needed here.
  */
-export function SidebarNav({ role, currentKey, isVisible, onNavigate }: SidebarNavProps) {
+export function SidebarNav({ role, currentKey, isVisible, extraItems, onNavigate }: SidebarNavProps) {
   // Items that only exist as a disabled "P2" placeholder (Phase 2 / locked modules) are left out of the menu
   // entirely. Nothing else about visibility changes: the same role + permission filter applies to the rest.
-  const tree = buildRoleNav(role, (item) => !isNavItemDisabled(item) && (!isVisible || isVisible(item)));
+  const tree = buildRoleNav(role, (item) => !isNavItemDisabled(item) && (!isVisible || isVisible(item)), extraItems);
   const activeAncestors = findActiveAncestors(tree, currentKey) ?? [];
 
   // Which group keys are currently expanded. Independent per node (not a single-open-branch
@@ -64,7 +68,7 @@ export function SidebarNav({ role, currentKey, isVisible, onNavigate }: SidebarN
   }
 
   return (
-    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 0' }}>
+    <div className="nf-nav-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 0' }}>
       {tree.map((node) => (
         <NavRow
           key={node.type === 'item' ? node.item.key : node.key}
@@ -109,7 +113,7 @@ function NavLeaf({ node, depth, currentKey, onLeafClick }: NavRowProps & { node:
       aria-current={isActive ? 'page' : undefined}
       aria-disabled={isPlaceholder}
       onClick={(e) => { if (isPlaceholder) { e.preventDefault(); return; } onLeafClick(); }}
-      className="nf-sidebar-item"
+      className="nf-sidebar-item nf-nav-leaf"
       style={{
         display: 'flex', alignItems: 'center', gap: 9,
         padding: '8px 12px', margin: '1px 8px 1px ' + (8 + indent) + 'px',
@@ -118,10 +122,10 @@ function NavLeaf({ node, depth, currentKey, onLeafClick }: NavRowProps & { node:
       }}
     >
       {isActive && (
-        <span aria-hidden="true" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: 'var(--brand-bright)', borderRadius: '0 3px 3px 0' }} />
+        <span aria-hidden="true" className="nf-nav-bar" style={{ position: 'absolute', left: -8, top: 6, bottom: 6, width: 3, background: 'var(--brand-bright)', borderRadius: '0 3px 3px 0' }} />
       )}
       <Icon size={15} aria-hidden="true" />
-      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.item.label}</span>
+      <span className="nf-nav-lbl" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.item.label}</span>
       {isPlaceholder && (
         <span title={`Ships in Phase ${navItemDisplayPhase(node.item)}`} style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '.04em', color: '#6B7280', background: '#20242C', padding: '2px 5px', borderRadius: 4 }}>
           P{navItemDisplayPhase(node.item)}
@@ -143,7 +147,7 @@ function NavGroup({ node: group, depth, openKeys, activeAncestors, currentKey, o
         type="button"
         onClick={() => onToggle(group.key)}
         aria-expanded={isOpen}
-        className="nf-sidebar-item"
+        className={`nf-sidebar-item nf-nav-group${isInActivePath ? ' is-path' : ''}${isOpen ? ' is-open' : ''}`}
         style={{
           display: 'flex', alignItems: 'center', gap: 9, width: '100%', boxSizing: 'border-box',
           padding: '8px 12px', margin: '1px 8px 1px ' + (8 + indent) + 'px', maxWidth: 'calc(100% - ' + (16 + indent) + 'px)',
@@ -165,19 +169,13 @@ function NavGroup({ node: group, depth, openKeys, activeAncestors, currentKey, o
           {group.label}
         </span>
         {/* Expand/collapse indicator — rotates in place, no icon swap needed. */}
-        <span
-          aria-hidden="true"
-          style={{
-            fontSize: 11, color: '#6B7280', marginLeft: 4, display: 'inline-block',
-            transition: 'transform 120ms', transform: isOpen ? 'rotate(90deg)' : 'none',
-          }}
-        >
-          &gt;
+        <span aria-hidden="true" className="nf-nav-chev" style={{ transform: isOpen ? 'rotate(90deg)' : 'none' }}>
+          <ChevronRight size={14} />
         </span>
       </button>
 
       {isOpen && (
-        <div>
+        <div className="nf-nav-sub">
           {group.children.map((child) => (
             <NavRow
               key={child.type === 'item' ? child.item.key : child.key}

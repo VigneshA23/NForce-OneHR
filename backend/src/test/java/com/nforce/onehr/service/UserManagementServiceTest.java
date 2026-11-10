@@ -7,6 +7,7 @@ import com.nforce.onehr.dto.UpdateUserRequest;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.exception.EmployeeCodeConflictException;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.security.ForceLogoutBroadcaster;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -64,6 +65,10 @@ class UserManagementServiceTest {
     @Mock private AttendanceProperties attendanceProperties;
     @Mock private EmployeeAssignmentService employeeAssignmentService;
     @Mock private PenalizationPolicyAllocationService penalizationPolicyAllocationService;
+    // Stubbed to a Super-Admin-equivalent actor (can assign roles, ceiling always satisfied) — the
+    // ceiling/escalation rules themselves are covered against the real service in
+    // UserManagementServiceRolesTest.
+    @Mock private EffectivePermissionService effectivePermissionService;
 
     @InjectMocks private UserManagementService userManagementService;
 
@@ -129,6 +134,7 @@ class UserManagementServiceTest {
         // The org-wide business-day clock the "Effective From cannot be in the past" check reads
         // from (see AttendanceProperties.zone's own Javadoc) — never the JVM default.
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        lenient().when(effectivePermissionService.coverage(any())).thenReturn(Set.of("user_roles:EDIT:ALL"));
     }
 
     private UpdateUserRequest requestWithRole(String roleCode) {
