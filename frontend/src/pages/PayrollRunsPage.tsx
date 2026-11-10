@@ -26,6 +26,17 @@ function GenerateRunModal({ payGroups, defaultPayGroupId, onClose, onCreated }: 
   const [referenceDate, setReferenceDate] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Self-heals a real race: this modal's initial value is whatever defaultPayGroupId was AT THE
+  // MOMENT it mounted — if the page's own pay-group fetch hadn't resolved yet (opened the modal
+  // immediately after navigating in), that was "" and stays "" forever, since useState's initial
+  // value only applies once. The <select> below then masks this entirely: with no empty-value
+  // placeholder option, a browser shows the first real option as selected regardless of the
+  // actual bound value, so it LOOKS chosen while Generate silently stays disabled. This re-syncs
+  // once payGroups actually arrives, same fix as PayrollSetupPage's structureId/payGroupId sync.
+  useEffect(() => {
+    if (!payGroupId && payGroups[0]) setPayGroupId(payGroups[0].id);
+  }, [payGroups, payGroupId]);
+
   async function submit() {
     if (!payGroupId) return;
     setSubmitting(true);
