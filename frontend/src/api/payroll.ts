@@ -206,6 +206,7 @@ export interface SalaryStructureResponse {
 export interface EmployeeCompensationResponse {
   id: string;
   employeeId: string;
+  payGroupId: string;
   structureId: string;
   structureName: string;
   ctc: number;
@@ -243,7 +244,7 @@ export const payrollApi = {
     fetch(`${BASE}/salary-structures`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<SalaryStructureResponse>),
 
   // US-C02 — Assign/revise an employee's compensation
-  assignCompensation: (payload: { employeeId: string; structureId: string; ctc: number; effectiveFrom: string }, token: string) =>
+  assignCompensation: (payload: { employeeId: string; payGroupId: string; structureId: string; ctc: number; effectiveFrom: string }, token: string) =>
     fetch(`${BASE}/employee-compensation`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<EmployeeCompensationResponse>),
 
   getCurrentCompensation: (employeeId: string, token: string) =>

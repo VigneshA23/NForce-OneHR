@@ -6,7 +6,7 @@ import { hasPermission } from '../../lib/permissions';
 import { useToast } from '../../context/ToastContext';
 import {
   payrollApi, type SalaryStructureResponse, type SalaryComponentRequest,
-  type SalaryComponentCatalogResponse, type EmployeeCompensationResponse,
+  type SalaryComponentCatalogResponse, type EmployeeCompensationResponse, type PayGroupResponse,
 } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, FormRow, labelStyle, inputStyle,
@@ -114,11 +114,12 @@ function CreateStructureForm({ catalog, onCreated }: { catalog: SalaryComponentC
   );
 }
 
-function AssignCompensationForm({ structures }: { structures: SalaryStructureResponse[] }) {
+function AssignCompensationForm({ structures, payGroups }: { structures: SalaryStructureResponse[]; payGroups: PayGroupResponse[] }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const { employees } = useEmployeeDirectory();
   const [employeeId, setEmployeeId] = useState('');
+  const [payGroupId, setPayGroupId] = useState(payGroups[0]?.id ?? '');
   const [structureId, setStructureId] = useState(structures[0]?.id ?? '');
   const [ctc, setCtc] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState('2025-01-01');
@@ -130,17 +131,21 @@ function AssignCompensationForm({ structures }: { structures: SalaryStructureRes
   }, [structures, structureId]);
 
   useEffect(() => {
+    if (!payGroupId && payGroups[0]) setPayGroupId(payGroups[0].id);
+  }, [payGroups, payGroupId]);
+
+  useEffect(() => {
     if (!employeeId) { setCurrent(null); return; }
     payrollApi.getCurrentCompensation(employeeId, token).then(setCurrent).catch(() => setCurrent(null));
   }, [employeeId, token]);
 
-  const valid = !!employeeId && !!structureId && Number(ctc) > 0 && !!effectiveFrom;
+  const valid = !!employeeId && !!payGroupId && !!structureId && Number(ctc) > 0 && !!effectiveFrom;
 
   async function submit() {
     if (!valid) return;
     setSubmitting(true);
     try {
-      const comp = await payrollApi.assignCompensation({ employeeId, structureId, ctc: Number(ctc), effectiveFrom }, token);
+      const comp = await payrollApi.assignCompensation({ employeeId, payGroupId, structureId, ctc: Number(ctc), effectiveFrom }, token);
       setCurrent(comp);
       showToast('success', 'Compensation assigned');
     } catch (e) {
@@ -159,6 +164,12 @@ function AssignCompensationForm({ structures }: { structures: SalaryStructureRes
           <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
             <option value="">Select…</option>
             {employees.map(e => <option key={e.userId} value={e.userId}>{e.fullName} ({e.departmentName ?? 'No dept'})</option>)}
+          </select>
+        </FormRow>
+        <FormRow>
+          <label style={labelStyle}>Pay Group *</label>
+          <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
+            {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}
           </select>
         </FormRow>
         <FormRow>
@@ -192,6 +203,7 @@ export default function PayrollSetupPage() {
   const canConfigure = hasPermission(permissions, 'payroll', 'CONFIGURE', 'ALL');
   const [structures, setStructures] = useState<SalaryStructureResponse[]>([]);
   const [catalog, setCatalog] = useState<SalaryComponentCatalogResponse[]>([]);
+  const [payGroups, setPayGroups] = useState<PayGroupResponse[]>([]);
 
   function reloadStructures() {
     payrollApi.listSalaryStructures(token).then(setStructures).catch(() => {});
@@ -203,6 +215,7 @@ export default function PayrollSetupPage() {
       .then(all => setCatalog(all.filter(c => ['EARNING', 'REIMBURSEMENT', 'DEDUCTION'].includes(c.type) && c.active)))
       .catch(() => {});
   }, [token]);
+  useEffect(() => { payrollApi.listPayGroups(token).then(setPayGroups).catch(() => {}); }, [token]);
 
   if (!canConfigure) {
     return <div style={{ padding: '24px 28px', color: 'var(--txt-mut)' }}>You don't have permission to configure payroll setup.</div>;
@@ -237,7 +250,7 @@ export default function PayrollSetupPage() {
         </div>
       </div>
 
-      {structures.length > 0 && <AssignCompensationForm structures={structures} />}
+      {structures.length > 0 && <AssignCompensationForm structures={structures} payGroups={payGroups} />}
     </div>
   );
 }

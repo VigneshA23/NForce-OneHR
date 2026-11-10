@@ -7,6 +7,7 @@ import com.nforce.onehr.entity.SalaryStructure;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeCompensationRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.PayGroupRepository;
 import com.nforce.onehr.repository.SalaryStructureComponentRepository;
 import com.nforce.onehr.repository.SalaryStructureRepository;
 import com.nforce.onehr.repository.UserRepository;
@@ -39,6 +40,7 @@ public class EmployeeCompensationService {
 
     private final EmployeeCompensationRepository employeeCompensationRepository;
     private final EmployeeRepository employeeRepository;
+    private final PayGroupRepository payGroupRepository;
     private final SalaryStructureRepository salaryStructureRepository;
     private final SalaryStructureComponentRepository salaryStructureComponentRepository;
     private final UserRepository userRepository;
@@ -49,6 +51,9 @@ public class EmployeeCompensationService {
     public EmployeeCompensationResponse assign(AssignCompensationRequest req, String actorEmail) {
         if (!employeeRepository.existsById(req.getEmployeeId())) {
             throw new NoSuchElementException("Employee not found: " + req.getEmployeeId());
+        }
+        if (!payGroupRepository.existsById(req.getPayGroupId())) {
+            throw new NoSuchElementException("Pay group not found: " + req.getPayGroupId());
         }
         SalaryStructure structure = salaryStructureRepository.findById(req.getStructureId())
                 .orElseThrow(() -> new NoSuchElementException("Salary structure not found: " + req.getStructureId()));
@@ -73,6 +78,7 @@ public class EmployeeCompensationService {
 
         EmployeeCompensation saved = employeeCompensationRepository.save(EmployeeCompensation.builder()
                 .employeeId(req.getEmployeeId())
+                .payGroupId(req.getPayGroupId())
                 .structure(structure)
                 .ctc(req.getCtc())
                 .effectiveFrom(req.getEffectiveFrom())
@@ -106,6 +112,7 @@ public class EmployeeCompensationService {
 
     private Map<String, Object> compensationSnapshot(EmployeeCompensation c) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("payGroupId", c.getPayGroupId());
         snapshot.put("structureId", c.getStructure().getId());
         snapshot.put("ctc", c.getCtc());
         snapshot.put("effectiveFrom", c.getEffectiveFrom());
@@ -117,6 +124,7 @@ public class EmployeeCompensationService {
         return EmployeeCompensationResponse.builder()
                 .id(c.getId())
                 .employeeId(c.getEmployeeId())
+                .payGroupId(c.getPayGroupId())
                 .structureId(c.getStructure().getId())
                 .structureName(c.getStructure().getName())
                 .ctc(c.getCtc())

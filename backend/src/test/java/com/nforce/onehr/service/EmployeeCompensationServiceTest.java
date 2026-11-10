@@ -7,6 +7,7 @@ import com.nforce.onehr.entity.SalaryStructure;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeCompensationRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.repository.PayGroupRepository;
 import com.nforce.onehr.repository.SalaryStructureComponentRepository;
 import com.nforce.onehr.repository.SalaryStructureRepository;
 import com.nforce.onehr.repository.UserRepository;
@@ -34,6 +35,7 @@ class EmployeeCompensationServiceTest {
 
     @Mock private EmployeeCompensationRepository employeeCompensationRepository;
     @Mock private EmployeeRepository employeeRepository;
+    @Mock private PayGroupRepository payGroupRepository;
     @Mock private SalaryStructureRepository salaryStructureRepository;
     @Mock private SalaryStructureComponentRepository salaryStructureComponentRepository;
     @Mock private UserRepository userRepository;
@@ -46,12 +48,14 @@ class EmployeeCompensationServiceTest {
     private final String actorEmail = "hr.admin@test.com";
     private final UUID employeeId = UUID.randomUUID();
     private final UUID structureId = UUID.randomUUID();
+    private final UUID payGroupId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
         User actor = User.builder().id(actorId).email(actorEmail).build();
         lenient().when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
         lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
+        lenient().when(payGroupRepository.existsById(payGroupId)).thenReturn(true);
         lenient().when(employeeCompensationRepository.save(any(EmployeeCompensation.class))).thenAnswer(inv -> {
             EmployeeCompensation c = inv.getArgument(0);
             if (c.getId() == null) c.setId(UUID.randomUUID());
@@ -66,6 +70,7 @@ class EmployeeCompensationServiceTest {
     private AssignCompensationRequest req(LocalDate effectiveFrom, String ctc) {
         AssignCompensationRequest r = new AssignCompensationRequest();
         r.setEmployeeId(employeeId);
+        r.setPayGroupId(payGroupId);
         r.setStructureId(structureId);
         r.setCtc(new BigDecimal(ctc));
         r.setEffectiveFrom(effectiveFrom);
@@ -82,6 +87,7 @@ class EmployeeCompensationServiceTest {
         EmployeeCompensationResponse resp = service.assign(req(LocalDate.of(2026, 1, 1), "1200000"), actorEmail);
 
         assertEquals(employeeId, resp.getEmployeeId());
+        assertEquals(payGroupId, resp.getPayGroupId());
         assertEquals(structureId, resp.getStructureId());
         assertEquals("L2 Structure", resp.getStructureName());
         assertEquals(0, new BigDecimal("1200000").compareTo(resp.getCtc()));
@@ -131,6 +137,16 @@ class EmployeeCompensationServiceTest {
 
         assertThrows(java.util.NoSuchElementException.class,
                 () -> service.assign(req(LocalDate.of(2026, 1, 1), "1500000"), actorEmail));
+    }
+
+    @Test
+    void assign_unknownPayGroup_rejected() {
+        when(employeeRepository.existsById(employeeId)).thenReturn(true);
+        when(payGroupRepository.existsById(payGroupId)).thenReturn(false);
+
+        assertThrows(java.util.NoSuchElementException.class,
+                () -> service.assign(req(LocalDate.of(2026, 1, 1), "1500000"), actorEmail));
+        verify(salaryStructureRepository, never()).findById(any());
     }
 
     @Test
