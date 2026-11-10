@@ -99,7 +99,7 @@ public class PromptBuilder {
                 .append("Do not assume the question is about it.\n"));
 
         sb.append("\nREACHABLE PAGES\n");
-        List<PageReference> pages = pageRegistry.forRole(context.getShellRole()).stream()
+        List<PageReference> pages = pageRegistry.reachable(context).stream()
                 .filter(p -> !p.isPlaceholder())
                 .toList();
         if (pages.isEmpty()) {
@@ -114,7 +114,7 @@ public class PromptBuilder {
         // Named explicitly rather than silently omitted: the user can see these in their own
         // sidebar, so "that does not exist" would be visibly wrong. The model needs to be able to
         // say "it is on the roadmap" without offering to take them there.
-        List<PageReference> placeholders = pageRegistry.forRole(context.getShellRole()).stream()
+        List<PageReference> placeholders = pageRegistry.reachable(context).stream()
                 .filter(PageReference::isPlaceholder)
                 .toList();
         if (!placeholders.isEmpty()) {

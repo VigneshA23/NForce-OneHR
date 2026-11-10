@@ -110,4 +110,18 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
     // QUARTER_DAY leave overlapping [from, to] for a set of employees.
     List<LeaveRequest> findByEmployeeUserIdInAndStatusAndDurationTypeInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
             Collection<UUID> employeeUserIds, String status, Collection<String> durationTypes, LocalDate to, LocalDate from);
+
+    // US-C04/US-C22 — the row-level counterpart to sumTotalDaysByEmployeeUserIdAndLeaveTypeIdIn...
+    // above: the actual LeaveRequest rows behind that sum, needed by US-C22's review-item
+    // generation (one row per qualifying request) as well as the sum itself (computed in Java now,
+    // so a rejected request's id can be excluded — see PayrollLopCalculationService). JOIN FETCH
+    // r.leaveType for the same N+1 reason as this file's other list-backing queries.
+    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType WHERE r.employeeUserId = :employeeUserId "
+            + "AND r.leaveType.id IN :leaveTypeIds AND r.status = :status AND r.startDate BETWEEN :startDate AND :endDate")
+    List<LeaveRequest> findByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
+            @Param("employeeUserId") UUID employeeUserId,
+            @Param("leaveTypeIds") Collection<UUID> leaveTypeIds,
+            @Param("status") String status,
+            @Param("startDate") LocalDate startDate,
+            @Param("endDate") LocalDate endDate);
 }

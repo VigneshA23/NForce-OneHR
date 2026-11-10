@@ -13,6 +13,9 @@ public class EmployeeResponse {
     private String fullName;
     private String email;
     private String role;
+    // Every role held, by display name (incl. custom roles) — only populated by User Management;
+    // `role` above stays the single primary role existing clients read.
+    private java.util.List<String> roleNames;
     private String businessUnitId;
     private String businessUnitName;
     private String departmentId;

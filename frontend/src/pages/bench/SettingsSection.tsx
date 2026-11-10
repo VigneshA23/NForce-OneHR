@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { EmpCode } from '../../components/EmpCode';
+import { Timer, Tags, Wallet, Plus, X } from 'lucide-react';
 import { employeesApi, type EmployeeRecord } from '../../api/employees';
 import { benchApi, type BandAssignment, type BucketInput, type CompensationBand } from '../../api/bench';
 import { skillsApi, type Skill } from '../../api/skills';
 import { usePaged } from '../../components/usePaged';
 import { TablePagination } from '../../components/TablePagination';
-import { card, CardTitle, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, money, primaryBtn, td, th } from './ui';
+import { card, CardTitle, Empty, ErrorBox, ghostBtn, inputStyle, labelStyle, money, PersonCell, primaryBtn, td, th } from './ui';
 
 /** US-A04/US-A05: HR edits the aging buckets and the notification threshold. */
 function AgingConfigCard({ token }: { token: string }) {
@@ -35,8 +35,8 @@ function AgingConfigCard({ token }: { token: string }) {
 
   return (
     <div style={card}>
-      <CardTitle>Aging buckets &amp; notification</CardTitle>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10 }}>
+      <CardTitle icon={<Timer size={16} />}>Aging buckets &amp; notification</CardTitle>
+      <table className="nf-bn-table" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
         <thead><tr><th style={th}>Label</th><th style={th}>From day</th><th style={th}>To day</th><th style={th} /></tr></thead>
         <tbody>
           {buckets.map((b, i) => (
@@ -48,7 +48,7 @@ function AgingConfigCard({ token }: { token: string }) {
                   onChange={e => update(i, { maxDays: e.target.value === '' ? null : Number(e.target.value) })} style={inputStyle} />
               </td>
               <td style={{ ...td, width: 40 }}>
-                <button type="button" aria-label={`Remove ${b.label}`} style={ghostBtn} onClick={() => { setSaved(false); setBuckets(prev => prev.filter((_, idx) => idx !== i)); }}>×</button>
+                <button type="button" aria-label={`Remove ${b.label}`} style={ghostBtn} onClick={() => { setSaved(false); setBuckets(prev => prev.filter((_, idx) => idx !== i)); }}><X size={13} /></button>
               </td>
             </tr>
           ))}
@@ -59,7 +59,7 @@ function AgingConfigCard({ token }: { token: string }) {
         const last = buckets[buckets.length - 1];
         setBuckets(prev => [...prev.map((b, idx) => (idx === prev.length - 1 && b.maxDays === null ? { ...b, maxDays: b.minDays + 29 } : b)),
           { label: 'New bucket', minDays: last ? (last.maxDays ?? last.minDays + 29) + 1 : 0, maxDays: null }]);
-      }}>+ Add bucket</button>
+      }}><Plus size={13} style={{ verticalAlign: -2, marginRight: 4 }} />Add bucket</button>
 
       <label style={labelStyle}>Notify the manager once a report reaches (days on bench)</label>
       <input type="number" min={1} value={threshold} onChange={e => { setThreshold(Number(e.target.value)); setSaved(false); }} style={{ ...inputStyle, width: 120, marginBottom: 14 }} />
@@ -67,7 +67,7 @@ function AgingConfigCard({ token }: { token: string }) {
       <ErrorBox message={error} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button type="button" style={primaryBtn()} onClick={save}>Save</button>
-        {saved && <span style={{ fontSize: 12, color: 'var(--ok)' }}>Saved</span>}
+        {saved && <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ok)' }}>Saved</span>}
       </div>
     </div>
   );
@@ -95,7 +95,7 @@ function TaxonomyCard({ token }: { token: string }) {
 
   return (
     <div style={card}>
-      <CardTitle>Skill taxonomy</CardTitle>
+      <CardTitle icon={<Tags size={16} />}>Skill taxonomy</CardTitle>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <input placeholder="Skill (e.g. Java)" value={skill} onChange={e => setSkill(e.target.value)} style={inputStyle} />
         <input placeholder="Category (e.g. Engineering)" value={category} onChange={e => setCategory(e.target.value)} style={inputStyle} />
@@ -105,7 +105,7 @@ function TaxonomyCard({ token }: { token: string }) {
       {skills.length === 0 ? <Empty>No skills yet</Empty> : (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {skills.map(s => (
-            <span key={s.id} style={{ fontSize: 12, padding: '3px 10px', borderRadius: 20, background: 'var(--raised)', border: '1px solid var(--line2)', color: 'var(--txt)' }}>
+            <span key={s.id} className="nf-bn-chip is-static">
               {s.skill} <span style={{ color: 'var(--txt-dim)' }}>· {s.category}</span>
             </span>
           ))}
@@ -150,7 +150,7 @@ function BandsCard({ token }: { token: string }) {
 
   return (
     <div style={card}>
-      <CardTitle>Compensation bands (for the bench cost view)</CardTitle>
+      <CardTitle icon={<Wallet size={16} />}>Compensation bands (for the bench cost view)</CardTitle>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <input placeholder="Band label (e.g. B2)" value={label} onChange={e => setLabel(e.target.value)} style={inputStyle} />
         <input type="number" min={0} placeholder="Average CTC" value={avgCtc} onChange={e => setAvgCtc(e.target.value)} style={inputStyle} />
@@ -159,7 +159,7 @@ function BandsCard({ token }: { token: string }) {
       {bands.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
           {bands.map(b => (
-            <span key={b.id} style={{ fontSize: 12, padding: '3px 10px', borderRadius: 20, background: 'var(--raised)', border: '1px solid var(--line2)', color: 'var(--txt)' }}>
+            <span key={b.id} className="nf-bn-chip is-static">
               {b.bandLabel} <span style={{ color: 'var(--txt-dim)' }}>· {money(b.avgCtc)}</span>
             </span>
           ))}
@@ -179,9 +179,9 @@ function BandsCard({ token }: { token: string }) {
       <ErrorBox message={error} />
       {assignments.length > 0 && (
         <>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-bn-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr><th style={th}>Employee</th><th style={th}>Band</th></tr></thead>
-          <tbody>{assignmentsPaged.pageRows.map(a => <tr key={a.employeeId}><td style={td}><div>{a.employeeName}</div><EmpCode userId={a.employeeId} /></td><td style={td}>{a.bandLabel}</td></tr>)}</tbody>
+          <tbody>{assignmentsPaged.pageRows.map(a => <tr key={a.employeeId}><td style={td}><PersonCell userId={a.employeeId} name={a.employeeName} /></td><td style={td}>{a.bandLabel}</td></tr>)}</tbody>
         </table>
         <TablePagination {...assignmentsPaged.pagerProps} noun="assignments" />
         </>
@@ -192,7 +192,7 @@ function BandsCard({ token }: { token: string }) {
 
 export default function SettingsSection({ token }: { token: string }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 16, alignItems: 'start' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16, alignItems: 'start' }}>
       <AgingConfigCard token={token} />
       <div style={{ display: 'grid', gap: 16 }}>
         <TaxonomyCard token={token} />

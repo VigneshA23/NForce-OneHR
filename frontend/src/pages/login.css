@@ -1,0 +1,119 @@
+/* Sign-in page — dark brand panel on the left, light form card on the right. Presentation only; the form,
+ * validation and sign-in flow live in Login.tsx. Fixed colours on purpose: this screen is shown before the
+ * user's theme is known. */
+
+.nf-lg { min-height: 100dvh; display: flex; background: #F4F6F9; font-family: Inter, system-ui, sans-serif; }
+
+/* ---------- brand panel ---------- */
+.nf-lg-brand { position: relative; display: none; flex: 0 0 58%; flex-direction: column; justify-content: flex-start; padding: 48px; overflow: hidden; color: #fff; background: #0A0A0A; }
+@media (min-width: 1024px) { .nf-lg-brand { display: flex; } }
+@media (min-width: 1280px) { .nf-lg-brand { padding: 64px; } }
+
+.nf-lg-top, .nf-lg-hero, .nf-lg-copy { position: relative; z-index: 1; }
+.nf-lg-top { display: flex; align-items: center; gap: 14px; }
+.nf-lg-wordmark { height: 26px; width: auto; display: block; border-radius: 5px; }
+.nf-lg-divider { width: 1px; height: 20px; background: rgba(255, 255, 255, .22); }
+.nf-lg-product { font-size: 22px; font-weight: 700; line-height: 1; letter-spacing: -.02em; color: #fff; }
+
+/* headline sits close under the brand row (not floated to the middle) and ends well above the wave */
+.nf-lg-hero { max-width: 38rem; margin: clamp(22px, 3vh, 34px) 0 0; padding-bottom: 0; }
+.nf-lg-headline { margin: 0; font-family: inherit; font-size: clamp(34px, 3.4vw, 46px); font-weight: 700; line-height: 1.14; letter-spacing: -.03em; color: #fff; }
+.nf-lg-headline em { font-style: normal; color: #DC2626; }
+.nf-lg-sub { max-width: 30rem; margin: 18px 0 0; font-size: 16px; font-weight: 400; line-height: 1.6; color: #B6C0CD; }
+@media (min-width: 1280px) {
+  .nf-lg-headline { font-size: clamp(44px, 3.4vw, 52px); }
+  .nf-lg-sub { font-size: 17px; }
+}
+
+/* ribbon: in the flow right under the sentence (cropped image, no dead black band), full-bleed to the panel edges;
+ * the mask melts its top edge into the #0A0A0A panel so no seam shows */
+.nf-lg-art { position: relative; z-index: 0; flex: 1 1 0; min-height: 200px; max-width: none; width: calc(100% + 96px); margin: -34px -48px -48px; object-fit: cover; object-position: top; pointer-events: none; user-select: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, .55) 12%, #000 30%); mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, .55) 12%, #000 30%); }
+@media (min-width: 1280px) { .nf-lg-art { width: calc(100% + 128px); margin: -34px -64px -64px; } }
+.nf-lg-copy { position: absolute; left: 48px; bottom: 26px; margin: 0; font-size: 12.5px; color: rgba(255, 255, 255, .7); text-shadow: 0 1px 6px rgba(0, 0, 0, .9); }
+@media (min-width: 1280px) { .nf-lg-copy { left: 64px; bottom: 30px; } }
+
+/* ---------- form panel ---------- */
+.nf-lg-main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(135deg, #F8FAFC 0%, #EEF2F6 50%, #E2E8F0 100%); }
+@media (min-width: 640px) { .nf-lg-main { padding: 48px; } }
+.nf-lg-card { position: relative; width: 100%; max-width: 420px; box-sizing: border-box; padding: 32px; border-radius: 16px; background: #fff; border-top: 3.5px solid #DC2626; box-shadow: 0 20px 50px rgba(15, 23, 42, .08), 0 4px 12px rgba(15, 23, 42, .03); }
+@media (min-width: 640px) { .nf-lg-card { padding: 40px; } }
+
+.nf-lg-mobile-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid #F1F5F9; }
+.nf-lg-mobile-brand img { height: 30px; width: auto; border-radius: 6px; }
+.nf-lg-mobile-brand span { font-size: 15px; font-weight: 700; color: #0F172A; }
+@media (min-width: 1024px) { .nf-lg-mobile-brand { display: none; } }
+
+.nf-lg-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -.025em; line-height: 1.2; color: #0F172A; }
+@media (min-width: 640px) { .nf-lg-title { font-size: 28px; } }
+.nf-lg-lead { margin: 6px 0 28px; font-size: 14px; color: #64748B; }
+
+.nf-lg-alert { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 18px; padding: 11px 14px; border-radius: 8px; font-size: 13px; line-height: 1.45; color: #B91C1C; background: #FEF2F2; border: 1px solid #FECACA; }
+.nf-lg-alert svg { flex-shrink: 0; margin-top: 2px; }
+.nf-lg-input:disabled { cursor: not-allowed; opacity: .6; }
+.nf-lg-eye:disabled { cursor: not-allowed; opacity: .5; }
+
+.nf-lg-remember { display: inline-flex; align-items: center; gap: 8px; margin: 2px 0 22px; cursor: pointer; font-size: 12px; font-weight: 500; color: #475569; user-select: none; }
+.nf-lg-remember.is-disabled { cursor: not-allowed; }
+.nf-lg-remember input { width: 16px; height: 16px; margin: 0; border-radius: 4px; accent-color: #DC2626; cursor: inherit; }
+.nf-lg-remember input:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(220, 38, 38, .2); }
+.nf-lg-spin { width: 15px; height: 15px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .35); border-top-color: #fff; animation: nf-lg-rot .8s linear infinite; }
+@keyframes nf-lg-rot { to { transform: rotate(360deg); } }
+
+.nf-lg-field { margin-bottom: 18px; }
+.nf-lg-label-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.nf-lg-label-row .nf-lg-label { margin-bottom: 0; }
+.nf-lg-label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: #1E293B; }
+.nf-lg-forgot { font-size: 12px; font-weight: 500; color: #DC2626; text-decoration: none; transition: color .15s; }
+.nf-lg-forgot:hover { color: #B91C1C; }
+
+.nf-lg-input { width: 100%; height: 44px; box-sizing: border-box; padding: 0 14px; font: inherit; font-size: 14px; color: #0F172A; background: #fff; border: 1px solid #CBD5E1; border-radius: 8px; outline: none; transition: all .15s; }
+.nf-lg-input::placeholder { color: #94A3B8; }
+.nf-lg-input:focus { border-color: #EF4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, .15); }
+.nf-lg-input.has-error { border-color: #DC2626; }
+/* keep Chrome/Edge autofill white instead of #E8F0FE; the inset shadow paints over the autofill fill */
+.nf-lg-input:-webkit-autofill,
+.nf-lg-input:-webkit-autofill:hover { -webkit-text-fill-color: #0F172A; box-shadow: 0 0 0 1000px #fff inset; caret-color: #0F172A; transition: background-color 9999s; }
+.nf-lg-input:-webkit-autofill:focus { -webkit-text-fill-color: #0F172A; box-shadow: 0 0 0 1000px #fff inset, 0 0 0 3px rgba(239, 68, 68, .15); }
+
+.nf-lg-pw { position: relative; }
+.nf-lg-pw .nf-lg-input { padding-right: 44px; }
+.nf-lg-eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; display: grid; place-items: center; cursor: pointer; color: #64748B; background: none; border: none; border-radius: 6px; transition: color .15s; }
+.nf-lg-eye:hover { color: #0F172A; }
+
+.nf-lg-submit { width: 100%; height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; color: #fff; border: none; border-radius: 8px; background: linear-gradient(180deg, #DC2626 0%, #B91C1C 100%); box-shadow: 0 4px 14px rgba(220, 38, 38, .35); transition: all .15s; }
+.nf-lg-submit svg { transition: transform .15s; }
+.nf-lg-submit:hover:not(:disabled) { background: linear-gradient(180deg, #B91C1C 0%, #991B1B 100%); }
+.nf-lg-submit:hover:not(:disabled) svg { transform: translateX(2px); }
+.nf-lg-submit:active:not(:disabled) { transform: scale(.99); }
+.nf-lg-submit:focus-visible { outline: none; box-shadow: 0 4px 14px rgba(220, 38, 38, .35), 0 0 0 3px rgba(220, 38, 38, .25); }
+.nf-lg-submit:disabled { cursor: default; opacity: .8; }
+
+.nf-lg-help { display: flex; flex-direction: column; gap: 2px; margin-top: 24px; padding-top: 24px; border-top: 1px solid #F1F5F9; }
+.nf-lg-help b { font-size: 12px; font-weight: 600; color: #0F172A; }
+.nf-lg-help span { font-size: 12px; color: #64748B; }
+
+/* brand name: "NForce One" inherits the text colour, "HR" is red */
+.nf-lg-hr { font-style: normal; color: #DC2626; }
+.nf-lg-lead .nf-lg-hr { color: inherit; }
+
+/* entrance: the card's pieces rise in one after another */
+@keyframes nf-lg-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+.nf-lg-card > *, .nf-lg-card form > * { animation: nf-lg-rise .5s cubic-bezier(.23, 1, .32, 1) both; }
+.nf-lg-card > :nth-child(1) { animation-delay: .04s; }
+.nf-lg-card > :nth-child(2) { animation-delay: .09s; }
+.nf-lg-card > :nth-child(3) { animation-delay: .14s; }
+.nf-lg-card > :nth-child(4) { animation-delay: .19s; }
+.nf-lg-card > :nth-child(5) { animation-delay: .24s; }
+.nf-lg-card form > :nth-child(1) { animation-delay: .18s; }
+.nf-lg-card form > :nth-child(2) { animation-delay: .24s; }
+.nf-lg-card form > :nth-child(3) { animation-delay: .30s; }
+.nf-lg-card form > :nth-child(4) { animation-delay: .36s; }
+@media (prefers-reduced-motion: reduce) { .nf-lg-card > *, .nf-lg-card form > * { animation: none; } }
+
+/* signed in: the button turns green and draws a tick */
+.nf-lg-submit.is-done { opacity: 1 !important; cursor: default; transform: none; background: linear-gradient(180deg, #22b35e 0%, #15803d 100%); box-shadow: 0 8px 20px rgba(21, 128, 61, .35); animation: nf-lg-pop .35s ease; }
+@keyframes nf-lg-pop { 0% { transform: scale(.97); } 60% { transform: scale(1.025); } 100% { transform: scale(1); } }
+.nf-lg-tick-ring { stroke-dasharray: 63; stroke-dashoffset: 63; animation: nf-lg-draw .45s ease forwards; }
+.nf-lg-tick-mark { stroke-dasharray: 20; stroke-dashoffset: 20; animation: nf-lg-draw .3s .32s ease forwards; }
+@keyframes nf-lg-draw { to { stroke-dashoffset: 0; } }

@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.data;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.ai.contract.ShellRole;
@@ -164,7 +165,7 @@ class AttendanceDataProvidersTest {
                 .actorEmail(EMAIL)
                 .primaryRoleCode("EMPLOYEE")
                 .shellRole(ShellRole.EMPLOYEE)
-                .audiences(Set.of(AudienceBucket.EMPLOYEE))
+                .audiences(Set.of(AudienceBucket.EMPLOYEE)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.EMPLOYEE)))
                 .build();
     }
 }

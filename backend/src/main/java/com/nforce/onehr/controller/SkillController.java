@@ -30,7 +30,7 @@ public class SkillController {
 
     @PostMapping("/api/skill-taxonomy")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('talent_skills:CONFIGURE:ALL')")
     public SkillResponse addSkill(@Valid @RequestBody SkillRequest req) {
         return service.addSkill(req);
     }
@@ -53,14 +53,14 @@ public class SkillController {
 
     /** The caller's direct reports' ratings, for endorsing them. */
     @GetMapping("/api/skill-ratings/team")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('skill_ratings:VIEW:TEAM')")
     public List<TeamRatingResponse> team(Principal principal) {
         return service.teamRatings(principal.getName());
     }
 
-    /** Manager endorse/override — only the employee's manager or HR (enforced in the service). */
+    /** Manager endorse/override — only the employee's manager, or skill_ratings:EDIT:ALL (enforced in the service). */
     @PutMapping("/api/skill-ratings/{employeeId}/{skillId}/manager")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('skill_ratings:EDIT:TEAM')")
     public void rateAsManager(@PathVariable UUID employeeId, @PathVariable UUID skillId,
                                @RequestParam int rating, Principal principal) {
         service.rateAsManager(principal.getName(), employeeId, skillId, rating);

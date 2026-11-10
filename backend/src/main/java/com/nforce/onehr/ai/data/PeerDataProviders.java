@@ -1,7 +1,6 @@
 package com.nforce.onehr.ai.data;
 
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
-import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.dto.AttendanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.service.AttendanceRulesService;
@@ -25,7 +24,8 @@ public final class PeerDataProviders {
      * caller's manager, through the same two reads as My Team's peers view
      * ({@code getDayForPeers}, {@code listPeerLeave}), both of which resolve the group from the actor.
      *
-     * <p>Stands aside for a Manager, HR Admin or Super Admin: to them "my team" means the people who
+     * <p>Stands aside for anyone holding the team-view grant (Manager, HR Admin, Super Admin, or a
+     * custom role with it): to them "my team" means the people who
      * report to them, which {@code TeamDataProviders} and {@code OrganisationDataProviders} answer,
      * and a second, differently-shaped "team" in the same turn would only invite the wrong one.
      */
@@ -42,14 +42,12 @@ public final class PeerDataProviders {
         @Override public String id() { return "peers.team"; }
         @Override public DataScope scope() { return DataScope.PEERS; }
         @Override public String title() { return "Your project team (colleagues who share your manager): attendance today and upcoming leave"; }
-        @Override public Set<AudienceBucket> audiences() { return Set.of(AudienceBucket.EMPLOYEE); }
+        @Override public Set<String> authorities() { return EVERYONE; }
         @Override public Set<String> modules() { return Set.of("peers", "people"); }
 
         @Override
         public Optional<String> fetch(AssistantRequestContext context) {
-            Set<AudienceBucket> audiences = context.getAudiences();
-            if (audiences.contains(AudienceBucket.MANAGER) || audiences.contains(AudienceBucket.HR)
-                    || audiences.contains(AudienceBucket.ADMIN)) {
+            if (context.holds(TeamDataProviders.TEAM_ATTENDANCE)) {
                 return Optional.empty();
             }
             String email = context.getActorEmail();

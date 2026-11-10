@@ -9,6 +9,8 @@ import java.util.UUID;
 
 @Data @Builder
 public class AttendanceResponse {
+    /** Set only on a Check-In response: true = verified on office Wi-Fi, null = office network not configured. */
+    private Boolean officeNetwork;
     private UUID id;
     private UUID employeeUserId;
     private String employeeCode;

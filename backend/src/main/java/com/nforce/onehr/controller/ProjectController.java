@@ -22,19 +22,19 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/projects")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('HR_ADMIN', 'SUPER_ADMIN')")
 public class ProjectController {
 
     private final ProjectService service;
 
     /** Open to Managers too: they get only the projects they own (scoped in {@link ProjectService#list}). */
     @GetMapping
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('projects:VIEW:TEAM')")
     public List<ProjectResponse> list(Principal principal) {
         return service.list(principal.getName());
     }
 
     @PostMapping
+    @PreAuthorize("hasAuthority('projects:CREATE:ALL')")
     @ResponseStatus(HttpStatus.CREATED)
     public ProjectResponse create(@Valid @RequestBody ProjectRequest req) {
         return service.create(req);

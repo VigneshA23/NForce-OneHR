@@ -55,6 +55,8 @@
 .nf-am-callout {
   padding: 11px 14px; border-radius: 13px; background: color-mix(in srgb, var(--info) 8%, var(--panel)); border: 1px solid color-mix(in srgb, var(--info) 24%, transparent); line-height: 1.5;
 }
+.nf-am-callout input[type='radio'] { flex-shrink: 0; width: 17px; height: 17px; margin: 0; cursor: default; }
+.nf-am-callout span { flex: 1; min-width: 0; }
 .nf-am-balance {
   display: flex !important; align-items: center; flex-wrap: wrap; padding: 9px 13px; border-radius: 13px; background: var(--raised); border: 1px solid var(--line);
 }

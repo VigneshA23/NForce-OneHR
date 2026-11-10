@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.security.SeedMatrix;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.dto.attendance.AttendancePenaltyResponse;
 import com.nforce.onehr.dto.attendance.PenaltyCancelResultResponse;
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
+import com.nforce.onehr.security.EffectivePermissionService;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -70,6 +72,10 @@ class AttendancePenaltyServiceTest {
     @Mock private UserRepository userRepository;
     @Spy private ObjectMapper objectMapper = new ObjectMapper();
     @Spy private AuditSnapshotSerializer auditSnapshot = new AuditSnapshotSerializer(new ObjectMapper());
+    // The REAL permission engine over the seeded matrix, plus custom roles for the V234 tests.
+    @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(java.util.Map.of(
+            "CUSTOM_PENALTY_ADMIN", java.util.Map.of("attendance:VIEW", "ALL", "attendance:EDIT", "ALL"),
+            "CUSTOM_PENALTY_VIEWER", java.util.Map.of("attendance:VIEW", "ALL", "attendance:EDIT", "TEAM")));
 
     @InjectMocks private AttendancePenaltyService service;
 
@@ -559,5 +565,56 @@ class AttendancePenaltyServiceTest {
 
         assertEquals(AttendancePenaltyStatus.PENDING_REVIEW, p.getStatus(), "lost the race — left exactly as the winning call set it");
         verifyNoInteractions(auditService);
+    }
+
+    // ── Permission migration (V234): org-wide list = attendance:VIEW:ALL, org-wide cancel =
+    //    attendance:EDIT:ALL (both seeded to exactly HR_ADMIN + SUPER_ADMIN). ──
+
+    private void actorWithRole(String roleCode) {
+        User user = User.builder().roles(java.util.Set.of(Role.builder().code(roleCode).build())).build();
+        when(employeeRepository.findByUser_Email(managerEmail))
+                .thenReturn(Optional.of(Employee.builder().userId(managerId).fullName("Actor").user(user).build()));
+    }
+
+    private AttendancePenalty outsideTeamPenalty() {
+        AttendancePenalty p = AttendancePenalty.builder().id(UUID.randomUUID()).employeeUserId(otherEmpId)
+                .incidentDate(incidentDate).discrepancyType("LATE_ARRIVAL").status(AttendancePenaltyStatus.PENDING_REVIEW)
+                .evaluatedAt(LocalDateTime.now()).penalizedOn(LocalDateTime.now()).build();
+        when(attendancePenaltyRepository.findById(p.getId())).thenReturn(Optional.of(p));
+        lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(java.util.Set.of(otherEmpId));
+        return p;
+    }
+
+    @Test
+    void cancelBulk_orgWide_forHrAdminSuperAdminAndCustomEditAll_teamOnlyForManagerAndCustomEditTeam() {
+        for (String role : List.of("HR_ADMIN", "SUPER_ADMIN", "CUSTOM_PENALTY_ADMIN")) {
+            actorWithRole(role);
+            AttendancePenalty p = outsideTeamPenalty();
+            assertEquals(List.of(p.getId()), service.cancelBulk(managerEmail, List.of(p.getId()), "waived").getSucceededIds(), role);
+        }
+        // CUSTOM_PENALTY_VIEWER sees org-wide (VIEW:ALL) but may only cancel for direct reports (EDIT:TEAM).
+        for (String role : List.of("MANAGER", "CUSTOM_PENALTY_VIEWER")) {
+            actorWithRole(role);
+            AttendancePenalty p = outsideTeamPenalty();
+            assertTrue(service.cancelBulk(managerEmail, List.of(p.getId()), "waived").getSucceededIds().isEmpty(), role);
+        }
+    }
+
+    @Test
+    void list_orgWide_forCustomViewAll_directReportsOnlyForManager() {
+        when(userRepository.findEmployeeRoleUserIds()).thenReturn(java.util.Set.of(otherEmpId));
+        when(employeeRepository.findAllByIdWithScheduleDetails(List.of(otherEmpId)))
+                .thenReturn(List.of(Employee.builder().userId(otherEmpId).fullName("Other").employeeCode("NF-2").build()));
+        when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))
+                .thenReturn(List.of(AttendancePenalty.builder().id(UUID.randomUUID()).employeeUserId(otherEmpId)
+                        .incidentDate(incidentDate).discrepancyType("LATE_ARRIVAL").status(AttendancePenaltyStatus.PENDING_REVIEW)
+                        .evaluatedAt(LocalDateTime.now()).penalizedOn(LocalDateTime.now()).build()));
+
+        actorWithRole("CUSTOM_PENALTY_VIEWER");
+        assertEquals(1, service.list(managerEmail, from, to, AttendancePenaltyStatus.PENDING_REVIEW, null, null, null, null).size());
+
+        actorWithRole("MANAGER");
+        service.list(managerEmail, from, to, AttendancePenaltyStatus.PENDING_REVIEW, null, null, null, null);
+        verify(managerHistoryRepository).findCurrentDirectReportIds(managerId);
     }
 }

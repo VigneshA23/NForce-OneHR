@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { UserPlus } from 'lucide-react';
 import { employeesApi, type EmployeeRecord } from '../../api/employees';
 import { benchApi, BENCH_REASON_LABELS, type BenchReasonCode } from '../../api/bench';
 import { card, CardTitle, ErrorBox, inputStyle, labelStyle, primaryBtn, todayLocal } from './ui';
@@ -34,22 +35,22 @@ export default function MarkBenchSection({ token, onMarked }: { token: string; o
   }
 
   return (
-    <div style={{ ...card, maxWidth: 420 }}>
-      <CardTitle>Mark employee On Bench</CardTitle>
+    <div style={{ ...card, maxWidth: 560 }}>
+      <CardTitle icon={<UserPlus size={16} />}>Mark employee On Bench</CardTitle>
 
       <label style={labelStyle}>Employee</label>
-      <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={{ ...inputStyle, marginBottom: 8 }}>
+      <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }}>
         <option value="">Select an employee</option>
         {employees.map(e => <option key={e.userId} value={e.userId}>{e.fullName} ({e.employeeCode})</option>)}
       </select>
 
       <label style={labelStyle}>Reason</label>
-      <select value={reasonCode} onChange={e => setReasonCode(e.target.value as BenchReasonCode)} style={{ ...inputStyle, marginBottom: 8 }}>
+      <select value={reasonCode} onChange={e => setReasonCode(e.target.value as BenchReasonCode)} style={{ ...inputStyle, marginBottom: 14 }}>
         {REASONS.map(r => <option key={r} value={r}>{BENCH_REASON_LABELS[r]}</option>)}
       </select>
 
       <label style={labelStyle}>Start date</label>
-      <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...inputStyle, marginBottom: 14 }} />
+      <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...inputStyle, marginBottom: 18 }} />
 
       <ErrorBox message={error} />
       <button type="button" onClick={submit} disabled={submitting} style={{ ...primaryBtn(submitting), width: '100%' }}>

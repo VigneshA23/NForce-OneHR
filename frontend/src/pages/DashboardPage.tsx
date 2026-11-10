@@ -15,6 +15,8 @@ import './dashboardPolish.css';
 import { usePreviewMode } from '../lib/previewMode';
 import { previewMonthHistory, PREVIEW_CONFIG, PREVIEW_STATS, PREVIEW_BALANCES, previewRequests, previewHolidays } from './dashboard-ui-preview/dashboardPreviewData';
 import { useAuthStore } from '../store/authStore';
+import { hasOrgWorkforceView, hasPermission } from '../lib/permissions';
+import type { MyPermissionsResponse } from '../api/me';
 import { dashboardApi, type TeamJoiner, type ManagerDashboard } from '../api/dashboard';
 import { usersApi, type EmployeeRecord } from '../api/employees';
 import { auditApi, type AuditLogEntry, type AuditLogStats } from '../api/audit';
@@ -81,7 +83,7 @@ function monthFromOffset(offset: number): { year: number; month: number; from: s
 }
 
 function formatWorkedMinutes(mins: number | null): string {
-  if (mins == null) return '–';
+  if (mins == null) return '-';
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   if (h === 0) return `${m}m`;
@@ -349,7 +351,7 @@ function TeamJoinersModal({ joiners, onClose, modalTitle = 'Team Joiners · Last
                   {!j.active && <StatusBadge active={j.active} />}
                 </div>
                 <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 1 }}>
-                  {j.designationName ?? '–'}{j.departmentName ? ` · ${j.departmentName}` : ''}
+                  {j.designationName ?? '-'}{j.departmentName ? ` · ${j.departmentName}` : ''}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif', marginTop: 2 }}>{j.employeeCode}</div>
                 <div style={{ fontSize: 11.5, color: 'var(--brand)', marginTop: 6 }}>
@@ -423,7 +425,7 @@ function PresentTodayModal({ records, loading, scopeLabel, onClose }: {
                 {/* sessionStartedAt is the latest check-in of the day; checkInAt is fixed to the
                     day's first one and never updated on a same-day checkout+checkin resume · see
                     AttendanceService.checkIn. Same fallback as AttendanceHeroBanner/AttendancePage. */}
-                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.sessionStartedAt ?? r.checkInAt) ?? '–'}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>Checked in {formatClockTime(r.sessionStartedAt ?? r.checkInAt) ?? '-'}</div>
                 {r.status === 'LATE' && (
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--risk)', marginTop: 2 }}>
                     Late{r.lateByMinutes ? ` by ${formatWorkedMinutes(r.lateByMinutes)}` : ''}
@@ -456,7 +458,7 @@ function LeaveSection({ title, accent, rows }: { title: string; accent: string; 
               <EmployeeCard userId={r.employeeUserId} name={r.employeeName} code={r.employeeCode} />
               <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 6 }}>
                 {r.leaveTypeName} · {new Date(r.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                {r.startDate !== r.endDate ? ` – ${new Date(r.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                {r.startDate !== r.endDate ? ` to ${new Date(r.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
               </div>
             </div>
           ))}
@@ -542,7 +544,7 @@ function useTeamAttendanceToday(token: string, scope: DashboardScope) {
 }
 
 function formatRole(code: string | null | undefined): string {
-  if (!code) return '–';
+  if (!code) return '-';
   return code.split('_').map(w => w[0] + w.slice(1).toLowerCase()).join(' ');
 }
 
@@ -628,23 +630,23 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
         <DashTile
           icon={<Users size={16} />} accent="#4E9EE8"
           label={isHr ? 'Total Employees' : 'Direct Reports'}
-          value={String(loading ? '–' : error ? '–' : (data?.directReportCount ?? 0))}
+          value={String(loading ? '-' : error ? '-' : (data?.directReportCount ?? 0))}
           sub={isHr ? 'across the organization' : 'current reports from HR record'}
         />
         <DashTile
           icon={<UserCheck size={16} />} accent="#2FB67C" label="Active"
-          value={String(loading ? '–' : error ? '–' : (data?.directReports.filter(r => r.active).length ?? 0))}
+          value={String(loading ? '-' : error ? '-' : (data?.directReports.filter(r => r.active).length ?? 0))}
           sub={isHr ? 'active org-wide' : 'active in team'}
         />
         <DashTile
           icon={<Clock size={16} />} accent="var(--brand)" label="Present Today"
-          value={teamLoading ? '–' : `${presentCount}/${teamToday.length}`}
+          value={teamLoading ? '-' : `${presentCount}/${teamToday.length}`}
           sub="checked in so far today · view list →"
           onClick={() => setShowPresentModal(true)}
         />
         <DashTile
           icon={<Calendar size={16} />} accent="#8B5CF6" label="On Leave"
-          value={String(onLeaveLoading ? '–' : onLeaveCount)}
+          value={String(onLeaveLoading ? '-' : onLeaveCount)}
           sub="on leave today · view list →"
           onClick={() => setShowLeaveModal(true)}
         />
@@ -698,7 +700,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
                         <div style={{ fontWeight: 600, color: 'var(--txt)', marginBottom: 1, overflowWrap: 'break-word' }}>{r.fullName}</div>
                         <div style={{ fontSize: 11, color: 'var(--txt-dim)', fontFamily: 'Inter, sans-serif' }}>{r.employeeCode}</div>
                       </td>
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'break-word' }}>{r.designationName ?? '–'}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'break-word' }}>{r.designationName ?? '-'}</td>
                       {isHr && (
                         <td style={{ padding: '10px 14px', fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'break-word' }}>{formatRole(r.roleCode)}</td>
                       )}
@@ -872,32 +874,32 @@ export function EmployeeStatTiles({
     {
       icon: <CalendarCheck size={16} />,
       label: 'Present this month',
-      value: statsLoading ? '–' : String(stats?.me.presentDays ?? 0),
+      value: statsLoading ? '-' : String(stats?.me.presentDays ?? 0),
       sub: 'working days checked in',
       accent: '#2FB67C',
     },
     {
       icon: <Clock size={16} />,
       label: 'Avg hours per day',
-      value: statsLoading ? '–' : stats?.me.avgHoursPerDay != null
+      value: statsLoading ? '-' : stats?.me.avgHoursPerDay != null
         ? formatWorkedMinutes(Math.round(stats.me.avgHoursPerDay * 60))
-        : '–',
+        : '-',
       sub: 'on days you were present',
       accent: '#4E9EE8',
     },
     {
       icon: <BarChart2 size={16} />,
       label: 'On-time arrival',
-      value: statsLoading ? '–' : stats?.me.onTimeArrivalPercent != null
+      value: statsLoading ? '-' : stats?.me.onTimeArrivalPercent != null
         ? `${Math.round(stats.me.onTimeArrivalPercent)}%`
-        : '–',
+        : '-',
       sub: 'of present days',
       accent: '#E0A93B',
     },
     {
       icon: <Calendar size={16} />,
       label: 'Leave remaining',
-      value: balances.length === 0 && !statsLoading ? '–' : String(totalLeaveRemaining),
+      value: balances.length === 0 && !statsLoading ? '-' : String(totalLeaveRemaining),
       sub: 'days across all leave types',
       accent: 'var(--brand)',
     },
@@ -1742,7 +1744,7 @@ function SuperAdminDashboardView() {
     {
       icon: <Users size={16} />,
       label: 'Total Users',
-      value: usersLoading ? '–' : String(allUsers.length),
+      value: usersLoading ? '-' : String(allUsers.length),
       sub: usersLoading ? '' : `${activeUsers} active · ${inactiveUsers} inactive · view directory →`,
       accent: '#4E9EE8',
       onClick: () => navigate('/directory'),
@@ -1750,7 +1752,7 @@ function SuperAdminDashboardView() {
     {
       icon: <UserCheck size={16} />,
       label: 'Present Today',
-      value: attendanceLoading ? '–' : `${presentCount}/${todayRecords.length}`,
+      value: attendanceLoading ? '-' : `${presentCount}/${todayRecords.length}`,
       sub: 'org-wide check-ins · view list →',
       accent: '#2FB67C',
       onClick: () => setShowPresentModal(true),
@@ -1758,7 +1760,7 @@ function SuperAdminDashboardView() {
     {
       icon: <Package size={16} />,
       label: 'Total Assets',
-      value: assetsLoading ? '–' : totalAssets === null ? '–' : String(totalAssets),
+      value: assetsLoading ? '-' : totalAssets === null ? '-' : String(totalAssets),
       sub: 'company-wide inventory · view inventory →',
       accent: '#F97316',
       onClick: () => navigate('/assets'),
@@ -1766,7 +1768,7 @@ function SuperAdminDashboardView() {
     {
       icon: <ShieldCheck size={16} />,
       label: 'Audit Events Today',
-      value: auditStatsLoading ? '–' : auditStats ? String(auditStats.todayCount) : '–',
+      value: auditStatsLoading ? '-' : auditStats ? String(auditStats.todayCount) : '-',
       sub: 'security events logged · view log →',
       accent: 'var(--brand)',
       onClick: () => {
@@ -1895,7 +1897,7 @@ function SuperAdminDashboardView() {
         <div className="nf-dash-card" style={cardStyle}>
           {cardTitle('Account Health')}
           {/* Each row is fed by its own independent fetch (see loadSuperAdminData), so it shows
-              its own '–' placeholder only while ITS source is still loading, instead of the
+              its own '-' placeholder only while ITS source is still loading, instead of the
               whole card waiting on the slowest of four unrelated calls. */}
           <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between', gap: 16 }}>
               <div>
@@ -1903,14 +1905,14 @@ function SuperAdminDashboardView() {
                 {[
                   {
                     label: 'Docs Pending Verification',
-                    value: docKpisLoading ? '–' : docKpis?.pendingVerification ?? '–',
+                    value: docKpisLoading ? '-' : docKpis?.pendingVerification ?? '-',
                     sub: docKpisLoading ? 'loading…' : docKpis ? `${docKpis.employeesWithPending} employees affected` : 'unavailable',
                     color: '#E0A93B',
                     onClick: () => navigate('/documents'),
                   },
                   {
                     label: 'Employees Without Manager',
-                    value: usersLoading ? '–' : noManagerCount,
+                    value: usersLoading ? '-' : noManagerCount,
                     sub: usersLoading ? 'loading…' : 'active employees with no reporting line',
                     color: '#F97316',
                     onClick: () => navigate('/directory'),
@@ -1950,28 +1952,28 @@ function SuperAdminDashboardView() {
                 {[
                   {
                     label: 'Joined This Month',
-                    value: usersLoading ? '–' : joinedThisMonth,
+                    value: usersLoading ? '-' : joinedThisMonth,
                     sub: usersLoading ? 'loading…' : 'new accounts by joining date',
                     color: '#2FB67C',
                     onClick: () => navigate('/directory'),
                   },
                   {
                     label: 'Inactive Accounts',
-                    value: usersLoading ? '–' : inactiveUsers,
+                    value: usersLoading ? '-' : inactiveUsers,
                     sub: usersLoading ? 'loading…' : 'deactivated in system',
                     color: '#6B7280',
                     onClick: () => navigate('/access'),
                   },
                   {
                     label: 'Role Changes This Month',
-                    value: roleChangesLoading ? '–' : roleChangesMonth ?? '–',
+                    value: roleChangesLoading ? '-' : roleChangesMonth ?? '-',
                     sub: roleChangesLoading ? 'loading…' : 'users with role updated',
                     color: '#8B5CF6',
                     onClick: () => navigate('/audit'),
                   },
                   {
                     label: 'Password Resets This Month',
-                    value: passwordResetsLoading ? '–' : passwordResetsMonth ?? '–',
+                    value: passwordResetsLoading ? '-' : passwordResetsMonth ?? '-',
                     sub: passwordResetsLoading ? 'loading…' : 'admin-initiated resets',
                     color: '#B11116',
                     onClick: () => navigate('/audit'),
@@ -2140,11 +2142,34 @@ function SuperAdminDashboardView() {
 
 // ── Entry point ──────────────────────────────────────────────────────────────────
 
+export type DashboardView = 'super-admin' | 'hr' | 'manager' | 'employee';
+
+/**
+ * Which dashboard to render. The org-wide (HR) and team (Manager) views are chosen by the
+ * permissions their endpoints require — hasOrgWorkforceView (HR Admin + Super Admin) and
+ * attendance:VIEW:TEAM (Manager + HR Admin + Super Admin, /attendance/team) — so the four system
+ * roles land exactly where they did by role. The Super Admin composite dashboard stays on the
+ * primary role: no seeded permission marks "Super Admin's home page" without also matching a
+ * custom role that merely holds one of its modules (e.g. user_management). Until permissions have
+ * loaded (first render after sign-in) this falls back to the old role mapping, so the landing page
+ * doesn't flash the Employee dashboard — and fire its requests — for everyone else.
+ */
+export function dashboardViewFor(role: string, permissions: MyPermissionsResponse | null | undefined): DashboardView {
+  if (role === 'SUPER_ADMIN') return 'super-admin';
+  if (!permissions) {
+    return role === 'HR_ADMIN' ? 'hr' : role === 'MANAGER' ? 'manager' : role === 'EMPLOYEE' ? 'employee' : 'super-admin';
+  }
+  if (hasOrgWorkforceView(permissions)) return 'hr';
+  if (hasPermission(permissions, 'attendance', 'VIEW', 'TEAM')) return 'manager';
+  return 'employee';
+}
+
 export default function DashboardPage() {
   const role = useAuthStore(s => s.user?.role) ?? '';
-  if (role === 'MANAGER')     return <TeamDashboardView scope="manager" />;
-  if (role === 'HR_ADMIN')    return <TeamDashboardView scope="hr" />;
-  if (role === 'EMPLOYEE')    return <EmployeeDashboardView />;
-  if (role === 'SUPER_ADMIN') return <SuperAdminDashboardView />;
+  const permissions = useAuthStore(s => s.permissions);
+  const view = dashboardViewFor(role, permissions);
+  if (view === 'manager')  return <TeamDashboardView scope="manager" />;
+  if (view === 'hr')       return <TeamDashboardView scope="hr" />;
+  if (view === 'employee') return <EmployeeDashboardView />;
   return <SuperAdminDashboardView />;
 }

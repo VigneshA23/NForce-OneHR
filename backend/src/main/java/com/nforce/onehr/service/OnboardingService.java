@@ -10,6 +10,7 @@ import com.nforce.onehr.entity.OnboardingChecklist;
 import com.nforce.onehr.entity.OnboardingChecklistItem;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -40,7 +41,6 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class OnboardingService {
 
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
     private static final int ATTENTION_WINDOW_DAYS = 2;
 
     private final OnboardingChecklistRepository checklistRepo;
@@ -53,12 +53,13 @@ public class OnboardingService {
     private final AssetService assetService;
     private final AuditService auditService;
     private final NotificationService notificationService;
+    private final EffectivePermissionService effectivePermissionService;
 
     // ── Start a new flow ───────────────────────────────────
 
     @Transactional
     public OnboardingChecklistDetailDto startOnboarding(StartOnboardingRequest req, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, "onboarding:CREATE:ALL");
 
         UUID employeeUserId = req.getEmployeeUserId();
         if (!employeeRepo.existsById(employeeUserId)) {
@@ -95,14 +96,14 @@ public class OnboardingService {
                 "Your onboarding checklist has been created. HR will guide you through the next steps.",
                 "/documents");
 
-        return getDetail(checklist.getId(), actorEmail);
+        return detail(checklist.getId());
     }
 
     // ── Queue ───────────────────────────────────────────────
 
     @Transactional
     public List<OnboardingChecklistSummaryDto> listQueue(String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, "onboarding:VIEW:ALL");
         LocalDate today = LocalDate.now();
         List<OnboardingChecklist> all = checklistRepo.findAllWithActiveEmployee();
 
@@ -118,7 +119,7 @@ public class OnboardingService {
 
     @Transactional(readOnly = true)
     public List<EmployeeResponse> eligibleEmployees(String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, "onboarding:VIEW:ALL");
         Set<UUID> onboarded = checklistRepo.findAll().stream()
                 .map(OnboardingChecklist::getEmployeeUserId)
                 .collect(Collectors.toSet());
@@ -132,7 +133,7 @@ public class OnboardingService {
     // not-yet-onboarded employee into the browser to filter/paginate client-side.
     @Transactional(readOnly = true)
     public Page<EmployeeResponse> eligibleEmployeesPaged(String actorEmail, String search, int page, int size) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, "onboarding:VIEW:ALL");
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "fullName"));
         return employeeService.listEligibleForOnboarding(search, pageable);
     }
@@ -145,7 +146,7 @@ public class OnboardingService {
     // from IN_PROGRESS (and #stats' started/overdue counts) since they're no longer active cases.
     @Transactional(readOnly = true)
     public Page<OnboardingChecklistSummaryDto> searchQueue(String actorEmail, String status, String search, int page, int size) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, "onboarding:VIEW:ALL");
         if (!"IN_PROGRESS".equals(status) && !"COMPLETED".equals(status) && !"DEACTIVATED".equals(status)) {
             throw new IllegalArgumentException("status must be IN_PROGRESS, COMPLETED or DEACTIVATED");
         }
@@ -173,7 +174,7 @@ public class OnboardingService {
     // page a tab happens to be showing.
     @Transactional(readOnly = true)
     public OnboardingStatsDto stats(String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, "onboarding:VIEW:ALL");
         long pendingCount = eligibleEmployees(actorEmail).size();
         List<OnboardingChecklistSummaryDto> all = listQueue(actorEmail);
         // A deactivated employee's still-open checklist isn't an active onboarding case — counted
@@ -210,7 +211,12 @@ public class OnboardingService {
 
     @Transactional
     public OnboardingChecklistDetailDto getDetail(UUID checklistId, String actorEmail) {
-        requireAdmin(actorEmail);
+        requireAuthority(actorEmail, "onboarding:VIEW:ALL");
+        return detail(checklistId);
+    }
+
+    // Unchecked — for returning the result of an operation whose own permission was already checked.
+    private OnboardingChecklistDetailDto detail(UUID checklistId) {
         OnboardingChecklist checklist = checklistRepo.findById(checklistId)
                 .orElseThrow(() -> new NoSuchElementException("Onboarding checklist not found: " + checklistId));
         Employee emp = employeeRepo.findById(checklist.getEmployeeUserId())
@@ -263,7 +269,7 @@ public class OnboardingService {
 
     @Transactional
     public OnboardingChecklistDetailDto completeOnboarding(UUID checklistId, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, "onboarding:APPROVE:ALL");
         OnboardingChecklist checklist = checklistRepo.findById(checklistId)
                 .orElseThrow(() -> new NoSuchElementException("Onboarding checklist not found: " + checklistId));
         if (!"IN_PROGRESS".equals(checklist.getStatus())) {
@@ -286,14 +292,14 @@ public class OnboardingService {
         }
         auditService.log(actor.getId(), "ONBOARDING_COMPLETED", checklist.getEmployeeUserId());
 
-        return getDetail(checklistId, actorEmail);
+        return detail(checklistId);
     }
 
     // ── Toggle a manual item ────────────────────────────────
 
     @Transactional
     public OnboardingChecklistDetailDto toggleItem(UUID checklistId, UUID itemId, String actorEmail) {
-        User actor = requireAdmin(actorEmail);
+        User actor = requireAuthority(actorEmail, "onboarding:EDIT:ALL");
         OnboardingChecklist checklist = checklistRepo.findById(checklistId)
                 .orElseThrow(() -> new NoSuchElementException("Onboarding checklist not found: " + checklistId));
         OnboardingChecklistItem item = itemRepo.findById(itemId)
@@ -318,7 +324,7 @@ public class OnboardingService {
                 item.isDone() ? "ONBOARDING_ITEM_CHECKED" : "ONBOARDING_ITEM_UNCHECKED",
                 checklist.getEmployeeUserId());
 
-        return getDetail(checklistId, actorEmail);
+        return detail(checklistId);
     }
 
     // ── Computation ─────────────────────────────────────────
@@ -495,11 +501,12 @@ public class OnboardingService {
                 .orElseGet(() -> userRepo.findById(userId).map(User::getEmail).orElse("Unknown"));
     }
 
-    private User requireAdmin(String actorEmail) {
+    // Every onboarding:* authority used here is seeded to exactly HR_ADMIN + SUPER_ADMIN (V225) — the
+    // set the old ADMIN_ROLES check named — and matches the endpoint's own @PreAuthorize.
+    private User requireAuthority(String actorEmail, String authority) {
         User actor = userRepo.findByEmail(actorEmail)
                 .orElseThrow(() -> new NoSuchElementException("User not found: " + actorEmail));
-        boolean isAdmin = actor.getRoles().stream().anyMatch(r -> ADMIN_ROLES.contains(r.getCode()));
-        if (!isAdmin) {
+        if (!effectivePermissionService.hasAuthority(actor, authority)) {
             throw new AccessDeniedException("HR Admin or Super Admin role required");
         }
         return actor;

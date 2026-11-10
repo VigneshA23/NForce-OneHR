@@ -31,7 +31,7 @@ public class ProjectAllocationController {
      * over 100% — resubmit with confirm=true. Intentionally a soft block, not a 4xx.
      */
     @PostMapping
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('project_allocations:CREATE:TEAM')")
     public ResponseEntity<ProjectAllocationResponse> allocate(@Valid @RequestBody ProjectAllocationRequest req, Principal principal) {
         ProjectAllocationResponse res = service.allocate(principal.getName(), req);
         return ResponseEntity.status(res.getId() != null ? HttpStatus.CREATED : HttpStatus.OK).body(res);
@@ -39,18 +39,17 @@ public class ProjectAllocationController {
 
     /** US-B10: bulk-allocate the same project/capacity/date-range to multiple employees, with per-employee partial success. */
     @PostMapping("/bulk")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('project_allocations:CREATE:TEAM')")
     public BulkAllocationResponse bulkAllocate(@Valid @RequestBody BulkProjectAllocationRequest req, Principal principal) {
         return service.bulkAllocate(principal.getName(), req);
     }
 
     /**
      * US-B05/US-B13: a Manager's own team capacity (department/project filters optional, ANDed) —
-     * open to Manager too, unlike the two write endpoints above, since this is the read a Manager
-     * needs for their own reports.
+     * the read a Manager needs for their own reports.
      */
     @GetMapping("/capacity")
-    @PreAuthorize("hasAnyRole('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')")
+    @PreAuthorize("hasAuthority('project_allocations:VIEW:TEAM')")
     public List<EmployeeCapacityResponse> capacity(@RequestParam(required = false) UUID departmentId,
                                                      @RequestParam(required = false) UUID projectId,
                                                      Principal principal) {

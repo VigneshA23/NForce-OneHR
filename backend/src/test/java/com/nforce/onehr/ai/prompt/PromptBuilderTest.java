@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.prompt;
 
+import com.nforce.onehr.ai.SeedAuthorities;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AudienceBucket;
 import com.nforce.onehr.ai.contract.KnowledgeType;
@@ -47,7 +48,7 @@ class PromptBuilderTest {
                 .userId(UUID.randomUUID())
                 .primaryRoleCode("EMPLOYEE")
                 .shellRole(ShellRole.EMPLOYEE)
-                .audiences(Set.of(AudienceBucket.EMPLOYEE))
+                .audiences(Set.of(AudienceBucket.EMPLOYEE)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.EMPLOYEE)))
                 .build();
     }
 
@@ -67,7 +68,7 @@ class PromptBuilderTest {
         AssistantRequestContext named = AssistantRequestContext.builder()
                 .userId(UUID.randomUUID()).actorName("Praveen Gurram")
                 .primaryRoleCode("EMPLOYEE").shellRole(ShellRole.EMPLOYEE)
-                .audiences(Set.of(AudienceBucket.EMPLOYEE)).build();
+                .audiences(Set.of(AudienceBucket.EMPLOYEE)).authorities(SeedAuthorities.of(Set.of(AudienceBucket.EMPLOYEE))).build();
 
         String prompt = builder.buildSystemPrompt(named, List.of(), Optional.empty());
 

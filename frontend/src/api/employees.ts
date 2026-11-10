@@ -20,6 +20,8 @@ export interface EmployeeRecord {
   fullName: string;
   email: string;
   role: string;
+  /** Every role held, by display name (incl. custom roles) — populated by /api/users only. */
+  roleNames?: string[];
   businessUnitId: string | null;
   businessUnitName: string | null;
   departmentId: string | null;
@@ -57,6 +59,31 @@ export interface CreateEmployeePayload {
   managerId?: string;
   /** Admin-only. IANA zone id, e.g. "Asia/Kolkata"; omit/blank to leave unset (falls back to Location, then the org default). */
   timezone?: string;
+
+  // ONEHR — four-step employee creation wizard, Step 1 (Basic Information). All optional,
+  // mirroring CreateUserRequest.java's identical additions on the backend — these map onto the
+  // same Employee columns ProfileService/My Profile already read/write. Deliberately NOT derived
+  // back into fullName here either; see CreateUserRequest.java's own comment.
+  firstName?: string;
+  middleName?: string;
+  lastName?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  maritalStatus?: string;
+  phone?: string;
+  personalEmail?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelationship?: string;
+
+  // Step 3 (Work & Policy Configuration) — Weekly-Off and Attendance (Penalisation) Policy. Both
+  // optional; an effective date is required whenever the corresponding policy id is chosen (same
+  // contract as shiftId/effectiveFrom above), enforced client-side in wizardLogic.ts and
+  // independently by the backend.
+  weeklyOffPolicyId?: string;
+  weeklyOffEffectiveFrom?: string;
+  penalisationPolicyId?: string;
+  penalisationEffectiveFrom?: string;
 }
 
 export interface UpdateEmployeePayload {
