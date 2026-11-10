@@ -220,17 +220,17 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           </Field>
           <Field label="Business Unit">
             <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
-              <option value="">– None –</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              <option value="">None</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
           <Field label="Department">
             <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined, designationId: undefined }))}>
-              <option value="">– None –</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">None</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} disabled={gatedFieldsLocked || !form.departmentId} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">{form.departmentId ? '– None –' : 'Select a Department first'}</option>
+              <option value="">{form.departmentId ? 'None' : 'Select a Department first'}</option>
               {getDesignationOptions(opts.designations, form.designationId, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
@@ -267,7 +267,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                    <option value="">{isSA ? '– None (optional) –' : '– Select a Reporting Manager –'}</option>
+                    <option value="">{isSA ? 'None (optional)' : 'Select a Reporting Manager'}</option>
                     {/* Deactivated managers stay in the list (see getManagersForRole) but as a
                         disabled option, so they can't be picked for a new assignment — they're
                         only shown to explain an EXISTING selection that already points at one. */}
@@ -732,8 +732,8 @@ export default function UserManagementPage() {
                           );
                         })()}
                       </td>
-                      <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
-                      <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>-</span>}</td>
+                      <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>-</span>}</td>
                       <td style={tdStyle}><StatusBadge active={u.active} /></td>
                       <td style={{ ...tdStyle, padding: '8px 12px', width: 44 }}>
                         <RowActionsMenu

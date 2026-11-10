@@ -314,7 +314,7 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
             </div>
             <CompensationFollowUp />
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 10 }}>
-              Compensation is optional and can be configured later — it won't affect this employee's account, onboarding, or access.
+              Compensation is optional and can be configured later, it won't affect this employee's account, onboarding, or access.
             </div>
           </div>
         )}

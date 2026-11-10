@@ -117,7 +117,7 @@ export function WorkPolicyStep({ form, setForm, opts, setOpts, token, startOnboa
           </div>
         )}
         <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 10 }}>
-          Default leave balances are set up automatically — there's no separate Leave Policy to assign here.
+          Default leave balances are set up automatically, there's no separate Leave Policy to assign here.
         </div>
       </div>
 
