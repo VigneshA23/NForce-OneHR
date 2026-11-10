@@ -94,6 +94,15 @@ pages:
         route: /assets
         description: "Your own assets and expense claims, plus your direct reports' asset requests and expense claims awaiting your approval."
 
+  - pageId: payroll-runs
+    module: payroll
+    permissions: ["payroll:VIEW:ALL"]
+    variants:
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Payroll Runs"
+        route: /payroll-runs
+        description: "Generate and manage each pay cycle's payroll run: review Leave Applied and No Attendance items, submit, approve and disburse, override LOP, add ad-hoc payments and deductions, place salary holds, and roll back a run or a single employee's payslip."
+
   - pageId: my-documents
     module: documents
     variants:
