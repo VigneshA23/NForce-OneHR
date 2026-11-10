@@ -5,7 +5,7 @@ import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord } from '../api/employees';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
-import { projectsApi, projectAllocationsApi, type ProjectRecord, type AllocationResult } from '../api/projectAllocations';
+import { projectsApi, projectAllocationsApi, type ProjectRecord, type AllocationResult, type BulkAllocationPayload } from '../api/projectAllocations';
 import ProjectsPanel from './allocations/ProjectsPanel';
 
 const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10 };
@@ -15,15 +15,31 @@ const inputStyle: React.CSSProperties = {
 };
 const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
 
-function ResultsTable({ results, employees }: { results: AllocationResult[]; employees: EmployeeRecord[] }) {
+const STATUS_COLOR: Record<AllocationResult['status'], string> = { SUCCESS: 'var(--ok)', WARNING: 'var(--warn)', FAILED: 'var(--risk)' };
+
+function ResultsTable({ results, employees, onConfirm, confirming }: {
+  results: AllocationResult[]; employees: EmployeeRecord[]; onConfirm: () => void; confirming: boolean;
+}) {
   const nameFor = (id: string) => employees.find(e => e.userId === id)?.fullName ?? id;
   const successCount = results.filter(r => r.status === 'SUCCESS').length;
+  const warningCount = results.filter(r => r.status === 'WARNING').length;
   const resultsPaged = usePaged(results);
   return (
     <div style={{ ...card, padding: '14px 16px', marginTop: 16 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 10 }}>
         {successCount} of {results.length} allocated successfully
       </div>
+      {warningCount > 0 && (
+        <div role="alert" style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'color-mix(in srgb, var(--warn) 12%, var(--panel))', border: '1px solid color-mix(in srgb, var(--warn) 35%, transparent)', borderRadius: 6, padding: '8px 10px', marginBottom: 10, fontSize: 12, color: 'var(--txt)' }}>
+          <span style={{ flex: 1 }}>
+            {warningCount} employee{warningCount === 1 ? ' would' : 's would'} go over 100% capacity and {warningCount === 1 ? 'was' : 'were'} not allocated.
+          </span>
+          <button type="button" onClick={onConfirm} disabled={confirming}
+            style={{ padding: '6px 12px', background: 'var(--warn)', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, color: '#fff', cursor: confirming ? 'not-allowed' : 'pointer', opacity: confirming ? 0.7 : 1 }}>
+            {confirming ? 'Allocating…' : 'Allocate anyway'}
+          </button>
+        </div>
+      )}
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
@@ -39,8 +55,8 @@ function ResultsTable({ results, employees }: { results: AllocationResult[]; emp
               <td style={{ padding: '7px 8px', borderBottom: '1px solid var(--line)' }}>
                 <span style={{
                   fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-                  background: r.status === 'SUCCESS' ? 'rgba(47,182,124,.15)' : 'rgba(228,55,61,.12)',
-                  color: r.status === 'SUCCESS' ? 'var(--ok)' : 'var(--risk)',
+                  background: `color-mix(in srgb, ${STATUS_COLOR[r.status]} 14%, transparent)`,
+                  color: STATUS_COLOR[r.status],
                 }}>{r.status}</span>
               </td>
               <td style={{ padding: '7px 8px', fontSize: 12.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)' }}>{r.reason ?? '–'}</td>
@@ -72,6 +88,8 @@ export default function ProjectAllocationsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [results, setResults] = useState<AllocationResult[] | null>(null);
+  const [lastRequest, setLastRequest] = useState<Omit<BulkAllocationPayload, 'employeeIds'> | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   function load() {
     setLoading(true);
@@ -129,10 +147,27 @@ export default function ProjectAllocationsPage() {
         endDate,
       });
       setResults(res.results);
+      setLastRequest({ projectId, capacityPercent, startDate, endDate });
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Bulk allocation failed');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // US-B06 confirm-to-proceed: resubmit only the WARNING rows, with the same values they were checked against.
+  async function handleConfirmWarnings() {
+    if (!results || !lastRequest) return;
+    const warned = results.filter(r => r.status === 'WARNING').map(r => r.employeeId);
+    setConfirming(true);
+    try {
+      const res = await projectAllocationsApi.bulkAllocate(token, { ...lastRequest, employeeIds: warned, confirm: true });
+      const byId = new Map(res.results.map(r => [r.employeeId, r]));
+      setResults(prev => prev?.map(r => byId.get(r.employeeId) ?? r) ?? null);
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Allocation failed');
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -237,7 +272,7 @@ export default function ProjectAllocationsPage() {
         </div>
       </div>
 
-      {results && <ResultsTable results={results} employees={employees} />}
+      {results && <ResultsTable results={results} employees={employees} onConfirm={handleConfirmWarnings} confirming={confirming} />}
       </>)}
     </div>
   );

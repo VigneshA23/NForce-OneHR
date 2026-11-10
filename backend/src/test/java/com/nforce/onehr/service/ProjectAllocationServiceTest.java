@@ -110,7 +110,7 @@ class ProjectAllocationServiceTest {
     void allocate_savesWhenWithinCapacity() {
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(activeProject()));
-        when(allocationRepository.findOverlapping(employeeId, start, end)).thenReturn(List.of());
+        when(allocationRepository.sumOverlappingCapacity(employeeId, start, end)).thenReturn(0L);
 
         ProjectAllocationResponse res = service.allocate(HR_EMAIL, request(employeeId, 60, start, end));
 
@@ -150,16 +150,44 @@ class ProjectAllocationServiceTest {
     }
 
     @Test
-    void allocate_throwsWhenCapacityExceeds100Percent() {
+    void allocate_over100Percent_warnsAndDoesNotSave() {
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(activeProject()));
-        ProjectAllocation existing = ProjectAllocation.builder()
-                .employeeUserId(employeeId).projectId(UUID.randomUUID())
-                .capacityPercent(70).startDate(start).endDate(end).build();
-        when(allocationRepository.findOverlapping(employeeId, start, end)).thenReturn(List.of(existing));
+        when(allocationRepository.sumOverlappingCapacity(employeeId, start, end)).thenReturn(70L);
 
-        assertThrows(IllegalArgumentException.class, () -> service.allocate(HR_EMAIL, request(employeeId, 40, start, end)));
+        ProjectAllocationResponse res = service.allocate(HR_EMAIL, request(employeeId, 40, start, end));
+
+        assertNull(res.getId());
+        assertEquals(110, res.getProjectedCapacityPercent());
+        assertNotNull(res.getWarning());
         verify(allocationRepository, never()).save(any());
+    }
+
+    @Test
+    void allocate_over100Percent_confirmed_savesWithWarning() {
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(activeProject()));
+        when(allocationRepository.sumOverlappingCapacity(employeeId, start, end)).thenReturn(70L);
+        ProjectAllocationRequest req = request(employeeId, 40, start, end);
+        req.setConfirm(true);
+
+        ProjectAllocationResponse res = service.allocate(HR_EMAIL, req);
+
+        assertNotNull(res.getId());
+        assertNotNull(res.getWarning());
+        verify(allocationRepository).save(any());
+    }
+
+    @Test
+    void allocate_exactly100Percent_savesWithoutWarning() {
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(activeProject()));
+        when(allocationRepository.sumOverlappingCapacity(employeeId, start, end)).thenReturn(60L);
+
+        ProjectAllocationResponse res = service.allocate(HR_EMAIL, request(employeeId, 40, start, end));
+
+        assertNotNull(res.getId());
+        assertNull(res.getWarning());
     }
 
     @Test
@@ -173,11 +201,8 @@ class ProjectAllocationServiceTest {
         when(employeeRepository.findById(overAllocatedEmployee)).thenReturn(Optional.of(employee(overAllocatedEmployee)));
         when(employeeRepository.findById(missingEmployee)).thenReturn(Optional.empty());
 
-        when(allocationRepository.findOverlapping(okEmployee, start, end)).thenReturn(List.of());
-        ProjectAllocation existing = ProjectAllocation.builder()
-                .employeeUserId(overAllocatedEmployee).projectId(UUID.randomUUID())
-                .capacityPercent(80).startDate(start).endDate(end).build();
-        when(allocationRepository.findOverlapping(overAllocatedEmployee, start, end)).thenReturn(List.of(existing));
+        when(allocationRepository.sumOverlappingCapacity(okEmployee, start, end)).thenReturn(0L);
+        when(allocationRepository.sumOverlappingCapacity(overAllocatedEmployee, start, end)).thenReturn(80L);
 
         BulkProjectAllocationRequest req = new BulkProjectAllocationRequest();
         req.setEmployeeIds(List.of(okEmployee, overAllocatedEmployee, missingEmployee));
@@ -190,9 +215,15 @@ class ProjectAllocationServiceTest {
 
         assertEquals(3, res.getResults().size());
         assertEquals("SUCCESS", statusFor(res, okEmployee));
-        assertEquals("FAILED", statusFor(res, overAllocatedEmployee));
+        assertEquals("WARNING", statusFor(res, overAllocatedEmployee));
         assertEquals("FAILED", statusFor(res, missingEmployee));
         verify(allocationRepository, times(1)).save(any());
+
+        // Resubmitting just the warned employee with confirm=true persists it.
+        req.setEmployeeIds(List.of(overAllocatedEmployee));
+        req.setConfirm(true);
+        assertEquals("SUCCESS", statusFor(service.bulkAllocate(HR_EMAIL, req), overAllocatedEmployee));
+        verify(allocationRepository, times(2)).save(any());
     }
 
     private String statusFor(BulkAllocationResponse res, UUID employeeId) {
@@ -220,7 +251,7 @@ class ProjectAllocationServiceTest {
     void allocate_managerWhoOwnsProject_isAllowed() {
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(projectOwnedBy(managerId)));
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
-        when(allocationRepository.findOverlapping(employeeId, start, end)).thenReturn(List.of());
+        when(allocationRepository.sumOverlappingCapacity(employeeId, start, end)).thenReturn(0L);
 
         ProjectAllocationResponse res = service.allocate(OWNER_EMAIL, request(employeeId, 50, start, end));
 
@@ -249,7 +280,7 @@ class ProjectAllocationServiceTest {
     void allocate_hrAdmin_mayAllocateOnAnyonesProject() {
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(projectOwnedBy(UUID.randomUUID())));
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
-        when(allocationRepository.findOverlapping(employeeId, start, end)).thenReturn(List.of());
+        when(allocationRepository.sumOverlappingCapacity(employeeId, start, end)).thenReturn(0L);
 
         service.allocate(HR_EMAIL, request(employeeId, 50, start, end));
 

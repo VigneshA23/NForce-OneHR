@@ -32,9 +32,10 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Single source of truth for project-allocation capacity validation (US-B04 create / US-B06
- * capacity check): {@link #validateAndBuild} is the one place that decides whether an allocation
- * is legal, and {@link #requireCanAllocate} (US-B03) the one place that decides who may make it.
+ * Single source of truth for project-allocation validation (US-B04 create / US-B06 over-allocation
+ * warning): {@link #validate} holds the hard rules, {@link #allocatedCapacity} is the one capacity
+ * aggregation behind the soft over-100% warning, and {@link #requireCanAllocate} (US-B03) the one
+ * place that decides who may allocate.
  * {@link #allocate} (single) and {@link #bulkAllocate} (US-B10) both call it instead of
  * re-implementing the rule — do not duplicate this logic in a new allocation path.
  *
@@ -61,9 +62,32 @@ public class ProjectAllocationService {
         Project project = findProject(req.getProjectId());
         requireCanAllocate(resolveUser(actorEmail), project);
         Employee employee = findEmployee(req.getEmployeeId());
-        ProjectAllocation allocation = allocationRepository.save(validateAndBuild(
-                employee.getUserId(), project, req.getCapacityPercent(), req.getStartDate(), req.getEndDate()));
-        return toResponse(allocation, employee, project);
+        validate(project, req.getStartDate(), req.getEndDate());
+        int projected = allocatedCapacity(employee.getUserId(), req.getStartDate(), req.getEndDate()) + req.getCapacityPercent();
+        String warning = overAllocationWarning(projected);
+        ProjectAllocation allocation = build(employee.getUserId(), project, req.getCapacityPercent(),
+                req.getStartDate(), req.getEndDate());
+        // US-B06 soft block: over 100% is only persisted once the caller confirms; otherwise id stays null.
+        if (warning == null || req.isConfirm()) {
+            allocation = allocationRepository.save(allocation);
+        }
+        return toResponse(allocation, employee, project, projected, warning);
+    }
+
+    /**
+     * US-B04/B05/B06/B10: the one capacity aggregation — total capacity% of the employee's active
+     * allocations overlapping [startDate, endDate]. Every capacity check must go through here.
+     * ponytail: sums every overlapping row even if those rows don't overlap each other (over-reports
+     * for a long range); switch to a per-day peak if that produces false warnings in practice.
+     */
+    public int allocatedCapacity(UUID employeeUserId, LocalDate startDate, LocalDate endDate) {
+        return (int) allocationRepository.sumOverlappingCapacity(employeeUserId, startDate, endDate);
+    }
+
+    private static String overAllocationWarning(int projectedPercent) {
+        return projectedPercent > 100
+                ? "Employee would be allocated " + projectedPercent + "% for this date range (over 100%)"
+                : null;
     }
 
     /** US-B10: project/capacity/dates are shared across the request; each employee is still validated on its own. */
@@ -76,9 +100,15 @@ public class ProjectAllocationService {
         for (UUID employeeId : req.getEmployeeIds()) {
             try {
                 Employee employee = findEmployee(employeeId);
-                ProjectAllocation allocation = validateAndBuild(employee.getUserId(), project,
-                        req.getCapacityPercent(), req.getStartDate(), req.getEndDate());
-                allocationRepository.save(allocation);
+                validate(project, req.getStartDate(), req.getEndDate());
+                String warning = overAllocationWarning(
+                        allocatedCapacity(employee.getUserId(), req.getStartDate(), req.getEndDate()) + req.getCapacityPercent());
+                if (warning != null && !req.isConfirm()) {
+                    results.add(AllocationResult.warning(employeeId, warning));
+                    continue;
+                }
+                allocationRepository.save(build(employee.getUserId(), project,
+                        req.getCapacityPercent(), req.getStartDate(), req.getEndDate()));
                 results.add(AllocationResult.success(employeeId));
             } catch (RuntimeException e) {
                 results.add(AllocationResult.failed(employeeId, e.getMessage()));
@@ -100,21 +130,18 @@ public class ProjectAllocationService {
         }
     }
 
-    private ProjectAllocation validateAndBuild(UUID employeeUserId, Project project, Integer capacityPercent,
-                                                LocalDate startDate, LocalDate endDate) {
+    /** Hard rules (4xx). Over-allocation is deliberately NOT here — it's a soft warning (US-B06). */
+    private static void validate(Project project, LocalDate startDate, LocalDate endDate) {
         if (project.getStatus() != ProjectStatus.ACTIVE) {
             throw new IllegalArgumentException("Project \"" + project.getName() + "\" is not active");
         }
         if (endDate.isBefore(startDate)) {
             throw new IllegalArgumentException("End date cannot be before start date");
         }
-        int alreadyAllocated = allocationRepository.findOverlapping(employeeUserId, startDate, endDate).stream()
-                .mapToInt(ProjectAllocation::getCapacityPercent)
-                .sum();
-        if (alreadyAllocated + capacityPercent > 100) {
-            throw new IllegalArgumentException(
-                    "Capacity exceeds 100% for the given date range (already allocated " + alreadyAllocated + "%)");
-        }
+    }
+
+    private static ProjectAllocation build(UUID employeeUserId, Project project, Integer capacityPercent,
+                                           LocalDate startDate, LocalDate endDate) {
         return ProjectAllocation.builder()
                 .employeeUserId(employeeUserId)
                 .projectId(project.getId())
@@ -224,7 +251,8 @@ public class ProjectAllocationService {
                 .orElseThrow(() -> new NoSuchElementException("Project not found"));
     }
 
-    private ProjectAllocationResponse toResponse(ProjectAllocation a, Employee employee, Project project) {
+    private ProjectAllocationResponse toResponse(ProjectAllocation a, Employee employee, Project project,
+                                                 int projectedCapacityPercent, String warning) {
         return ProjectAllocationResponse.builder()
                 .id(a.getId())
                 .employeeId(employee.getUserId())
@@ -234,6 +262,9 @@ public class ProjectAllocationService {
                 .capacityPercent(a.getCapacityPercent())
                 .startDate(a.getStartDate())
                 .endDate(a.getEndDate())
+                .actualEndDate(a.getActualEndDate())
+                .projectedCapacityPercent(projectedCapacityPercent)
+                .warning(warning)
                 .build();
     }
 }

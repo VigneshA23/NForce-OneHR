@@ -60,11 +60,14 @@ export interface BulkAllocationPayload {
   capacityPercent: number;
   startDate: string;
   endDate: string;
+  /** US-B06: true = save over-100% rows too instead of returning them as WARNING. */
+  confirm?: boolean;
 }
 
 export interface AllocationResult {
   employeeId: string;
-  status: 'SUCCESS' | 'FAILED';
+  /** WARNING = would exceed 100%, not saved; resubmit with confirm=true. */
+  status: 'SUCCESS' | 'WARNING' | 'FAILED';
   reason?: string;
 }
 
@@ -92,7 +95,24 @@ export const projectsApi = {
       .then(handle<ClientRecord>),
 };
 
+/** US-B05/B13: one employee's allocations — mirrors dto/allocation/EmployeeCapacityResponse. */
+export interface EmployeeCapacity {
+  employeeId: string;
+  employeeName: string;
+  departmentId: string | null;
+  departmentName: string | null;
+  totalCapacityPercent: number;
+  allocations: { projectId: string; projectName: string | null; capacityPercent: number; startDate: string; endDate: string }[];
+}
+
 export const projectAllocationsApi = {
+  /** US-B05/B13: Manager sees own direct reports only (server-scoped); HR/Super Admin: everyone. Filters AND together. */
+  capacity: (token: string, filters: { departmentId?: string; projectId?: string } = {}): Promise<EmployeeCapacity[]> => {
+    const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]).toString();
+    return fetch(`${API_ORIGIN}/api/allocations/capacity${qs ? `?${qs}` : ''}`, { headers: authHeaders(token) })
+      .then(handle<EmployeeCapacity[]>);
+  },
+
   bulkAllocate: (token: string, payload: BulkAllocationPayload): Promise<BulkAllocationResponse> =>
     fetch(`${API_ORIGIN}/api/allocations/bulk`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(handle<BulkAllocationResponse>),

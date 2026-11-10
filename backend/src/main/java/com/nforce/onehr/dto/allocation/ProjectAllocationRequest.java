@@ -29,4 +29,7 @@ public class ProjectAllocationRequest {
 
     @NotNull(message = "End date is required")
     private LocalDate endDate;
+
+    /** US-B06: resubmit with true to persist despite an over-100% warning. */
+    private boolean confirm;
 }
