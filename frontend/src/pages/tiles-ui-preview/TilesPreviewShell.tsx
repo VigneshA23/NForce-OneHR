@@ -51,6 +51,15 @@ import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard,
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
+import { WizardSteps } from '../user-management/WizardSteps';
+import { BasicInfoStep } from '../user-management/steps/BasicInfoStep';
+import { EmploymentStep } from '../user-management/steps/EmploymentStep';
+import { WorkPolicyStep } from '../user-management/steps/WorkPolicyStep';
+import { CompensationFollowUp } from '../user-management/CompensationFollowUp';
+import { CreateEmployeeResult } from '../user-management/CreateEmployeeResult';
+import type { OrgOptions } from '../user-management/orgOptionsHelpers';
+import type { CreateUserPayload } from '../../api/employees';
+import '../user-management/createEmployee.css';
 import RolesPermissionsPage from '../RolesPermissionsPage';
 import DocumentsCompliancePage from '../DocumentsCompliancePage';
 import BenchPage from '../BenchPage';
@@ -100,6 +109,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
+  { key: 'create-employee-steps', label: 'Create Employee (all 4 steps)', title: 'Create Employee: all four steps', subtitle: 'Pick any step, and the result screen, to see the layout with sample values. Nothing is saved, and the real wizard still checks each step before moving on.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
@@ -919,6 +929,108 @@ function RolesMock() {
   return ready ? <RolesPermissionsPage /> : null;
 }
 
+function CreateEmployeeStepsPreview() {
+  const [step, setStep] = useState(0);
+  const [form, setForm] = useState<CreateUserPayload>({
+    fullName: 'Jane Smith', firstName: 'Jane', lastName: 'Smith', email: 'jane.smith@nforceone.com', role: 'EMPLOYEE',
+    dateOfBirth: '1994-06-12', gender: 'Female', maritalStatus: 'Single', phone: '9876543210', personalEmail: 'jane.personal@example.com',
+    emergencyContactName: 'Robert Smith', emergencyContactPhone: '9812345678', emergencyContactRelationship: 'Parent',
+    employeeCode: 'NF-20261305', joiningDate: new Date().toISOString().slice(0, 10), employmentType: 'FULL_TIME', workMode: 'HYBRID',
+    businessUnitId: 'b1', departmentId: 'd1', designationId: 'g1', locationId: 'l1', managerId: 'm1',
+    shiftId: 'sh1', effectiveFrom: new Date().toISOString().slice(0, 10), weeklyOffPolicyId: 'w1', penalisationPolicyId: 'p1',
+  } as CreateUserPayload);
+  const [nameTouched, setNameTouched] = useState(true);
+  const [startOnboarding, setStartOnboarding] = useState(true);
+  const [opts, setOpts] = useState<OrgOptions>({
+    businessUnits: [{ id: 'b1', name: 'Technology', active: true }],
+    departments: [{ id: 'd1', name: 'Engineering', active: true }, { id: 'd2', name: 'Finance', active: true }],
+    designations: [{ id: 'g1', title: 'Software Engineer', departmentId: 'd1', active: true }, { id: 'g2', title: 'Analyst', departmentId: 'd2', active: true }],
+    locations: [{ id: 'l1', name: 'Hyderabad', active: true }, { id: 'l2', name: 'Bangalore', active: true }],
+    managers: [{ userId: 'm1', fullName: 'Priya Nair', email: 'priya@nforceone.com', role: 'MANAGER', active: true }, { userId: 'm2', fullName: 'Harvey Specter', email: 'harvey@nforceone.com', role: 'HR_ADMIN', active: true }] as never,
+    shifts: [{ id: 'sh1', name: 'General', startTime: '09:00:00', endTime: '18:00:00', active: true }] as never,
+    weeklyOffPolicies: [{ id: 'w1', name: 'Saturday and Sunday' }] as never,
+    penalisationPolicies: [{ id: 'p1', name: 'Standard attendance policy' }] as never,
+  });
+  useEffect(() => {
+    // Mock only: a small holiday calendar for the Work & Policy step.
+    const prevFetch = window.fetch;
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes('/holidays') && url.includes('locationId=')) {
+        return Promise.resolve(new Response(JSON.stringify([
+          { id: 'h1', holidayName: 'Diwali', holidayDate: '2026-11-08', locationId: 'l1', locationName: 'Hyderabad', active: true },
+          { id: 'h2', holidayName: 'Christmas', holidayDate: '2026-12-25', locationId: 'l1', locationName: 'Hyderabad', active: true },
+          { id: 'h3', holidayName: 'Republic Day', holidayDate: '2027-01-26', locationId: 'l1', locationName: 'Hyderabad', active: true },
+        ]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    return () => { window.fetch = prevFetch; };
+  }, []);
+  const labels = ['1. Basic Information', '2. Employment & Job Details', '3. Work & Policy', '4. Compensation', '5. Result'];
+  const [pwdShown, setPwdShown] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [outcome, setOutcome] = useState<'started' | 'failed' | 'skipped' | null>('started');
+  const sampleCreated = { userId: 'new1', employeeCode: 'NF-20261305', fullName: 'Jane Smith', email: 'jane.smith@nforceone.com', role: 'EMPLOYEE', departmentName: 'Engineering', designationName: 'Software Engineer', joiningDate: new Date().toISOString().slice(0, 10), tempPassword: 'Tmp#8f2Kq9xL', active: true } as never;
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        {labels.map((l, i) => (
+          <button key={l} type="button" onClick={() => setStep(i)} style={{ padding: '8px 16px', borderRadius: 999, cursor: 'pointer', fontWeight: 700, fontSize: 13, border: '1px solid var(--line2)', color: step === i ? '#fff' : 'var(--txt-mut)', background: step === i ? 'var(--brand)' : 'var(--raised)' }}>{l}</button>
+        ))}
+      </div>
+      {step === 4 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', fontSize: 12.5, color: 'var(--txt-mut)' }}>
+          Onboarding result:
+          {(['started', 'failed', 'skipped'] as const).map(o => (
+            <button key={o} type="button" onClick={() => setOutcome(o)} style={{ padding: '5px 12px', borderRadius: 999, cursor: 'pointer', fontWeight: 700, fontSize: 12, border: '1px solid var(--line2)', color: outcome === o ? '#fff' : 'var(--txt-mut)', background: outcome === o ? 'var(--brand)' : 'var(--raised)' }}>{o}</button>
+          ))}
+        </div>
+      )}
+      {step === 4 ? (
+        <div style={{ border: '1px solid var(--line)', borderRadius: 18, overflow: 'hidden', background: 'var(--panel)' }}>
+          <CreateEmployeeResult created={sampleCreated} passwordVisible={pwdShown} onTogglePassword={() => setPwdShown(v => !v)} passwordCopied={copied} onCopyPassword={() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }} onboardingOutcome={outcome} onboardingError="Network error" retryingOnboarding={false} onRetryOnboarding={() => setOutcome('started')} onDone={() => setStep(0)} />
+        </div>
+      ) : (
+      <div className="nf-um-page" style={{ border: '1px solid var(--line)', borderRadius: 18, overflow: 'hidden', background: 'var(--panel)' }}>
+        <div className="nf-ce-top" style={{ top: 0, position: 'static' }}>
+          <div className="nf-ce-head">
+            <span className="nf-ce-head-ico"><UserPlus size={20} /></span>
+            <div className="nf-ce-head-txt">
+              <div className="nf-ce-title">Create Employee</div>
+              <div className="nf-ce-sub">Add a new employee in four steps.</div>
+            </div>
+            <button type="button" className="nf-ce-cancel">Cancel</button>
+          </div>
+          <WizardSteps current={step} />
+        </div>
+        <div className="nf-ce-body">
+          {step === 0 && <BasicInfoStep form={form} setForm={setForm} nameTouched={nameTouched} setNameTouched={setNameTouched} />}
+          {step === 1 && <EmploymentStep form={form} setForm={setForm} opts={opts} token="mock-token" employeeCodeConflict={false} fetchingNewId={false} onGetNewId={() => {}} previewLoading={false} />}
+          {step === 2 && <WorkPolicyStep form={form} setForm={setForm} opts={opts} setOpts={setOpts} token="mock-token" startOnboarding={startOnboarding} setStartOnboarding={setStartOnboarding} />}
+          {step === 3 && (
+            <div className="nf-ce-sec" style={{ padding: 20 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>Jane Smith has been created successfully.</div>
+              <CompensationFollowUp />
+              <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 10 }}>
+                Compensation is optional and can be configured later, it won't affect this employee's account, onboarding, or access.
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="nf-um-foot nf-ce-foot" style={{ position: 'static', justifyContent: step === 3 ? 'flex-end' : 'space-between' }}>
+          {step !== 3 && (
+            <button type="button" className="nf-ce-back" disabled={step === 0} onClick={() => setStep(s => Math.max(0, s - 1))}>Back</button>
+          )}
+          {step === 3 ? <button type="button" className="nf-ce-next" onClick={() => setStep(4)}>Skip for Now</button>
+            : <button type="button" className="nf-ce-next" onClick={() => setStep(s => Math.min(3, s + 1))}>{step < 2 ? 'Continue' : 'Save & Continue'}</button>}
+        </div>
+      </div>
+      )}
+    </div>
+  );
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -1663,6 +1775,8 @@ function Tiles({ page }: { page: string }) {
       return <DocsComplianceMock />;
     case 'roles-page':
       return <RolesMock />;
+    case 'create-employee-steps':
+      return <CreateEmployeeStepsPreview />;
     case 'policies-page':
       return <PoliciesMock />;
     case 'notifications-page':
