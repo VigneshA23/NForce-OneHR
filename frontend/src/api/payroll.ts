@@ -169,6 +169,51 @@ export interface SalaryHoldResponse {
   releasedAt: string | null;
 }
 
+export interface SalaryComponentRequest {
+  componentName: string;
+  calcType: 'FIXED' | 'PERCENT_OF_GROSS' | 'PERCENT_OF_COMPONENT' | 'BALANCING_REMAINDER';
+  value?: number | null;
+  referenceComponentName?: string | null;
+  cap?: number | null;
+  useLowerOfCap?: boolean;
+}
+
+export interface SalaryComponentResponse {
+  id: string;
+  componentId: string;
+  componentName: string;
+  type: string;
+  taxable: boolean;
+  includedInCtc: boolean;
+  shownOnPayslip: boolean;
+  prorateOnLop: boolean;
+  calcType: string;
+  value: number | null;
+  referenceComponentName: string | null;
+  cap: number | null;
+  useLowerOfCap: boolean;
+}
+
+export interface SalaryStructureResponse {
+  id: string;
+  name: string;
+  grade: string | null;
+  financialYear: string | null;
+  components: SalaryComponentResponse[];
+  createdAt: string;
+}
+
+export interface EmployeeCompensationResponse {
+  id: string;
+  employeeId: string;
+  structureId: string;
+  structureName: string;
+  ctc: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  createdAt: string;
+}
+
 export interface SalaryComponentCatalogResponse {
   id: string;
   name: string;
@@ -189,6 +234,23 @@ export const payrollApi = {
   // Salary component catalog (for ad-hoc payment/deduction pickers)
   listSalaryComponents: (token: string) =>
     fetch(`${BASE}/salary-components`, { headers: bearerOnly(token) }).then(handle<SalaryComponentCatalogResponse[]>),
+
+  // US-C01 — Salary Structures
+  listSalaryStructures: (token: string) =>
+    fetch(`${BASE}/salary-structures`, { headers: bearerOnly(token) }).then(handle<SalaryStructureResponse[]>),
+
+  createSalaryStructure: (payload: { name: string; grade?: string; financialYear?: string; components: SalaryComponentRequest[] }, token: string) =>
+    fetch(`${BASE}/salary-structures`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<SalaryStructureResponse>),
+
+  // US-C02 — Assign/revise an employee's compensation
+  assignCompensation: (payload: { employeeId: string; structureId: string; ctc: number; effectiveFrom: string }, token: string) =>
+    fetch(`${BASE}/employee-compensation`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<EmployeeCompensationResponse>),
+
+  getCurrentCompensation: (employeeId: string, token: string) =>
+    fetch(`${BASE}/employee-compensation/employee/${employeeId}/current`, { headers: bearerOnly(token) }).then(handle<EmployeeCompensationResponse>),
+
+  getCompensationHistory: (employeeId: string, token: string) =>
+    fetch(`${BASE}/employee-compensation/employee/${employeeId}/history`, { headers: bearerOnly(token) }).then(handle<EmployeeCompensationResponse[]>),
 
   // Runs
   generateDraft: (payload: { payGroupId: string; referenceDate?: string }, token: string) =>

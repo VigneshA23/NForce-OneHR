@@ -28,6 +28,7 @@ import MyRequestsPage from './pages/MyRequestsPage';
 import AssetsExpensesPage from './pages/AssetsExpensesPage';
 import PayrollRunsPage from './pages/PayrollRunsPage';
 import PayrollRunDetailPage from './pages/payroll/PayrollRunDetailPage';
+import PayrollSetupPage from './pages/payroll/PayrollSetupPage';
 import DocumentsPage from './pages/DocumentsPage';
 import DocumentsCompliancePage from './pages/DocumentsCompliancePage';
 import PoliciesPage from './pages/PoliciesPage';
@@ -209,6 +210,7 @@ export default function App() {
           <Route path="/assets"       element={<AssetsExpensesPage />} />
           <Route path="/payroll-runs" element={<PayrollRunsPage />} />
           <Route path="/payroll-runs/:runId" element={<PayrollRunDetailPage />} />
+          <Route path="/payroll-setup" element={<PayrollSetupPage />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
           <Route path="/exceptions"   element={<ExceptionDashboardPage />} />
