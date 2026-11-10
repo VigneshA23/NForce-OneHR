@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { EmpCode } from '../components/EmpCode';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, Clock, XCircle, Eye, Search, Users, History, ShieldCheck } from 'lucide-react';
+import { CheckCircle, Clock, XCircle, Eye, Search, Users, History, ShieldCheck, FileText, CalendarClock, Hourglass, AlertTriangle, X } from 'lucide-react';
+import './documentsCompliance.css';
 import { KebabMenu } from '../components/KebabMenu';
 import { TablePagination, clampPage, paginate } from '../components/TablePagination';
 import { useAuthStore } from '../store/authStore';
@@ -14,20 +17,18 @@ import {
   type EmployeeDocument, type DocumentAdminKpi, type MissingDocument,
 } from '../api/documents';
 
-const card: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-const thS: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)' };
-const tdS: React.CSSProperties = { padding: '11px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
+const fmtDate = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString() : '-');
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; color: string }> = {
-    VERIFIED: { label: 'Verified', color: '#22c55e' },
-    PENDING_VERIFICATION: { label: 'Pending Review', color: '#eab308' },
-    REJECTED: { label: 'Rejected', color: '#ef4444' },
-    WITHDRAWN: { label: 'Withdrawn', color: 'var(--txt-dim)' },
+  const map: Record<string, { label: string; tone: string }> = {
+    VERIFIED: { label: 'Verified', tone: 'is-ok' },
+    PENDING_VERIFICATION: { label: 'Pending Review', tone: 'is-warn' },
+    REJECTED: { label: 'Rejected', tone: 'is-bad' },
+    WITHDRAWN: { label: 'Withdrawn', tone: 'is-off' },
   };
-  const cfg = map[status] ?? { label: status, color: 'var(--txt-dim)' };
+  const cfg = map[status] ?? { label: status, tone: 'is-off' };
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: cfg.color }}>
+    <span className={`nf-dc-pill ${cfg.tone}`}>
       {status === 'VERIFIED' && <CheckCircle size={12} />}
       {status === 'PENDING_VERIFICATION' && <Clock size={12} />}
       {status === 'REJECTED' && <XCircle size={12} />}
@@ -36,6 +37,33 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function PersonCell({ userId, name }: { userId: string; name: string | null }) {
+  return (
+    <div className="nf-dc-person">
+      <EmployeeAvatar userId={userId} name={name ?? userId.slice(0, 8)} size={34} fontSize={12} background="var(--brand)" />
+      <div>
+        <div className="nf-dc-name">{name ?? `${userId.slice(0, 8)}...`}</div>
+        <EmpCode userId={userId} />
+      </div>
+    </div>
+  );
+}
+
+/** Expiry as a pill: red once passed, amber inside 30 days, neutral otherwise. Display only. */
+function ExpiryCell({ iso }: { iso: string | null }) {
+  if (!iso) return <span className="nf-dc-none">-</span>;
+  const days = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
+  const tone = days < 0 ? 'is-bad' : days <= 30 ? 'is-warn' : '';
+  return <span className={`nf-dc-date ${tone}`}><CalendarClock size={12} />{fmtDate(iso)}</span>;
+}
+
+function FileCell({ name }: { name: string }) {
+  return (
+    <span title={name} className="nf-dc-file">
+      <FileText size={13} /> <span>{name}</span>
+    </span>
+  );
+}
 
 // ── History version view/download ─────────────────────────
 
@@ -57,9 +85,8 @@ function HistoryViewButton({ docId }: { docId: string }) {
   }
 
   return (
-    <button onClick={open} disabled={loading}
-      style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 5, color: 'var(--txt)', cursor: 'pointer', fontSize: 11 }}>
-      <Eye size={11} /> {loading ? '…' : 'View'}
+    <button type="button" onClick={open} disabled={loading} className="nf-dc-mini">
+      <Eye size={12} /> {loading ? '…' : 'View'}
     </button>
   );
 }
@@ -80,27 +107,18 @@ function DocumentHistorySection({ documentId }: { documentId: string }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <History size={13} color="var(--txt-dim)" />
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Document History</span>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
+      <div className="nf-dc-sec"><History size={13} /> Document History</div>
+      <div className="nf-dc-hist">
         {versions.map(v => (
-          <div key={v.id} style={{ background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+          <div key={v.id} className="nf-dc-ver">
             <div style={{ minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>Version {v.versionNumber}</span>
-                {!v.superseded
-                  ? <span style={{ fontSize: 10, fontWeight: 700, color: '#22c55e', background: 'rgba(34,197,94,.12)', borderRadius: 4, padding: '1px 6px' }}>Current</span>
-                  : <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 4, padding: '1px 6px' }}>Superseded</span>}
+              <div className="nf-dc-ver-top">
+                <b>Version {v.versionNumber}</b>
+                {!v.superseded ? <span className="nf-dc-pill is-ok is-sm">Current</span> : <span className="nf-dc-pill is-off is-sm">Superseded</span>}
                 <StatusBadge status={v.status} />
               </div>
-              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
-                {v.fileName} · Submitted {new Date(v.uploadedAt).toLocaleDateString()}
-              </div>
-              {v.rejectionReason && (
-                <div style={{ fontSize: 11, color: '#ef4444', marginTop: 3 }}>Reason: {v.rejectionReason}</div>
-              )}
+              <div className="nf-dc-ver-sub">{v.fileName} · Submitted {new Date(v.uploadedAt).toLocaleDateString()}</div>
+              {v.rejectionReason && <div className="nf-dc-ver-rej">Reason: {v.rejectionReason}</div>}
             </div>
             <HistoryViewButton docId={v.id} />
           </div>
@@ -159,113 +177,92 @@ function DetailModal({
     try { await onReject(reason); } finally { setActing(false); }
   }
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 680, maxWidth: '94vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: 16 }}>
+  return createPortal(
+    <div className="nf-dc-overlay">
+      <div className="nf-dc-dlg">
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{doc.documentTypeName}</h3>
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--txt-dim)' }}>
-              {doc.employeeName ?? doc.employeeUserId.slice(0, 8)} · Uploaded {new Date(doc.uploadedAt).toLocaleDateString()} · {doc.fileName}
-            </p>
+        <div className="nf-dc-dhead">
+          <span className="nf-dc-dico"><FileText size={18} /></span>
+          <div className="nf-dc-dtitles">
+            <h3>{doc.documentTypeName}</h3>
+            <p>{doc.employeeName ?? doc.employeeUserId.slice(0, 8)} · Uploaded {new Date(doc.uploadedAt).toLocaleDateString()} · {doc.fileName}</p>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', fontSize: 22, lineHeight: 1, padding: 0 }}>×</button>
+          <button type="button" onClick={onClose} className="nf-dc-x" aria-label="Close"><X size={16} /></button>
         </div>
 
-        {/* Document preview */}
-        <div style={{ flex: 1, minHeight: 320, background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {fileLoading && <span style={{ color: 'var(--txt-dim)', fontSize: 13 }}>Loading document…</span>}
-          {fileError && (
-            <div style={{ textAlign: 'center' }}>
-              <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 10 }}>Preview unavailable</p>
-              {blobUrl && <a href={blobUrl} target="_blank" rel="noreferrer"
-                style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#A01418', textDecoration: 'none', fontSize: 13, justifyContent: 'center' }}>
-                <Eye size={14} /> Open file
-              </a>}
+        <div className="nf-dc-dbody">
+          {/* Document preview */}
+          <div className="nf-dc-preview">
+            {fileLoading && <span className="nf-dc-pmsg">Loading document…</span>}
+            {fileError && (
+              <div style={{ textAlign: 'center' }}>
+                <p className="nf-dc-pmsg">Preview unavailable</p>
+                {blobUrl && <a href={blobUrl} target="_blank" rel="noreferrer" className="nf-dc-open"><Eye size={14} /> Open file</a>}
+              </div>
+            )}
+            {!fileLoading && !fileError && blobUrl && (
+              isPdf ? (
+                <iframe src={blobUrl} style={{ width: '100%', height: 380, border: 'none' }} title={doc.fileName} />
+              ) : isImage ? (
+                <img src={blobUrl} alt={doc.fileName} style={{ maxWidth: '100%', maxHeight: 380, objectFit: 'contain' }} />
+              ) : (
+                <div style={{ textAlign: 'center' }}>
+                  <p className="nf-dc-pmsg">No inline preview for this file type</p>
+                  <a href={blobUrl} target="_blank" rel="noreferrer" className="nf-dc-open"><Eye size={14} /> Open file</a>
+                </div>
+              )
+            )}
+          </div>
+
+          {/* Expiry / issue dates */}
+          {(doc.issueDate || doc.expiryDate) && (
+            <div className="nf-dc-facts">
+              {doc.issueDate && <span>Issue date <b>{new Date(doc.issueDate).toLocaleDateString()}</b></span>}
+              {doc.expiryDate && <span>Expiry <b>{new Date(doc.expiryDate).toLocaleDateString()}</b></span>}
             </div>
           )}
-          {!fileLoading && !fileError && blobUrl && (
-            isPdf ? (
-              <iframe src={blobUrl} style={{ width: '100%', height: 380, border: 'none' }} title={doc.fileName} />
-            ) : isImage ? (
-              <img src={blobUrl} alt={doc.fileName} style={{ maxWidth: '100%', maxHeight: 380, objectFit: 'contain' }} />
-            ) : (
-              <div style={{ textAlign: 'center' }}>
-                <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 10 }}>No inline preview for this file type</p>
-                <a href={blobUrl} target="_blank" rel="noreferrer"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#A01418', textDecoration: 'none', fontSize: 13, fontWeight: 600 }}>
-                  <Eye size={14} /> Open file
-                </a>
-              </div>
-            )
+
+          {/* Status badge for already-actioned docs */}
+          {doc.status !== 'PENDING_VERIFICATION' && (
+            <div className="nf-dc-statusrow">
+              <StatusBadge status={doc.status} />
+              {doc.rejectionReason && <span className="nf-dc-rej">Reason: {doc.rejectionReason}</span>}
+            </div>
           )}
+
+          <DocumentHistorySection documentId={doc.id} />
         </div>
-
-        {/* Expiry / issue dates */}
-        {(doc.issueDate || doc.expiryDate) && (
-          <div style={{ display: 'flex', gap: 20, fontSize: 12, color: 'var(--txt-dim)' }}>
-            {doc.issueDate && <span>Issue date: <strong style={{ color: 'var(--txt)' }}>{new Date(doc.issueDate).toLocaleDateString()}</strong></span>}
-            {doc.expiryDate && <span>Expiry: <strong style={{ color: 'var(--txt)' }}>{new Date(doc.expiryDate).toLocaleDateString()}</strong></span>}
-          </div>
-        )}
-
-        {/* Status badge for already-actioned docs */}
-        {doc.status !== 'PENDING_VERIFICATION' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <StatusBadge status={doc.status} />
-            {doc.rejectionReason && <span style={{ fontSize: 12, color: '#ef4444' }}>Reason: {doc.rejectionReason}</span>}
-          </div>
-        )}
-
-        <DocumentHistorySection documentId={doc.id} />
 
         {/* Actions — only for pending docs */}
-        {doc.status === 'PENDING_VERIFICATION' && (
-          mode === 'view' ? (
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <button onClick={onClose} disabled={acting}
-                style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
-                Close
-              </button>
-              <button onClick={() => setMode('reject')} disabled={acting}
-                style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid #ef4444', borderRadius: 6, color: '#ef4444', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                Reject
-              </button>
-              <button onClick={handleVerify} disabled={acting || fileLoading}
-                style={{ padding: '8px 20px', background: '#22c55e', border: 'none', borderRadius: 6, color: '#fff', cursor: acting || fileLoading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: acting || fileLoading ? .7 : 1 }}>
-                {acting ? 'Verifying…' : 'Approve'}
-              </button>
-            </div>
+        <div className="nf-dc-dfoot">
+          {doc.status === 'PENDING_VERIFICATION' ? (
+            mode === 'view' ? (
+              <>
+                <button type="button" onClick={onClose} disabled={acting} className="nf-dc-ghost">Close</button>
+                <button type="button" onClick={() => setMode('reject')} disabled={acting} className="nf-dc-danger">Reject</button>
+                <button type="button" onClick={handleVerify} disabled={acting || fileLoading} className="nf-dc-ok">
+                  {acting ? 'Verifying…' : 'Approve'}
+                </button>
+              </>
+            ) : (
+              <form onSubmit={handleReject} className="nf-dc-rejform">
+                <label>Rejection reason *</label>
+                <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} required />
+                <div className="nf-dc-rejbtns">
+                  <button type="button" onClick={() => setMode('view')} disabled={acting} className="nf-dc-ghost">Back</button>
+                  <button type="submit" disabled={acting || !reason.trim()} className="nf-dc-danger is-solid">
+                    {acting ? 'Rejecting…' : 'Confirm Reject'}
+                  </button>
+                </div>
+              </form>
+            )
           ) : (
-            <form onSubmit={handleReject}>
-              <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 6 }}>Rejection reason *</label>
-              <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} required
-                style={{ width: '100%', padding: '8px 10px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', fontSize: 13, resize: 'vertical', boxSizing: 'border-box', marginBottom: 12 }} />
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => setMode('view')} disabled={acting}
-                  style={{ padding: '8px 18px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
-                  Back
-                </button>
-                <button type="submit" disabled={acting || !reason.trim()}
-                  style={{ padding: '8px 18px', background: '#ef4444', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                  {acting ? 'Rejecting…' : 'Confirm Reject'}
-                </button>
-              </div>
-            </form>
-          )
-        )}
-
-        {doc.status !== 'PENDING_VERIFICATION' && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button onClick={onClose}
-              style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
-              Close
-            </button>
-          </div>
-        )}
+            <button type="button" onClick={onClose} className="nf-dc-ghost">Close</button>
+          )}
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -291,22 +288,22 @@ function MissingTab({ missing, searchEmpty, footer }: { missing: MissingDocument
   }
 
   return (
-    <div style={card}>
+    <div className="nf-dc-card">
       <div className="nf-doc-table-scroll">
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-dc-table">
           <thead>
             <tr>
-              <th style={thS}>Employee</th>
-              <th style={thS}>Missing Document</th>
-              <th style={thS}></th>
+              <th>Employee</th>
+              <th>Missing Document</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {missing.length === 0 ? (
-              <tr><td colSpan={3} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
+              <tr><td colSpan={3} className="nf-dc-cellmsg">
                 {searchEmpty ? 'No results match your search or filter.' : (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                    <Users size={28} color="var(--txt-dim)" />
+                  <div className="nf-dc-allgood">
+                    <Users size={26} />
                     <span>All employees have submitted their required documents.</span>
                   </div>
                 )}
@@ -315,12 +312,9 @@ function MissingTab({ missing, searchEmpty, footer }: { missing: MissingDocument
               const key = `${m.employeeUserId}-${m.documentTypeId}`;
               return (
                 <tr key={`${key}-${i}`}>
-                  <td style={tdS}>
-                    <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{m.employeeName}</div>
-                    <EmpCode userId={m.employeeUserId} />
-                  </td>
-                  <td style={{ ...tdS, color: '#ef4444', fontWeight: 600 }}>{m.documentTypeName}</td>
-                  <td style={{ ...tdS, width: 48 }}>
+                  <td><PersonCell userId={m.employeeUserId} name={m.employeeName} /></td>
+                  <td><span className="nf-dc-type is-missing"><AlertTriangle size={12} />{m.documentTypeName}</span></td>
+                  <td style={{ width: 150 }}>
                     <KebabMenu items={[{
                       label: reminding === key ? 'Sending…' : 'Send Reminder',
                       onClick: () => doRemind(m),
@@ -456,36 +450,72 @@ export default function DocumentsCompliancePage() {
 
   if (loadError) {
     return (
-      <div style={{ ...card, padding: 28, textAlign: 'center' }}>
-        <p style={{ color: 'var(--txt)', fontSize: 14, fontWeight: 600, margin: '0 0 6px' }}>Couldn't load documents</p>
-        <p style={{ color: 'var(--txt-dim)', fontSize: 13, margin: '0 0 14px' }}>{loadError}</p>
-        <button onClick={() => load(true)}
-          style={{ padding: '7px 16px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-          Retry
-        </button>
+      <div className="nf-dc-card nf-dc-error">
+        <p className="nf-dc-error-t">Couldn't load documents</p>
+        <p className="nf-dc-error-s">{loadError}</p>
+        <button type="button" onClick={() => load(true)} className="nf-dc-ok">Retry</button>
       </div>
     );
   }
 
+  const docRows = (rows: EmployeeDocument[], dateLabel: 'uploaded' | 'verified', actionLabel: string) => paginate(rows, safePage, pageSize).map(d => (
+    <tr key={d.id}>
+      <td><PersonCell userId={d.employeeUserId} name={d.employeeName} /></td>
+      <td><span className="nf-dc-type"><FileText size={12} />{d.documentTypeName}</span></td>
+      <td><FileCell name={d.fileName} /></td>
+      <td><span className="nf-dc-date">{dateLabel === 'uploaded' ? fmtDate(d.uploadedAt) : fmtDate(d.verifiedAt)}</span></td>
+      <td><ExpiryCell iso={d.expiryDate} /></td>
+      <td style={{ width: 150 }}>
+        <KebabMenu items={[{ label: actionLabel, onClick: () => setDetailDoc(d) }]} />
+      </td>
+    </tr>
+  ));
+
+  const docHead = (dateHeader: string) => (
+    <>
+      <colgroup>
+        <col style={{ width: '22%' }} />
+        <col style={{ width: '17%' }} />
+        <col style={{ width: '24%' }} />
+        <col style={{ width: '13%' }} />
+        <col style={{ width: '14%' }} />
+        <col style={{ width: 150 }} />
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Document Type</th>
+          <th>File</th>
+          <th>{dateHeader}</th>
+          <th>Expiry</th>
+          <th></th>
+        </tr>
+      </thead>
+    </>
+  );
+
   return (
     <div>
       <PageTitleBlock card icon={ShieldCheck}>
-<h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
-      <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 22 }}>Verify employee documents and track compliance.</p>
-</PageTitleBlock>
+        <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 4, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Documents & Compliance</h1>
+        <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginBottom: 0 }}>Verify employee documents and track compliance.</p>
+      </PageTitleBlock>
 
       {/* KPI row */}
       {kpis && (
-        <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 24 }}>
+        <div className="nf-kpi-2x2-mobile nf-dc-tiles">
           {[
-            { label: 'Pending Verification', value: pending.length, color: '#eab308' },
-            { label: 'Employees Pending', value: kpis.employeesWithPending, color: '#f97316' },
-            { label: 'Expiring in 30 Days', value: kpis.expiringWithin30Days, color: '#ef4444' },
-            { label: 'Total Documents', value: kpis.totalDocuments, color: '#22c55e' },
+            { label: 'Pending Verification', value: pending.length, tone: 'var(--warn)', icon: <Hourglass size={20} /> },
+            { label: 'Employees Pending', value: kpis.employeesWithPending, tone: '#f97316', icon: <Users size={20} /> },
+            { label: 'Expiring in 30 Days', value: kpis.expiringWithin30Days, tone: 'var(--risk)', icon: <CalendarClock size={20} /> },
+            { label: 'Total Documents', value: kpis.totalDocuments, tone: 'var(--ok)', icon: <FileText size={20} /> },
           ].map(k => (
-            <div key={k.label} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '16px 20px' }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: k.color, fontFamily: 'Inter, sans-serif' }}>{k.value}</div>
-              <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4, fontWeight: 600 }}>{k.label}</div>
+            <div key={k.label} className="nf-dc-tile" style={{ ['--mk' as string]: k.tone }}>
+              <div className="nf-dc-tile-top">
+                <span className="nf-dc-tile-label">{k.label}</span>
+                <span className="nf-dc-tile-ico">{k.icon}</span>
+              </div>
+              <div className="nf-dc-tile-val">{k.value}</div>
             </div>
           ))}
         </div>
@@ -494,6 +524,7 @@ export default function DocumentsCompliancePage() {
       {/* Tabs */}
       <TabBar
         ariaLabel="Document verification status"
+        className="nf-pilltabs"
         style={{ marginBottom: 14 }}
         active={tab}
         onChange={setTab}
@@ -505,17 +536,15 @@ export default function DocumentsCompliancePage() {
       />
 
       {/* Search + Filter */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div className="nf-search-full-mobile" style={{ position: 'relative' }}>
-          <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+      <div className="nf-dc-toolbar">
+        <div className="nf-search-full-mobile nf-dc-search">
+          <Search size={14} />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder={tab === 'missing' ? 'Search by name, type…' : 'Search by name, type, file…'}
-            className="nf-search-full-mobile-input"
-            style={{ paddingLeft: 30, padding: '7px 12px 7px 30px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, outline: 'none', width: 240 }} />
+            className="nf-search-full-mobile-input" />
         </div>
         {allDocTypes.length > 1 && (
-          <select value={docTypeFilter} onChange={e => setDocTypeFilter(e.target.value)}
-            style={{ padding: '7px 12px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--txt)', fontSize: 13, cursor: 'pointer' }}>
+          <select value={docTypeFilter} onChange={e => setDocTypeFilter(e.target.value)} className="nf-dc-select">
             <option value="">All document types</option>
             {allDocTypes.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
@@ -524,52 +553,16 @@ export default function DocumentsCompliancePage() {
 
       {/* ── Pending Verification tab ── */}
       {tab === 'pending' && (
-        <div style={card}>
+        <div className="nf-dc-card">
           <div className="nf-doc-table-scroll">
-            <table className="nf-doc-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-              <colgroup>
-                <col style={{ width: '18%' }} />
-                <col style={{ width: '18%' }} />
-                <col style={{ width: '28%' }} />
-                <col style={{ width: '15%' }} />
-                <col style={{ width: '15%' }} />
-                <col style={{ width: 48 }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th style={thS}>Employee</th>
-                  <th style={thS}>Document Type</th>
-                  <th style={thS}>File</th>
-                  <th style={thS}>Uploaded</th>
-                  <th style={thS}>Expiry</th>
-                  <th style={thS}></th>
-                </tr>
-              </thead>
+            <table className="nf-dc-table nf-doc-table" style={{ tableLayout: 'fixed' }}>
+              {docHead('Uploaded')}
               <tbody>
                 {filteredPending.length === 0 ? (
-                  <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
+                  <tr><td colSpan={6} className="nf-dc-cellmsg">
                     {filtering ? 'No results match your search or filter.' : 'No documents pending verification.'}
                   </td></tr>
-                ) : paginate(filteredPending, safePage, pageSize).map(d => (
-                  <tr key={d.id}>
-                    <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11, color: 'var(--txt-dim)' }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
-                    </td>
-                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.documentTypeName}</td>
-                    <td style={tdS}>
-                      <span title={d.fileName} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <Eye size={12} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fileName}</span>
-                      </span>
-                    </td>
-                    <td style={tdS}>{new Date(d.uploadedAt).toLocaleDateString()}</td>
-                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '–'}</td>
-                    <td style={{ ...tdS, width: 48 }}>
-                      <KebabMenu items={[
-                        { label: 'Review', onClick: () => setDetailDoc(d) },
-                      ]} />
-                    </td>
-                  </tr>
-                ))}
+                ) : docRows(filteredPending, 'uploaded', 'Review')}
               </tbody>
             </table>
           </div>
@@ -579,50 +572,16 @@ export default function DocumentsCompliancePage() {
 
       {/* ── Verified tab ── */}
       {tab === 'verified' && (
-        <div style={card}>
+        <div className="nf-dc-card">
           <div className="nf-doc-table-scroll">
-            <table className="nf-doc-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-              <colgroup>
-                <col style={{ width: '18%' }} />
-                <col style={{ width: '18%' }} />
-                <col style={{ width: '28%' }} />
-                <col style={{ width: '15%' }} />
-                <col style={{ width: '15%' }} />
-                <col style={{ width: 48 }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th style={thS}>Employee</th>
-                  <th style={thS}>Document Type</th>
-                  <th style={thS}>File</th>
-                  <th style={thS}>Verified At</th>
-                  <th style={thS}>Expiry</th>
-                  <th style={thS}></th>
-                </tr>
-              </thead>
+            <table className="nf-dc-table nf-doc-table" style={{ tableLayout: 'fixed' }}>
+              {docHead('Verified At')}
               <tbody>
                 {filteredVerified.length === 0 ? (
-                  <tr><td colSpan={6} style={{ ...tdS, textAlign: 'center', padding: 28 }}>
+                  <tr><td colSpan={6} className="nf-dc-cellmsg">
                     {filtering ? 'No results match your search or filter.' : 'No verified documents yet.'}
                   </td></tr>
-                ) : paginate(filteredVerified, safePage, pageSize).map(d => (
-                  <tr key={d.id}>
-                    <td style={tdS}>
-                      <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.employeeName ?? <span style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>{d.employeeUserId.slice(0, 8)}…</span>}</div>
-                    </td>
-                    <td style={{ ...tdS, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.documentTypeName}</td>
-                    <td style={tdS}>
-                      <span title={d.fileName} style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--txt-dim)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <Eye size={12} style={{ flexShrink: 0 }} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.fileName}</span>
-                      </span>
-                    </td>
-                    <td style={tdS}>{d.verifiedAt ? new Date(d.verifiedAt).toLocaleDateString() : '–'}</td>
-                    <td style={tdS}>{d.expiryDate ? new Date(d.expiryDate).toLocaleDateString() : '–'}</td>
-                    <td style={{ ...tdS, width: 48 }}>
-                      <KebabMenu items={[{ label: 'View Document', onClick: () => setDetailDoc(d) }]} />
-                    </td>
-                  </tr>
-                ))}
+                ) : docRows(filteredVerified, 'verified', 'View Document')}
               </tbody>
             </table>
           </div>

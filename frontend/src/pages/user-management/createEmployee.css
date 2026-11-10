@@ -1,0 +1,63 @@
+/* Create Employee wizard. Presentation only; theme tokens throughout. Field polish (rounded inputs, focus ring) comes
+ * from the .nf-um-page rules in userManagementPolish.css. */
+
+/* sticky header + stepper */
+.nf-ce-top { position: sticky; z-index: 20; background: var(--panel); border-bottom: 1px solid var(--line); box-shadow: 0 6px 18px rgba(16, 24, 40, .05); }
+.nf-ce-head { display: flex; align-items: center; gap: 14px; padding: 18px 28px; background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 9%, var(--panel)) 0%, var(--panel) 70%); }
+.nf-ce-head-ico { flex-shrink: 0; width: 44px; height: 44px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-ce-head-txt { flex: 1; min-width: 0; }
+.nf-ce-title { font-family: Inter, sans-serif; font-size: 20px; font-weight: 800; letter-spacing: -.02em; color: var(--txt); }
+.nf-ce-sub { margin-top: 2px; font-size: 13px; color: var(--txt-mut); }
+.nf-ce-cancel { flex-shrink: 0; padding: 9px 18px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line2); border-radius: 12px; }
+.nf-ce-cancel:hover { color: var(--txt); border-color: color-mix(in srgb, var(--brand) 40%, var(--line2)); }
+
+.nf-ce-steps { display: flex; align-items: center; gap: 0; margin: 0; padding: 14px 28px 16px; list-style: none; overflow-x: auto; border-top: 1px solid var(--line); background: var(--raised); }
+.nf-ce-step { display: flex; align-items: center; flex: 1; min-width: 0; }
+.nf-ce-step:last-child { flex: 0 0 auto; }
+.nf-ce-step-dot { flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 800; color: var(--txt-dim); background: var(--panel); border: 2px solid var(--line2); transition: all .2s; }
+.nf-ce-step-label { display: flex; flex-direction: column; margin-left: 10px; font-size: 13px; font-weight: 700; line-height: 1.25; color: var(--txt-dim); white-space: nowrap; }
+.nf-ce-step-label small { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-dim); }
+.nf-ce-step-line { flex: 1; min-width: 20px; height: 2px; margin: 0 14px; border-radius: 2px; background: var(--line); }
+.nf-ce-step.is-on .nf-ce-step-dot { color: #fff; border-color: var(--brand); background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 16%, transparent); }
+.nf-ce-step.is-on .nf-ce-step-label { color: var(--txt); }
+.nf-ce-step.is-on .nf-ce-step-label small { color: var(--brand); }
+.nf-ce-step.is-done .nf-ce-step-dot { color: #fff; border-color: var(--ok); background: var(--ok); }
+.nf-ce-step.is-done .nf-ce-step-label { color: var(--txt-mut); }
+.nf-ce-step.is-done .nf-ce-step-line { background: var(--ok); }
+
+/* body */
+.nf-ce-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-content: start; box-sizing: border-box; width: 100%; max-width: 1080px; margin: 0 auto; padding: 24px 28px 28px; }
+.nf-ce-stack { display: flex; flex-direction: column; gap: 18px; }
+.nf-ce-error { padding: 12px 16px; font-size: 13px; font-weight: 600; color: var(--risk); background: color-mix(in srgb, var(--risk) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--risk) 28%, transparent); border-radius: 14px; }
+
+.nf-ce-sec { border-radius: 18px; background: linear-gradient(180deg, color-mix(in srgb, var(--brand) 3%, var(--panel)) 0%, var(--panel) 80px); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(16, 24, 40, .05); }
+.nf-ce-sec-head { display: flex; align-items: center; gap: 12px; padding: 16px 22px 0; }
+.nf-ce-sec-ico { flex-shrink: 0; width: 34px; height: 34px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 26%, transparent); }
+.nf-ce-sec-head h3 { margin: 0; font-family: Inter, sans-serif; font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--txt); }
+.nf-ce-sec-head p { margin: 2px 0 0; font-size: 12.5px; color: var(--txt-dim); }
+.nf-ce-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 22px 22px; }
+
+.nf-ce-optin { }
+.nf-ce-optin .nf-um-check { padding: 16px 18px !important; }
+
+/* footer bar */
+.nf-ce-foot { position: sticky; bottom: 0; z-index: 15; display: flex; align-items: center; gap: 10px; margin: 0 !important; padding: 14px 28px; background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -8px 18px rgba(16, 24, 40, .05); }
+.nf-ce-back, .nf-ce-next { display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font: inherit; font-size: 13.5px; font-weight: 700; border-radius: 12px; transition: transform .15s, box-shadow .15s; }
+.nf-ce-back { padding: 11px 20px; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line2); }
+.nf-ce-back:hover:not(:disabled) { color: var(--txt); }
+.nf-ce-back:disabled { cursor: not-allowed; opacity: .45; }
+.nf-ce-next { padding: 11px 24px; color: #fff; border: none; background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000)); box-shadow: 0 8px 18px color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-ce-next:hover:not(:disabled) { transform: translateY(-1px); }
+.nf-ce-next:disabled { cursor: not-allowed; opacity: .65; box-shadow: none; }
+
+/* success screen */
+.nf-ce-okhead { display: flex; align-items: center; gap: 14px; padding: 20px 28px; border-bottom: 1px solid var(--line); background: linear-gradient(120deg, color-mix(in srgb, var(--ok) 10%, var(--panel)) 0%, var(--panel) 70%); }
+.nf-ce-okico { flex-shrink: 0; width: 44px; height: 44px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--panel)); border: 1px solid color-mix(in srgb, var(--ok) 32%, transparent); }
+.nf-ce-cred { padding: 16px; border-radius: 16px; background: var(--raised); border: 1px solid var(--line); }
+
+@media (max-width: 760px) {
+  .nf-ce-head, .nf-ce-steps, .nf-ce-foot { padding-left: 16px; padding-right: 16px; }
+  .nf-ce-body { padding: 16px; }
+  .nf-ce-grid { padding: 14px 16px 18px; }
+  .nf-ce-sec-head { padding: 14px 16px 0; }
+}

@@ -31,4 +31,7 @@ public class BulkProjectAllocationRequest {
 
     @NotNull(message = "End date is required")
     private LocalDate endDate;
+
+    /** US-B06: true = persist over-allocated rows too instead of returning them as WARNING. */
+    private boolean confirm;
 }

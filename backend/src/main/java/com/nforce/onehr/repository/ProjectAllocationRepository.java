@@ -14,12 +14,16 @@ import java.util.UUID;
 @Repository
 public interface ProjectAllocationRepository extends JpaRepository<ProjectAllocation, UUID> {
 
-    /** Date-range overlap: existing.start <= req.end AND existing.end >= req.start. */
-    @Query("SELECT a FROM ProjectAllocation a WHERE a.employeeUserId = :employeeUserId "
-            + "AND a.startDate <= :endDate AND a.endDate >= :startDate")
-    List<ProjectAllocation> findOverlapping(@Param("employeeUserId") UUID employeeUserId,
-                                             @Param("startDate") LocalDate startDate,
-                                             @Param("endDate") LocalDate endDate);
+    /**
+     * US-B04/B06/B10 capacity aggregation: total capacity% of the employee's allocations still active
+     * somewhere in [startDate, endDate]; an allocation ended early stops at its actualEndDate.
+     * Call it only through {@code ProjectAllocationService#allocatedCapacity}.
+     */
+    @Query("SELECT COALESCE(SUM(a.capacityPercent), 0) FROM ProjectAllocation a WHERE a.employeeUserId = :employeeUserId "
+            + "AND a.startDate <= :endDate AND COALESCE(a.actualEndDate, a.endDate) >= :startDate")
+    long sumOverlappingCapacity(@Param("employeeUserId") UUID employeeUserId,
+                               @Param("startDate") LocalDate startDate,
+                               @Param("endDate") LocalDate endDate);
 
     /** US-B13: "belongs to project X" — every employee with at least one allocation to it. */
     @Query("SELECT DISTINCT a.employeeUserId FROM ProjectAllocation a WHERE a.projectId = :projectId")

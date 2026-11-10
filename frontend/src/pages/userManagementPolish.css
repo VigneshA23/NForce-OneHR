@@ -23,15 +23,6 @@
 }
 .nf-um-close:hover { color: var(--txt); background: var(--raised2); }
 
-/* form sections as cards */
-.nf-um-sec { border: 1px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--brand) 2%, var(--raised)); padding: 16px 18px 18px; }
-.nf-um-sec-hd { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-.nf-um-sec-ico {
-  width: 30px; height: 30px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand);
-  background: color-mix(in srgb, var(--brand) 11%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 24%, transparent);
-}
-.nf-um-sec-title { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-mut); }
-
 /* fields */
 .nf-um-modal label { color: var(--txt-mut) !important; font-weight: 600 !important; letter-spacing: .04em !important; }
 .nf-um-modal input:not([type='checkbox']):not([type='radio']),
@@ -46,6 +37,23 @@
 .nf-um-modal select:focus,
 .nf-um-modal textarea:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
 .nf-um-modal select:disabled, .nf-um-modal input:disabled { background: var(--raised) !important; opacity: .75; cursor: not-allowed; }
+
+/* Create Employee — full-page wizard (replaces the old AddModal dialog). Same field polish as
+ * the modals above, scoped to its own class since this is a plain page, not a modal card: no
+ * border-radius/box-shadow/rise-animation should apply here. */
+.nf-um-page label { color: var(--txt-mut) !important; font-weight: 600 !important; letter-spacing: .04em !important; }
+.nf-um-page input:not([type='checkbox']):not([type='radio']),
+.nf-um-page select,
+.nf-um-page textarea {
+  background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 11px !important; padding: 11px 13px !important;
+  transition: border-color .15s, box-shadow .15s;
+}
+.nf-um-page input:not([type='checkbox']):not([type='radio']):hover,
+.nf-um-page select:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)) !important; }
+.nf-um-page input:not([type='checkbox']):not([type='radio']):focus,
+.nf-um-page select:focus,
+.nf-um-page textarea:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.nf-um-page select:disabled, .nf-um-page input:disabled { background: var(--raised) !important; opacity: .75; cursor: not-allowed; }
 
 /* onboarding opt-in */
 .nf-um-check { border-radius: 14px !important; background: color-mix(in srgb, var(--brand) 5%, var(--panel)) !important; border-color: color-mix(in srgb, var(--brand) 22%, var(--line)) !important; transition: border-color .15s, background .15s; }

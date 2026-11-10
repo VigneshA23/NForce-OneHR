@@ -13,6 +13,7 @@ public class SalaryHoldResponse {
     private UUID payrollRunId;
     private UUID employeeId;
     private String reason;
+    private String holdType;
     private String status;
     private String createdByName;
     private LocalDateTime createdAt;

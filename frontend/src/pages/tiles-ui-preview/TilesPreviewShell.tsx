@@ -47,9 +47,15 @@ import NotificationsPage from '../NotificationsPage';
 import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
-import { AttentionPanel, ReportsTab as MyTeamReportsTab } from '../MyTeamPage';
+import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
+import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
+import RolesPermissionsPage from '../RolesPermissionsPage';
+import DocumentsCompliancePage from '../DocumentsCompliancePage';
+import BenchPage from '../BenchPage';
+import ProjectAllocationsPage from '../ProjectAllocationsPage';
+import OnboardingPage from '../OnboardingPage';
 import DocumentsPage from '../DocumentsPage';
 import HelpDeskPage from '../HelpDeskPage';
 import WorkflowStudioPage from '../WorkflowStudioPage';
@@ -85,8 +91,15 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'profile-page', label: 'My Profile (full page)', title: 'My Profile', subtitle: 'Sample data: About, Profile, Job and Assets tabs with the Edit popups. Use ?role=employee for the employee view.' },
   { key: 'prefs-page', label: 'User Preferences (full page)', title: 'User Preferences', subtitle: 'Appearance, Notifications and Accessibility. Changes here apply to this preview only.' },
   { key: 'change-password-page', label: 'Change Password (full page)', title: 'Change Password', subtitle: 'Add &forced=1 for the first-login version. Nothing is submitted to a server here.' },
+  { key: 'onboarding-page', label: 'Onboarding (full page)', title: 'Onboarding', subtitle: 'All four tabs, the checklist detail view and its popups, with sample data. Changes here only affect this preview.' },
+  { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
+  { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
   { key: 'team-reports', label: 'My Team: Reports tab', title: 'My Team: Reports', subtitle: 'The Reports tab of My Team. Cards open the real download dialogs; nothing is sent from this preview.' },
   { key: 'attention-panel', label: 'My Team: Needs your attention', title: 'My Team: Needs your attention', subtitle: 'Sample pending requests. Approve / Reject here only change this preview.' },
+  { key: 'allocations-page', label: 'Project Allocations (full page)', title: 'Project Allocations', subtitle: 'Allocate and Projects tabs with sample data. Allocating and saving only change this preview.' },
+  { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
+  { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
+  { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
@@ -445,6 +458,154 @@ function ChangePasswordMock() {
   return ready ? <ChangePasswordPage /> : null;
 }
 
+function OnboardingMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample onboarding data held in memory, and an HR Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    const people = [
+      ['Aanuj Reddy K', 'NF-20261033', 'Engineering', 'Junior Sales Engineer', -58], ['Abbas DarubaiGari', 'NF-20261028', 'Engineering', null, -66],
+      ['Anil Ramtenki', 'NF-20261034', 'Engineering', 'Software Engineer', -58], ['Gbpubl Qviuldgb', 'NF-20261054', 'Engineering', 'Software Engineer III', -57],
+      ['Sanjukta Rao', 'NF-20261040', 'Finance', 'Accounts Executive', -40], ['Harvey Specter', 'NF-20261012', 'Operations & Sales', 'Sales Lead', -30],
+    ] as [string, string, string, string | null, number][];
+    let pending = people.map(([n, c, d, g, j], i) => ({ userId: 'p' + i, employeeCode: c, fullName: n, email: n.split(' ')[0].toLowerCase() + '@nforceone.com', role: 'EMPLOYEE', departmentName: d, designationName: g, joiningDate: day(j), active: true }));
+    const mkItems = (done: number) => {
+      const it = (key: string, label: string, cat: string, auto: boolean, dueIn: number | null, n: number) => ({
+        id: key, itemKey: key, label, category: cat, auto, source: auto ? (key === 'DOCS' ? 'Documents' : 'Assets') : null,
+        dueDate: dueIn === null ? null : day(dueIn), done: n < done, doneAt: null, doneByName: n < done ? (auto ? 'System' : 'Priya HR') : null, meta: null,
+      });
+      return {
+        preBoarding: [it('OFFER', 'Offer letter signed', 'PRE_BOARDING', false, -5, 0), it('BGV', 'Background verification started', 'PRE_BOARDING', false, -2, 1), it('WELCOME', 'Welcome email sent', 'PRE_BOARDING', false, 1, 2)],
+        documentsItem: it('DOCS', 'All required documents verified', 'DOCUMENTS', true, 3, 3),
+        setup: [it('EMAIL', 'Company email created', 'SETUP', false, 2, 4), it('LAPTOP_ASSIGNED', 'Laptop assigned', 'SETUP', true, 4, 5), it('ACCESS_CARD_ASSIGNED', 'Access card assigned', 'SETUP', true, 5, 6)],
+      };
+    };
+    const flows: Record<string, { name: string; code: string; dept: string; des: string | null; join: number; done: number; active: boolean; archived: boolean }> = {
+      c1: { name: 'Sri vidya', code: 'NF-20260901', dept: 'Human Resources', des: 'HR Executive', join: -20, done: 2, active: true, archived: false },
+      c2: { name: 'Praveen Gurram', code: 'NF-20260877', dept: 'Engineering', des: 'Tech Lead', join: -14, done: 4, active: true, archived: false },
+      c3: { name: 'Vyshnavi Guthala', code: 'NF-20260850', dept: 'Quality Engineering', des: 'QA Engineer', join: -9, done: 7, active: true, archived: false },
+      c4: { name: 'Testo', code: 'NF-20260700', dept: 'Human Resources', des: 'HR Executive', join: -90, done: 7, active: true, archived: true },
+      c5: { name: 'Ramesh A', code: 'NF-20260655', dept: 'Engineering', des: null, join: -75, done: 3, active: false, archived: false },
+    };
+    const summary = (id: string) => {
+      const f = flows[id];
+      return { checklistId: id, employeeUserId: 'e' + id, employeeName: f.name, employeeCode: f.code, departmentName: f.dept, designationName: f.des, joiningDate: day(f.join), active: f.active, archived: f.archived,
+        status: f.archived ? 'COMPLETE' : f.done < 3 ? 'OVERDUE' : f.done < 6 ? 'ATTENTION' : 'ON_TRACK', totalItems: 7, doneItems: f.done, nextDueLabel: f.archived ? null : 'Welcome email sent', nextDueDate: f.archived ? null : day(1),
+        completedDate: f.archived ? day(-12) : null, durationDays: f.archived ? 48 : null };
+    };
+    const detail = (id: string) => {
+      const f = flows[id]; const it = mkItems(f.done);
+      return { checklistId: id, employeeUserId: 'e' + id, employeeName: f.name, employeeCode: f.code, departmentName: f.dept, designationName: f.des, locationName: 'Bangalore', managerName: 'Harvey Specter',
+        joiningDate: day(f.join), active: f.active, archived: f.archived, status: f.archived ? 'COMPLETE' : f.done < 3 ? 'OVERDUE' : 'ON_TRACK', completedAt: f.archived ? day(-12) : null, readyToComplete: !f.archived && f.done >= 7,
+        totalItems: 7, doneItems: f.done, ...it,
+        documentsBreakdown: [{ documentTypeName: 'Aadhaar Card', status: 'VERIFIED' }, { documentTypeName: 'PAN Card', status: 'PENDING_VERIFICATION' }, { documentTypeName: 'Degree Certificate', status: 'REJECTED' }, { documentTypeName: 'Experience Letter', status: 'MISSING' }],
+        timeline: [{ at: day(f.join), text: 'Onboarding started', meta: 'Priya HR' }, { at: day(f.join + 2), text: 'Offer letter signed', meta: 'Priya HR' }, { at: day(f.join + 4), text: 'Laptop assigned', meta: 'Synced from Assets' }] };
+    };
+    const page = (rows: unknown[]) => ({ content: rows, totalElements: rows.length, totalPages: 1 });
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const path = url.split('?')[0];
+      const q = new URL(url, window.location.origin).searchParams;
+      const method = init?.method ?? 'GET';
+      const search = (q.get('search') ?? '').toLowerCase();
+      if (path === '/api/onboarding/stats') return json({ pendingCount: pending.length, startedCount: 3, completedCount: 1, overdueCount: 2, deactivatedCount: 1, completedThisMonthCount: 1, avgCompletionDays: 48 });
+      if (path === '/api/onboarding/eligible-employees') return json(page(pending.filter(p => !search || p.fullName.toLowerCase().includes(search) || p.employeeCode.toLowerCase().includes(search))));
+      if (path === '/api/onboarding' && method === 'GET') {
+        const st = q.get('status');
+        const ids = Object.keys(flows).filter(id => st === 'COMPLETED' ? flows[id].archived : st === 'DEACTIVATED' ? !flows[id].active : flows[id].active && !flows[id].archived);
+        return json(page(ids.map(summary).filter(r => !search || r.employeeName.toLowerCase().includes(search))));
+      }
+      if (path === '/api/onboarding' && method === 'POST') {
+        const body = JSON.parse(String(init?.body ?? '{}'));
+        const p = pending.find(x => x.userId === body.employeeUserId);
+        const id = 'n' + Date.now();
+        if (p) { flows[id] = { name: p.fullName, code: p.employeeCode, dept: p.departmentName ?? '', des: p.designationName, join: -3, done: 0, active: true, archived: false }; pending = pending.filter(x => x !== p); }
+        return json(detail(id));
+      }
+      const mDetail = path.match(/^\/api\/onboarding\/([^/]+)$/);
+      if (mDetail && method === 'GET') return json(detail(mDetail[1]));
+      const mToggle = path.match(/^\/api\/onboarding\/([^/]+)\/items\/([^/]+)$/);
+      if (mToggle && method === 'PATCH') { const f = flows[mToggle[1]]; f.done = Math.min(7, f.done + 1); return json(detail(mToggle[1])); }
+      const mDone = path.match(/^\/api\/onboarding\/([^/]+)\/complete$/);
+      if (mDone) { flows[mDone[1]].archived = true; return json(detail(mDone[1])); }
+      if (/\/employee\/[^/]+$/.test(path) && path.includes('documents')) {
+        return json([
+          { id: 'd1', employeeUserId: 'x', employeeName: 'x', documentTypeId: 1, documentTypeName: 'Aadhaar Card', fileName: 'aadhaar.pdf', fileUrl: '', status: 'VERIFIED', uploadedAt: day(-10) },
+          { id: 'd2', employeeUserId: 'x', employeeName: 'x', documentTypeId: 2, documentTypeName: 'PAN Card', fileName: 'pan.png', fileUrl: '', status: 'PENDING_VERIFICATION', uploadedAt: day(-8) },
+          { id: 'd3', employeeUserId: 'x', employeeName: 'x', documentTypeId: 3, documentTypeName: 'Degree Certificate', fileName: 'degree.pdf', fileUrl: '', status: 'REJECTED', rejectionReason: 'Image is blurry, please re-upload', uploadedAt: day(-6) },
+        ]);
+      }
+      if (path.endsWith('/api/assets/categories')) return json([{ id: 1, name: 'Laptop' }, { id: 2, name: 'Access Card' }]);
+      if (path.includes('/available-by-category/')) return json([{ id: 11, assetTag: 'LAP-0042', brand: 'Dell', model: 'Latitude 5440', condition: 'GOOD' }, { id: 12, assetTag: 'LAP-0047', brand: 'Apple', model: 'MacBook Air', condition: 'NEW' }]);
+      if (/\/api\/assets\/\d+\/assign$/.test(path)) return json({});
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <OnboardingPage /> : null;
+}
+
+function TeamPopupsMock() {
+  const [open, setOpen] = useState<string | null>(null);
+  const close = () => setOpen(null);
+  const dr = { userId: 'u1', fullName: 'Srinivas Kongara', designationName: 'QA Engineer I', employeeCode: 'NF-20261036' };
+  const row = {
+    dr, status: 'NOT_IN_YET', record: null,
+    requests: [
+      { id: '1', requestType: 'LEAVE', leaveTypeName: 'Casual Leave', leaveStartDate: '2026-11-10', leaveEndDate: '2026-11-12' },
+      { id: '2', requestType: 'REGULARIZATION', attendanceDate: '2026-11-03', requestedCheckIn: '09:30', requestedCheckOut: null, regularizationReason: 'Forgot to punch' },
+      { id: '3', requestType: 'EXPENSE', expenseCategoryName: 'Travel', expenseAmount: 2400 },
+    ],
+  } as unknown as Parameters<typeof EmployeeDetailModal>[0]['row'];
+  const entry = { userId: 'u1', fullName: 'Srinivas Kongara', designationName: 'QA Engineer I', employeeCode: 'NF-20261036', email: 'srinivas@nforceone.com', departmentName: 'Quality Engineering', locationName: 'Bangalore', workMode: 'HYBRID', employmentType: 'FULL_TIME', managerName: 'Harvey Specter' } as unknown as Parameters<typeof EmployeeDetailsModal>[0]['entry'];
+  const people = ['Sanjukta', 'Abuzar Siddiqui', 'Harvey Specter', 'Hr Admin', 'Hr', 'Testo'].map((n, i) => ({ userId: 'u' + i, fullName: n }));
+  const btn: React.CSSProperties = { padding: '10px 16px', borderRadius: 10, border: '1px solid var(--line2)', background: 'var(--raised)', color: 'var(--txt)', fontWeight: 600, cursor: 'pointer' };
+  return (
+    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <button style={btn} onClick={() => setOpen('kudos')}>Appreciate (kudos)</button>
+      <button style={btn} onClick={() => setOpen('detail')}>View Profile (attendance and requests)</button>
+      <button style={btn} onClick={() => setOpen('details')}>Employment details</button>
+      <button style={btn} onClick={() => setOpen('list')}>Not in yet list</button>
+      {open === 'kudos' && <KudosModal target={{ userId: 'u1', name: 'Srinivas Kongara' }} token="mock-token" onClose={close} />}
+      {open === 'detail' && <EmployeeDetailModal row={row} onClose={close} />}
+      {open === 'details' && <EmployeeDetailsModal entry={entry} onClose={close} />}
+      {open === 'list' && <NotInYetListModal people={people} onSelect={close} onClose={close} />}
+    </div>
+  );
+}
+
+function TeamTodayMock() {
+  const names = ['Sanjukta', 'Abuzar Siddiqui', 'Harvey Specter', 'Hr Admin', 'Hr', 'Testo', 'Ramesh A', 'Lalith Kumar Ratnala'];
+  const people = names.map((n, i) => ({ userId: 'u' + i, name: n }));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
+        <TeamKpiCard icon={<KIcOk size={14} />} iconColor="var(--ok)" label="Employees on time" value={5} note="arrived on schedule" onClick={() => {}} />
+        <TeamKpiCard icon={<KIcLate size={14} />} iconColor="var(--warn)" label="Late arrivals" value={2} note="arrived late today" onClick={() => {}} />
+        <TeamKpiCard icon={<KIcHome size={14} />} iconColor="var(--info)" label="WFH / On duty" value={0} note="remote or hybrid today" />
+        <TeamKpiCard icon={<KIcPin size={14} />} iconColor="var(--txt-mut)" label="Remote clock-ins" value={0} note="via Web Clock-In today" />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14 }}>
+        <LeaveTodayPanel emptyText="No one on your team is on leave today." rows={[
+          { key: '1', userId: 'u1', name: 'Abuzar Siddiqui', leaveType: 'Casual Leave', active: true },
+          { key: '2', userId: 'u3', name: 'Hr Admin', leaveType: 'Annual Leave', active: true },
+        ]} />
+        <NotInYetPanel variant="list" loading={false} emptyText="Everyone has checked in." people={people} onPick={() => {}} onViewAll={() => {}} />
+        <LeaveTodayPanel emptyText="No one on your project team is on leave today." rows={[]} />
+        <NotInYetPanel variant="chips" limit={4} loading={false} emptyText="Everyone's checked in." people={people} onPick={() => {}} onViewAll={() => {}} />
+      </div>
+    </div>
+  );
+}
+
 function TeamReportsMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -488,7 +649,17 @@ function TeamReportsMock() {
     setReady(true);
     return () => { window.fetch = prevFetch; };
   }, []);
-  return ready ? <MyTeamReportsTab token="mock-token" /> : null;
+  return ready ? (
+    <div>
+      <div className="nf-page-hdr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={KIcTeam}>
+          <h1 style={{ fontFamily: 'Inter, sans-serif', fontSize: 22, fontWeight: 700, color: 'var(--txt)', margin: '0 0 4px' }}>My Team</h1>
+          <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: 0, maxWidth: '62ch' }}>Attendance, leave, and open requests for your direct reports, in one place, so you don't have to check four separate pages to know how your team is doing today.</p>
+        </PageTitleBlock>
+      </div>
+      <MyTeamReportsTab token="mock-token" />
+    </div>
+  ) : null;
 }
 
 function AttentionMock() {
@@ -519,6 +690,233 @@ function AttentionMock() {
       <AttentionPanel items={items} token="mock-token" onDone={id => setItems(prev => prev.filter(i => i.id !== id))} />
     </div>
   ) : null;
+}
+
+function AllocationsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample employees and projects held in memory, and an HR Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const emp = (i: number, n: string, code: string, des: string | null, dept: string, role = 'EMPLOYEE') => ({ userId: 'u' + i, employeeCode: code, fullName: n, email: n.split(' ')[0].toLowerCase() + '@nforceone.com', role, departmentName: dept, designationName: des, joiningDate: '2026-01-10', active: true });
+    const employees = [
+      emp(1, 'TestUserone', 'NF-20261314', 'QA Engineer', 'Quality Engineering'), emp(2, 'Praveen Gurram', 'NF-20261023', 'Tech Lead', 'Engineering', 'MANAGER'),
+      emp(3, 'Testo', 'NF-20261334', 'HR Executive', 'Human Resources'), emp(4, 'Narendra Reddy', 'NF-20261003', 'Software Engineer', 'Engineering'),
+      emp(5, 'Suresh Kumar H', 'NF-20261002', null, 'Finance'), emp(6, 'praveen Gurram', 'NF-20261040', 'Designer', 'Design'),
+      emp(7, 'Naveen Kumar R', 'NF-20261001', 'Software Engineer III', 'Engineering'), emp(8, 'Harvey Specter', 'NF-20261012', 'Sales Lead', 'Operations & Sales', 'HR_ADMIN'),
+    ];
+    let projects = [
+      { id: 'p1', code: 'PRJ-001', name: 'Customer Portal Revamp', startDate: '2026-08-01', endDate: '2027-03-31', ownerEmployeeId: 'u2', ownerName: 'Praveen Gurram', departmentId: 'd1', departmentName: 'Engineering', clientId: 'c1', clientName: 'Acme Corp', status: 'ACTIVE' },
+      { id: 'p2', code: 'PRJ-002', name: 'Payroll Migration', startDate: '2026-05-01', endDate: null, ownerEmployeeId: null, ownerName: null, departmentId: 'd2', departmentName: 'Finance', clientId: null, clientName: null, status: 'ON_HOLD' },
+      { id: 'p3', code: 'PRJ-003', name: 'Legacy Reports', startDate: '2025-01-01', endDate: '2026-06-30', ownerEmployeeId: 'u8', ownerName: 'Harvey Specter', departmentId: null, departmentName: null, clientId: 'c1', clientName: 'Acme Corp', status: 'CLOSED' },
+    ];
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const path = url.split('?')[0];
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/api/employees') && method === 'GET') return json(employees);
+      if (path.endsWith('/api/projects/clients')) return json([{ id: 'c1', name: 'Acme Corp' }, { id: 'c2', name: 'Globex' }]);
+      if (path.endsWith('/api/org/departments')) return json([{ id: 'd1', name: 'Engineering', active: true, employeeCount: 3 }, { id: 'd2', name: 'Finance', active: true, employeeCount: 1 }]);
+      if (path.endsWith('/api/projects') && method === 'GET') return json(projects);
+      if (path.endsWith('/api/projects') && method === 'POST') {
+        const b = JSON.parse(String(init?.body ?? '{}'));
+        const created = { id: 'p' + Date.now(), ownerName: null, departmentName: null, clientName: null, ...b };
+        projects = [...projects, created]; return json(created);
+      }
+      if (/\/api\/projects\/[^/]+$/.test(path) && method === 'PUT') {
+        const b = JSON.parse(String(init?.body ?? '{}')); const id = path.split('/').pop();
+        projects = projects.map(p => (p.id === id ? { ...p, ...b } : p)); return json(projects.find(p => p.id === id));
+      }
+      if (path.endsWith('/api/allocations/bulk')) {
+        const b = JSON.parse(String(init?.body ?? '{}'));
+        return json({ results: (b.employeeIds as string[]).map((id, i) => (i % 3 === 2 ? { employeeId: id, status: 'FAILED', reason: 'Total allocation would exceed 100% in this period' } : { employeeId: id, status: 'SUCCESS' })) });
+      }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <ProjectAllocationsPage /> : null;
+}
+
+function BenchMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample bench data held in memory, and an HR Admin session with bench edit rights; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    const names = ['Lalith Kumar Ratnala', 'Sanjukta Rao', 'Abuzar Siddiqui', 'Sri vidya', 'Praveen Gurram', 'Vyshnavi Guthala'];
+    const emps = names.map((n, i) => ({ userId: 'u' + i, employeeCode: 'NF-2026' + (1000 + i), fullName: n, email: n.split(' ')[0].toLowerCase() + '@nforceone.com', role: 'EMPLOYEE', departmentName: 'Engineering', designationName: 'Engineer', joiningDate: '2026-01-10', active: true }));
+    let benched = [
+      { id: 'b1', employeeId: 'u0', employeeName: names[0], reasonCode: 'PROJECT_ENDED', startDate: day(-22), daysOnBench: 22, agingBucket: '16-30 days', matchScore: 2, skills: ['Java', 'Spring Boot'] },
+      { id: 'b2', employeeId: 'u1', employeeName: names[1], reasonCode: 'NEW_JOINER_UNALLOCATED', startDate: day(-41), daysOnBench: 41, agingBucket: '31-60 days', matchScore: 1, skills: ['React'] },
+      { id: 'b3', employeeId: 'u2', employeeName: names[2], reasonCode: 'ROLE_ENDED', startDate: day(-6), daysOnBench: 6, agingBucket: '0-15 days', matchScore: 0, skills: [] },
+    ];
+    const skills = [{ id: 's1', skill: 'Java', category: 'Engineering' }, { id: 's2', skill: 'Spring Boot', category: 'Engineering' }, { id: 's3', skill: 'React', category: 'Engineering' }, { id: 's4', skill: 'Figma', category: 'Design' }, { id: 's5', skill: 'Testing', category: 'QA' }];
+    let bands = [{ id: 'k1', bandLabel: 'B1', avgCtc: 600000 }, { id: 'k2', bandLabel: 'B2', avgCtc: 950000 }];
+    let aging = { buckets: [{ label: '0-15 days', minDays: 0, maxDays: 15 }, { label: '16-30 days', minDays: 16, maxDays: 30 }, { label: '31-60 days', minDays: 31, maxDays: 60 }, { label: '60+ days', minDays: 61, maxDays: null }], notifyThresholdDays: 30 };
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const path = url.split('?')[0];
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/api/employees') && method === 'GET') return json(emps);
+      if (path.endsWith('/api/bench-status/dashboard')) return json({ benchedCount: benched.length, totalHeadcount: 64, benchPercent: (benched.length / 64) * 100, buckets: [{ bucket: '0-15 days', count: 1 }, { bucket: '16-30 days', count: 1 }, { bucket: '31-60 days', count: 1 }, { bucket: '60+ days', count: 0 }], trend: Array.from({ length: 14 }, (_, i) => ({ date: day(i - 13), benchedCount: [0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, benched.length][i], totalHeadcount: 64 })) });
+      if (path.endsWith('/api/bench-status/cost')) return json({ rows: [{ bandLabel: 'B1', benchedCount: 2, avgCtc: 600000, totalCost: 1200000 }, { bandLabel: 'B2', benchedCount: 1, avgCtc: 950000, totalCost: 950000 }], totalCost: 2150000, unbandedCount: 0 });
+      if (path.endsWith('/api/bench-status/team')) return json(benched.slice(0, 2).map(b => ({ employeeId: b.employeeId, employeeName: b.employeeName, reasonCode: b.reasonCode, startDate: b.startDate, daysOnBench: b.daysOnBench, lastProject: b.id === 'b1' ? 'Customer Portal Revamp' : null })));
+      if (path.endsWith('/api/bench-status/aging-config')) { if (method === 'PUT') aging = JSON.parse(String(init?.body ?? '{}')); return json(aging); }
+      if (/\/api\/bench-status\/[^/]+\/allocations$/.test(path)) return json([{ id: 'a1', projectName: 'Customer Portal Revamp', capacityPercent: 100, startDate: day(1), endDate: day(120) }]);
+      if (/\/api\/bench-status\/[^/]+\/end$/.test(path)) { const id = path.split('/').slice(-2)[0]; benched = benched.filter(b => b.id !== id); return json({}); }
+      if (path.endsWith('/api/bench-status') && method === 'POST') {
+        const b = JSON.parse(String(init?.body ?? '{}')); const e = emps.find(x => x.userId === b.employeeId);
+        benched = [...benched, { id: 'b' + Date.now(), employeeId: b.employeeId, employeeName: e?.fullName ?? '', reasonCode: b.reasonCode, startDate: b.startDate, daysOnBench: 0, agingBucket: '0-15 days', matchScore: 0, skills: [] }];
+        return json({ employeeName: e?.fullName ?? 'Employee' });
+      }
+      if (path.endsWith('/api/bench-status') && method === 'GET') return json(benched);
+      if (path.endsWith('/api/skill-taxonomy') && method === 'GET') return json(skills);
+      if (path.endsWith('/api/skill-taxonomy') && method === 'POST') { const b = JSON.parse(String(init?.body ?? '{}')); const c = { id: 's' + Date.now(), ...b }; skills.push(c); return json(c); }
+      if (path.endsWith('/api/compensation-bands/assignments')) { if (method === 'PUT') return json(undefined); return json(emps.slice(0, 3).map((e, i) => ({ employeeId: e.userId, employeeName: e.fullName, bandId: bands[i % 2].id, bandLabel: bands[i % 2].bandLabel }))); }
+      if (path.endsWith('/api/compensation-bands') && method === 'GET') return json(bands);
+      if (path.endsWith('/api/compensation-bands') && method === 'POST') { const b = JSON.parse(String(init?.body ?? '{}')); const c = { id: 'k' + Date.now(), ...b }; bands = [...bands, c]; return json(c); }
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' }, permissions: { permissions: { bench: { EDIT: ['ALL'], VIEW: ['ALL'] } } } as never });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions });
+    };
+  }, []);
+  return ready ? <BenchPage /> : null;
+}
+
+function DocsComplianceMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample documents held in memory, and an HR Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    const iso = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString(); };
+    const names = ['Nikhila Reddy Mandhadi', 'Anil Ramtenki', 'Sri vidya', 'Praveen Gurram', 'Vyshnavi Guthala', 'Abuzar Siddiqui'];
+    const types = ['PAN Card', 'Identity Document', 'Employment Contract', 'Educational Certificate', 'Aadhar Card'];
+    const mk = (i: number, status: string, expiryIn: number | null) => ({
+      id: 'd' + i, employeeUserId: 'u' + (i % names.length), employeeName: names[i % names.length], documentTypeId: (i % types.length) + 1, documentTypeName: types[i % types.length],
+      requiresVerification: true, requiresExpiryDate: expiryIn !== null, fileName: ['defect evidence.png', 'Defect evidence2.png', 'scan.pdf'][i % 3], fileUrl: '',
+      issueDate: expiryIn !== null ? day(-300) : null, expiryDate: expiryIn !== null ? day(expiryIn) : null, status, verifiedBy: status === 'VERIFIED' ? 'HR' : null,
+      verifiedAt: status === 'VERIFIED' ? iso(-i) : null, rejectionReason: null, uploadedAt: iso(-i - 3), updatedAt: iso(-i), versionNumber: 1, superseded: false, previousVersionId: null,
+    });
+    let pending = Array.from({ length: 6 }, (_, i) => mk(i, 'PENDING_VERIFICATION', [null, 700, null, 12, null, -5][i]));
+    let verified = Array.from({ length: 4 }, (_, i) => mk(i + 10, 'VERIFIED', [null, 400, 20, null][i]));
+    const missing = [
+      { employeeUserId: 'u1', employeeName: names[1], documentTypeId: 2, documentTypeName: 'Identity Document' },
+      { employeeUserId: 'u2', employeeName: names[2], documentTypeId: 5, documentTypeName: 'Aadhar Card' },
+      { employeeUserId: 'u3', employeeName: names[3], documentTypeId: 1, documentTypeName: 'PAN Card' },
+    ];
+    // a tiny valid PNG so the preview frame shows an image
+    const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const path = url.split('?')[0];
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/api/documents/kpis')) return json({ pendingVerification: pending.length, employeesWithPending: 4, expiringWithin30Days: 2, totalDocuments: 48 });
+      if (path.endsWith('/api/documents/pending')) return json(pending);
+      if (path.endsWith('/api/documents/missing')) return json(missing);
+      if (path.endsWith('/api/documents') && method === 'GET') return json([...pending, ...verified]);
+      if (/\/api\/documents\/[^/]+\/history$/.test(path)) return json([{ ...pending[0], versionNumber: 2 }, { ...pending[0], id: 'old', versionNumber: 1, superseded: true, status: 'REJECTED', rejectionReason: 'Image is blurry' }]);
+      if (/\/api\/documents\/[^/]+\/file$/.test(path)) return Promise.resolve(new Response(new Blob([png], { type: 'image/png' }), { status: 200 }));
+      if (/\/api\/documents\/[^/]+\/verify$/.test(path)) {
+        const id = path.split('/').slice(-2)[0]; const body = JSON.parse(String(init?.body ?? '{}'));
+        const d = pending.find(x => x.id === id); pending = pending.filter(x => x.id !== id);
+        const updated = { ...(d ?? mk(99, 'VERIFIED', null)), status: body.action === 'VERIFY' ? 'VERIFIED' : 'REJECTED', verifiedAt: iso(0), rejectionReason: body.rejectionReason ?? null };
+        if (body.action === 'VERIFY') verified = [updated, ...verified];
+        return json(updated);
+      }
+      if (/\/api\/documents\/remind\//.test(path)) return Promise.resolve(new Response(null, { status: 204 }));
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <DocumentsCompliancePage /> : null;
+}
+
+function RolesMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample roles held in memory, and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const catalogue = [
+      { code: 'attendance', name: 'Attendance', configurable: true, actions: ['VIEW', 'CREATE', 'EDIT', 'APPROVE', 'EXPORT'] },
+      { code: 'leave', name: 'Leave', configurable: true, actions: ['VIEW', 'CREATE', 'EDIT', 'APPROVE', 'EXPORT'] },
+      { code: 'reports', name: 'Reports', configurable: true, actions: ['VIEW', 'EXPORT'] },
+      { code: 'bench', name: 'Bench management', configurable: true, actions: ['VIEW', 'EDIT'] },
+      { code: 'roles', name: 'Roles & permissions', configurable: true, actions: ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'CONFIGURE'] },
+      { code: 'payroll', name: 'Payroll', configurable: false, actions: ['VIEW'] },
+    ];
+    const mkRole = (id: number, code: string, name: string, description: string, system: boolean, userCount: number, permissionCount: number, active = true) => ({
+      id, code, name, description, system, active, permissionsEditable: code !== 'SUPER_ADMIN', metadataEditable: !system, userCount, permissionCount,
+      createdAt: '2026-10-01T10:00:00', updatedAt: '2026-10-22T10:00:00', version: 1,
+    });
+    let roles = [
+      mkRole(1, 'EMPLOYEE', 'Employee', 'Base role held by every user: self-service features.', true, 65, 0),
+      mkRole(2, 'MANAGER', 'Manager', 'Team-scoped approvals and visibility. Granted automatically when someone has direct reports.', true, 13, 29),
+      mkRole(3, 'HR_ADMIN', 'HR Admin', 'Organization-wide HR administration.', true, 4, 86),
+      mkRole(4, 'SUPER_ADMIN', 'Super Admin', 'Full system access, including user management and roles & permissions.', true, 2, 114),
+      mkRole(5, 'PAYROLL_VIEWER', 'Payroll Viewer', 'Read-only access to payroll reports.', false, 1, 4),
+    ];
+    const members = [
+      { userId: 'm1', fullName: 'Priya Nair', email: 'priya@nforceone.com', employeeCode: 'NF-20261001', active: true },
+      { userId: 'm2', fullName: 'Rohit Sharma', email: 'rohit@nforceone.com', employeeCode: 'NF-20261002', active: true },
+    ];
+    const grantsFor = (id: number) => id === 5
+      ? [{ module: 'reports', action: 'VIEW', scope: 'ALL' }, { module: 'reports', action: 'EXPORT', scope: 'ALL' }, { module: 'attendance', action: 'VIEW', scope: 'TEAM' }, { module: 'leave', action: 'VIEW', scope: 'TEAM' }]
+      : id === 1 ? [] : [{ module: 'attendance', action: 'VIEW', scope: 'ALL' }, { module: 'leave', action: 'APPROVE', scope: 'TEAM' }, { module: 'reports', action: 'VIEW', scope: 'ALL' }];
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const path = url.split('?')[0];
+      const method = init?.method ?? 'GET';
+      if (path.endsWith('/api/permissions/catalogue')) return json(catalogue);
+      if (path.endsWith('/api/roles') && method === 'GET') return json(roles);
+      if (path.endsWith('/api/roles') && method === 'POST') {
+        const b = JSON.parse(String(init?.body ?? '{}'));
+        const r = mkRole(Date.now() % 100000, 'CUSTOM_' + Date.now(), b.name, b.description ?? '', false, 0, (b.grants ?? []).length);
+        roles = [...roles, r]; return json({ role: r, grants: b.grants ?? [], members: [] });
+      }
+      const mRole = path.match(/\/api\/roles\/(\d+)$/);
+      if (mRole && method === 'GET') { const r = roles.find(x => x.id === Number(mRole[1]))!; return json({ role: r, grants: grantsFor(r.id), members: r.userCount > 0 ? members.slice(0, Math.min(2, r.userCount)) : [] }); }
+      if (mRole && method === 'DELETE') { roles = roles.filter(x => x.id !== Number(mRole[1])); return json(null); }
+      const mStatus = path.match(/\/api\/roles\/(\d+)\/status$/);
+      if (mStatus) { const b = JSON.parse(String(init?.body ?? '{}')); roles = roles.map(x => (x.id === Number(mStatus[1]) ? { ...x, active: b.active } : x)); const r = roles.find(x => x.id === Number(mStatus[1]))!; return json({ role: r, grants: grantsFor(r.id), members: [] }); }
+      if (/\/api\/roles\/\d+(\/permissions)?$/.test(path) && method === 'PUT') { const id = Number(path.split('/').slice(-1)[0] === 'permissions' ? path.split('/').slice(-2)[0] : path.split('/').pop()); const r = roles.find(x => x.id === id)!; return json({ role: r, grants: grantsFor(id), members: [] }); }
+      if (path.endsWith('/users')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    const all = ['VIEW', 'CREATE', 'EDIT', 'DELETE', 'APPROVE', 'EXPORT', 'CONFIGURE'];
+    const perms: Record<string, Record<string, string[]>> = {};
+    ['attendance', 'leave', 'reports', 'bench', 'roles', 'payroll'].forEach(m => { perms[m] = Object.fromEntries(all.map(a => [a, ['ALL']])); });
+    perms.user_roles = { EDIT: ['ALL'] }; perms.user_management = { VIEW: ['ALL'] };
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { primaryRole: 'SUPER_ADMIN', roles: ['SUPER_ADMIN'], permissions: perms } as never });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions });
+    };
+  }, []);
+  return ready ? <RolesPermissionsPage /> : null;
 }
 
 function PoliciesMock() {
@@ -1257,6 +1655,14 @@ function Tiles({ page }: { page: string }) {
       return <AssetsMock />;
     case 'opps-page':
       return <OppsMock />;
+    case 'allocations-page':
+      return <AllocationsMock />;
+    case 'bench-page':
+      return <BenchMock />;
+    case 'docs-compliance-page':
+      return <DocsComplianceMock />;
+    case 'roles-page':
+      return <RolesMock />;
     case 'policies-page':
       return <PoliciesMock />;
     case 'notifications-page':
@@ -1267,6 +1673,12 @@ function Tiles({ page }: { page: string }) {
       return <UserPreferencesPage />;
     case 'attention-panel':
       return <AttentionMock />;
+    case 'onboarding-page':
+      return <OnboardingMock />;
+    case 'team-popups':
+      return <TeamPopupsMock />;
+    case 'team-today':
+      return <TeamTodayMock />;
     case 'team-reports':
       return <TeamReportsMock />;
     case 'change-password-page':

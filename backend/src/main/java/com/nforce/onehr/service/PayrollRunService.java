@@ -45,18 +45,29 @@ import java.util.stream.Collectors;
  * (restores the balance, deletes the row, reopens a COMPLETED plan if it was this installment that
  * completed it) so a discarded run never permanently shortchanges or overcharges the recovery.
  *
- * <h2>US-C26 — salary hold ("Hold processing" only)</h2>
- * <p>{@link #generateDraft} excludes any employee with an ACTIVE {@link SalaryHold} on this exact
- * run entirely from the next build — no payslip, no line items, not counted in {@code
- * employeeCount} — matching Keka's own "Hold processing" (confirmed against its help docs
- * 2026-11-05): zero statutory deductions, as if they had no effective compensation this cycle.
- * Keka's distinct "Hold payout" (processed normally, only the payment withheld) is NOT built here
- * — it needs per-payslip disbursement tracking {@link #disburse} doesn't have (still whole-run).
+ * <h2>US-C26 — salary hold (both "Hold processing" and "Hold payout")</h2>
+ * <p>{@link #generateDraft} excludes any employee with an ACTIVE {@link SalaryHoldType#PROCESSING}
+ * {@link SalaryHold} on this exact run entirely from the next build — no payslip, no line items,
+ * not counted in {@code employeeCount} — matching Keka's own "Hold processing" (confirmed against
+ * its help docs 2026-11-05): zero statutory deductions, as if they had no effective compensation
+ * this cycle. Keka's distinct "Hold payout" ({@link SalaryHoldType#PAYOUT}) is processed normally
+ * — statutory deductions apply, nothing about {@link #buildPayslip} changes — and is only
+ * intercepted at {@link #disburse} time, which flags that one employee's {@link
+ * Payslip#isPaymentWithheld()} instead of paying them (still whole-run otherwise). See {@link
+ * SalaryHold}'s own Javadoc for the full split and {@code SalaryHoldService} for both types'
+ * create/release rules.
+ *
+ * <h2>US-C22/US-C23 — "Leave Applied" and "No Attendance" review steps</h2>
+ * <p>{@link #buildPayslip} calls {@link PayrollRunReviewService#generateItemsForEmployee} right
+ * after each employee's {@link PayrollLopCalculationService#recomputeWithDetails}, and {@link
+ * #submit} won't let a run leave DRAFT while either step still has a PENDING item ({@link
+ * PayrollRunReviewService#isStepComplete}). See {@code PayrollRunReviewService} and {@link
+ * PayrollRunReviewItem} for the full design — what's genuinely new versus reused, and the
+ * deliberate asymmetry between a rejected PENALTY item (durable) and a rejected LEAVE_UNPAID item
+ * (review-item-only, reset on the next regenerate).
  *
  * <h2>Scope of this increment</h2>
  * <ul>
- *   <li><b>Not built yet:</b> US-C27's per-employee selective rollback — only {@link
- *       #rollbackWholeRun} (whole-run) exists. US-C26's "Hold payout" (see above).</li>
  *   <li><b>Which employees are included:</b> every {@link EmployeeCompensation} row effective on
  *       the cycle's last day, regardless of {@code payGroupId} — there is no employee-to-pay-group
  *       assignment mechanism yet, a gap already flagged when US-C07 was built. Fine while there's
@@ -138,6 +149,8 @@ public class PayrollRunService {
     private final AdHocDeductionRepository adHocDeductionRepository;
     private final AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     private final SalaryHoldRepository salaryHoldRepository;
+    private final PayrollRunReviewService payrollRunReviewService;
+    private final SalaryStructureResolutionService salaryStructureResolutionService;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -169,6 +182,12 @@ public class PayrollRunService {
         if (existing.isPresent()) {
             payslipLineItemRepository.deleteByPayrollRunId(run.getId());
             payslipRepository.deleteByPayrollRunId(run.getId());
+            // US-C22/US-C23: NOT wiped here — each included employee's review items are deleted
+            // and recreated inside buildPayslip itself, AFTER that employee's LOP recompute has
+            // already read the old ones (see PayrollRunReviewService#generateItemsForEmployee's
+            // own Javadoc for why the ordering matters). An employee excluded from THIS regenerate
+            // (see heldEmployeeIds below) never goes through buildPayslip at all, so their stale
+            // review items are wiped explicitly, right below, once we know who's excluded.
         }
 
         List<EmployeeCompensation> compensations = employeeCompensationRepository.findAllEffectiveAt(window.end());
@@ -176,14 +195,24 @@ public class PayrollRunService {
             throw new IllegalArgumentException("No employees have compensation effective for cycle " + window.start() + "-" + window.end());
         }
 
-        // US-C26 "Hold processing": an employee with an ACTIVE SalaryHold on THIS run is excluded
-        // entirely — no payslip, no line items, not counted — same as if they had no effective
-        // compensation this cycle. Checked against run.getId(), so a hold created before this
-        // regenerate takes effect now; one created after still needs the next regenerate to apply.
-        Set<UUID> heldEmployeeIds = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunId(run.getId());
+        // US-C26 "Hold processing": an employee with an ACTIVE PROCESSING-type SalaryHold on THIS
+        // run is excluded entirely — no payslip, no line items, not counted — same as if they had
+        // no effective compensation this cycle. Checked against run.getId(), so a hold created
+        // before this regenerate takes effect now; one created after still needs the next
+        // regenerate to apply. PAYOUT-type holds do NOT exclude — they're processed normally and
+        // only intercepted later, at disburse() time.
+        Set<UUID> heldEmployeeIds = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(run.getId(), SalaryHoldType.PROCESSING);
         List<EmployeeCompensation> included = compensations.stream()
                 .filter(comp -> !heldEmployeeIds.contains(comp.getEmployeeId()))
                 .collect(Collectors.toList());
+
+        // US-C22/US-C23: a held employee never goes through buildPayslip this regenerate, so their
+        // review items (from a PRIOR regenerate, before the hold existed) would otherwise linger
+        // forever as stale PENDING rows — permanently blocking submit() for a step that no longer
+        // even applies to them. Wiped explicitly; harmless no-op when there's nothing to delete.
+        for (UUID heldEmployeeId : heldEmployeeIds) {
+            payrollRunReviewService.deleteItemsForEmployee(run.getId(), heldEmployeeId);
+        }
 
         BigDecimal totalGross = BigDecimal.ZERO;
         BigDecimal totalDeductions = BigDecimal.ZERO;
@@ -210,6 +239,14 @@ public class PayrollRunService {
         PayrollRun run = requireRun(runId);
         if (!PayrollRunStatus.DRAFT.equals(run.getStatus())) {
             throw new IllegalStateException("Only a DRAFT run can be submitted (currently " + run.getStatus() + ")");
+        }
+
+        // US-C22/US-C23: both run steps must be fully decided before the run can leave DRAFT.
+        if (!payrollRunReviewService.isStepComplete(runId, PayrollRunReviewStepType.LEAVE_APPLIED)) {
+            throw new IllegalStateException("Cannot submit — the \"Leave Applied\" review step still has pending items");
+        }
+        if (!payrollRunReviewService.isStepComplete(runId, PayrollRunReviewStepType.NO_ATTENDANCE)) {
+            throw new IllegalStateException("Cannot submit — the \"No Attendance\" review step still has pending items");
         }
 
         Map<String, BigDecimal> sums = payslipLineItemRepository.sumAmountByComponentType(runId).stream()
@@ -269,6 +306,20 @@ public class PayrollRunService {
         if (!PayrollRunStatus.APPROVED.equals(run.getStatus())) {
             throw new IllegalStateException("Only an APPROVED run can be disbursed (currently " + run.getStatus() + ")");
         }
+
+        // US-C26 "Hold payout": these employees' payslips were already built normally (statutory
+        // deductions applied) — this is the one moment disburse() actually exists for, so flag
+        // their payment as withheld rather than paid, instead of excluding them from anything.
+        Set<UUID> payoutHeldEmployeeIds = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(runId, SalaryHoldType.PAYOUT);
+        if (!payoutHeldEmployeeIds.isEmpty()) {
+            for (Payslip p : payslipRepository.findByPayrollRunId(runId)) {
+                if (payoutHeldEmployeeIds.contains(p.getEmployeeId())) {
+                    p.setPaymentWithheld(true);
+                    payslipRepository.save(p);
+                }
+            }
+        }
+
         return transition(run, PayrollRunStatus.DISBURSED, actorEmail, r -> r.setDisbursedAt(LocalDateTime.now()));
     }
 
@@ -342,6 +393,61 @@ public class PayrollRunService {
         return toPayslipResponse(payslip, payslipLineItemRepository.findByPayslipId(payslip.getId()));
     }
 
+    /**
+     * US-C27 — per-employee selective rollback: deletes and recomputes ONE employee's payslip from
+     * current inputs, without disturbing the run's own status or anyone else's payslip. Unlike
+     * {@link #rollbackWholeRun}, this never touches {@code status}/{@code pendingApprovalStage} —
+     * the run stays exactly as locked (SUBMITTED/APPROVED/DISBURSED) as it was before the call,
+     * only this one employee's figures (and the run's totals, recomputed fresh from every current
+     * line item) change. There's no prior-version history to restore to — "rollback" here means
+     * "delete and rebuild from whatever's true right now" (current compensation, current ad-hoc
+     * payments/deductions, current proration/LOP), the exact same engine {@link #buildPayslip}
+     * always uses, just scoped to one employee instead of the whole run.
+     *
+     * <p>Only valid for a run that ISN'T {@code DRAFT} — a DRAFT run already supports recomputing
+     * everyone via {@link #generateDraft}'s regenerate path; this exists for the case that path
+     * can't reach (the run is already locked, and reopening it for everyone via {@link
+     * #rollbackWholeRun} would be the wrong size of hammer for one employee's mistake).
+     */
+    @Transactional
+    public PayslipResponse rollbackEmployeePayslip(UUID runId, UUID employeeId, RollbackEmployeePayslipRequest req, String actorEmail) {
+        PayrollRun run = requireRun(runId);
+        if (PayrollRunStatus.DRAFT.equals(run.getStatus())) {
+            throw new IllegalStateException("Use generateDraft to recompute a DRAFT run — this is for a SUBMITTED, APPROVED or DISBURSED run only");
+        }
+        Payslip existing = payslipRepository.findByPayrollRunIdAndEmployeeId(runId, employeeId)
+                .orElseThrow(() -> new NoSuchElementException("No payslip for employee " + employeeId + " in run " + runId));
+        EmployeeCompensation comp = employeeCompensationRepository.findByEmployeeIdAndEffectiveAt(employeeId, run.getCycleEnd())
+                .orElseThrow(() -> new IllegalStateException("Employee " + employeeId + " has no compensation effective for this cycle — can't recompute"));
+
+        String before = auditSnapshot.toJson(payslipSnapshot(existing));
+
+        payslipLineItemRepository.deleteByPayrollRunIdAndEmployeeId(runId, employeeId);
+        payslipRepository.deleteByPayrollRunIdAndEmployeeId(runId, employeeId);
+
+        PayCycleWindow window = new PayCycleWindow(run.getCycleStart(), run.getCycleEnd());
+        buildPayslip(comp, window, run.getPayGroupId(), run, actorEmail);
+
+        // Recomputed fresh from every current line item in the run (everyone else's included,
+        // unchanged) rather than adjusted by delta — the same reconciliation aggregation #submit
+        // uses, so the run's stored totals can never silently drift from SUM(PayslipLineItem).
+        Map<String, BigDecimal> sums = payslipLineItemRepository.sumAmountByComponentType(runId).stream()
+                .collect(Collectors.toMap(row -> (String) row[0], row -> (BigDecimal) row[1]));
+        BigDecimal totalGross = sumByTypes(sums, EARNING_TYPES);
+        BigDecimal totalDeductions = sumByTypes(sums, DEDUCTION_TYPES);
+        run.setTotalGross(totalGross);
+        run.setTotalDeductions(totalDeductions);
+        run.setTotalNet(totalGross.subtract(totalDeductions));
+        payrollRunRepository.save(run);
+
+        Payslip recomputed = payslipRepository.findByPayrollRunIdAndEmployeeId(runId, employeeId)
+                .orElseThrow(() -> new IllegalStateException("Recompute did not produce a payslip for employee " + employeeId));
+        User actor = requireActor(actorEmail);
+        auditService.log(actor.getId(), "PAYROLL_PAYSLIP_RECOMPUTED", recomputed.getId(), before, auditSnapshot.toJson(payslipSnapshot(recomputed)));
+
+        return toPayslipResponse(recomputed, payslipLineItemRepository.findByPayslipId(recomputed.getId()));
+    }
+
     // ============================================================
     // Payslip computation
     // ============================================================
@@ -356,7 +462,16 @@ public class PayrollRunService {
         lopReq.setEmployeeId(comp.getEmployeeId());
         lopReq.setPayGroupId(payGroupId);
         lopReq.setReferenceDate(window.start());
-        PayrollLopCalculationResponse lop = payrollLopCalculationService.recompute(lopReq, actorEmail);
+        lopReq.setRunId(run.getId());
+        PayrollLopCalculationService.RecomputeResult lopResult = payrollLopCalculationService.recomputeWithDetails(lopReq, actorEmail);
+        PayrollLopCalculationResponse lop = lopResult.response();
+
+        // US-C22/US-C23: (re)generate this employee's review items from the same unpaid-leave
+        // requests, pending penalties and needsManualReviewDates just fetched — see
+        // PayrollRunReviewService's own Javadoc for why these are passed through rather than
+        // re-queried.
+        payrollRunReviewService.generateItemsForEmployee(run, comp.getEmployeeId(), window, lop,
+                lopResult.unpaidLeaveRequests(), lopResult.pendingPenalties());
 
         RecomputeProrationRequest proReq = new RecomputeProrationRequest();
         proReq.setEmployeeId(comp.getEmployeeId());
@@ -374,7 +489,7 @@ public class PayrollRunService {
         List<SalaryStructureComponent> components = salaryStructureComponentRepository.findByStructureId(comp.getStructure().getId());
         // Resolved in annual terms first (matching Keka's own "Update Annual salary structure"
         // convention), divided down to a monthly base only afterward — see the class javadoc.
-        Map<UUID, BigDecimal> annualByComponentId = resolveRawValues(components, comp.getCtc());
+        Map<UUID, BigDecimal> annualByComponentId = salaryStructureResolutionService.resolveAnnualValues(components, comp.getCtc());
 
         Payslip payslip = payslipRepository.save(Payslip.builder()
                 .payrollRun(run)
@@ -481,55 +596,6 @@ public class PayrollRunService {
         return installment;
     }
 
-    /**
-     * FIXED → PERCENT_OF_COMPONENT (iterative, cycle-safe) → PERCENT_OF_GROSS → BALANCING_REMAINDER.
-     * Everything resolved here is an ANNUAL figure — {@code ctcAnnual} is the raw, undivided CTC.
-     */
-    private Map<UUID, BigDecimal> resolveRawValues(List<SalaryStructureComponent> components, BigDecimal ctcAnnual) {
-        Map<UUID, BigDecimal> resolved = new HashMap<>();
-        List<SalaryStructureComponent> percentOfComponent = new ArrayList<>();
-        SalaryStructureComponent balancingRemainder = null;
-
-        for (SalaryStructureComponent sc : components) {
-            switch (sc.getCalcType()) {
-                case SalaryCalculationType.FIXED -> resolved.put(sc.getId(), sc.getValue());
-                case SalaryCalculationType.PERCENT_OF_COMPONENT -> percentOfComponent.add(sc);
-                case SalaryCalculationType.PERCENT_OF_GROSS -> resolved.put(sc.getId(),
-                        sc.getValue().divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP).multiply(ctcAnnual));
-                case SalaryCalculationType.BALANCING_REMAINDER -> balancingRemainder = sc;
-                default -> throw new IllegalStateException("Unknown calcType: " + sc.getCalcType());
-            }
-        }
-
-        int remaining = percentOfComponent.size();
-        while (remaining > 0) {
-            boolean progressed = false;
-            for (SalaryStructureComponent sc : percentOfComponent) {
-                if (resolved.containsKey(sc.getId())) continue;
-                BigDecimal referenceValue = resolved.get(sc.getReferenceStructureComponentId());
-                if (referenceValue != null) {
-                    resolved.put(sc.getId(), sc.getValue().divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP).multiply(referenceValue));
-                    remaining--;
-                    progressed = true;
-                }
-            }
-            if (!progressed) {
-                throw new IllegalStateException("Could not resolve PERCENT_OF_COMPONENT reference chain — circular reference in structure");
-            }
-        }
-
-        if (balancingRemainder != null) {
-            final SalaryStructureComponent remainder = balancingRemainder;
-            BigDecimal sumOfOthers = components.stream()
-                    .filter(sc -> sc != remainder && EARNING_TYPES.contains(sc.getComponent().getType()))
-                    .map(sc -> resolved.get(sc.getId()))
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            resolved.put(remainder.getId(), ctcAnnual.subtract(sumOfOthers));
-        }
-
-        return resolved;
-    }
-
     // ============================================================
     // Helpers
     // ============================================================
@@ -597,6 +663,15 @@ public class PayrollRunService {
         return snapshot;
     }
 
+    private Map<String, Object> payslipSnapshot(Payslip p) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("employeeId", p.getEmployeeId());
+        snapshot.put("grossPay", p.getGrossPay());
+        snapshot.put("totalDeductions", p.getTotalDeductions());
+        snapshot.put("netPay", p.getNetPay());
+        return snapshot;
+    }
+
     private PayrollRunResponse toRunResponse(PayrollRun r) {
         return PayrollRunResponse.builder()
                 .id(r.getId())
@@ -633,6 +708,7 @@ public class PayrollRunService {
                 .totalDeductions(p.getTotalDeductions())
                 .netPay(p.getNetPay())
                 .released(p.isReleased())
+                .paymentWithheld(p.isPaymentWithheld())
                 .lineItems(lineItems.stream().map(li -> PayslipLineItemResponse.builder()
                         .componentId(li.getComponentId())
                         .componentName(li.getComponentName())

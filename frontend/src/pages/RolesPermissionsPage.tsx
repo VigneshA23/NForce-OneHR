@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, KeyRound, Plus, Search as SearchIcon, ChevronDown, ChevronRight, Lock, ShieldCheck, Users2, Layers } from 'lucide-react';
+import { Copy, KeyRound, Plus, Search as SearchIcon, ChevronDown, ChevronRight, Lock, ShieldCheck, Users2, Layers, Trash2, Pencil, Eye } from 'lucide-react';
+import { EmployeeAvatar } from '../components/EmployeeAvatar';
+import './rolesPermissions.css';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { ChipGroup } from '../components/TabBar';
@@ -32,18 +34,18 @@ function isSuperAdmin(mine: { roles?: string[] } | null | undefined): boolean {
 }
 
 function fmtDate(iso: string | null | undefined): string {
-  return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '–';
+  return iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
 }
 
 export function RoleTypeBadge({ system }: { system: boolean }) {
-  const c = system ? '#4C8DD6' : '#8B5CF6';
-  return <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.03em', color: c, background: `${c}1A`, borderRadius: 6, padding: '3px 8px', whiteSpace: 'nowrap' }}>{system ? 'SYSTEM' : 'CUSTOM'}</span>;
+  const c = system ? 'var(--info)' : '#8B5CF6';
+  return <span className="nf-rl-pill" style={{ ['--pc' as string]: c }}>{system ? 'SYSTEM' : 'CUSTOM'}</span>;
 }
 
 function StatusPill({ active }: { active: boolean }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, color: active ? '#2FB67C' : '#9BA1AC', background: active ? 'rgba(47,182,124,.1)' : 'rgba(155,161,172,.14)', borderRadius: 20, padding: '3px 10px', whiteSpace: 'nowrap' }}>
-      <span style={{ width: 5, height: 5, borderRadius: '50%', background: active ? '#2FB67C' : '#9BA1AC' }} />
+    <span className="nf-rl-pill is-dot" style={{ ['--pc' as string]: active ? 'var(--ok)' : 'var(--txt-dim)' }}>
+      <i />
       {active ? 'Active' : 'Inactive'}
     </span>
   );
@@ -89,7 +91,7 @@ function PermissionMatrix({ catalogue, map, onChange, readOnly, lockedReason }: 
         <button type="button" style={{ ...secondaryBtn, padding: '7px 12px', fontSize: 12 }} onClick={() => setOpen(new Set())}>Collapse all</button>
       </div>
       {lockedReason && <Banner tone="info"><Lock size={12} style={{ verticalAlign: -1, marginRight: 6 }} />{lockedReason}</Banner>}
-      <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+      <div className="nf-rl-matrix">
         {visible.length === 0 && <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)' }}>No permissions match “{query}”.</div>}
         {visible.map((m, i) => {
           const editable = !readOnly && m.configurable;
@@ -101,15 +103,15 @@ function PermissionMatrix({ catalogue, map, onChange, readOnly, lockedReason }: 
             <div key={m.code} style={{ borderTop: i ? '1px solid var(--line)' : 'none' }}>
               <div role="button" tabIndex={0} aria-expanded={isOpen(m.code)}
                 onClick={() => toggleOpen(m.code)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOpen(m.code); } }}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', cursor: 'pointer', background: 'var(--raised)' }}>
+                className={`nf-rl-mod${isOpen(m.code) ? ' is-open' : ''}`}>
                 {isOpen(m.code) ? <ChevronDown size={15} color="var(--txt-dim)" /> : <ChevronRight size={15} color="var(--txt-dim)" />}
                 {editable && (
                   <TriCheckbox state={state} disabled={grantable.length === 0} label={`Select all ${m.name}`}
                     onChange={on => onChange?.(setCategory(map, m.code, grantable, on, a => widest(m.code, a)))} />
                 )}
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', flex: 1, minWidth: 0 }}>{m.name}</span>
+                <span className="nf-rl-mod-name">{m.name}</span>
                 {!m.configurable && <span title="Access here is still decided by built-in role logic, so it can't be configured yet." style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={11} /> SYSTEM-MANAGED</span>}
-                <span style={{ fontSize: 11.5, color: 'var(--txt-dim)', whiteSpace: 'nowrap' }}>{granted.length}/{m.actions.length}</span>
+                <span className={`nf-rl-count${granted.length ? ' is-on' : ''}`}>{granted.length}/{m.actions.length}</span>
               </div>
               {isOpen(m.code) && !m.configurable && (
                 <div style={{ padding: '10px 14px 0 40px' }}>
@@ -121,7 +123,7 @@ function PermissionMatrix({ catalogue, map, onChange, readOnly, lockedReason }: 
                 </div>
               )}
               {isOpen(m.code) && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 8, padding: '10px 14px 14px 40px' }}>
+                <div className="nf-rl-acts">
                   {m.actions.map(a => {
                     const k = grantKey(m.code, a);
                     const scope = map[k];
@@ -130,8 +132,8 @@ function PermissionMatrix({ catalogue, map, onChange, readOnly, lockedReason }: 
                     // A scope the admin can't grant (or a legacy DEPARTMENT/LOCATION row) is still shown as-is.
                     const options = scope && !scopes.includes(scope) ? [...scopes, scope] : scopes;
                     return (
-                      <div key={a} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 30 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: scope ? 'var(--txt)' : 'var(--txt-mut)', cursor: canToggle ? 'pointer' : 'default', flex: 1, minWidth: 0 }}
+                      <div key={a} className={scope ? 'nf-rl-act is-on' : 'nf-rl-act'}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: scope ? 'var(--txt)' : 'var(--txt-mut)', cursor: canToggle ? 'pointer' : 'default', flex: 1, minWidth: 0 }}
                           title={editable && !scopes.length ? "You can't grant a permission you don't hold yourself." : undefined}>
                           <input type="checkbox" checked={!!scope} disabled={!canToggle}
                             onChange={e => onChange?.(setGrant(map, m.code, a, e.target.checked ? scopes.at(-1)! : null))}
@@ -141,7 +143,7 @@ function PermissionMatrix({ catalogue, map, onChange, readOnly, lockedReason }: 
                         {scope && (canToggle && options.length > 1 ? (
                           <select aria-label={`${m.name} ${ACTION_LABEL[a] ?? a} scope`} value={scope}
                             onChange={e => onChange?.(setGrant(map, m.code, a, e.target.value))}
-                            style={{ background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '3px 6px', fontSize: 11.5, color: 'var(--txt)' }}>
+                            style={{ background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 8, padding: '3px 6px', fontSize: 11.5, color: 'var(--txt)' }}>
                             {options.map(s => <option key={s} value={s} disabled={!scopes.includes(s)}>{SCOPE_LABEL[s] ?? s}</option>)}
                           </select>
                         ) : <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{SCOPE_LABEL[scope] ?? scope}</span>)}
@@ -226,7 +228,7 @@ function RoleEditorModal({ token, catalogue, existing, template, existingNames, 
   async function save(confirmed: boolean) {
     setError('');
     const trimmed = name.trim();
-    if (metadataEditable && (trimmed.length < 2 || trimmed.length > 50)) { setError('Role name must be 2–50 characters.'); return; }
+    if (metadataEditable && (trimmed.length < 2 || trimmed.length > 50)) { setError('Role name must be 2 to 50 characters.'); return; }
     if (description.length > 255) { setError('Description must be 255 characters or fewer.'); return; }
     if (!confirmed && permissionsEditable && grantsDirty) {
       const w = sensitiveChanges();
@@ -261,9 +263,9 @@ function RoleEditorModal({ token, catalogue, existing, template, existingNames, 
   return (
     <div style={overlayStyle} onMouseDown={e => { if (e.target === e.currentTarget) requestClose(); }}>
       <div role="dialog" aria-modal="true" aria-label={role ? `Edit ${role.name}` : template ? 'Clone role' : 'Create role'}
-        style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, width: '96vw', maxWidth: 880, maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,.4)' }}>
+        className="nf-rl-dlg" style={{ width: '96vw', maxWidth: 880, maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
         <ModalHeader title={role ? `Edit role · ${role.name}` : template ? `Clone role · ${template.role.name}` : 'Create role'}
-          subtitle={role?.system ? 'System role — name and status are fixed.' : template ? 'Starts with the same permissions — change anything before saving. Nobody is assigned automatically.' : 'Choose what holders of this role can do.'} onClose={requestClose} />
+          subtitle={role?.system ? 'System role: name and status are fixed.' : template ? 'Starts with the same permissions; change anything before saving. Nobody is assigned automatically.' : 'Choose what holders of this role can do.'} onClose={requestClose} />
         <div style={{ padding: '18px 22px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
           {skippedFromTemplate > 0 && (
             <Banner tone="warn">{skippedFromTemplate} permission{skippedFromTemplate === 1 ? ' was' : 's were'} not copied because you don't hold {skippedFromTemplate === 1 ? 'it' : 'them'} yourself — you can only grant what you have.</Banner>
@@ -299,7 +301,7 @@ function RoleEditorModal({ token, catalogue, existing, template, existingNames, 
           {confirmDiscard && <Banner tone="warn">You have unsaved changes. Discard them?</Banner>}
           {error && <Banner tone="error">{error}</Banner>}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 22px', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
+        <div className="nf-rl-foot">
           {confirmDiscard ? (
             <>
               <button style={secondaryBtn} onClick={() => setConfirmDiscard(false)}>Keep editing</button>
@@ -357,7 +359,7 @@ function DeleteRoleDialog({ token, role, onClose, onDeleted }: {
   return createPortal(
     <div style={overlayStyle} onMouseDown={e => { if (e.target === e.currentTarget) requestClose(); }}>
       <div role="alertdialog" aria-modal="true" aria-label={`Delete ${role.name}`}
-        style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, width: '94vw', maxWidth: 460, boxShadow: '0 24px 64px rgba(0,0,0,.4)' }}>
+        className="nf-rl-dlg" style={{ width: '94vw', maxWidth: 460 }}>
         <ModalHeader title={`Delete ${role.name}?`} subtitle="This permanently deletes the role and its permissions. It can't be undone." onClose={requestClose} />
         <div style={{ padding: '16px 22px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {assigned ? (
@@ -376,7 +378,7 @@ function DeleteRoleDialog({ token, role, onClose, onDeleted }: {
           )}
           {error && <Banner tone="error">{error}</Banner>}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 22px', borderTop: '1px solid var(--line)' }}>
+        <div className="nf-rl-foot">
           <button style={secondaryBtn} onClick={requestClose} disabled={busy}>Cancel</button>
           <button style={{ ...dangerBtn, opacity: busy || (assigned && !removeFromUsers) ? 0.6 : 1 }}
             disabled={busy || (assigned && !removeFromUsers)} onClick={confirm}>
@@ -474,13 +476,13 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onClone,
   return createPortal(
     <div style={{ ...overlayStyle, justifyContent: 'flex-end', padding: 0 }} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <aside role="dialog" aria-modal="true" aria-label={role ? `${role.name} details` : 'Role details'}
-        style={{ background: 'var(--panel)', borderLeft: '1px solid var(--line)', width: 'min(600px, 100vw)', height: '100%', display: 'flex', flexDirection: 'column', boxShadow: '-16px 0 48px rgba(0,0,0,.3)' }}>
+        className="nf-rl-drawer" style={{ width: 'min(620px, 100vw)', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <ModalHeader title={role?.name ?? 'Role'} subtitle={role?.description ?? undefined} onClose={onClose} />
         {loadError && <div style={{ padding: 22 }}><Banner tone="error">{loadError}</Banner></div>}
         {!detail && !loadError && <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>}
         {detail && role && (
           <>
-            <div style={{ padding: '14px 22px', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
+            <div className="nf-rl-meta">
               <RoleTypeBadge system={role.system} />
               <StatusPill active={role.active} />
               <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Code <code>{role.code}</code> · Created {fmtDate(role.createdAt)} · Updated {fmtDate(role.updatedAt)}</span>
@@ -545,7 +547,7 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onClone,
                         {candidates.map(u => <option key={u.userId} value={u.userId}>{u.fullName} · {u.email}</option>)}
                       </select>
                       <button style={{ ...primaryBtn, opacity: !pick || busy ? 0.6 : 1 }} disabled={!pick || busy}
-                        onClick={() => run('add user', () => rolesApi.addMember(role.id, pick, token), 'User added — they will be asked to sign in again').then(() => setPick(''))}>
+                        onClick={() => run('add user', () => rolesApi.addMember(role.id, pick, token), 'User added. They will be asked to sign in again').then(() => setPick(''))}>
                         <Plus size={14} /> Add
                       </button>
                       <button style={{ ...secondaryBtn, padding: '8px 12px', fontSize: 12.5 }} disabled={busy} onClick={() => setAdding(a => !a)} aria-expanded={adding}>
@@ -577,17 +579,18 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onClone,
                           <button style={{ ...secondaryBtn, padding: '6px 12px', fontSize: 12 }} onClick={() => setPicked(new Set())}>Clear</button>
                         </div>
                       )}
-                      <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+                      <div className="nf-rl-members">
                         {detail.members.map((m, i) => {
                           const self = m.email.toLowerCase() === myEmail;
                           const removable = canAssign && role.code !== 'EMPLOYEE' && !self;
                           return (
-                            <div key={m.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', opacity: m.active ? 1 : 0.6 }}>
+                            <div key={m.userId} className="nf-rl-member" style={{ borderTop: i ? '1px solid var(--line)' : 'none', opacity: m.active ? 1 : 0.6 }}>
                               {removable && (
                                 <input type="checkbox" aria-label={`Select ${m.fullName}`} checked={picked.has(m.userId)} disabled={busy}
                                   onChange={() => setPicked(p => { const n = new Set(p); if (n.has(m.userId)) n.delete(m.userId); else n.add(m.userId); return n; })}
                                   style={{ accentColor: 'var(--brand)' }} />
                               )}
+                              <EmployeeAvatar userId={m.userId} name={m.fullName} size={34} fontSize={12} background="var(--brand)" />
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.fullName}{self && <span style={{ color: 'var(--txt-dim)', fontWeight: 500 }}> (you)</span>}</div>
                                 <div style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{m.employeeCode ? `${m.employeeCode} · ` : ''}{m.email}{!m.active && ' · Inactive'}</div>
@@ -690,16 +693,16 @@ export default function RolesPermissionsPage() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 12 }}>
+      <div className="nf-rl-filters">
         <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
           <SearchIcon size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
           <input placeholder="Search roles…" aria-label="Search roles" value={search} onChange={e => setSearch(e.target.value)}
-            style={{ ...inputStyle, background: 'var(--raised)', padding: '9px 12px 9px 34px' }} />
+            style={{ ...inputStyle, padding: '10px 14px 10px 36px' }} />
         </div>
         <ChipGroup ariaLabel="Role type" value={type} onChange={setType}
           options={[{ key: 'ALL', label: 'All' }, { key: 'SYSTEM', label: 'System' }, { key: 'CUSTOM', label: 'Custom' }]} />
         <select aria-label="Status" value={status} onChange={e => setStatus(e.target.value as typeof status)}
-          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 12px', color: 'var(--txt-mut)', fontSize: 12.5, cursor: 'pointer' }}>
+          style={{ background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 12, padding: '10px 14px', color: 'var(--txt-mut)', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
           <option value="ALL">All Status</option>
           <option value="ACTIVE">Active</option>
           <option value="INACTIVE">Inactive</option>
@@ -714,7 +717,7 @@ export default function RolesPermissionsPage() {
           <button style={{ ...secondaryBtn, padding: '6px 12px', fontSize: 12 }} onClick={() => setCompareIds([])}>Clear</button>
         </div>
       )}
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+      <div className="nf-rl-card">
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
         ) : loadError ? (
@@ -729,14 +732,13 @@ export default function RolesPermissionsPage() {
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 720 }}>
+            <table className="nf-rl-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 760 }}>
               <thead>
                 <tr>{['', 'Role', 'Type', 'Users', 'Permissions', 'Status', 'Updated', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {filtered.map(r => (
-                  <tr key={r.id} style={{ cursor: 'pointer', opacity: r.active ? 1 : 0.65 }} onClick={() => setViewing(r.id)}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--raised)')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <tr key={r.id} className="is-click" style={{ opacity: r.active ? 1 : 0.65 }} onClick={() => setViewing(r.id)}>
                     <td style={{ ...tdStyle, width: 34, paddingRight: 0 }} onClick={e => e.stopPropagation()}>
                       {r.code !== 'EMPLOYEE' && (
                         <input type="checkbox" aria-label={`Select ${r.name} to compare`} checked={compareIds.includes(r.id)}
@@ -744,19 +746,22 @@ export default function RolesPermissionsPage() {
                       )}
                     </td>
                     <td style={tdStyle}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {r.name}{!r.permissionsEditable && <Lock size={12} aria-label="Protected" color="var(--txt-dim)" />}
+                      <div className="nf-rl-role">
+                        <span className={`nf-rl-role-ico${r.system ? '' : ' is-custom'}`}>{!r.permissionsEditable ? <Lock size={16} aria-label="Protected" /> : r.system ? <ShieldCheck size={16} /> : <KeyRound size={16} />}</span>
+                        <div style={{ minWidth: 0 }}>
+                          <div className="nf-rl-role-name">{r.name}</div>
+                          {r.description && <div className="nf-rl-role-desc">{r.description}</div>}
+                        </div>
                       </div>
-                      {r.description && <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 2, maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description}</div>}
                     </td>
                     <td style={tdStyle}><RoleTypeBadge system={r.system} /></td>
-                    <td style={tdStyle}>{r.userCount}</td>
-                    <td style={tdStyle}>{r.code === 'EMPLOYEE' ? 'Baseline' : r.permissionCount}</td>
+                    <td style={tdStyle}><span className="nf-rl-num"><Users2 size={13} />{r.userCount}</span></td>
+                    <td style={tdStyle}>{r.code === 'EMPLOYEE' ? <span className="nf-rl-num is-soft">Baseline</span> : <span className="nf-rl-num"><KeyRound size={13} />{r.permissionCount}</span>}</td>
                     <td style={tdStyle}><StatusPill active={r.active} /></td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDate(r.updatedAt)}</td>
                     <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button style={{ ...secondaryBtn, padding: '5px 10px', fontSize: 12 }} onClick={e => { e.stopPropagation(); openEditor(r.id); }}>
-                        {r.permissionsEditable || r.metadataEditable ? 'Edit' : 'View'}
+                      <button style={{ ...secondaryBtn, padding: '6px 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={e => { e.stopPropagation(); openEditor(r.id); }}>
+                        {r.permissionsEditable || r.metadataEditable ? <><Pencil size={12} />Edit</> : <><Eye size={12} />View</>}
                       </button>
                       {canCreate && r.code !== 'EMPLOYEE' && (
                         <button style={{ ...secondaryBtn, padding: '5px 10px', fontSize: 12, marginLeft: 6 }} aria-label={`Clone ${r.name}`}
@@ -765,9 +770,9 @@ export default function RolesPermissionsPage() {
                         </button>
                       )}
                       {!r.system && canDelete && (
-                        <button style={{ ...dangerBtn, padding: '5px 10px', fontSize: 12, marginLeft: 6 }} aria-label={`Delete ${r.name}`}
+                        <button style={{ ...dangerBtn, padding: '6px 12px', fontSize: 12, marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 5 }} aria-label={`Delete ${r.name}`}
                           onClick={e => { e.stopPropagation(); setDeletingRole(r); }}>
-                          Delete
+                          <Trash2 size={12} />Delete
                         </button>
                       )}
                     </td>

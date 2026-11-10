@@ -93,6 +93,8 @@ class NoRawRoleChecksTest {
     private static final Map<String, String> ALLOWED_ROLE_CODE_LITERALS = Map.ofEntries(
             Map.entry("util/RoleUtils.java", "DISPLAY: priority order, audience buckets"),
             Map.entry("util/RoleCategorization.java", "DISPLAY: role-list categorisation"),
+            Map.entry("service/PayslipAccessPolicy.java", "AUTHORIZATION (reviewed exception, added by the payslip feature): owner or HR_ADMIN/SUPER_ADMIN by role code; "
+                    + "migrate to an explicit payroll permission so custom roles can be granted payslip access"),
             Map.entry("ai/contract/ShellRole.java", "DISPLAY: AI/UI shell mapping"),
             Map.entry("ai/data/PeopleDataProviders.java", "DISPLAY: role labels"),
             Map.entry("dto/ApprovalItemDto.java", "WORKFLOW: approval stage tag"),

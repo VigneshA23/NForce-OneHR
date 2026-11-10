@@ -28,7 +28,7 @@ function formatClockTime(iso: string | null): string | null {
 }
 
 function formatWorkedMinutes(mins: number | null): string {
-  if (mins == null) return '–';
+  if (mins == null) return '-';
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   if (h === 0) return `${m}m`;
@@ -210,7 +210,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
       {openWeb && (
         <>
           <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
-            Web clocked in since {formatClockTime(openWeb.requestedCheckIn) ?? '–'}
+            Web clocked in since {formatClockTime(openWeb.requestedCheckIn) ?? '-'}
           </span>
           <button
             onClick={handleCheckOut}

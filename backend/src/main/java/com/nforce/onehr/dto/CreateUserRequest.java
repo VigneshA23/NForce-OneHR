@@ -59,4 +59,32 @@ public class CreateUserRequest {
 
     // Deliberately NO timezone field — see CreateEmployeeRequest's identical comment. locationId
     // above (mandatory here) is the only timezone-relevant input.
+
+    // ONEHR — four-step employee creation wizard, Step 1 (Basic Information). All optional: these
+    // map straight onto the same nullable Employee columns ProfileService/My Profile already
+    // read/write (see Employee entity + ProfileService#updateProfile) — reused, not duplicated.
+    // Deliberately NOT fed back into fullName above: fullName stays exactly as submitted, its own
+    // independent required field, to avoid changing any existing auth/display/search behavior
+    // that already depends on it.
+    private String firstName;
+    private String middleName;
+    private String lastName;
+    private LocalDate dateOfBirth;
+    private String gender;
+    private String maritalStatus;
+    private String phone;
+    private String personalEmail;
+    private String emergencyContactName;
+    private String emergencyContactPhone;
+    private String emergencyContactRelationship;
+
+    // Step 3 (Work & Policy Configuration) — Weekly-Off and Attendance (Penalisation) Policy.
+    // Both optional, both mirror shiftId/effectiveFrom's existing contract: an effective date is
+    // required whenever the corresponding policy id is chosen, never silently defaulted, and
+    // validated in UserManagementService#createUser (not here) since it's conditional rather than
+    // always-mandatory.
+    private UUID weeklyOffPolicyId;
+    private LocalDate weeklyOffEffectiveFrom;
+    private UUID penalisationPolicyId;
+    private LocalDate penalisationEffectiveFrom;
 }

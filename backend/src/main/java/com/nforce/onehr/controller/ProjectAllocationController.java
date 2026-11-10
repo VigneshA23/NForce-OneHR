@@ -9,6 +9,7 @@ import com.nforce.onehr.service.ProjectAllocationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,12 +27,14 @@ public class ProjectAllocationController {
     /**
      * US-B04: single-employee allocation — the baseline {@link ProjectAllocationService} validates for both this and bulk.
      * Managers may call it, but the service only lets them through for projects they own (US-B03).
+     * US-B06: 201 when saved; 200 + {@code warning} (nothing saved) when it would push the employee
+     * over 100% — resubmit with confirm=true. Intentionally a soft block, not a 4xx.
      */
     @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('project_allocations:CREATE:TEAM')")
-    public ProjectAllocationResponse allocate(@Valid @RequestBody ProjectAllocationRequest req, Principal principal) {
-        return service.allocate(principal.getName(), req);
+    public ResponseEntity<ProjectAllocationResponse> allocate(@Valid @RequestBody ProjectAllocationRequest req, Principal principal) {
+        ProjectAllocationResponse res = service.allocate(principal.getName(), req);
+        return ResponseEntity.status(res.getId() != null ? HttpStatus.CREATED : HttpStatus.OK).body(res);
     }
 
     /** US-B10: bulk-allocate the same project/capacity/date-range to multiple employees, with per-employee partial success. */

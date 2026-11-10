@@ -453,6 +453,47 @@ public class EmployeeAssignmentService {
     }
 
     /**
+     * Four-step employee creation wizard, Step 3: assigns a Weekly Off Policy to a BRAND-NEW
+     * employee, called by {@code UserManagementService#createUser} from within its own creation
+     * transaction (plain {@code @Transactional}, default REQUIRED propagation — joins the
+     * caller's transaction, so a failure here rolls back the whole employee creation too; see the
+     * class-level Javadoc on {@link EmployeeWeeklyOffPolicyAssignment} for why no in-between state
+     * is ever left behind).
+     *
+     * <p>Deliberately NOT routed through {@link #bulkUpdateWeeklyOff} — that entry point scopes
+     * itself to the calling manager's CURRENT direct reports, which a just-created employee can
+     * never already be. This method performs the same existence/effective-date validation
+     * {@code bulkUpdateWeeklyOff} applies per-employee (policy must exist; {@code effectiveFrom}
+     * required, not in the past, not before the employee's own {@code joiningDate}) and then
+     * delegates to the exact same single-employee
+     * {@link #assignWeeklyOff(UUID, WeeklyOffPolicy, LocalDate, UUID, LocalDate)} overload CSV
+     * import already uses — the real pending/current lookup + row-creation code path, not a
+     * reimplementation. {@code WeeklyOffPolicy} has no {@code active} flag (unlike {@link Shift}),
+     * so there is no analogous inactive-policy check to mirror here.
+     */
+    @Transactional
+    public void assignWeeklyOffAtCreation(UUID employeeUserId, UUID weeklyOffPolicyId, LocalDate effectiveFrom, UUID createdBy) {
+        WeeklyOffPolicy policy = weeklyOffPolicyRepository.findById(weeklyOffPolicyId)
+                .orElseThrow(() -> new IllegalArgumentException("Weekly off policy not found"));
+        Employee employee = employeeRepository.findById(employeeUserId)
+                .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        if (effectiveFrom == null || effectiveFrom.isBefore(today)) {
+            throw new IllegalArgumentException("Effective From is required and cannot be in the past");
+        }
+        if (employee.getJoiningDate() != null && effectiveFrom.isBefore(employee.getJoiningDate())) {
+            throw new IllegalArgumentException("Effective From cannot be before this employee's joining date ("
+                    + employee.getJoiningDate() + ")");
+        }
+        // Delegates to the single-employee assignWeeklyOff overload — the exact same
+        // pending/current lookup + row-creation code CSV import already uses (see its own
+        // Javadoc). A brand-new employee can never already have a pending/current row, so those
+        // lookups are harmless no-ops here, but this is still the real shared code path, not a
+        // second, independent insert.
+        assignWeeklyOff(employeeUserId, policy, effectiveFrom, createdBy, today);
+    }
+
+    /**
      * CSV schema: {@code employee_code,shift_name,shift_effective_from,weekly_off_policy_name,weekly_off_effective_from} —
      * {@code shift_effective_from}/{@code weekly_off_effective_from} each mirror {@link
      * #bulkUpdateShift}/{@link #bulkUpdateWeeklyOff}'s identical rule: required whenever the
