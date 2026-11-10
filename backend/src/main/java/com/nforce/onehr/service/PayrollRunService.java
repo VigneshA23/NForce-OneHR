@@ -99,12 +99,30 @@ import java.util.stream.Collectors;
  *       a separate ledger, not a payslip line item). BALANCING_REMAINDER = {@code annual CTC −
  *       sum(every other EARNING-type component computed so far)}.</li>
  *   <li><b>PF, Gratuity, Professional Tax and TDS are deliberately NOT computed here</b> — confirmed
- *       why, not just deferred on a guess: the real PF formula is conditional/capped
- *       ({@code IF CTC<180000, (CTC−HRA)×12%, else a flat capped amount}), which none of US-C01's
- *       four calc types can express, and Gratuity/PT/TDS have their own separate mechanisms. This
- *       is exactly Decision #5 (which mechanism owns each statutory deduction) still being open —
- *       this story correctly stops at the four calc types' reach rather than guessing a formula
- *       for something it structurally can't represent yet.</li>
+ *       why, not just deferred on a guess: none of US-C01's four calc types can express PF's real
+ *       formula, and Gratuity/PT/TDS have their own separate mechanisms. This is exactly Decision #5
+ *       (which mechanism owns each statutory deduction) still being open — this story correctly
+ *       stops at the four calc types' reach rather than guessing a formula for something it
+ *       structurally can't represent yet.
+ *       <p><i>2026-11-10 update, from real post-revision payslips</i> — the {@code (CTC−HRA)×12%}
+ *       reading noted here earlier (from the Keka screenshot, under the OLD ₹15,000 wage ceiling)
+ *       is confirmed WRONG by real data and superseded regardless: PF Employee is actually
+ *       {@code 12% × Basic}, uncapped until a wage ceiling (₹15,000 before 17 Sep 2026 per the
+ *       Code on Social Security 2020 notification, ₹25,000 from the employee's October 2026
+ *       payslip onward — confirmed to the rupee: ₹19,058 Basic × 12% = ₹2,286.96 → ₹2,287, exactly
+ *       what that payslip shows), flat-capped at 12% of the ceiling above it. Also observed (not
+ *       yet HR-confirmed as a rule, see the open question list): PF appeared to be computed on the
+ *       PRIOR cycle's Basic, not the current one's.
+ *       <p><b>Whenever PF (or ESI/PT/TDS) computation actually gets built, none of the numbers in
+ *       the paragraph above — the 12% rate, the ₹15,000/₹25,000 ceilings, the one-cycle lag, any of
+ *       it — may be hardcoded as a Java constant.</b> They're exactly what {@link StatutoryRule}
+ *       (US-C13) exists to hold: HR edits them (rate, ceiling, whatever else a slab needs) through
+ *       that story's admin UI as effective-dated, versioned {@code slabConfig} JSON, and the
+ *       computation reads the row effective for the payslip's own period — the same way a {@link
+ *       com.nforce.onehr.entity.SalaryStructureComponent}'s percentage is an HR-entered value, never
+ *       a constant in this class, even though EVERY example above happens to use today's real
+ *       numbers. A rate change (exactly like the one just described) must be a data change HR makes
+ *       through the UI, never a deploy.</li>
  *   <li><b>cap/useLowerOfCap are NOT applied to the paid amount in this story.</b> They read as
  *       exemption-calculation fields for TDS (a Phase 5/US-C14 concern, unbuilt), not as a ceiling
  *       on take-home pay — applying them here risked silently underpaying someone on a guessed
