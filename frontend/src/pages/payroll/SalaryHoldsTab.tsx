@@ -10,12 +10,14 @@ import {
   inputStyle, BtnPrimary, BtnGhost, SectionHead, useEmployeeDirectory,
 } from './payrollShared';
 
-function CreateHoldModal({ runId, onClose, onCreated }: { runId: string; onClose: () => void; onCreated: (h: SalaryHoldResponse) => void }) {
+function CreateHoldModal({ runId, fixedType, onClose, onCreated }: {
+  runId: string; fixedType?: SalaryHoldType; onClose: () => void; onCreated: (h: SalaryHoldResponse) => void;
+}) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const { employees } = useEmployeeDirectory();
   const [employeeId, setEmployeeId] = useState('');
-  const [type, setType] = useState<SalaryHoldType>('PROCESSING');
+  const [type, setType] = useState<SalaryHoldType>(fixedType ?? 'PROCESSING');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -37,7 +39,11 @@ function CreateHoldModal({ runId, onClose, onCreated }: { runId: string; onClose
   }
 
   return (
-    <Modal title="Add Salary Hold" subtitle="PROCESSING excludes this employee from this run's payslip generation entirely. PAYOUT generates their payslip as normal but withholds disbursement." onClose={onClose}>
+    <Modal
+      title={fixedType === 'PAYOUT' ? 'Add Payout Hold' : fixedType === 'PROCESSING' ? 'Add Processing Hold' : 'Add Salary Hold'}
+      subtitle="PROCESSING excludes this employee from this run's payslip generation entirely. PAYOUT generates their payslip as normal but withholds disbursement."
+      onClose={onClose}
+    >
       <FormRow>
         <label style={labelStyle}>Employee *</label>
         <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
@@ -45,13 +51,15 @@ function CreateHoldModal({ runId, onClose, onCreated }: { runId: string; onClose
           {employees.map(e => <option key={e.userId} value={e.userId}>{e.fullName}</option>)}
         </select>
       </FormRow>
-      <FormRow>
-        <label style={labelStyle}>Type *</label>
-        <select value={type} onChange={e => setType(e.target.value as SalaryHoldType)} style={inputStyle}>
-          <option value="PROCESSING">Processing (exclude from this run)</option>
-          <option value="PAYOUT">Payout (withhold disbursement)</option>
-        </select>
-      </FormRow>
+      {!fixedType && (
+        <FormRow>
+          <label style={labelStyle}>Type *</label>
+          <select value={type} onChange={e => setType(e.target.value as SalaryHoldType)} style={inputStyle}>
+            <option value="PROCESSING">Processing (exclude from this run)</option>
+            <option value="PAYOUT">Payout (withhold disbursement)</option>
+          </select>
+        </FormRow>
+      )}
       <FormRow>
         <label style={labelStyle}>Reason *</label>
         <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
@@ -64,7 +72,10 @@ function CreateHoldModal({ runId, onClose, onCreated }: { runId: string; onClose
   );
 }
 
-export function SalaryHoldsTab({ runId, canConfigure }: { runId: string; canConfigure: boolean }) {
+/** `holdType` scopes this to one of Keka's two separate steps (Salary Processing on Hold / Salary
+ * Payout on Hold) — same underlying SalaryHold data, just filtered and pre-typed per step, instead
+ * of a combined type column. Omit it to show both (used nowhere currently, kept for flexibility). */
+export function SalaryHoldsTab({ runId, holdType, canConfigure }: { runId: string; holdType?: SalaryHoldType; canConfigure: boolean }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const { nameFor } = useEmployeeDirectory();
@@ -87,22 +98,25 @@ export function SalaryHoldsTab({ runId, canConfigure }: { runId: string; canConf
     }
   }
 
+  const visible = holdType ? holds.filter(h => h.holdType === holdType) : holds;
+  const columns = holdType ? ['Employee', 'Status', 'Reason', 'Created By', 'Released By', ''] : ['Employee', 'Type', 'Status', 'Reason', 'Created By', 'Released By', ''];
+
   return (
     <div>
       <SectionHead
-        title="Salary Holds"
-        action={canConfigure && <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Hold</BtnPrimary>}
+        title={holdType === 'PAYOUT' ? 'Salary Payout on Hold' : holdType === 'PROCESSING' ? 'Salary Processing on Hold' : 'Salary Holds'}
+        action={canConfigure && <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Employee</BtnPrimary>}
       />
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr>{['Employee', 'Type', 'Status', 'Reason', 'Created By', 'Released By', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+            <tr>{columns.map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>
           <tbody>
-            {holds.map(h => (
+            {visible.map(h => (
               <tr key={h.id}>
                 <td style={tdStyle}><PersonCellById userId={h.employeeId} name={nameFor(h.employeeId)} /></td>
-                <td style={tdStyle}>{h.holdType}</td>
+                {!holdType && <td style={tdStyle}>{h.holdType}</td>}
                 <td style={tdStyle}><StatusBadge status={h.status} /></td>
                 <td style={tdStyle}>{h.reason}</td>
                 <td style={tdStyle}>{h.createdByName} · {fmtDateTime(h.createdAt)}</td>
@@ -114,12 +128,12 @@ export function SalaryHoldsTab({ runId, canConfigure }: { runId: string; canConf
                 </td>
               </tr>
             ))}
-            {holds.length === 0 && <EmptyRow cols={7} msg="No salary holds for this run." />}
+            {visible.length === 0 && <EmptyRow cols={columns.length} msg="No records found." />}
           </tbody>
         </table>
       </div>
       {showAdd && (
-        <CreateHoldModal runId={runId} onClose={() => setShowAdd(false)} onCreated={h => setHolds(prev => [h, ...prev])} />
+        <CreateHoldModal runId={runId} fixedType={holdType} onClose={() => setShowAdd(false)} onCreated={h => setHolds(prev => [h, ...prev])} />
       )}
     </div>
   );

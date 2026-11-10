@@ -75,6 +75,7 @@ function CreateStructureForm({ catalog, onCreated }: { catalog: SalaryComponentC
           <div style={{ minWidth: 160 }}>
             <label style={labelStyle}>Component</label>
             <select value={c.componentName} onChange={e => updateRow(i, { componentName: e.target.value })} style={inputStyle}>
+              <option value="">Select…</option>
               {catalog.map(cc => <option key={cc.id} value={cc.name}>{cc.name}</option>)}
             </select>
           </div>
@@ -98,7 +99,7 @@ function CreateStructureForm({ catalog, onCreated }: { catalog: SalaryComponentC
               <label style={labelStyle}>Of Component</label>
               <select value={c.referenceComponentName ?? ''} onChange={e => updateRow(i, { referenceComponentName: e.target.value })} style={inputStyle}>
                 <option value="">Select…</option>
-                {components.filter((_, idx) => idx !== i).map((other, idx) => <option key={idx} value={other.componentName}>{other.componentName}</option>)}
+                {components.filter((other, idx) => idx !== i && !!other.componentName).map((other, idx) => <option key={idx} value={other.componentName}>{other.componentName}</option>)}
               </select>
             </div>
           )}
