@@ -5,6 +5,7 @@ import com.nforce.onehr.service.AssetService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -146,11 +147,13 @@ public class AssetController {
     // ── Manager: team view ────────────────────────────────
 
     @GetMapping("/team-assignments")
+    @PreAuthorize("hasAuthority('assets:APPROVE:TEAM')")
     public List<AssetAssignmentResponse> teamAssignments(Principal principal) {
         return assetService.teamAssignments(principal.getName());
     }
 
     @GetMapping("/requests/team")
+    @PreAuthorize("hasAuthority('assets:APPROVE:TEAM')")
     public List<AssetRequestResponse> teamRequests(Principal principal) {
         return assetService.teamRequests(principal.getName());
     }

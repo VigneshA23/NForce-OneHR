@@ -53,6 +53,9 @@ public class HelpContentService {
     // fallback approver when an author's chain has no active manager) — seeded SUPER_ADMIN-only
     // (V238), exactly the role this service used to check by code.
     private static final String CONTENT_APPROVE = "hr_help_content:APPROVE:ALL";
+    // A resolved approver (the author's manager) also needs this permission (V271: MANAGER, HR_ADMIN) —
+    // being the author's manager alone grants nothing. APPROVE:ALL holders cover it.
+    private static final String CONTENT_APPROVE_TEAM = "hr_help_content:APPROVE:TEAM";
     // A DRAFT hasn't been through approval yet, so there's nothing worth retaining via archive —
     // Delete is the only retirement path. PENDING_APPROVAL is fully locked (withdraw first).
     private static final Set<String> ARCHIVABLE_STATUSES = Set.of("APPROVED", "PUBLISHED", "UNPUBLISHED");
@@ -734,7 +737,10 @@ public class HelpContentService {
                     .orElse(null);
             if (managerId == null) break;
             User candidate = userRepo.findById(managerId).orElse(null);
-            if (candidate != null && candidate.isActive() && candidate.getDeletedAt() == null) {
+            // Skip managers who could not actually decide it (no approval permission): routing to them
+            // would strand the submission; the chain continues upward, then the ALL-holder fallback.
+            if (candidate != null && candidate.isActive() && candidate.getDeletedAt() == null
+                    && effectivePermissionService.hasAuthority(candidate, CONTENT_APPROVE_TEAM)) {
                 return managerId;
             }
             current = managerId;
@@ -755,8 +761,10 @@ public class HelpContentService {
         if (actor.getId().equals(attempt.getSubmittedBy())) {
             throw new AccessDeniedException("You cannot approve or reject your own submission");
         }
-        if (actor.getId().equals(attempt.getApproverId())) return;
         if (hasApprovalAuthority(actor)) return;
+        // Permission AND eligibility: the resolved approver must also hold the approval permission.
+        if (actor.getId().equals(attempt.getApproverId())
+                && effectivePermissionService.hasAuthority(actor, CONTENT_APPROVE_TEAM)) return;
         throw new AccessDeniedException("You are not authorized to decide this approval request");
     }
 
@@ -772,6 +780,9 @@ public class HelpContentService {
     @Transactional(readOnly = true)
     public List<ApprovalAttemptDto> listPendingApprovalsForApprover(String actorEmail) {
         User actor = requireUser(actorEmail);
+        if (!hasApprovalAuthority(actor) && !effectivePermissionService.hasAuthority(actor, CONTENT_APPROVE_TEAM)) {
+            throw new AccessDeniedException("Missing " + CONTENT_APPROVE_TEAM);
+        }
         List<HelpContentApproval> attempts = hasApprovalAuthority(actor)
                 ? approvalRepo.findByStatus("PENDING")
                 : approvalRepo.findByApproverIdAndStatus(actor.getId(), "PENDING");

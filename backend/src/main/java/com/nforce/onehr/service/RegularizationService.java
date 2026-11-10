@@ -516,8 +516,11 @@ public class RegularizationService {
     @Transactional(readOnly = true)
     public List<RegularizationResponse> getHistoryForManager(String managerEmail, UUID employeeUserId, LocalDate attendanceDate) {
         User actor = requireActor(managerEmail);
+        // Permission AND eligibility: ALL sees anyone; otherwise regularization:VIEW:TEAM is
+        // required on top of the reporting line (a reporting line alone grants nothing).
         if (!effectivePermissionService.hasAuthority(actor, "regularization:VIEW:ALL")
-                && !historyRepository.findCurrentDirectReportIds(actor.getId()).contains(employeeUserId)) {
+                && !(effectivePermissionService.hasAuthority(actor, "regularization:VIEW:TEAM")
+                        && historyRepository.findCurrentDirectReportIds(actor.getId()).contains(employeeUserId))) {
             throw new AccessDeniedException("You can only view regularization history for your direct reports");
         }
         return toResponses(regularizationRepository.findByEmployeeUserIdAndAttendanceDateOrderByCreatedAtDesc(employeeUserId, attendanceDate));
@@ -901,7 +904,7 @@ public class RegularizationService {
      * branches produced for the system roles.
      */
     private static String actingRoleLabel(User actor) {
-        return RoleUtils.primaryRoleCode(actor.getRoles().stream()
+        return RoleUtils.labelRoleCode(actor.getRoles().stream()
                 .filter(r -> !"EMPLOYEE".equals(r.getCode())).toList(), "EMPLOYEE");
     }
 

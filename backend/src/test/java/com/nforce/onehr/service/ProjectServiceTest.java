@@ -44,6 +44,12 @@ class ProjectServiceTest {
     @Mock private DepartmentRepository departmentRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private UserRepository userRepository;
+    // The REAL permission matrix from the migrations, plus test-only custom roles.
+    private final com.nforce.onehr.security.EffectivePermissionService effectivePermissionService =
+            com.nforce.onehr.security.SeedMatrix.permissionService(java.util.Map.of(
+                    "CUSTOM_PROJECT_LEAD", java.util.Map.of("projects:VIEW", "TEAM"),
+                    "CUSTOM_PROJECT_ADMIN", java.util.Map.of("projects:VIEW", "ALL"),
+                    "CUSTOM_ROLES_ONLY", java.util.Map.of("roles:VIEW", "ALL")));
 
     private ProjectService service;
 
@@ -54,7 +60,7 @@ class ProjectServiceTest {
     @BeforeEach
     void setUp() {
         service = new ProjectService(projectRepository, clientRepository, departmentRepository,
-                employeeRepository, userRepository);
+                employeeRepository, userRepository, effectivePermissionService);
         lenient().when(projectRepository.save(any())).thenAnswer(inv -> {
             Project p = inv.getArgument(0);
             if (p.getId() == null) p.setId(UUID.randomUUID());
@@ -161,6 +167,37 @@ class ProjectServiceTest {
 
         assertThrows(IllegalArgumentException.class, () -> service.create(req));
         verify(projectRepository, never()).save(any());
+    }
+
+    @Test
+    void create_acceptsAnOwnerWithProjectResponsibility_evenWithoutTheManagerRole() {
+        ProjectRequest req = request("PHX");
+        req.setOwnerEmployeeId(managerId);
+        when(employeeRepository.findById(managerId)).thenReturn(Optional.of(employeeWithRole(managerId, "CUSTOM_PROJECT_LEAD")));
+        when(employeeRepository.findAllById(any())).thenReturn(List.of(employeeWithRole(managerId, "CUSTOM_PROJECT_LEAD")));
+
+        assertEquals("PHX", service.create(req).getCode());
+    }
+
+    @Test
+    void create_rejectsAnOwnerWhoseRolesGrantNoProjectResponsibility() {
+        ProjectRequest req = request("PHX");
+        req.setOwnerEmployeeId(managerId);
+        when(employeeRepository.findById(managerId)).thenReturn(Optional.of(employeeWithRole(managerId, "CUSTOM_ROLES_ONLY")));
+
+        assertThrows(IllegalArgumentException.class, () -> service.create(req));
+        verify(projectRepository, never()).save(any());
+    }
+
+    @Test
+    void list_customRoleWithViewAll_seesEveryProject_likeHrAdmin() {
+        when(userRepository.findByEmail("custom_project_admin@test.com"))
+                .thenReturn(Optional.of(user(UUID.randomUUID(), "CUSTOM_PROJECT_ADMIN")));
+        when(projectRepository.findAllByOrderByNameAsc()).thenReturn(List.of(
+                Project.builder().id(UUID.randomUUID()).code("A").name("A").build()));
+
+        assertEquals(1, service.list("custom_project_admin@test.com").size());
+        verify(projectRepository, never()).findByOwnerEmployeeIdOrderByNameAsc(any());
     }
 
     @Test

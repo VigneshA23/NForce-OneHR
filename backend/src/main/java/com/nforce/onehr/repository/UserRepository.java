@@ -71,18 +71,37 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("SELECT DISTINCT u FROM User u LEFT JOIN FETCH u.roles WHERE u.id IN :ids")
     List<User> findAllByIdWithRoles(@Param("ids") Collection<UUID> ids);
 
-    // Exception Dashboard subjects: accounts holding EMPLOYEE and none of
-    // MANAGER/HR_ADMIN/SUPER_ADMIN. A plain "holds EMPLOYEE" whitelist isn't enough —
-    // some accounts (e.g. an HR Admin or Manager also granted EMPLOYEE so they can
-    // punch in/out themselves) hold EMPLOYEE alongside an admin/manager role, and must
-    // still never appear as exception subjects, company-wide or as a direct report.
+    // Attendance-policy subjects (Exception Dashboard, penalties): ordinary employees only —
+    // accounts that hold none of MANAGER/HR_ADMIN/SUPER_ADMIN AND currently manage nobody. The
+    // "manages nobody" half preserves today's behaviour for people who used to carry an
+    // automatically granted MANAGER role (that role is no longer granted automatically), and the
+    // whole rule is a business policy about who the attendance rules apply to — it deliberately no
+    // longer depends on holding an EMPLOYEE role row (baseline access never did).
     @Query("""
-            SELECT DISTINCT u.id FROM User u JOIN u.roles r WHERE r.code = 'EMPLOYEE' AND u.deletedAt IS NULL
+            SELECT u.id FROM User u WHERE u.deletedAt IS NULL
             AND u.id NOT IN (
                 SELECT u2.id FROM User u2 JOIN u2.roles r2 WHERE r2.code IN ('MANAGER', 'HR_ADMIN', 'SUPER_ADMIN')
             )
+            AND u.id NOT IN (
+                SELECT h.managerUserId FROM EmployeeManagerHistory h JOIN User e ON e.id = h.employeeUserId
+                WHERE h.effectiveTo IS NULL AND e.deletedAt IS NULL
+            )
             """)
-    Set<UUID> findEmployeeRoleUserIds();
+    Set<UUID> findAttendancePolicySubjectIds();
+
+    // Members of the default "Employee" category: live accounts with no assigned role other than
+    // the baseline EMPLOYEE (which may or may not exist as a legacy user_roles row).
+    @Query("""
+            SELECT u FROM User u WHERE u.deletedAt IS NULL
+            AND NOT EXISTS (SELECT 1 FROM User u2 JOIN u2.roles r WHERE u2.id = u.id AND r.code <> 'EMPLOYEE')
+            """)
+    List<User> findUsersWithoutAssignedRole();
+
+    @Query("""
+            SELECT COUNT(u) FROM User u WHERE u.deletedAt IS NULL
+            AND NOT EXISTS (SELECT 1 FROM User u2 JOIN u2.roles r WHERE u2.id = u.id AND r.code <> 'EMPLOYEE')
+            """)
+    long countUsersWithoutAssignedRole();
 
     // [roleId, holderCount] for every role, excluding soft-deleted accounts — Roles overview's
     // "Assigned users" column in one query instead of one per role.

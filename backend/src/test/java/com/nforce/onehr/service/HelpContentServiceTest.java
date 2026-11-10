@@ -58,6 +58,7 @@ class HelpContentServiceTest {
             "CUSTOM_CONTENT_APPROVER", java.util.Map.of("hr_help_content:APPROVE", "ALL"),
             "CUSTOM_CONTENT_EDIT_APPROVER", java.util.Map.of("hr_help_content:EDIT", "ALL", "hr_help_content:APPROVE", "ALL"),
             "CUSTOM_CONTENT_VIEWER", java.util.Map.of("hr_help_content:VIEW", "ALL"),
+            "CUSTOM_TEAM_APPROVER", java.util.Map.of("hr_help_content:APPROVE", "TEAM"),
             "CUSTOM_OTHER", java.util.Map.of("helpdesk:VIEW", "ALL")));
     @InjectMocks private HelpContentService service;
 
@@ -1412,11 +1413,13 @@ class HelpContentServiceTest {
     // ── Permission-based checks: custom roles behave like the seeded holders ─────
 
     @Test
-    void seed_fallbackApprovalAuthority_isHeldBySuperAdminOnly() {
+    void seed_fallbackApprovalAuthority_isHeldBySuperAdminOnly_whileTeamApprovalIsManagerAndHrAdmin() {
+        // The blanket fallback (APPROVE:ALL) is Super Admin only...
         assertEquals("ALL", SeedMatrix.grants("SUPER_ADMIN").get("hr_help_content:APPROVE"));
-        for (String code : List.of("EMPLOYEE", "MANAGER", "HR_ADMIN")) {
-            assertNull(SeedMatrix.grants(code).get("hr_help_content:APPROVE"), code);
-        }
+        // ...a resolved approver (the author's manager) needs APPROVE:TEAM (V271): Manager + HR Admin.
+        assertEquals("TEAM", SeedMatrix.grants("MANAGER").get("hr_help_content:APPROVE"));
+        assertEquals("TEAM", SeedMatrix.grants("HR_ADMIN").get("hr_help_content:APPROVE"));
+        assertNull(SeedMatrix.grants("EMPLOYEE").get("hr_help_content:APPROVE"));
     }
 
     @Test
@@ -1518,14 +1521,55 @@ class HelpContentServiceTest {
     }
 
     @Test
-    void listPendingApprovals_forCustomRoleWithoutApprovePermission_seesOnlyOwnAttempts() {
+    void listPendingApprovals_withoutAnyApprovePermission_isDenied_noQueueAtAll() {
         User other = customUser("CUSTOM_OTHER");
         when(userRepo.findByEmail(other.getEmail())).thenReturn(Optional.of(other));
-        when(approvalRepo.findByApproverIdAndStatus(other.getId(), "PENDING")).thenReturn(List.of());
 
-        service.listPendingApprovalsForApprover(other.getEmail());
+        assertThrows(AccessDeniedException.class, () -> service.listPendingApprovalsForApprover(other.getEmail()));
 
         verify(approvalRepo, never()).findByStatus(any());
+        verify(approvalRepo, never()).findByApproverIdAndStatus(any(), any());
+    }
+
+    @Test
+    void listPendingApprovals_forTeamApprover_seesOnlyAttemptsResolvedToThem() {
+        User teamApprover = customUser("CUSTOM_TEAM_APPROVER");
+        when(userRepo.findByEmail(teamApprover.getEmail())).thenReturn(Optional.of(teamApprover));
+        when(approvalRepo.findByApproverIdAndStatus(teamApprover.getId(), "PENDING")).thenReturn(List.of());
+
+        service.listPendingApprovalsForApprover(teamApprover.getEmail());
+
+        verify(approvalRepo, never()).findByStatus(any());
+    }
+
+    @Test
+    void approve_byResolvedApproverWithTeamPermission_isAllowed_withoutTheManagerRole() {
+        User teamApprover = customUser("CUSTOM_TEAM_APPROVER");
+        HelpContent content = faq();
+        HelpContentApproval attempt = HelpContentApproval.builder().id(UUID.randomUUID())
+                .contentId(content.getId()).approverId(teamApprover.getId()).submittedBy(hrAdminId)
+                .status("PENDING").attemptNumber(1).snapshotTitle(content.getTitle()).build();
+        when(userRepo.findByEmail(teamApprover.getEmail())).thenReturn(Optional.of(teamApprover));
+        when(approvalRepo.findById(attempt.getId())).thenReturn(Optional.of(attempt));
+        when(repo.findById(content.getId())).thenReturn(Optional.of(content));
+
+        assertEquals("APPROVED", service.approveAttempt(attempt.getId(), teamApprover.getEmail()).getStatus());
+    }
+
+    @Test
+    void approve_byResolvedApproverWithoutThePermission_isDenied_theReportingLineAloneIsNotEnough() {
+        User noPermission = customUser("CUSTOM_OTHER");
+        HelpContent content = faq();
+        HelpContentApproval attempt = HelpContentApproval.builder().id(UUID.randomUUID())
+                .contentId(content.getId()).approverId(noPermission.getId()).submittedBy(hrAdminId)
+                .status("PENDING").attemptNumber(1).snapshotTitle(content.getTitle()).build();
+        when(userRepo.findByEmail(noPermission.getEmail())).thenReturn(Optional.of(noPermission));
+        when(approvalRepo.findById(attempt.getId())).thenReturn(Optional.of(attempt));
+
+        assertThrows(AccessDeniedException.class, () -> service.approveAttempt(attempt.getId(), noPermission.getEmail()));
+        RejectRequest req = new RejectRequest();
+        req.setReason("no");
+        assertThrows(AccessDeniedException.class, () -> service.rejectAttempt(attempt.getId(), req, noPermission.getEmail()));
     }
 
     @Test

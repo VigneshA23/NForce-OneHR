@@ -131,6 +131,19 @@ public class EffectivePermissionService {
     }
 
     /**
+     * The explicit organisational responsibility that makes a user eligible to be selected as
+     * someone's reporting manager: team-level visibility of employees. Seeded to MANAGER (V268);
+     * HR Admin/Super Admin hold it through {@code employees:VIEW:ALL}; a custom role may be granted
+     * it. A reporting line itself never grants any permission — this is eligibility only.
+     */
+    public static final String REPORTING_MANAGER_AUTHORITY = "employees:VIEW:TEAM";
+
+    @Transactional(readOnly = true)
+    public boolean isEligibleReportingManager(User user) {
+        return hasAuthority(user, REPORTING_MANAGER_AUTHORITY);
+    }
+
+    /**
      * Ids of every ACTIVE, non-deleted user whose active roles grant module:ACTION at (at least)
      * {@code scope} — the permission-based replacement for "find all HR_ADMIN/SUPER_ADMIN users"
      * when picking eligible approvers/assignees, so a custom role holding the permission qualifies.

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { ShieldAlert } from 'lucide-react';
+import { hasPermission } from '../lib/permissions';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { exceptionsApi, type ExceptionRecord } from '../api/exceptions';
@@ -60,7 +61,7 @@ function ExceptionTypeBadge({ type }: { type: string }) {
 
 export default function ExceptionDashboardPage() {
   const token = useAuthStore(s => s.token)!;
-  const role = useAuthStore(s => s.user?.role);
+  const permissions = useAuthStore(s => s.permissions);
   const { showToast } = useToast();
   const [from, setFrom] = useState(daysAgoIso(6));
   const [to, setTo] = useState(todayIso());
@@ -70,7 +71,8 @@ export default function ExceptionDashboardPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
 
-  const isHrOrSuperAdmin = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  // Company-wide vs team scope is decided by the permission the endpoint resolves it from — no role code.
+  const isHrOrSuperAdmin = hasPermission(permissions, 'exceptions', 'VIEW', 'ALL');
   const subtitle = isHrOrSuperAdmin
     ? 'Company-wide attendance exceptions.'
     : 'Your team’s attendance exceptions.';

@@ -28,8 +28,8 @@ import static org.mockito.Mockito.*;
 /**
  * Which module queues the Approval Center fetches for a caller: by APPROVE permission per module
  * (the old Manager/HR/Super Admin gate for system roles), so a custom role sees exactly the
- * modules it was granted (assets via V242's assets:APPROVE). FAQs & Guides stay on the role gate —
- * that approval follows the author's manager chain.
+ * modules it was granted (assets via V242's assets:APPROVE). FAQs & Guides follow the author's manager
+ * chain but, like every other queue, need the permission (hr_help_content:APPROVE:TEAM, V271) — no role code.
  */
 @ExtendWith(MockitoExtension.class)
 class ApprovalCenterServiceTest {
@@ -49,7 +49,8 @@ class ApprovalCenterServiceTest {
             "CUSTOM_EXPENSE_TEAM", Map.of("expenses:APPROVE", "TEAM"),
             "CUSTOM_EXPENSE_ALL", Map.of("expenses:APPROVE", "ALL"),
             "CUSTOM_NOTHING", Map.of("leave:VIEW", "ALL"),
-            "CUSTOM_ASSET_TEAM", Map.of("assets:APPROVE", "TEAM")));
+            "CUSTOM_ASSET_TEAM", Map.of("assets:APPROVE", "TEAM"),
+            "CUSTOM_CONTENT_TEAM", Map.of("hr_help_content:APPROVE", "TEAM")));
 
     @InjectMocks private ApprovalCenterService service;
 
@@ -77,6 +78,18 @@ class ApprovalCenterServiceTest {
         assertTrue(service.pendingApprovals(EMAIL).isEmpty());
         verifyModuleQueues(false, false, false, false);
         verifyNoInteractions(expenseService, assetService, helpContentService);
+    }
+
+    @Test
+    void helpContentQueue_isPermissionDriven_customTeamApproverYes_rolesOnlyNo_noRoleCodeInvolved() {
+        actorWith("CUSTOM_CONTENT_TEAM");
+        service.pendingApprovals(EMAIL);
+        verify(helpContentService).listPendingApprovalsForApprover(EMAIL);
+
+        clearInvocations(helpContentService);
+        actorWith("CUSTOM_NOTHING");
+        service.pendingApprovals(EMAIL);
+        verifyNoInteractions(helpContentService);
     }
 
     @Test

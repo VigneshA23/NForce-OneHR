@@ -38,7 +38,6 @@ public class UserManagementService {
     private final RoleRepository roleRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
-    private final ManagerRoleSyncService managerRoleSyncService;
     private final BusinessUnitRepository businessUnitRepository;
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
@@ -88,6 +87,8 @@ public class UserManagementService {
         // Creating an account with a role IS assigning that role - same guard as Manage Roles, so
         // user_management:CREATE alone can never mint a Super Admin.
         validateRoleChange(actor, null, Set.of(), initialRoles);
+        // Up front, before the employee code sequence is consumed or anything is saved.
+        if (req.getManagerId() != null) requireEligibleReportingManager(req.getManagerId());
 
         String tempPassword = generateTempPassword();
         User newUser = User.builder()
@@ -193,12 +194,13 @@ public class UserManagementService {
 
         if (req.getManagerId() != null) {
             validateNoCycle(newUser.getId(), req.getManagerId());
+            // Assigning a reporting manager only records the reporting line — it never grants or
+            // changes any role or permission (manager access is assigned explicitly).
             historyRepository.save(EmployeeManagerHistory.builder()
                     .employeeUserId(newUser.getId())
                     .managerUserId(req.getManagerId())
                     .changedBy(actor.getId())
                     .build());
-            managerRoleSyncService.grantIfNewManager(req.getManagerId(), actor.getId());
         }
 
         auditService.log(actor.getId(), "USER_CREATED", newUser.getId());
@@ -211,16 +213,15 @@ public class UserManagementService {
     }
 
     /**
-     * Every Phase 1 role is staff first — everyone gets the base EMPLOYEE role alongside
-     * whatever admin role they're assigned, so self-service features (attendance punch, leave,
-     * etc.) work for them too, Super Admin included. (V111/V115 previously stripped this from
-     * Super Admin and back; V116 restores it again.)
+     * The role set implied by picking a primary role in User Management. Every account is staff
+     * first, but that baseline (self-service attendance punch, leave, etc.) is not a role: it needs
+     * no EMPLOYEE row, so Super Admin/HR Admin/Manager are never also placed in the Employee list.
+     * Picking EMPLOYEE simply means "no administrative role" and yields an empty set.
      */
     private Set<Role> rolesFor(Role assignedRole) {
         Set<Role> roles = new HashSet<>();
-        roles.add(assignedRole);
         if (!"EMPLOYEE".equals(assignedRole.getCode())) {
-            roleRepository.findByCode("EMPLOYEE").ifPresent(roles::add);
+            roles.add(assignedRole);
         }
         return roles;
     }
@@ -264,7 +265,7 @@ public class UserManagementService {
         User target = emp.getUser();
         assertCanManage(actor, target);
         String before = auditSnapshot.toJson(userSnapshot(emp, target));
-        String currentRole = RoleUtils.primaryRoleCode(target.getRoles(), null);
+        String currentRole = RoleUtils.primaryRoleCode(target.getRoles(), "EMPLOYEE");
         UUID currentManagerId = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(userId)
                 .map(EmployeeManagerHistory::getManagerUserId)
                 .orElse(null);
@@ -446,11 +447,6 @@ public class UserManagementService {
                 Set<Role> next = target.getRoles().stream().filter(r -> !r.isSystem())
                         .collect(Collectors.toCollection(HashSet::new));
                 next.addAll(rolesFor(newRole));
-                // An auto-granted MANAGER status (see ManagerRoleAutoGrant) reflects live
-                // reporting lines, not this primary-role choice — kept in the replacement set so
-                // changing someone's role never silently drops a status they still hold by
-                // virtue of actually having direct reports.
-                managerRoleSyncService.restoreIfAutoGranted(target.getId(), next);
                 validateRoleChange(actor, target, target.getRoles(), next);
                 target.getRoles().clear();
                 target.getRoles().addAll(next);
@@ -468,19 +464,14 @@ public class UserManagementService {
         if (req.getManagerId() != null) {
             if (!Objects.equals(currentManagerId, req.getManagerId())) {
                 validateNoCycle(userId, req.getManagerId());
+                requireEligibleReportingManager(req.getManagerId());
                 historyRepository.closeCurrentEntry(userId, LocalDateTime.now());
                 historyRepository.save(EmployeeManagerHistory.builder()
                         .employeeUserId(userId)
                         .managerUserId(req.getManagerId())
                         .changedBy(actor.getId())
                         .build());
-                // The old manager may have just dropped to zero direct reports (revoke-candidate,
-                // only acted on if their MANAGER role was itself auto-granted); the new manager
-                // may have just gained their first (grant-candidate, no-op if already a manager).
-                if (currentManagerId != null) {
-                    managerRoleSyncService.revokeIfNoLongerManager(currentManagerId, actor.getId());
-                }
-                managerRoleSyncService.grantIfNewManager(req.getManagerId(), actor.getId());
+                // Reporting-line change only: roles and permissions are never touched here.
                 forceLogoutRequired = true;
                 managerChanged = true;
             }
@@ -500,7 +491,7 @@ public class UserManagementService {
         if (roleChanged) {
             notificationService.send(target.getId(), "ACCOUNT",
                     "Role Updated",
-                    "Your role has been updated to " + RoleUtils.primaryRoleCode(target.getRoles(), "").replace("_", " ") + ".",
+                    "Your role has been updated to " + RoleUtils.primaryRoleCode(target.getRoles(), "EMPLOYEE").replace("_", " ") + ".",
                     "/profile");
         }
         if (managerChanged) {
@@ -591,7 +582,7 @@ public class UserManagementService {
         snapshot.put("designation", emp.getDesignation() != null ? emp.getDesignation().getTitle() : null);
         snapshot.put("location", emp.getLocation() != null ? emp.getLocation().getName() : null);
         snapshot.put("shift", emp.getShift() != null ? emp.getShift().getName() : null);
-        snapshot.put("role", RoleUtils.primaryRoleCode(user.getRoles(), null));
+        snapshot.put("role", RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE"));
         UUID managerId = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(emp.getUserId())
                 .map(EmployeeManagerHistory::getManagerUserId).orElse(null);
         snapshot.put("manager", resolveEmployeeName(managerId));
@@ -723,18 +714,11 @@ public class UserManagementService {
         target.setDeletedAt(Instant.now());
         target.setActive(false);
         userRepository.save(target);
-        // Captured before closing below — once closed this row is no longer "current", so this
-        // is the only chance to know whose direct-report count may have just dropped to zero.
-        UUID formerManagerId = historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(userId)
-                .map(EmployeeManagerHistory::getManagerUserId).orElse(null);
         // Close out the employee's open manager-history row so they immediately stop being
         // anyone's "current" direct report/peer — without this, every screen that resolves a
         // manager's team via findCurrentDirectReportIds/findCurrentPeerIds keeps surfacing the
         // deleted user forever, since a soft delete otherwise never touches this table.
         historyRepository.closeCurrentEntry(userId, LocalDateTime.now());
-        if (formerManagerId != null) {
-            managerRoleSyncService.revokeIfNoLongerManager(formerManagerId, actor.getId());
-        }
         String after = auditSnapshot.toJson(Map.of("deletedAt", target.getDeletedAt().toString(), "active", false));
         auditService.log(actor.getId(), "USER_SOFT_DELETED", userId, before, after);
     }
@@ -813,11 +797,11 @@ public class UserManagementService {
     public RoleDtos.UserRolesResponse getUserRoles(UUID userId) {
         User user = userRepository.findById(userId).filter(u -> u.getDeletedAt() == null)
                 .orElseThrow(() -> new NoSuchElementException("User not found"));
-        boolean autoManager = managerRoleSyncService.isAutoGranted(userId);
         List<RoleDtos.RoleRef> roles = user.getRoles().stream()
+                .filter(r -> !"EMPLOYEE".equals(r.getCode()))
                 .sorted(Comparator.comparing(Role::getDisplayName))
-                .map(r -> new RoleDtos.RoleRef(r.getId(), r.getCode(), r.getDisplayName(), r.isSystem(), r.isActive(),
-                        autoManager && "MANAGER".equals(r.getCode())))
+                // autoGranted is kept for API compatibility only: MANAGER is no longer granted automatically.
+                .map(r -> new RoleDtos.RoleRef(r.getId(), r.getCode(), r.getDisplayName(), r.isSystem(), r.isActive(), false))
                 .toList();
         List<RoleDtos.EffectiveGrant> effective = effectivePermissionService.effectiveGrantsWithSources(user.getRoles()).stream()
                 .map(g -> new RoleDtos.EffectiveGrant(g.moduleCode(), g.moduleName(), g.action(), g.scope(), g.sources()))
@@ -827,9 +811,9 @@ public class UserManagementService {
     }
 
     /**
-     * Manage Roles: replaces the user's whole role set with {@code roleIds}. EMPLOYEE (the base role
-     * every account holds — see rolesFor) and an auto-granted MANAGER (follows live reporting lines)
-     * are always kept. Like any other role change, it ends the user's sessions so their client
+     * Manage Roles: replaces the user's whole role set with {@code roleIds}. Nothing is ever restored
+     * or added implicitly — no EMPLOYEE role, no Manager role — so a removed role stays removed. The
+     * default Employee category is derived (see RoleCategorization), not stored. Like any other role change, it ends the user's sessions so their client
      * reloads the new nav/permissions (backend authorization is re-resolved per request anyway).
      */
     @Transactional
@@ -842,11 +826,13 @@ public class UserManagementService {
             next.add(roleRepository.findById(roleId)
                     .orElseThrow(() -> new IllegalArgumentException("Unknown role: " + roleId)));
         }
-        roleRepository.findByCode("EMPLOYEE").ifPresent(next::add);
-        managerRoleSyncService.restoreIfAutoGranted(userId, next);
+        // EMPLOYEE is never assigned: it is the default category, not a role. A request that still
+        // names it (an older client) is simply ignored, and a legacy EMPLOYEE row on the user is
+        // not by itself a change.
+        next.removeIf(r -> "EMPLOYEE".equals(r.getCode()));
 
         Set<Role> current = new HashSet<>(target.getRoles());
-        if (next.equals(current)) return getUserRoles(userId);
+        if (withoutBaseline(next).equals(withoutBaseline(current))) return getUserRoles(userId);
         validateRoleChange(actor, target, current, next);
 
         target.getRoles().clear();
@@ -862,6 +848,10 @@ public class UserManagementService {
                 "Your roles have been updated by an administrator.", "/profile");
         forceLogoutAfterCommit(target.getId());
         return getUserRoles(userId);
+    }
+
+    private static Set<Role> withoutBaseline(Collection<Role> roles) {
+        return roles.stream().filter(r -> !"EMPLOYEE".equals(r.getCode())).collect(Collectors.toSet());
     }
 
     private static List<String> roleCodes(Collection<Role> roles) {
@@ -898,6 +888,23 @@ public class UserManagementService {
         }
     }
 
+    /**
+     * A reporting manager must hold an explicit organisational responsibility for a team — the
+     * employees:VIEW:TEAM permission (Manager; HR Admin/Super Admin via ALL; or any custom role
+     * granted it). A custom role that only administers Roles & Permissions does not qualify, and
+     * being assigned as someone's manager never grants the permission itself.
+     */
+    private void requireEligibleReportingManager(UUID managerId) {
+        User manager = userRepository.findById(managerId)
+                .orElseThrow(() -> new IllegalArgumentException("Selected manager not found"));
+        if (!effectivePermissionService.isEligibleReportingManager(manager)) {
+            throw new IllegalArgumentException(
+                    "This user can't be a reporting manager: none of their roles grants team responsibility "
+                            + "(" + EffectivePermissionService.REPORTING_MANAGER_AUTHORITY + "). "
+                            + "Assign them the Manager role, or grant that permission to a role they hold, first.");
+        }
+    }
+
     private EmployeeResponse.ManagerRef findCurrentManager(UUID employeeId) {
         return historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)
                 .flatMap(h -> userRepository.findById(h.getManagerUserId()))
@@ -924,7 +931,7 @@ public class UserManagementService {
      *                       that hasn't taken effect yet, exactly as it should read to an admin.
      */
     private EmployeeResponse toResponse(Employee emp, EmployeeResponse.ManagerRef manager, User user, String tempPassword, Shift effectiveShift) {
-        String role = RoleUtils.primaryRoleCode(user.getRoles(), "");
+        String role = RoleUtils.primaryRoleCode(user.getRoles(), "EMPLOYEE");
         return EmployeeResponse.builder()
                 .userId(emp.getUserId())
                 .employeeCode(emp.getEmployeeCode())
@@ -932,6 +939,7 @@ public class UserManagementService {
                 .email(user.getEmail())
                 .role(role)
                 .roleNames(user.getRoles().stream().map(Role::getDisplayName).filter(Objects::nonNull).sorted().toList())
+                .categories(com.nforce.onehr.util.RoleCategorization.categoriesOf(user.getRoles()))
                 .businessUnitId(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId().toString() : null)
                 .businessUnitName(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null)
                 .departmentId(emp.getDepartment() != null ? emp.getDepartment().getId().toString() : null)
