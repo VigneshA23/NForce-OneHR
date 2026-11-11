@@ -41,16 +41,19 @@ public class ProjectController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('projects:EDIT:ALL')")
     public ProjectResponse update(@PathVariable UUID id, @Valid @RequestBody ProjectRequest req) {
         return service.update(id, req);
     }
 
     @GetMapping("/clients")
+    @PreAuthorize("hasAuthority('projects:VIEW:TEAM')")
     public List<ClientResponse> clients() {
         return service.listClients();
     }
 
     @PostMapping("/clients")
+    @PreAuthorize("hasAuthority('projects:CREATE:ALL')")
     @ResponseStatus(HttpStatus.CREATED)
     public ClientResponse createClient(@Valid @RequestBody ClientRequest req) {
         return service.createClient(req);

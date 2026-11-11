@@ -16,6 +16,7 @@ import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { hasPermission } from '../lib/permissions';
+import { useCan } from '../lib/access';
 import { useToast } from '../context/ToastContext';
 import {
   orgApi, type BusinessUnitRow, type DepartmentRow, type DesignationRow, type LocationRow,
@@ -1406,6 +1407,7 @@ export default function OrgSetupPage() {
   // action at all, matching the "don't just hide the button" requirement by never being the
   // only line of defense.
   const canManageShifts = hasPermission(permissions, 'organization_shifts', 'EDIT', 'ALL');
+  const can = useCan();
 
   // Opens on the first tab (Business Units), same order as the tab bar.
   const [activeTab, setActiveTab] = useState<OrgTab>('businessunits');
@@ -1530,6 +1532,11 @@ export default function OrgSetupPage() {
     activeTab === 'doctypes' ? visibleDocTypes :
     activeTab === 'leavetypes' ? visibleLeaveTypes :
     visibleLocs;
+
+  // Add needs the tab's own permission: documents/leave CONFIGURE, organization CREATE for the masters.
+  const canAddRow = activeTab === 'doctypes' ? can('documents', 'CONFIGURE')
+    : activeTab === 'leavetypes' ? can('leave', 'CONFIGURE')
+    : can('organization', 'CREATE');
 
   function openAdd() {
     if (activeTab === 'doctypes') { setDocTypeModal(s => ({ open: true, key: s.key + 1 })); return; }
@@ -1692,7 +1699,7 @@ export default function OrgSetupPage() {
 
   function kebabItems(row: BusinessUnitRow | DepartmentRow | DesignationRow | LocationRow, label: string): KebabItem[] {
     const count = row.employeeCount;
-    return [
+    const items: KebabItem[] = [
       { label: 'Edit', onClick: () => openEdit(row) },
       {
         label: row.active ? 'Deactivate' : 'Reactivate',
@@ -1717,6 +1724,8 @@ export default function OrgSetupPage() {
         },
       },
     ];
+    // Edit / Deactivate need organization:EDIT, Delete needs organization:DELETE.
+    return items.filter(i => i.label === 'Delete' ? can('organization', 'DELETE') : can('organization', 'EDIT'));
   }
 
   return (
@@ -1811,6 +1820,7 @@ export default function OrgSetupPage() {
                 }}
               />
             </div>
+            {canAddRow && (
             <button onClick={openAdd} aria-label={tab.addLabel} style={{
               display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
               background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6,
@@ -1819,6 +1829,7 @@ export default function OrgSetupPage() {
               <Plus size={13} aria-hidden="true" />
               {tab.addLabel}
             </button>
+            )}
           </div>
         )}
         {/* Add Shift stays the primary top-right action (matching the approved reference), but
@@ -2002,6 +2013,7 @@ export default function OrgSetupPage() {
                       <>
                         <Icon size={32} aria-hidden="true" style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 12px' }} />
                         <div style={{ color: 'var(--txt-mut)', fontSize: 13, marginBottom: 14 }}>{tab.emptyLine}</div>
+                        {canAddRow && (
                         <button onClick={openAdd} style={{
                           display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px',
                           background: 'var(--raised)', color: 'var(--txt)', border: '1px solid var(--line2)',
@@ -2010,6 +2022,7 @@ export default function OrgSetupPage() {
                           <Plus size={12} aria-hidden="true" />
                           {tab.addLabel}
                         </button>
+                        )}
                       </>
                     )}
                   </td>
@@ -2101,11 +2114,11 @@ export default function OrgSetupPage() {
                     <td style={{ padding: '10px 16px' }}><CountBadge count={dt.usageCount} /></td>
                     <td style={{ padding: '10px 16px' }}><StatusBadge active={dt.active} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                      <KebabMenu items={[
+                      <KebabMenu items={can('documents', 'CONFIGURE') ? [
                         { label: 'Edit', onClick: () => openEditDocType(dt) },
                         { label: dt.active ? 'Deactivate' : 'Reactivate', onClick: () => triggerDocTypeToggle(dt), dividerBefore: true },
                         { label: 'Delete', danger: true, onClick: () => triggerDocTypeDelete(dt) },
-                      ]} />
+                      ] : []} />
                     </td>
                   </tr>
                 ))
@@ -2121,9 +2134,9 @@ export default function OrgSetupPage() {
                     <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{lt.code}</td>
                     <td style={{ padding: '10px 16px' }}><ClassificationBadge classification={lt.classification} /></td>
                     <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                      <KebabMenu items={[
+                      <KebabMenu items={can('leave', 'CONFIGURE') ? [
                         { label: 'Edit', onClick: () => openEditLeaveType(lt) },
-                      ]} />
+                      ] : []} />
                     </td>
                   </tr>
                 ))

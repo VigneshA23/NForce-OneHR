@@ -53,6 +53,23 @@ class SkillRequestServiceTest {
     }
 
     @Test
+    void approve_mapAndReject_ownRequestIsRefused() {
+        SkillRequest own = pendingRequest("Rust");
+        when(skillRequestRepo.findById(own.getId())).thenReturn(Optional.of(own));
+        when(userRepository.findByEmail("self@test.com"))
+                .thenReturn(Optional.of(User.builder().id(REQUESTER_ID).email("self@test.com").build()));
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.approve(own.getId(), "self@test.com"));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.mapToExisting(own.getId(), UUID.randomUUID(), "self@test.com"));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.reject(own.getId(), "self@test.com"));
+        assertEquals("Pending", own.getStatus());
+        verifyNoInteractions(skillMasterRepo);
+    }
+
+    @Test
     void submit_notifiesEveryActiveHrAdmin() {
         UUID hr1 = UUID.randomUUID();
         UUID hr2 = UUID.randomUUID();

@@ -320,6 +320,29 @@ class AttendanceRequestServiceTest {
     }
 
     @Test
+    void approve_andReject_ownRequestIsRefused_evenForTheOrgWideHolder() {
+        stubHrAdmin();
+        AttendanceRequest own = existing(LocalDate.of(2026, 8, 3), 2.0, "PENDING");
+        own.setEmployeeUserId(hrAdminId);
+        when(requestRepository.findById(own.getId())).thenReturn(java.util.Optional.of(own));
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.approve(own.getId(), "ok", hrAdminEmail));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.reject(own.getId(), "no", hrAdminEmail));
+        assertEquals("PENDING", own.getStatus());
+    }
+
+    @Test
+    void selectingYourselfAsApprover_isRefusedAtSubmit() {
+        CreateAttendanceRequest req = CreateAttendanceRequest.builder()
+                .requestType("WFH").requestDate(LocalDate.now().plusDays(10)).reason("test")
+                .managerUserId(employeeId).build();
+
+        assertThrows(IllegalArgumentException.class, () -> service.submit(req, employeeEmail));
+    }
+
+    @Test
     void approve_calledTwice_sendsNotificationOnlyOnce() {
         stubHrAdmin();
         AttendanceRequest pending = existing(LocalDate.of(2026, 8, 3), 2.0, "PENDING");

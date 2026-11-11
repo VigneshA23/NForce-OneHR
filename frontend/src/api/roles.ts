@@ -41,6 +41,31 @@ export interface RoleDetail { role: RoleSummary; grants: Grant[]; members: RoleM
 /** `configurable: false` = still governed by role-code logic on the server; shown read-only. */
 export interface CatalogueModule { code: string; name: string; configurable: boolean; actions: string[]; }
 
+/** An action of a permission node and the scope range the backend evaluates for it (OWN < TEAM < ALL). */
+export interface CatalogueAction { action: string; minScope: string; maxScope: string; }
+
+/**
+ * Module > Submodule > Section tree (GET /permissions/catalogue/tree). Only a leaf (non-empty `actions`)
+ * holds grants - parents are grouping; `configurable: false` = read-only in the editor; `sensitive` = HIGH impact.
+ */
+export interface CatalogueNode {
+  code: string;
+  name: string;
+  type: 'MODULE' | 'SUBMODULE' | 'SECTION';
+  description: string;
+  sensitive: boolean;
+  configurable: boolean;
+  actions: CatalogueAction[];
+  children: CatalogueNode[];
+}
+
+/** A Manager whose role was auto-granted before V269 and kept as explicit, listed for administrative review. */
+export interface ConvertedManager {
+  userId: string; fullName: string; email: string; employeeCode: string | null;
+  autoGrantedAt: string | null; holdsManagerNow: boolean;
+  directReportsAtConversion: number; directReportsNow: number; reviewedAt: string | null;
+}
+
 export interface RoleRef { id: number; code: string; name: string; system: boolean; active: boolean; /** @deprecated MANAGER is no longer granted automatically; always false. */ autoGranted?: boolean; }
 
 /** One audited change to a role; `added`/`removed` are "module:ACTION:SCOPE" strings (permission edits only). */
@@ -65,6 +90,15 @@ export const rolesApi = {
 
   catalogue: (token: string) =>
     fetch(`${BASE}/permissions/catalogue`, { headers: authHeaders(token) }).then(handle<CatalogueModule[]>),
+
+  catalogueTree: (token: string) =>
+    fetch(`${BASE}/permissions/catalogue/tree`, { headers: authHeaders(token) }).then(handle<CatalogueNode[]>),
+
+  convertedManagers: (token: string) =>
+    fetch(`${BASE}/roles/converted-managers`, { headers: authHeaders(token) }).then(handle<ConvertedManager[]>),
+
+  markConvertedManagerReviewed: (userId: string, token: string) =>
+    fetch(`${BASE}/roles/converted-managers/${userId}/reviewed`, { method: 'POST', headers: authHeaders(token) }).then(handle<null>),
 
   create: (payload: { name: string; description?: string; grants: Grant[] }, token: string) =>
     fetch(`${BASE}/roles`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<RoleDetail>),

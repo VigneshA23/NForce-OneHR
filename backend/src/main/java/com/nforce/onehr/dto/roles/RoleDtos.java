@@ -68,6 +68,21 @@ public final class RoleDtos {
     /** @param configurable see modules.custom_role_ready (V232) — false means read-only in the editor. */
     public record CatalogueModule(String code, String name, boolean configurable, List<String> actions) {}
 
+    /** One action of a permission node and the scope range the backend evaluates for it (OWN < TEAM < ALL). */
+    public record CatalogueAction(String action, String minScope, String maxScope) {}
+
+    /**
+     * A node of the Module > Submodule > Section tree. Only a leaf (non-empty {@code actions}) can hold grants;
+     * {@code configurable} is false when the leaf is read-only in the editor (modules.custom_role_ready).
+     */
+    public record CatalogueNode(String code, String name, String type, String description, boolean sensitive,
+                                boolean configurable, List<CatalogueAction> actions, List<CatalogueNode> children) {}
+
+    /** One person whose MANAGER role was auto-granted before V269 and kept as an explicit assignment. */
+    public record ConvertedManager(UUID userId, String fullName, String email, String employeeCode,
+                                   LocalDateTime autoGrantedAt, boolean holdsManagerNow,
+                                   long directReportsAtConversion, long directReportsNow, LocalDateTime reviewedAt) {}
+
     public record RoleRef(Integer id, String code, String name, boolean system, boolean active,
                           boolean autoGranted) {}
 

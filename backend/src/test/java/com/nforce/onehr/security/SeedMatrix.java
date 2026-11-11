@@ -40,9 +40,15 @@ public final class SeedMatrix {
     private static final List<String> SYSTEM = List.of("EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN");
 
     /** role code -> "module:ACTION" -> scope */
-    private static final Map<String, Map<String, String>> MATRIX = load();
+    private static final Set<String> REGISTERED = new TreeSet<>();
+    private static final Map<String, Map<String, String>> MATRIX = load(Integer.MAX_VALUE, REGISTERED);
 
     private SeedMatrix() {}
+
+    /** Every registered "module:ACTION" pair, i.e. every permission any migration has seeded. */
+    public static Set<String> registeredPermissions() {
+        return REGISTERED;
+    }
 
     /** A system role exactly as seeded (EMPLOYEE=1, MANAGER=2, HR_ADMIN=3, SUPER_ADMIN=4). */
     public static Role role(String code) {
@@ -85,11 +91,18 @@ public final class SeedMatrix {
         return permissionService(Map.of());
     }
 
-    private static Map<String, Map<String, String>> load() {
+    /**
+     * The default matrix exactly as the migrations up to and including {@code maxVersion} left it, for
+     * "this migration changed nobody's access except what it says" tests. Same parsing as production tests use.
+     */
+    public static Map<String, Map<String, String>> asOfVersion(int maxVersion) {
+        return load(maxVersion, new TreeSet<>());
+    }
+
+    private static Map<String, Map<String, String>> load(int maxVersion, Set<String> registered) {
         Map<String, Map<String, String>> matrix = new HashMap<>();
-        Set<String> registered = new TreeSet<>();
         try (Stream<Path> files = Files.list(MIGRATIONS)) {
-            for (Path f : files.sorted(Comparator.comparingInt(SeedMatrix::version)).toList()) {
+            for (Path f : files.filter(p -> version(p) <= maxVersion).sorted(Comparator.comparingInt(SeedMatrix::version)).toList()) {
                 String sql = Files.readString(f);
                 Matcher g = GRANT.matcher(sql);
                 while (g.find()) {
@@ -109,7 +122,8 @@ public final class SeedMatrix {
     }
 
     private static int version(Path f) {
-        Matcher m = Pattern.compile("^V(\\d+)__").matcher(f.getFileName().toString());
+        // V248_1 is Flyway version 248.1 — treated as 248 here (it only needs to sort with its siblings).
+        Matcher m = Pattern.compile("^V(\\d+)(?:_\\d+)?__").matcher(f.getFileName().toString());
         return m.find() ? Integer.parseInt(m.group(1)) : Integer.MAX_VALUE;
     }
 }

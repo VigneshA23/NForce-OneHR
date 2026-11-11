@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ActionDock } from '../../components/ActionDock';
+import { ActionDock, type DockItem } from '../../components/ActionDock';
 import { Copy, Pencil, Power, Trash2, Plus, X, Star, PowerOff } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
+import { useCan } from '../../lib/access';
 import { penalisationPoliciesApi, type PenalisationPolicySummary, type PenalizationFallbackStrategy } from '../../api/penalisationPolicies';
 import { usePaged } from '../../components/usePaged';
 import { TablePagination } from '../../components/TablePagination';
@@ -204,6 +205,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
   /** Navigates to the Penalization Policy Allocation sub-tab with this policy pre-selected as the filter. */
   onViewAllocations?: (policyId: string) => void;
 }) {
+  const can = useCan();
   const { showToast } = useToast();
   const [policies, setPolicies] = useState<PenalisationPolicySummary[]>([]);
   const policiesPaged = usePaged(policies);
@@ -284,6 +286,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
         </div>
       )}
 
+      {can('penalization', 'CREATE') && (
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <button type="button" onClick={() => setCreating(true)} style={{
           display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--brand)',
@@ -292,6 +295,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
           <Plus size={14} /> New Policy
         </button>
       </div>
+      )}
 
       <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -333,7 +337,7 @@ export default function PolicyListSection({ token, onViewAllocations }: {
                 <td style={{ padding: '10px 14px', color: 'var(--txt-mut)' }}>{fmtDate(p.effectiveFrom)}</td>
                 <td style={{ padding: '10px 14px' }}>
                   <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-start' }}>
-                    {(() => {
+                    {can('penalization', 'EDIT') && (() => {
                       const isBusy = settingDefaultId === p.id;
                       const canSetDefault = p.status === 'ACTIVE' && !p.orgDefault && !isBusy;
                       const label = p.orgDefault ? `${p.name} is already the organization default`
@@ -356,11 +360,11 @@ export default function PolicyListSection({ token, onViewAllocations }: {
                       );
                     })()}
                     <ActionDock items={[
-                      { label: 'Edit', icon: Pencil, onClick: () => setEditing(p) },
-                      { label: 'Clone', icon: Copy, onClick: () => setCloning(p) },
-                      { label: p.status === 'ACTIVE' ? 'Deactivate' : 'Activate', icon: p.status === 'ACTIVE' ? PowerOff : Power, onClick: () => handleToggleActive(p), disabled: togglingId === p.id },
-                      { label: 'Delete', icon: Trash2, onClick: () => setDeleting(p), danger: true },
-                    ]} />
+                      can('penalization', 'EDIT') && { label: 'Edit', icon: Pencil, onClick: () => setEditing(p) },
+                      can('penalization', 'CREATE') && { label: 'Clone', icon: Copy, onClick: () => setCloning(p) },
+                      can('penalization', 'EDIT') && { label: p.status === 'ACTIVE' ? 'Deactivate' : 'Activate', icon: p.status === 'ACTIVE' ? PowerOff : Power, onClick: () => handleToggleActive(p), disabled: togglingId === p.id },
+                      can('penalization', 'DELETE') && { label: 'Delete', icon: Trash2, onClick: () => setDeleting(p), danger: true },
+                    ].filter(Boolean) as DockItem[]} />
                   </div>
                 </td>
               </tr>

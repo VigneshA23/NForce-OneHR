@@ -10,6 +10,7 @@ import com.nforce.onehr.entity.OnboardingChecklist;
 import com.nforce.onehr.entity.OnboardingChecklistItem;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.ApprovalGuards;
 import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -272,6 +273,7 @@ public class OnboardingService {
         User actor = requireAuthority(actorEmail, "onboarding:APPROVE:ALL");
         OnboardingChecklist checklist = checklistRepo.findById(checklistId)
                 .orElseThrow(() -> new NoSuchElementException("Onboarding checklist not found: " + checklistId));
+        ApprovalGuards.assertNotOwn(actor.getId(), checklist.getEmployeeUserId(), "onboarding");
         if (!"IN_PROGRESS".equals(checklist.getStatus())) {
             throw new IllegalStateException("This onboarding flow is not in progress");
         }

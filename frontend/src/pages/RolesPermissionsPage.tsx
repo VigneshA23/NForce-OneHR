@@ -9,18 +9,22 @@ import { ChipGroup } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { hasPermission } from '../lib/permissions';
-import { rolesApi, type BulkMemberResult, type CatalogueModule, type RoleDetail, type RoleSummary } from '../api/roles';
+import { rolesApi, type BulkMemberResult, type CatalogueModule, type CatalogueNode, type RoleDetail, type RoleSummary } from '../api/roles';
 import { usersApi, type EmployeeRecord } from '../api/employees';
 import { useBackToClose } from '../lib/backToClose';
 import {
   Banner, ModalHeader, dangerBtn, inputStyle, labelStyle, overlayStyle, primaryBtn, secondaryBtn, tdStyle, thStyle, useDismiss,
 } from './roles/roleUi';
-import { BulkAddPanel, CompareRolesModal, PermissionHoldersModal, RoleHistory } from './roles/RoleTools';
+import { BulkAddPanel, CompareRolesModal, ConvertedManagersModal, PermissionHoldersModal, RoleHistory } from './roles/RoleTools';
 import { suggestCloneName, summarizeBulk } from '../lib/roleTools';
 import {
-  ACTION_LABEL, SCOPE_LABEL, categoryState, filterCatalogue, fromGrantMap, grantKey, grantableScopes, sameGrants,
-  setCategory, setGrant, summarizeGrants, toGrantMap, toGrants, type GrantMap,
+  ACTION_LABEL, SCOPE_LABEL, fromGrantMap, grantKey, grantableScopes, sameGrants,
+  setGrant, summarizeGrants, toGrantMap, toGrants, type GrantMap,
 } from '../lib/rolePermissions';
+import {
+  allNodeCodes, filterTree, flattenCatalogue, hasToggleable, nodeCounts, nodeState, pruneToGranted, scopeChoices,
+  sensitiveDiff, sensitiveSkipped, setNode,
+} from '../lib/roleTree';
 
 /*
  * Roles & Permissions (Super Admin → Administration). Every rule shown here — system-role
@@ -62,9 +66,11 @@ function TriCheckbox({ state, disabled, onChange, label }: { state: 'none' | 'so
   );
 }
 
-// ─── Permission matrix (shared by the editor and the read-only details view) ───
-function PermissionMatrix({ catalogue, map, onChange, readOnly, lockedReason }: {
-  catalogue: CatalogueModule[];
+// ─── Permission tree (shared by the editor and the read-only details view) ───
+// Module > Submodule > Section > Actions (each with a scope). Grants live on the leaves; a parent's checkbox is a
+// bulk edit of what is beneath it (see lib/roleTree.ts), so what you see ticked is exactly what gets saved.
+function PermissionMatrix({ tree, map, onChange, readOnly, lockedReason }: {
+  tree: CatalogueNode[];
   map: GrantMap;
   onChange?: (next: GrantMap) => void;
   readOnly: boolean;
@@ -73,97 +79,112 @@ function PermissionMatrix({ catalogue, map, onChange, readOnly, lockedReason }: 
   const mine = useAuthStore(s => s.permissions);
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState<Set<string>>(() => new Set());
-  const visible = filterCatalogue(catalogue, query);
+  const visible = filterTree(tree, query);
+  const searching = !!query.trim();
   // While searching, every match is expanded so the hit is actually visible.
-  const isOpen = (code: string) => !!query.trim() || open.has(code);
+  const isOpen = (code: string) => searching || open.has(code);
   const toggleOpen = (code: string) => setOpen(prev => { const n = new Set(prev); if (n.has(code)) n.delete(code); else n.add(code); return n; });
-  const widest = (module: string, action: string) => grantableScopes(mine, module, action).at(-1);
+
+  function renderActions(node: CatalogueNode, depth: number) {
+    const editable = !readOnly && node.configurable;
+    return (
+      <div className="nf-rl-acts" style={{ marginLeft: depth * 18 }}>
+        {node.actions.map(a => {
+          const k = grantKey(node.code, a.action);
+          const scope = map[k];
+          const grantable = grantableScopes(mine, node.code, a.action);
+          const choices = scopeChoices(a, grantable, scope);
+          const canToggle = editable && scopeChoices(a, grantable).length > 0;
+          const unsupportedNote = a.minScope === a.maxScope
+            ? `Only ${SCOPE_LABEL[a.maxScope] ?? a.maxScope} scope is supported here.`
+            : `Supported scopes: ${SCOPE_LABEL[a.minScope] ?? a.minScope} to ${SCOPE_LABEL[a.maxScope] ?? a.maxScope}.`;
+          return (
+            <div key={a.action} className={scope ? 'nf-rl-act is-on' : 'nf-rl-act'}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: scope ? 'var(--txt)' : 'var(--txt-mut)', cursor: canToggle ? 'pointer' : 'default', flex: 1, minWidth: 0 }}
+                title={editable && !canToggle ? "You can't grant a permission you don't hold yourself." : unsupportedNote}>
+                <input type="checkbox" checked={!!scope} disabled={!canToggle}
+                  onChange={e => onChange?.(setGrant(map, node.code, a.action, e.target.checked ? scopeChoices(a, grantable)[0] : null))}
+                  style={{ width: 15, height: 15, accentColor: 'var(--brand)', cursor: canToggle ? 'pointer' : 'not-allowed' }} />
+                {ACTION_LABEL[a.action] ?? a.action}
+              </label>
+              {scope && (canToggle && choices.length > 1 ? (
+                <select aria-label={`${node.name} ${ACTION_LABEL[a.action] ?? a.action} scope`} value={scope}
+                  onChange={e => onChange?.(setGrant(map, node.code, a.action, e.target.value))}
+                  style={{ background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 8, padding: '3px 6px', fontSize: 11.5, color: 'var(--txt)' }}>
+                  {choices.map(s => <option key={s} value={s} disabled={!scopeChoices(a, grantable).includes(s)}>{SCOPE_LABEL[s] ?? s}</option>)}
+                </select>
+              ) : <span title={unsupportedNote} style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{SCOPE_LABEL[scope] ?? scope}</span>)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderNode(node: CatalogueNode, depth: number, first: boolean) {
+    const isLeaf = node.actions.length > 0;
+    const editable = !readOnly && (isLeaf ? node.configurable : true);
+    const state = nodeState(map, node, mine);
+    const toggleable = editable && hasToggleable(node, mine);
+    const { granted, total } = nodeCounts(map, node);
+    const skipped = toggleable ? sensitiveSkipped(map, node, mine) : 0;
+    return (
+      <div key={node.code} style={{ borderTop: first ? 'none' : '1px solid var(--line)' }}>
+        <div role="button" tabIndex={0} aria-expanded={isOpen(node.code)}
+          onClick={() => toggleOpen(node.code)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOpen(node.code); } }}
+          className={`nf-rl-mod${isOpen(node.code) ? ' is-open' : ''}`} style={{ paddingLeft: 14 + depth * 18 }}
+          title={node.description || undefined}>
+          {isOpen(node.code) ? <ChevronDown size={15} color="var(--txt-dim)" /> : <ChevronRight size={15} color="var(--txt-dim)" />}
+          {editable && (
+            <TriCheckbox state={state} disabled={!toggleable} label={`Select all ${node.name}`}
+              onChange={on => onChange?.(setNode(map, node, on, mine))} />
+          )}
+          <span className="nf-rl-mod-name" style={depth === 0 ? undefined : { fontWeight: 600 }}>{node.name}</span>
+          {node.sensitive && <span title="High-impact: changes who can administer people, roles, money or sensitive records. Not included when you tick a whole group." className="nf-rl-pill" style={{ ['--pc' as string]: 'var(--warn, #D97706)' }}>HIGH IMPACT</span>}
+          {isLeaf && !node.configurable && <span title="Access here is still decided by built-in role logic, so it can't be configured yet." style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={11} /> SYSTEM-MANAGED</span>}
+          {skipped > 0 && <span title="Ticking this group does not include high-impact permissions; open them and tick each one deliberately." style={{ fontSize: 10.5, color: 'var(--txt-dim)' }}>{skipped} high-impact not included</span>}
+          <span className={`nf-rl-count${granted ? ' is-on' : ''}`}>{granted}/{total}</span>
+        </div>
+        {isOpen(node.code) && isLeaf && !node.configurable && (
+          <div style={{ padding: `10px 14px 0 ${40 + depth * 18}px` }}>
+            <Banner tone="info">
+              <Lock size={12} style={{ verticalAlign: -1, marginRight: 6 }} />
+              Access to {node.name} is still decided by built-in workflow rules (for example fixed approval stages), so it can't be handed to a custom role yet.
+              The grants below are shown for reference only.
+            </Banner>
+          </div>
+        )}
+        {isOpen(node.code) && isLeaf && renderActions(node, depth)}
+        {isOpen(node.code) && !isLeaf && node.children.map((c, i) => renderNode(c, depth + 1, i === 0))}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: '1 1 220px' }}>
           <SearchIcon size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search permissions…" aria-label="Search permissions"
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search modules, pages or actions…" aria-label="Search permissions"
             style={{ ...inputStyle, padding: '8px 12px 8px 32px', background: 'var(--raised)' }} />
         </div>
-        <button type="button" style={{ ...secondaryBtn, padding: '7px 12px', fontSize: 12 }} onClick={() => setOpen(new Set(catalogue.map(m => m.code)))}>Expand all</button>
+        <button type="button" style={{ ...secondaryBtn, padding: '7px 12px', fontSize: 12 }} onClick={() => setOpen(new Set(allNodeCodes(tree)))}>Expand all</button>
         <button type="button" style={{ ...secondaryBtn, padding: '7px 12px', fontSize: 12 }} onClick={() => setOpen(new Set())}>Collapse all</button>
       </div>
       {lockedReason && <Banner tone="info"><Lock size={12} style={{ verticalAlign: -1, marginRight: 6 }} />{lockedReason}</Banner>}
       <div className="nf-rl-matrix">
         {visible.length === 0 && <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)' }}>No permissions match “{query}”.</div>}
-        {visible.map((m, i) => {
-          const editable = !readOnly && m.configurable;
-          // Bulk controls only ever touch actions this admin can actually grant (see setCategory).
-          const grantable = editable ? m.actions.filter(a => widest(m.code, a)) : [];
-          const granted = m.actions.filter(a => map[grantKey(m.code, a)]);
-          const state = categoryState(map, m.code, grantable.length ? grantable : m.actions);
-          return (
-            <div key={m.code} style={{ borderTop: i ? '1px solid var(--line)' : 'none' }}>
-              <div role="button" tabIndex={0} aria-expanded={isOpen(m.code)}
-                onClick={() => toggleOpen(m.code)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOpen(m.code); } }}
-                className={`nf-rl-mod${isOpen(m.code) ? ' is-open' : ''}`}>
-                {isOpen(m.code) ? <ChevronDown size={15} color="var(--txt-dim)" /> : <ChevronRight size={15} color="var(--txt-dim)" />}
-                {editable && (
-                  <TriCheckbox state={state} disabled={grantable.length === 0} label={`Select all ${m.name}`}
-                    onChange={on => onChange?.(setCategory(map, m.code, grantable, on, a => widest(m.code, a)))} />
-                )}
-                <span className="nf-rl-mod-name">{m.name}</span>
-                {!m.configurable && <span title="Access here is still decided by built-in role logic, so it can't be configured yet." style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={11} /> SYSTEM-MANAGED</span>}
-                <span className={`nf-rl-count${granted.length ? ' is-on' : ''}`}>{granted.length}/{m.actions.length}</span>
-              </div>
-              {isOpen(m.code) && !m.configurable && (
-                <div style={{ padding: '10px 14px 0 40px' }}>
-                  <Banner tone="info">
-                    <Lock size={12} style={{ verticalAlign: -1, marginRight: 6 }} />
-                    Access to {m.name} is still decided by built-in workflow rules (for example fixed approval stages), so it can't be handed to a custom role yet.
-                    The grants below are shown for reference only.
-                  </Banner>
-                </div>
-              )}
-              {isOpen(m.code) && (
-                <div className="nf-rl-acts">
-                  {m.actions.map(a => {
-                    const k = grantKey(m.code, a);
-                    const scope = map[k];
-                    const scopes = grantableScopes(mine, m.code, a);
-                    const canToggle = editable && scopes.length > 0;
-                    // A scope the admin can't grant (or a legacy DEPARTMENT/LOCATION row) is still shown as-is.
-                    const options = scope && !scopes.includes(scope) ? [...scopes, scope] : scopes;
-                    return (
-                      <div key={a} className={scope ? 'nf-rl-act is-on' : 'nf-rl-act'}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: scope ? 'var(--txt)' : 'var(--txt-mut)', cursor: canToggle ? 'pointer' : 'default', flex: 1, minWidth: 0 }}
-                          title={editable && !scopes.length ? "You can't grant a permission you don't hold yourself." : undefined}>
-                          <input type="checkbox" checked={!!scope} disabled={!canToggle}
-                            onChange={e => onChange?.(setGrant(map, m.code, a, e.target.checked ? scopes.at(-1)! : null))}
-                            style={{ width: 15, height: 15, accentColor: 'var(--brand)', cursor: canToggle ? 'pointer' : 'not-allowed' }} />
-                          {ACTION_LABEL[a] ?? a}
-                        </label>
-                        {scope && (canToggle && options.length > 1 ? (
-                          <select aria-label={`${m.name} ${ACTION_LABEL[a] ?? a} scope`} value={scope}
-                            onChange={e => onChange?.(setGrant(map, m.code, a, e.target.value))}
-                            style={{ background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 8, padding: '3px 6px', fontSize: 11.5, color: 'var(--txt)' }}>
-                            {options.map(s => <option key={s} value={s} disabled={!scopes.includes(s)}>{SCOPE_LABEL[s] ?? s}</option>)}
-                          </select>
-                        ) : <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{SCOPE_LABEL[scope] ?? scope}</span>)}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {visible.map((n, i) => renderNode(n, 0, i === 0))}
       </div>
     </div>
   );
 }
 
 // ─── Create / edit role ─────────────────────────────────────────────────────────
-function RoleEditorModal({ token, catalogue, existing, template, existingNames, onClose, onSaved }: {
+function RoleEditorModal({ token, catalogue, tree, existing, template, existingNames, onClose, onSaved }: {
   token: string;
   catalogue: CatalogueModule[];
+  tree: CatalogueNode[];
   /** null = create. */
   existing: RoleDetail | null;
   /** Create a NEW role pre-filled from this one (clone). Ignored when editing. */
@@ -214,14 +235,13 @@ function RoleEditorModal({ token, catalogue, existing, template, existingNames, 
 
   /** Changes worth an explicit second look before they hit every holder of the role. */
   function sensitiveChanges(): string[] {
+    // "High impact" comes from the catalogue (people, roles, money, sensitive records), not a list kept here.
+    const { added, removed } = sensitiveDiff(initialMap, map, tree);
     const out: string[] = [];
-    const added = Object.keys(map).filter(k => !initialMap[k]);
-    const removed = Object.keys(initialMap).filter(k => !map[k]);
-    const adminModules = ['roles', 'user_roles', 'user_management'];
-    if (removed.some(k => adminModules.includes(k.split(':')[0])))
-      out.push(`Removing administration permissions takes access away from the ${role?.userCount ?? 0} user(s) holding this role on their next action.`);
-    if (added.some(k => adminModules.includes(k.split(':')[0])))
-      out.push('This grants administration permissions (users, roles, or role assignment).');
+    if (removed.length)
+      out.push(`Removing high-impact access (${removed.join(', ')}) takes it away from the ${role?.userCount ?? 0} user(s) holding this role on their next action.`);
+    if (added.length)
+      out.push(`This grants high-impact access: ${added.join(', ')}.`);
     return out;
   }
 
@@ -287,7 +307,7 @@ function RoleEditorModal({ token, catalogue, existing, template, existingNames, 
               <span>Permissions</span>
               <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>{summarizeGrants(fromGrantMap(map))}</span>
             </div>
-            <PermissionMatrix catalogue={catalogue} map={map} onChange={setMap} readOnly={!permissionsEditable} lockedReason={lockedReason} />
+            <PermissionMatrix tree={tree} map={map} onChange={setMap} readOnly={!permissionsEditable} lockedReason={lockedReason} />
             <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 8, lineHeight: 1.5 }}>
               You can only grant permissions you hold yourself. <b>Organization</b> scope covers everyone; <b>Team</b> covers the holder's direct reports; <b>Own</b> covers only their own records.
             </div>
@@ -392,10 +412,11 @@ function DeleteRoleDialog({ token, role, onClose, onDeleted }: {
 }
 
 // ─── Role details drawer ────────────────────────────────────────────────────────
-function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onClone, onChanged }: {
+function RoleDetailsDrawer({ token, roleId, catalogue, tree, onClose, onEdit, onClone, onChanged }: {
   token: string;
   roleId: number;
   catalogue: CatalogueModule[];
+  tree: CatalogueNode[];
   onClose: () => void;
   onEdit: (detail: RoleDetail) => void;
   /** Present only when the viewer may create roles. */
@@ -471,7 +492,7 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onClone,
   const role = detail?.role;
   const memberIds = new Set(detail?.members.map(m => m.userId));
   const candidates = (users ?? []).filter(u => !memberIds.has(u.userId) && u.active && u.email.toLowerCase() !== myEmail);
-  const grantedModules = catalogue.filter(m => detail?.grants.some(g => g.module === m.code));
+  const grantedTree = useMemo(() => pruneToGranted(tree, toGrantMap(detail?.grants ?? [])), [tree, detail]);
 
   return createPortal(
     <div style={{ ...overlayStyle, justifyContent: 'flex-end', padding: 0 }} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -530,9 +551,9 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onClone,
             </div>
             <div style={{ padding: '14px 22px 22px', overflowY: 'auto', flex: 1 }}>
               {tab === 'permissions' && (
-                grantedModules.length === 0
+                grantedTree.length === 0
                   ? <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>{role.code === 'EMPLOYEE' ? 'The default category holds no permissions. Baseline self-service (attendance, leave, requests…) is available to every signed-in user; anything extra comes from an explicitly assigned role.' : 'This role grants no permissions yet.'}</div>
-                  : <PermissionMatrix catalogue={grantedModules} map={toGrantMap(detail.grants)} readOnly />
+                  : <PermissionMatrix tree={grantedTree} map={toGrantMap(detail.grants)} readOnly />
               )}
               {tab === 'history' && <RoleHistory token={token} roleId={role.id} catalogue={catalogue} />}
               {tab === 'members' && (
@@ -623,7 +644,9 @@ export default function RolesPermissionsPage() {
   const token = useAuthStore(s => s.token) ?? '';
   const mine = useAuthStore(s => s.permissions);
   const [roles, setRoles] = useState<RoleSummary[]>([]);
-  const [catalogue, setCatalogue] = useState<CatalogueModule[]>([]);
+  const [tree, setTree] = useState<CatalogueNode[]>([]);
+  // The flat per-module list the compare / who-has-permission / history tools use, derived from the same tree.
+  const catalogue = useMemo<CatalogueModule[]>(() => flattenCatalogue(tree), [tree]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
@@ -636,14 +659,15 @@ export default function RolesPermissionsPage() {
   const [compareIds, setCompareIds] = useState<number[]>([]);
   const [comparing, setComparing] = useState<[number, number] | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
+  const [reviewingManagers, setReviewingManagers] = useState(false);
 
   const canCreate = hasPermission(mine, 'roles', 'CREATE', 'ALL');
   const canDelete = hasPermission(mine, 'roles', 'DELETE', 'ALL');
 
   const reload = useCallback(() => {
     setLoadError('');
-    return Promise.all([rolesApi.list(token), rolesApi.catalogue(token)])
-      .then(([r, c]) => { setRoles(r); setCatalogue(c); })
+    return Promise.all([rolesApi.list(token), rolesApi.catalogueTree(token)])
+      .then(([r, t]) => { setRoles(r); setTree(t); })
       .catch(e => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, [token]);
@@ -679,6 +703,7 @@ export default function RolesPermissionsPage() {
         </PageTitleBlock>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button style={secondaryBtn} onClick={() => setLookingUp(true)}><SearchIcon size={13} style={{ verticalAlign: -2, marginRight: 6 }} />Who has a permission?</button>
+          <button style={secondaryBtn} onClick={() => setReviewingManagers(true)}><Users2 size={13} style={{ verticalAlign: -2, marginRight: 6 }} />Converted Managers</button>
           {canCreate && (
             <button style={primaryBtn} onClick={() => { setCloning(null); setEditing(null); }}><Plus size={14} /> Create Role</button>
           )}
@@ -785,7 +810,7 @@ export default function RolesPermissionsPage() {
       </div>
 
       {editing !== undefined && createPortal(
-        <RoleEditorModal token={token} catalogue={catalogue} existing={editing} template={cloning} existingNames={roles.map(r => r.name)}
+        <RoleEditorModal token={token} catalogue={catalogue} tree={tree} existing={editing} template={cloning} existingNames={roles.map(r => r.name)}
           onClose={() => { setEditing(undefined); setCloning(null); }}
           onSaved={saved => { setEditing(undefined); setCloning(null); reload(); setViewing(saved.role.id); }} />,
         document.body,
@@ -795,11 +820,12 @@ export default function RolesPermissionsPage() {
           onDeleted={() => { setDeletingRole(null); reload(); }} />
       )}
       {viewing !== null && editing === undefined && (
-        <RoleDetailsDrawer token={token} roleId={viewing} catalogue={catalogue} onClose={() => setViewing(null)}
+        <RoleDetailsDrawer token={token} roleId={viewing} catalogue={catalogue} tree={tree} onClose={() => setViewing(null)}
           onEdit={d => { setCloning(null); setEditing(d); }}
           onClone={canCreate ? d => { setCloning(d); setEditing(null); } : undefined} onChanged={reload} />
       )}
       {comparing && <CompareRolesModal token={token} ids={comparing} catalogue={catalogue} onClose={() => setComparing(null)} />}
+      {reviewingManagers && <ConvertedManagersModal token={token} canReview={hasPermission(mine, 'user_roles', 'EDIT', 'ALL')} onClose={() => setReviewingManagers(false)} />}
       {lookingUp && <PermissionHoldersModal token={token} catalogue={catalogue} onClose={() => setLookingUp(false)} />}
     </div>
   );

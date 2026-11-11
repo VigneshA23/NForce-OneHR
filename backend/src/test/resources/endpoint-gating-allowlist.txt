@@ -1,0 +1,217 @@
+# Authenticated-only endpoints (no @PreAuthorize). Format: Controller#method | SELF/SERVICE/OPEN reason.
+# Maintained by EveryEndpointGatedTest — a new ungated endpoint fails the build until listed here with a reason.
+# SELF = acts only on the caller's own data; SERVICE = permission/eligibility enforced inside the service;
+# OPEN = deliberately readable by every signed-in user (or public, for login/ticket).
+AiAssistantController#chat | SELF - own data only (ownership checked in the service)
+AiAssistantController#clear | SELF - own data only (ownership checked in the service)
+AiAssistantController#conversation | SELF - own data only (ownership checked in the service)
+AiAssistantController#feedback | SELF - own data only (ownership checked in the service)
+AiAssistantController#health | SELF - own data only (ownership checked in the service)
+AnnouncementController#published | OPEN - readable by any signed-in user (or public auth flow)
+ApprovalCenterController#pendingApprovals | SERVICE - permission / eligibility enforced in the service
+AssetController#acknowledge | SELF - own data only (ownership checked in the service)
+AssetController#approveRequest | SERVICE - permission / eligibility enforced in the service
+AssetController#assignAsset | SERVICE - permission / eligibility enforced in the service
+AssetController#availableByCategory | SERVICE - permission / eligibility enforced in the service
+AssetController#countAssets | SERVICE - permission / eligibility enforced in the service
+AssetController#createAsset | SERVICE - permission / eligibility enforced in the service
+AssetController#deleteAsset | SERVICE - permission / eligibility enforced in the service
+AssetController#employeeTiles | SELF - own data only (ownership checked in the service)
+AssetController#fulfillRequest | SERVICE - permission / eligibility enforced in the service
+AssetController#hrTiles | SERVICE - permission / eligibility enforced in the service
+AssetController#listAllAssets | SERVICE - permission / eligibility enforced in the service
+AssetController#listCategories | OPEN - readable by any signed-in user (or public auth flow)
+AssetController#markReturned | SERVICE - permission / eligibility enforced in the service
+AssetController#myAssignments | SELF - own data only (ownership checked in the service)
+AssetController#myRequests | SELF - own data only (ownership checked in the service)
+AssetController#reassignAsset | SERVICE - permission / eligibility enforced in the service
+AssetController#rejectRequest | SERVICE - permission / eligibility enforced in the service
+AssetController#retireAsset | SERVICE - permission / eligibility enforced in the service
+AssetController#submitRequest | SELF - own data only (ownership checked in the service)
+AssetController#withdrawRequest | SELF - own data only (ownership checked in the service)
+AttendanceController#approvers | OPEN - readable by any signed-in user (or public auth flow)
+AttendanceController#checkIn | SELF - own data only (ownership checked in the service)
+AttendanceController#checkOut | SELF - own data only (ownership checked in the service)
+AttendanceController#config | SELF - own data only (ownership checked in the service)
+AttendanceController#exceptions | SELF - own data only (ownership checked in the service)
+AttendanceController#myHistory | SELF - own data only (ownership checked in the service)
+AttendanceController#myRegularizations | SELF - own data only (ownership checked in the service)
+AttendanceController#peers | OPEN - readable by any signed-in user (or public auth flow)
+AttendanceController#peersMonth | OPEN - readable by any signed-in user (or public auth flow)
+AttendanceController#punchForDate | SELF - own data only (ownership checked in the service)
+AttendanceController#punchesForDate | SELF - own data only (ownership checked in the service)
+AttendanceController#regularizationBalance | SELF - own data only (ownership checked in the service)
+AttendanceController#stats | SELF - own data only (ownership checked in the service)
+AttendanceController#submitRegularization | SELF - own data only (ownership checked in the service)
+AttendanceController#today | SELF - own data only (ownership checked in the service)
+AttendanceController#updateRegularization | SELF - own data only (ownership checked in the service)
+AttendanceRequestController#mine | SELF - own data only (ownership checked in the service)
+AttendanceRequestController#partialDayBalance | SELF - own data only (ownership checked in the service)
+AttendanceRequestController#peerApprovedWfh | OPEN - readable by any signed-in user (or public auth flow)
+AttendanceRequestController#submit | SELF - own data only (ownership checked in the service)
+AttendanceRequestController#wfhBalance | SELF - own data only (ownership checked in the service)
+AuthController#changePassword | OPEN - readable by any signed-in user (or public auth flow)
+AuthController#forgotPassword | OPEN - readable by any signed-in user (or public auth flow)
+AuthController#login | OPEN - readable by any signed-in user (or public auth flow)
+BirthdayWishController#receivedToday | OPEN - readable by any signed-in user (or public auth flow)
+BirthdayWishController#send | OPEN - readable by any signed-in user (or public auth flow)
+CertificateCategoryController#listActive | OPEN - readable by any signed-in user (or public auth flow)
+DirectoryProfileController#getDirectoryProfile | SERVICE - permission / eligibility enforced in the service
+DocumentController#getFile | SERVICE - permission / eligibility enforced in the service
+DocumentController#history | SERVICE - permission / eligibility enforced in the service
+DocumentController#myCompliance | SELF - own data only (ownership checked in the service)
+DocumentController#myDocuments | SELF - own data only (ownership checked in the service)
+DocumentController#myRequiredDocuments | SELF - own data only (ownership checked in the service)
+DocumentController#upload | SELF - own data only (ownership checked in the service)
+DocumentController#withdraw | SELF - own data only (ownership checked in the service)
+DocumentTypeController#listActive | OPEN - readable by any signed-in user (or public auth flow)
+EmployeeCertificateController#create | SELF - own data only (ownership checked in the service)
+EmployeeCertificateController#delete | SELF - own data only (ownership checked in the service)
+EmployeeCertificateController#list | SELF - own data only (ownership checked in the service)
+EmployeeCertificateController#update | SELF - own data only (ownership checked in the service)
+EmployeeController#birthdays | OPEN - readable by any signed-in user (or public auth flow)
+EmployeeController#directory | OPEN - readable by any signed-in user (or public auth flow)
+EmployeeController#myManager | OPEN - readable by any signed-in user (or public auth flow)
+EmployeeController#myPeers | OPEN - readable by any signed-in user (or public auth flow)
+EmployeeController#photo | OPEN - readable by any signed-in user (or public auth flow)
+EmployeeEducationController#create | SELF - own data only (ownership checked in the service)
+EmployeeEducationController#delete | SELF - own data only (ownership checked in the service)
+EmployeeEducationController#list | SELF - own data only (ownership checked in the service)
+EmployeeEducationController#update | SELF - own data only (ownership checked in the service)
+EmployeeLearningEntryController#create | SELF - own data only (ownership checked in the service)
+EmployeeLearningEntryController#delete | SELF - own data only (ownership checked in the service)
+EmployeeLearningEntryController#list | SELF - own data only (ownership checked in the service)
+EmployeeLearningEntryController#update | SELF - own data only (ownership checked in the service)
+EmployeeSkillController#create | SELF - own data only (ownership checked in the service)
+EmployeeSkillController#delete | SELF - own data only (ownership checked in the service)
+EmployeeSkillController#list | SELF - own data only (ownership checked in the service)
+EmployeeSkillController#update | SELF - own data only (ownership checked in the service)
+ExpenseController#clearedForPayroll | SERVICE - permission / eligibility enforced in the service
+ExpenseController#createCategory | SERVICE - permission / eligibility enforced in the service
+ExpenseController#employeeTiles | SELF - own data only (ownership checked in the service)
+ExpenseController#finalApprove | SERVICE - permission / eligibility enforced in the service
+ExpenseController#finalReject | SERVICE - permission / eligibility enforced in the service
+ExpenseController#getReceipt | SELF - own data only (ownership checked in the service)
+ExpenseController#hrTiles | SERVICE - permission / eligibility enforced in the service
+ExpenseController#listCategories | OPEN - readable by any signed-in user (or public auth flow)
+ExpenseController#markPaid | SERVICE - permission / eligibility enforced in the service
+ExpenseController#myClaims | SELF - own data only (ownership checked in the service)
+ExpenseController#pendingForFinalApprover | SERVICE - permission / eligibility enforced in the service
+ExpenseController#submit | SELF - own data only (ownership checked in the service)
+ExpenseController#updateCategory | SERVICE - permission / eligibility enforced in the service
+GlobalSearchController#modulePage | SERVICE - permission / eligibility enforced in the service
+GlobalSearchController#preview | SERVICE - permission / eligibility enforced in the service
+HelpContentController#approve | SERVICE - permission / eligibility enforced in the service
+HelpContentController#downloadApprovalAttachment | SERVICE - permission / eligibility enforced in the service
+HelpContentController#downloadAttachment | SERVICE - permission / eligibility enforced in the service
+HelpContentController#getAttempt | SERVICE - permission / eligibility enforced in the service
+HelpContentController#getAttemptDiff | SERVICE - permission / eligibility enforced in the service
+HelpContentController#getOne | SERVICE - permission / eligibility enforced in the service
+HelpContentController#list | SERVICE - permission / eligibility enforced in the service
+HelpContentController#listAttachments | SERVICE - permission / eligibility enforced in the service
+HelpContentController#reject | SERVICE - permission / eligibility enforced in the service
+HelpContentController#trackView | SERVICE - permission / eligibility enforced in the service
+HelpdeskController#categories | OPEN - readable by any signed-in user (or public auth flow)
+HelpdeskController#close | SELF - own data only (ownership checked in the service)
+HelpdeskController#create | SELF - own data only (ownership checked in the service)
+HelpdeskController#downloadAttachment | SELF - own data only (ownership checked in the service)
+HelpdeskController#getOne | SELF - own data only (ownership checked in the service)
+HelpdeskController#myTickets | SELF - own data only (ownership checked in the service)
+HelpdeskController#reopen | SELF - own data only (ownership checked in the service)
+HelpdeskController#reply | SELF - own data only (ownership checked in the service)
+HelpdeskController#submitSatisfaction | SELF - own data only (ownership checked in the service)
+HolidayController#getHolidaysForMyLocation | OPEN - readable by any signed-in user (or public auth flow)
+KudosController#received | SELF - own data only (ownership checked in the service)
+KudosController#send | SERVICE - permission / eligibility enforced in the service
+KudosController#sent | SELF - own data only (ownership checked in the service)
+LeaveController#listTypes | OPEN - readable by any signed-in user (or public auth flow)
+LeaveController#myBalances | SELF - own data only (ownership checked in the service)
+LeaveController#myRequests | SELF - own data only (ownership checked in the service)
+LeaveController#peers | OPEN - readable by any signed-in user (or public auth flow)
+LeaveController#submitRequest | SELF - own data only (ownership checked in the service)
+LeaveController#updateRequest | SELF - own data only (ownership checked in the service)
+MeController#accessCatalogue | OPEN - page requirements carry no user data; every signed-in user needs them
+MeController#myPermissions | SELF - own data only (ownership checked in the service)
+MyFinancesController#compensationHistory | SELF - own data only (ownership checked in the service)
+MyFinancesController#ctcBreakdown | SELF - own data only (ownership checked in the service)
+MyRequestsController#myRequests | SELF - own data only (ownership checked in the service)
+NotificationController#list | SELF - own data only (ownership checked in the service)
+NotificationController#markAllRead | SELF - own data only (ownership checked in the service)
+NotificationController#markRead | SELF - own data only (ownership checked in the service)
+NotificationController#unread | SELF - own data only (ownership checked in the service)
+NotificationController#unreadCount | SELF - own data only (ownership checked in the service)
+OpportunityController#expressInterest | SERVICE - permission / eligibility enforced in the service
+OpportunityController#list | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#createBusinessUnit | SERVICE - permission / eligibility enforced in the service
+OrgController#createDepartment | SERVICE - permission / eligibility enforced in the service
+OrgController#createDesignation | SERVICE - permission / eligibility enforced in the service
+OrgController#createLocation | SERVICE - permission / eligibility enforced in the service
+OrgController#createShift | SERVICE - permission / eligibility enforced in the service
+OrgController#createWeeklyOffPolicy | SERVICE - permission / eligibility enforced in the service
+OrgController#deleteBusinessUnit | SERVICE - permission / eligibility enforced in the service
+OrgController#deleteDepartment | SERVICE - permission / eligibility enforced in the service
+OrgController#deleteDesignation | SERVICE - permission / eligibility enforced in the service
+OrgController#deleteLocation | SERVICE - permission / eligibility enforced in the service
+OrgController#deleteShift | SERVICE - permission / eligibility enforced in the service
+OrgController#deleteWeeklyOffPolicy | SERVICE - permission / eligibility enforced in the service
+OrgController#getAttendanceRules | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#getShiftWeeklyOffRules | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#hierarchy | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#listBusinessUnits | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#listDepartments | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#listDesignations | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#listLocations | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#listShiftEmployees | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#listShiftVersions | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#listShifts | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#listSupportedLocationTimezones | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#listWeeklyOffPolicies | OPEN - readable by any signed-in user (or public auth flow)
+OrgController#toggleBusinessUnitActive | SERVICE - permission / eligibility enforced in the service
+OrgController#toggleDepartmentActive | SERVICE - permission / eligibility enforced in the service
+OrgController#toggleDesignationActive | SERVICE - permission / eligibility enforced in the service
+OrgController#toggleLocationActive | SERVICE - permission / eligibility enforced in the service
+OrgController#toggleShiftActive | SERVICE - permission / eligibility enforced in the service
+OrgController#updateAttendanceRules | SERVICE - permission / eligibility enforced in the service
+OrgController#updateBusinessUnit | SERVICE - permission / eligibility enforced in the service
+OrgController#updateDefaultTimezone | SERVICE - permission / eligibility enforced in the service
+OrgController#updateDepartment | SERVICE - permission / eligibility enforced in the service
+OrgController#updateDesignation | SERVICE - permission / eligibility enforced in the service
+OrgController#updateLocation | SERVICE - permission / eligibility enforced in the service
+OrgController#updateShift | SERVICE - permission / eligibility enforced in the service
+OrgController#updateShiftWeeklyOffRules | SERVICE - permission / eligibility enforced in the service
+OrgController#updateWeeklyOffPolicy | SERVICE - permission / eligibility enforced in the service
+OrgHierarchyController#getContext | OPEN - readable by any signed-in user (or public auth flow)
+OrgHierarchyController#getRoots | OPEN - readable by any signed-in user (or public auth flow)
+OvertimeRequestController#mine | SELF - own data only (ownership checked in the service)
+OvertimeRequestController#submit | SELF - own data only (ownership checked in the service)
+PayrollYtdController#myYtd | SELF - own data only (ownership checked in the service)
+PayslipController#myPayslip | SELF - own data only (ownership checked in the service)
+PayslipController#myPeriods | SELF - own data only (ownership checked in the service)
+PolicyController#acknowledge | SERVICE - permission / eligibility enforced in the service
+PolicyController#getAttachment | SERVICE - permission / eligibility enforced in the service
+PolicyController#myPolicies | SERVICE - permission / eligibility enforced in the service
+PolicyController#pendingCount | SERVICE - permission / eligibility enforced in the service
+ProficiencyLevelController#listActive | OPEN - readable by any signed-in user (or public auth flow)
+ProfileController#getProfile | SELF - own data only (ownership checked in the service)
+ProfileController#getProfileForViewer | SERVICE - permission / eligibility enforced in the service
+ProfileController#getTimeline | SELF - own data only (ownership checked in the service)
+ProfileController#removeCover | SELF - own data only (ownership checked in the service)
+ProfileController#removePhoto | SELF - own data only (ownership checked in the service)
+ProfileController#setAvatar | SELF - own data only (ownership checked in the service)
+ProfileController#updateProfile | SELF - own data only (ownership checked in the service)
+ProfileController#uploadCover | SELF - own data only (ownership checked in the service)
+ProfileController#uploadPhoto | SELF - own data only (ownership checked in the service)
+SessionEventController#events | OPEN - readable by any signed-in user (or public auth flow)
+SessionEventController#issueTicket | OPEN - readable by any signed-in user (or public auth flow)
+SkillController#myRatings | SELF - own data only (ownership checked in the service)
+SkillController#rateSelf | SELF - own data only (ownership checked in the service)
+SkillController#removeSelf | SELF - own data only (ownership checked in the service)
+SkillController#taxonomy | OPEN - readable by any signed-in user (or public auth flow)
+SkillMasterController#listActive | OPEN - readable by any signed-in user (or public auth flow)
+SkillRequestController#listMine | SELF - own data only (ownership checked in the service)
+SkillRequestController#submit | SELF - own data only (ownership checked in the service)
+TeamGrowthController#getEmployeeGrowth | SERVICE - permission / eligibility enforced in the service
+WebClockInController#cancel | SELF - own data only (ownership checked in the service)
+WebClockInController#checkOut | SELF - own data only (ownership checked in the service)
+WebClockInController#mine | SELF - own data only (ownership checked in the service)
+WebClockInController#submit | SELF - own data only (ownership checked in the service)

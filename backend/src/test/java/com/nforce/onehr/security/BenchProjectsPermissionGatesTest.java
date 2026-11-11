@@ -54,6 +54,10 @@ class BenchProjectsPermissionGatesTest {
                 Arguments.of(OpportunityController.class, "close", "opportunities:APPROVE:ALL", HR),
                 Arguments.of(ProjectController.class, "list", "projects:VIEW:TEAM", MGR_HR),
                 Arguments.of(ProjectController.class, "create", "projects:CREATE:ALL", HR),
+                // Phase 1 (V277): these three used to have no gate at all (any authenticated user).
+                Arguments.of(ProjectController.class, "update", "projects:EDIT:ALL", HR),
+                Arguments.of(ProjectController.class, "clients", "projects:VIEW:TEAM", MGR_HR),
+                Arguments.of(ProjectController.class, "createClient", "projects:CREATE:ALL", HR),
                 Arguments.of(ProjectAllocationController.class, "allocate", "project_allocations:CREATE:TEAM", MGR_HR),
                 Arguments.of(ProjectAllocationController.class, "bulkAllocate", "project_allocations:CREATE:TEAM", MGR_HR),
                 Arguments.of(ProjectAllocationController.class, "update", "project_allocations:CREATE:TEAM", MGR_HR),

@@ -22,7 +22,7 @@ import {
 import PageTitleBlock from '../../components/PageTitleBlock';
 import { PersonCell } from '../../components/PersonCell';
 import { SidebarNav } from '../../components/SidebarNav';
-import type { Role } from '../../lib/nav.config';
+import { NAV, type Role } from '../../lib/nav.config';
 import { TabBar } from '../../components/TabBar';
 import { useEffect, useState } from 'react';
 import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/accentColor';
@@ -1571,7 +1571,7 @@ function Tiles({ page }: { page: string }) {
           {(['Employee', 'Manager', 'HR Admin', 'Super Admin'] as Role[]).map((r) => (
             <div key={r} style={{ background: '#0B0C0F', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 640 }}>
               <div style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9aa1ac', borderBottom: '1px solid #1c1f26' }}>{r}</div>
-              <SidebarNav role={r} currentKey="dashboard" onNavigate={() => {}} />
+              <SidebarNav items={NAV[r]} currentKey="dashboard" onNavigate={() => {}} />
             </div>
           ))}
         </div>

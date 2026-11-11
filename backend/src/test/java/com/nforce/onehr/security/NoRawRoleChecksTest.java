@@ -97,9 +97,6 @@ class NoRawRoleChecksTest {
                     + "migrate to an explicit payroll permission so custom roles can be granted payslip access"),
             Map.entry("ai/contract/ShellRole.java", "DISPLAY: AI/UI shell mapping"),
             Map.entry("ai/data/PeopleDataProviders.java", "DISPLAY: role labels"),
-            Map.entry("dto/ApprovalItemDto.java", "WORKFLOW: approval stage tag"),
-            Map.entry("dto/attendance/OvertimeRequestResponse.java", "DISPLAY: reviewer role label"),
-            Map.entry("entity/PayrollRun.java", "WORKFLOW: payroll approval stage"),
             Map.entry("service/ApprovalRuleService.java", "WORKFLOW: Workflow Studio stage roles"),
             Map.entry("service/ApprovalRuleEvaluationService.java", "WORKFLOW: approval stage resolution"),
             Map.entry("service/PayrollRunService.java", "WORKFLOW: payroll stage (endpoint is permission-gated)"),
@@ -107,6 +104,8 @@ class NoRawRoleChecksTest {
             Map.entry("service/ApprovalCenterService.java", "WORKFLOW: expense stage tags"),
             Map.entry("service/OrgHierarchyService.java", "DISPLAY: org-chart role label"),
             Map.entry("service/UserManagementService.java", "WORKFLOW: last-Super-Admin safeguards, primary-role picker"),
+            Map.entry("security/SuperAdminRecoveryRunner.java", "WORKFLOW: break-glass restoration of the Super Admin role (opt-in, only when none is active)"),
+            Map.entry("service/ConvertedManagerReviewService.java", "DISPLAY: review list of ex-automatic Managers (the archive is about the MANAGER role)"),
             Map.entry("service/RoleAdminService.java", "WORKFLOW: protected Super Admin role (a restriction, never a bypass)"),
             Map.entry("service/LeaveService.java", "WORKFLOW: routing of a Super Admin's OWN leave"),
             Map.entry("service/RegularizationService.java", "DISPLAY: acting-role label, assignee-list exclusion"),
@@ -140,5 +139,53 @@ class NoRawRoleChecksTest {
                 "A built-in role code literal (SUPER_ADMIN/HR_ADMIN/MANAGER) now appears in files not reviewed as WORKFLOW/DISPLAY. "
                         + "Authorize with a permission (hasAuthority/EffectivePermissionService) instead, or classify the file in "
                         + "ALLOWED_ROLE_CODE_LITERALS: " + unreviewed);
+    }
+
+    /** An allow-list entry whose file no longer mentions a role code is stale: delete it so the list stays honest. */
+    @Test
+    void noAllowListEntryIsStale() throws IOException {
+        TreeSet<String> stale = new TreeSet<>();
+        for (String rel : ALLOWED_ROLE_CODE_LITERALS.keySet()) {
+            Path p = SOURCE_ROOT.resolve("com/nforce/onehr/" + rel);
+            String source = Files.readString(p);
+            source = LINE_COMMENT.matcher(BLOCK_COMMENT.matcher(source).replaceAll("")).replaceAll("");
+            if (!ROLE_CODE_LITERAL.matcher(source).find()) stale.add(rel);
+        }
+        assertTrue(stale.isEmpty(), "These allow-list entries no longer contain a role-code literal — remove them: " + stale);
+    }
+
+    // ── Role codes inside JPQL / SQL strings ─────────────────────────────────────────────────────
+    //
+    // The double-quote scan above cannot see 'HR_ADMIN' inside a query, yet a query can pick "who is an
+    // admin" by role NAME just as surely as Java can. Every such query must be reviewed and classified;
+    // none of the current ones decides what anyone may DO (they choose who is notified, who counts as
+    // a document-compliance subject, and the last-Super-Admin safeguard).
+    private static final Map<String, String> REVIEWED_QUERY_ROLE_LITERALS = Map.of(
+            "repository/UserRepository.java",
+            "WORKFLOW: notification recipients (HR digest, document/policy admin lists), last-active-Super-Admin "
+                    + "safeguard, attendance-penalty subjects (not a manager/HR/SA), default Employee category",
+            "repository/EmployeeRepository.java",
+            "WORKFLOW: document-compliance subjects exclude HR/SA staff; policy audience targeting by role code");
+
+    private static final Pattern QUERY_ROLE_LITERAL =
+            Pattern.compile("'(SUPER_ADMIN|HR_ADMIN|MANAGER|EMPLOYEE|FINANCE|LEADERSHIP|DELIVERY)'");
+
+    @Test
+    void roleCodesInQueriesAreOnlyUsedWhereReviewedAndClassified() throws IOException {
+        TreeSet<String> unreviewed = new TreeSet<>();
+        try (Stream<Path> files = Files.walk(SOURCE_ROOT)) {
+            for (Path path : files.filter(p -> p.toString().endsWith(".java")).toList()) {
+                String source = Files.readString(path);
+                source = LINE_COMMENT.matcher(BLOCK_COMMENT.matcher(source).replaceAll("")).replaceAll("");
+                if (!QUERY_ROLE_LITERAL.matcher(source).find()) continue;
+                String rel = path.toString().replace('\\', '/');
+                rel = rel.substring(rel.indexOf("com/nforce/onehr/") + "com/nforce/onehr/".length());
+                if (!REVIEWED_QUERY_ROLE_LITERALS.containsKey(rel)) unreviewed.add(rel);
+            }
+        }
+        assertTrue(unreviewed.isEmpty(),
+                "A role-code literal appears inside a query in files not reviewed. A query must not decide access by role name — "
+                        + "use role_permissions (see RolePermissionRepository#findActiveUserIdsWithGrant) or classify it in "
+                        + "REVIEWED_QUERY_ROLE_LITERALS: " + unreviewed);
     }
 }

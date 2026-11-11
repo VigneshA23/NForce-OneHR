@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
-import type { MyPermissionsResponse } from '../api/me';
+import type { AccessCatalogue, MyPermissionsResponse } from '../api/me';
 
 export interface AuthUser {
   email: string;
@@ -23,11 +23,15 @@ interface AuthState {
   // rather than briefly denying every gated page while the fresh fetch is in flight; the fresh
   // fetch that follows corrects any staleness, same tradeoff `user.role` already makes.
   permissions: MyPermissionsResponse | null;
+  // Which pages need which permission (permission-catalogue.yml via GET /api/me/access-catalogue).
+  // Fetched next to `permissions` and persisted for the same reason; null until the first fetch lands.
+  accessCatalogue: AccessCatalogue | null;
   // `remember` is only passed by the sign-in flow ("Remember me"): true keeps the session in
   // localStorage (survives closing the browser), false keeps it in sessionStorage (this tab only).
   // Every other caller (profile photo sync, password change) omits it and keeps the current mode.
   setAuth: (token: string, user: AuthUser, remember?: boolean) => void;
   setPermissions: (permissions: MyPermissionsResponse) => void;
+  setAccessCatalogue: (catalogue: AccessCatalogue) => void;
   clearAuth: () => void;
 }
 
@@ -60,17 +64,19 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       user: null,
       permissions: null,
+      accessCatalogue: null,
       setAuth: (token, user, remember) => {
         if (remember !== undefined) remembered = remember; // must flip before set() — persist writes synchronously
         set({ token, user });
       },
       setPermissions: (permissions) => set({ permissions }),
+      setAccessCatalogue: (accessCatalogue) => set({ accessCatalogue }),
       // Every sign-out path (menu, forced logout via 403 or SSE) goes through here, so this is
       // also what ends a remembered session.
       clearAuth: () => {
         remembered = false;
         try { localStorage.removeItem(STORE_NAME); } catch { /* storage unavailable */ }
-        set({ token: null, user: null, permissions: null });
+        set({ token: null, user: null, permissions: null, accessCatalogue: null });
       },
     }),
     { name: STORE_NAME, storage: createJSONStorage(() => authStorage) }

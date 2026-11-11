@@ -12,6 +12,17 @@ export interface MyPermissionsResponse {
   customRolePermissions?: Record<string, Partial<Record<string, string[]>>>;
 }
 
+/** One page that needs a permission: open when the user holds AT LEAST ONE of `requires` ("module:ACTION:SCOPE").
+ *  Served from the backend's permission-catalogue.yml; every page not listed is baseline self-service. */
+export interface RouteRequirement {
+  path: string;
+  requires: string[];
+}
+
+export interface AccessCatalogue {
+  routes: RouteRequirement[];
+}
+
 async function handle<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error('Request failed');
   return res.json() as Promise<T>;
@@ -22,4 +33,8 @@ export const meApi = {
     fetch(`${BASE}/me/permissions`, {
       headers: { Authorization: `Bearer ${token}` },
     }).then(handle<MyPermissionsResponse>),
+  getAccessCatalogue: (token: string) =>
+    fetch(`${BASE}/me/access-catalogue`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then(handle<AccessCatalogue>),
 };

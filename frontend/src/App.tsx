@@ -75,30 +75,27 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// /documents is the administrative Documents & Compliance page. The route itself needs
+// documents:VIEW:ALL (permission-catalogue.yml, enforced by Shell's route guard), so there is no
+// self-service variant here: an employee's own documents live at /my-documents.
 function DocumentsRouter() {
-  const permissions = useAuthStore(s => s.permissions);
-  return hasPermission(permissions, 'documents', 'VIEW', 'ALL')
-    ? <DocumentsCompliancePage />
-    : <DocumentsPage />;
+  return <DocumentsCompliancePage />;
 }
 
-// Manager, HR Admin, and Super Admin share the same /audit path with different components —
-// only these three roles have an 'audit' nav entry at all (see nav.config.ts). Super Admin gets
-// the full Audit & Security view; Manager and HR Admin both get the self-scoped Audit History
-// view (the server, not this ternary, enforces that scoping — see AuditLogController). Gated on
-// user_management:VIEW:ALL (Super-Admin-only, see UserManagementController) rather than audit's
-// own permission, which every one of these three roles equally holds (audit is OWN-scoped for
-// everyone by design — see V225's header) and so can't distinguish Super Admin from the other two.
+// /audit shows Audit & Security (which also includes the access-control events: user and role
+// administration) to whoever holds audit_security:VIEW:ALL, and the plain Audit History (the
+// caller's own activity) to everyone else who may open /audit. The server, not this ternary,
+// enforces what each view may contain — see AuditLogController.
 function AuditRouter() {
   const permissions = useAuthStore(s => s.permissions);
-  return hasPermission(permissions, 'user_management', 'VIEW', 'ALL')
+  return hasPermission(permissions, 'audit_security', 'VIEW', 'ALL')
     ? <AuditSecurityPage />
     : <AuditHistoryPage />;
 }
 
-// /requests is "My Requests" (Leave/Regularization/Web Clock-In tracker) for Employee/Manager,
-// but the Help Desk ticket queue for HR Admin/Super Admin — same nav slot the "HR Service
-// Requests" item already reserved (see nav.config.ts). Mirrors DocumentsRouter/AuditRouter.
+// /requests is "My Requests" (Leave/Regularization/Web Clock-In tracker) for anyone, but the Help
+// Desk ticket queue for whoever holds helpdesk:VIEW:ALL — two different data sets behind one URL, so
+// the variant is chosen by the permission, not by the role.
 function RequestsRouter() {
   const permissions = useAuthStore(s => s.permissions);
   return hasPermission(permissions, 'helpdesk', 'VIEW', 'ALL')

@@ -44,7 +44,13 @@ public enum AuditActionCategory {
             // RoleAdminService — Roles & Permissions administration (target_id is null: roles have
             // no UUID; the role code/name is in the before/after snapshot).
             "ROLE_CREATED", "ROLE_UPDATED", "ROLE_ACTIVATED", "ROLE_DEACTIVATED", "ROLE_DELETED",
-            "ROLE_PERMISSIONS_UPDATED"
+            "ROLE_PERMISSIONS_UPDATED",
+            // An administrator's review of a Manager whose role was converted from automatic to explicit (V280).
+            "ROLE_MANAGER_CONVERSION_REVIEWED",
+            // Gaining or losing the Super Admin role (logged next to ROLE_CHANGED).
+            "ROLE_SUPER_ADMIN_CHANGED",
+            // Break-glass restoration of the Super Admin role (SuperAdminRecoveryRunner).
+            "ROLE_SUPER_ADMIN_RECOVERED"
     )),
 
     HR_OPERATIONAL(Set.of(

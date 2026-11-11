@@ -480,6 +480,17 @@ class OnboardingServiceTest {
     }
 
     @Test
+    void completeOnboarding_ownOnboardingIsRefused_evenWithTheApprovePermission() {
+        OnboardingChecklist own = inProgressChecklist();
+        own.setEmployeeUserId(adminId);
+        when(checklistRepo.findById(checklistId)).thenReturn(Optional.of(own));
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> onboardingService.completeOnboarding(checklistId, ADMIN_EMAIL));
+        verify(checklistRepo, never()).completeIfInProgress(any(), any());
+    }
+
+    @Test
     void completeOnboarding_itemsStillPending_throwsAndDoesNotTransition() {
         OnboardingChecklist checklist = inProgressChecklist();
         when(checklistRepo.findById(checklistId)).thenReturn(Optional.of(checklist));
