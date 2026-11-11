@@ -213,12 +213,12 @@ public class AttendancePenaltyService {
     /**
      * Holders of {@code orgWideAuthority} (HR_ADMIN/SUPER_ADMIN) see every employee ever eligible to
      * be penalized (the same population {@code ExceptionService}/the scheduled evaluator actually
-     * evaluates — see {@code UserRepository#findEmployeeRoleUserIds}); everyone else is restricted to
+     * evaluates — see {@code UserRepository#findAttendancePolicySubjectIds}); everyone else is restricted to
      * {@code findCurrentDirectReportIds}. Resolved from the caller's permissions only, never client input.
      */
     private Set<UUID> resolveScopeIds(Employee actor, String orgWideAuthority) {
         if (effectivePermissionService.hasAuthority(actor.getUser(), orgWideAuthority)) {
-            return userRepository.findEmployeeRoleUserIds();
+            return userRepository.findAttendancePolicySubjectIds();
         }
         return new HashSet<>(managerHistoryRepository.findCurrentDirectReportIds(actor.getUserId()));
     }

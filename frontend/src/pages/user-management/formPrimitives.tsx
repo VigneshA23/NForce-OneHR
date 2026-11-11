@@ -55,3 +55,14 @@ export function Section({ icon: Icon, title, hint, children }: { icon: React.Com
 export function Field({ label, span, children }: { label: string; span?: 'full'; children: React.ReactNode }) {
   return <div style={span === 'full' ? { gridColumn: '1/-1' } : undefined}><label style={labelStyle}>{label}</label>{children}</div>;
 }
+
+/** Non-blocking heads-up when the chosen reporting manager couldn't actually decide their reports' requests. */
+export function ManagerApprovalWarning({ manager }: { manager?: { fullName: string; canApproveRequests?: boolean } }) {
+  if (!manager || manager.canApproveRequests !== false) return null;
+  return (
+    <div role="note" style={{ fontSize: 11, color: '#E0A93B', marginTop: 4, lineHeight: 1.45 }}>
+      {manager.fullName} can be their reporting manager but doesn't hold leave approval, so requests routed to them won't be approvable by them
+      (HR can still decide). Grant them an approval permission in Roles &amp; Permissions if they should.
+    </div>
+  );
+}

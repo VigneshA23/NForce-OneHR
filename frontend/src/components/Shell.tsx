@@ -6,7 +6,7 @@ import {
   Clock as ClockIcon, ArrowRight,
 } from 'lucide-react';
 import { NAV, ALL_NAV_ITEMS, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
-import { customRoleNavItems, isNavItemVisible } from '../lib/permissions';
+import { isNavItemVisible, isRoutePermitted, permissionNavItems } from '../lib/permissions';
 import { meApi } from '../api/me';
 import { AccessDenied } from './AccessDenied';
 import { searchApi, type SearchResultItem as ApiSearchResultItem, type SearchGroup } from '../api/search';
@@ -199,9 +199,10 @@ export function Shell() {
   const name        = storeUser?.fullName || email || 'User';
   const permissions = useAuthStore((s) => s.permissions);
 
-  // NAV[role] plus any gated items this user's custom roles grant (see customRoleNavItems) — a
-  // custom-role holder's primary role is usually Employee, whose curated nav lists no admin items.
-  const extraNavItems = useMemo(() => customRoleNavItems(NAV[role], permissions), [role, permissions]);
+  // NAV[role] is the persona's preset; on top of it every gated item the user's EFFECTIVE
+  // permissions grant (from any role, see permissionNavItems) — a custom-role holder's persona is
+  // usually Employee, whose curated nav lists no admin items.
+  const extraNavItems = useMemo(() => permissionNavItems(NAV[role], permissions, role), [role, permissions]);
   const navItems = useMemo(() => [...NAV[role], ...extraNavItems], [role, extraNavItems]);
   // Narrows the role's full candidate list down to what this user's live permissions actually
   // grant — a plain membership check per item (see isNavItemVisible), not a re-derivation of role
@@ -238,7 +239,8 @@ export function Shell() {
   // as before). Backend @PreAuthorize is still the real enforcement regardless of this check; this
   // only stops the page component from mounting at all on a denied direct-URL visit.
   const globalMatch = ALL_NAV_ITEMS.find((n) => location.pathname.startsWith(n.path));
-  const deniedByPermission = globalMatch != null && !isNavItemVisible(globalMatch, permissions);
+  const deniedByPermission = (globalMatch != null && !isNavItemVisible(globalMatch, permissions))
+    || !isRoutePermitted(location.pathname, permissions);
 
   type FlatResult =
     | { kind: 'nav'; item: NavItem }
@@ -545,6 +547,11 @@ export function Shell() {
           stashSessionMessageForLogin(SESSION_PROFILE_UPDATED_MESSAGE);
           window.location.href = '/login';
         });
+        // A role's permissions (or its active flag) were edited: re-fetch them now so nav and route
+        // guards follow immediately instead of on the next tab focus. The connection stays open.
+        eventSource.addEventListener('PERMISSIONS_CHANGED', () => {
+          meApi.getPermissions(token).then(setPermissions).catch(() => {});
+        });
         eventSource.onerror = () => {
           // The ticket is single-use — EventSource's built-in auto-retry would reuse a now-dead
           // ticket, so close it ourselves and reconnect with a freshly-issued one instead.
@@ -563,7 +570,7 @@ export function Shell() {
       if (retryTimer) clearTimeout(retryTimer);
       eventSource?.close();
     };
-  }, [token, clearAuth, navigate]);
+  }, [token, clearAuth, navigate, setPermissions]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {

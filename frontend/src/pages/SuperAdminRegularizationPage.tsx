@@ -1,3 +1,4 @@
+import { isDefaultEmployee } from '../lib/roleCategories';
 import { useEffect, useMemo, useState } from 'react';
 import { EmpCode } from '../components/EmpCode';
 import { usePaged } from '../components/usePaged';
@@ -143,7 +144,8 @@ export default function SuperAdminRegularizationPage() {
   }, [token]);
 
   const managers = useMemo(
-    () => employees.filter(e => e.role === 'MANAGER' || e.role === 'HR_ADMIN' || e.role === 'SUPER_ADMIN'),
+    // Anyone who can hold reviewer duties: people with an administrative or custom role (not the default Employee category).
+    () => employees.filter(e => !isDefaultEmployee(e)),
     [employees],
   );
 

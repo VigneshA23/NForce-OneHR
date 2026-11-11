@@ -101,8 +101,13 @@ class PolicyServiceTest {
                 .fullName("Recipient " + recipientRoleCode)
                 .joiningDate(LocalDate.now())
                 .build();
-        when(employeeRepo.findActiveByRoleCodes(eq(Set.of(recipientRoleCode))))
-                .thenReturn(List.of(recipient));
+        // EMPLOYEE is the baseline of every user (no role row needed), so an EMPLOYEE audience means
+        // everyone; any other audience matches holders of that role.
+        if ("EMPLOYEE".equals(recipientRoleCode)) {
+            when(employeeRepo.findAllActiveWithDetails()).thenReturn(List.of(recipient));
+        } else {
+            when(employeeRepo.findActiveByRoleCodes(eq(Set.of(recipientRoleCode)))).thenReturn(List.of(recipient));
+        }
 
         PublishPolicyRequest req = new PublishPolicyRequest();
         req.setTitle("Code of Conduct");

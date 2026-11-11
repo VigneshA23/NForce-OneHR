@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { KeyRound, Plus, Search as SearchIcon, X, ChevronDown, ChevronRight, Lock, ShieldCheck, Users2, Layers, Trash2, Pencil, Eye } from 'lucide-react';
+import { Copy, KeyRound, Plus, Search as SearchIcon, ChevronDown, ChevronRight, Lock, ShieldCheck, Users2, Layers, Trash2, Pencil, Eye } from 'lucide-react';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import './rolesPermissions.css';
 import PageTitleBlock from '../components/PageTitleBlock';
@@ -9,9 +9,14 @@ import { ChipGroup } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { hasPermission } from '../lib/permissions';
-import { rolesApi, type CatalogueModule, type RoleDetail, type RoleSummary } from '../api/roles';
+import { rolesApi, type BulkMemberResult, type CatalogueModule, type RoleDetail, type RoleSummary } from '../api/roles';
 import { usersApi, type EmployeeRecord } from '../api/employees';
 import { useBackToClose } from '../lib/backToClose';
+import {
+  Banner, ModalHeader, dangerBtn, inputStyle, labelStyle, overlayStyle, primaryBtn, secondaryBtn, tdStyle, thStyle, useDismiss,
+} from './roles/roleUi';
+import { BulkAddPanel, CompareRolesModal, PermissionHoldersModal, RoleHistory } from './roles/RoleTools';
+import { suggestCloneName, summarizeBulk } from '../lib/roleTools';
 import {
   ACTION_LABEL, SCOPE_LABEL, categoryState, filterCatalogue, fromGrantMap, grantKey, grantableScopes, sameGrants,
   setCategory, setGrant, summarizeGrants, toGrantMap, toGrants, type GrantMap,
@@ -23,16 +28,6 @@ import {
  * is enforced by the server (RoleAdminService / UserManagementService); this page mirrors those
  * rules so the admin sees them up front, and always reloads from the server after a save.
  */
-
-// ─── Shared styles (same tokens/look as User Management) ────────────────────────
-const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(8,10,16,.6)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 };
-const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 12, padding: '10px 13px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
-const labelStyle: React.CSSProperties = { display: 'block', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.08em' };
-const primaryBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', color: '#fff', border: 'none', borderRadius: 12, padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 8px 18px color-mix(in srgb, var(--brand) 26%, transparent)' };
-const secondaryBtn: React.CSSProperties = { background: 'var(--raised)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 12, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' };
-const dangerBtn: React.CSSProperties = { ...secondaryBtn, color: 'var(--risk)', background: 'color-mix(in srgb, var(--risk) 7%, var(--panel))', borderColor: 'color-mix(in srgb, var(--risk) 38%, var(--line2))' };
-const thStyle: React.CSSProperties = { padding: '12px 18px', textAlign: 'left', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', background: 'var(--raised)' };
-const tdStyle: React.CSSProperties = { padding: '13px 18px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 
 function isSuperAdmin(mine: { roles?: string[] } | null | undefined): boolean {
   return !!mine?.roles?.includes('SUPER_ADMIN');
@@ -65,33 +60,6 @@ function TriCheckbox({ state, disabled, onChange, label }: { state: 'none' | 'so
       onChange={() => onChange(state !== 'all')} onClick={e => e.stopPropagation()}
       style={{ width: 15, height: 15, accentColor: 'var(--brand)', cursor: disabled ? 'not-allowed' : 'pointer', flexShrink: 0 }} />
   );
-}
-
-function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose: () => void }) {
-  return (
-    <div className="nf-rl-head">
-      <span className="nf-rl-head-ico"><KeyRound size={19} /></span>
-      <div className="nf-rl-head-txt">
-        <div className="nf-rl-head-title">{title}</div>
-        {subtitle && <div className="nf-rl-head-sub">{subtitle}</div>}
-      </div>
-      <button type="button" onClick={onClose} aria-label="Close" className="nf-rl-x"><X size={16} /></button>
-    </div>
-  );
-}
-
-function Banner({ tone, children }: { tone: 'info' | 'warn' | 'error'; children: React.ReactNode }) {
-  const c = tone === 'error' ? 'var(--risk)' : tone === 'warn' ? '#E0A93B' : 'var(--info, #4C8DD6)';
-  return <div role={tone === 'error' ? 'alert' : undefined} style={{ fontSize: 12.5, color: 'var(--txt)', background: `color-mix(in srgb, ${c} 10%, var(--panel))`, border: `1px solid color-mix(in srgb, ${c} 32%, transparent)`, borderRadius: 12, padding: '10px 13px', lineHeight: 1.5 }}>{children}</div>;
-}
-
-/** Escape + backdrop close for a modal, routed through `requestClose` so dirty state can intercept it. */
-function useDismiss(requestClose: () => void) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') requestClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [requestClose]);
 }
 
 // ─── Permission matrix (shared by the editor and the read-only details view) ───
@@ -145,6 +113,15 @@ function PermissionMatrix({ catalogue, map, onChange, readOnly, lockedReason }: 
                 {!m.configurable && <span title="Access here is still decided by built-in role logic, so it can't be configured yet." style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Lock size={11} /> SYSTEM-MANAGED</span>}
                 <span className={`nf-rl-count${granted.length ? ' is-on' : ''}`}>{granted.length}/{m.actions.length}</span>
               </div>
+              {isOpen(m.code) && !m.configurable && (
+                <div style={{ padding: '10px 14px 0 40px' }}>
+                  <Banner tone="info">
+                    <Lock size={12} style={{ verticalAlign: -1, marginRight: 6 }} />
+                    Access to {m.name} is still decided by built-in workflow rules (for example fixed approval stages), so it can't be handed to a custom role yet.
+                    The grants below are shown for reference only.
+                  </Banner>
+                </div>
+              )}
               {isOpen(m.code) && (
                 <div className="nf-rl-acts">
                   {m.actions.map(a => {
@@ -184,11 +161,14 @@ function PermissionMatrix({ catalogue, map, onChange, readOnly, lockedReason }: 
 }
 
 // ─── Create / edit role ─────────────────────────────────────────────────────────
-function RoleEditorModal({ token, catalogue, existing, onClose, onSaved }: {
+function RoleEditorModal({ token, catalogue, existing, template, existingNames, onClose, onSaved }: {
   token: string;
   catalogue: CatalogueModule[];
   /** null = create. */
   existing: RoleDetail | null;
+  /** Create a NEW role pre-filled from this one (clone). Ignored when editing. */
+  template?: RoleDetail | null;
+  existingNames: string[];
   onClose: () => void;
   onSaved: (saved: RoleDetail) => void;
 }) {
@@ -196,9 +176,15 @@ function RoleEditorModal({ token, catalogue, existing, onClose, onSaved }: {
   const mine = useAuthStore(s => s.permissions);
   const role = existing?.role;
   const initialMap = useMemo(() => toGrantMap(existing?.grants ?? []), [existing]);
-  const [name, setName] = useState(role?.name ?? '');
-  const [description, setDescription] = useState(role?.description ?? '');
-  const [map, setMap] = useState<GrantMap>(initialMap);
+  // Cloning copies only what THIS administrator may grant (the server's privilege ceiling would refuse the rest).
+  const templateGrants = useMemo(
+    () => (template && !existing ? template.grants.filter(g => hasPermission(mine, g.module, g.action, g.scope)) : []),
+    [template, existing, mine],
+  );
+  const skippedFromTemplate = template && !existing ? template.grants.length - templateGrants.length : 0;
+  const [name, setName] = useState(role?.name ?? (template ? suggestCloneName(template.role.name, existingNames) : ''));
+  const [description, setDescription] = useState(role?.description ?? template?.role.description ?? '');
+  const [map, setMap] = useState<GrantMap>(() => (existing ? initialMap : toGrantMap(templateGrants)));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -231,8 +217,6 @@ function RoleEditorModal({ token, catalogue, existing, onClose, onSaved }: {
     const out: string[] = [];
     const added = Object.keys(map).filter(k => !initialMap[k]);
     const removed = Object.keys(initialMap).filter(k => !map[k]);
-    if (role?.code === 'EMPLOYEE' && added.length)
-      out.push('Every user holds the Employee role, so these permissions will apply to everyone in the organization.');
     const adminModules = ['roles', 'user_roles', 'user_management'];
     if (removed.some(k => adminModules.includes(k.split(':')[0])))
       out.push(`Removing administration permissions takes access away from the ${role?.userCount ?? 0} user(s) holding this role on their next action.`);
@@ -278,11 +262,14 @@ function RoleEditorModal({ token, catalogue, existing, onClose, onSaved }: {
 
   return (
     <div style={overlayStyle} onMouseDown={e => { if (e.target === e.currentTarget) requestClose(); }}>
-      <div role="dialog" aria-modal="true" aria-label={role ? `Edit ${role.name}` : 'Create role'}
+      <div role="dialog" aria-modal="true" aria-label={role ? `Edit ${role.name}` : template ? 'Clone role' : 'Create role'}
         className="nf-rl-dlg" style={{ width: '96vw', maxWidth: 880, maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
-        <ModalHeader title={role ? `Edit role · ${role.name}` : 'Create role'}
-          subtitle={role?.system ? 'System role: name and status are fixed.' : 'Choose what holders of this role can do.'} onClose={requestClose} />
+        <ModalHeader title={role ? `Edit role · ${role.name}` : template ? `Clone role · ${template.role.name}` : 'Create role'}
+          subtitle={role?.system ? 'System role: name and status are fixed.' : template ? 'Starts with the same permissions; change anything before saving. Nobody is assigned automatically.' : 'Choose what holders of this role can do.'} onClose={requestClose} />
         <div style={{ padding: '18px 22px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {skippedFromTemplate > 0 && (
+            <Banner tone="warn">{skippedFromTemplate} permission{skippedFromTemplate === 1 ? ' was' : 's were'} not copied because you don't hold {skippedFromTemplate === 1 ? 'it' : 'them'} yourself — you can only grant what you have.</Banner>
+          )}
           <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 14 }}>
             <div>
               <label style={labelStyle} htmlFor="role-name">Role name *</label>
@@ -405,12 +392,14 @@ function DeleteRoleDialog({ token, role, onClose, onDeleted }: {
 }
 
 // ─── Role details drawer ────────────────────────────────────────────────────────
-function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onChanged }: {
+function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onClone, onChanged }: {
   token: string;
   roleId: number;
   catalogue: CatalogueModule[];
   onClose: () => void;
   onEdit: (detail: RoleDetail) => void;
+  /** Present only when the viewer may create roles. */
+  onClone?: (detail: RoleDetail) => void;
   onChanged: () => void;
 }) {
   const { showToast } = useToast();
@@ -418,7 +407,10 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onChange
   const myEmail = useAuthStore(s => s.user?.email)?.toLowerCase();
   const [detail, setDetail] = useState<RoleDetail | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [tab, setTab] = useState<'permissions' | 'members'>('permissions');
+  const [tab, setTab] = useState<'permissions' | 'members' | 'history'>('permissions');
+  const [adding, setAdding] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const [bulkResult, setBulkResult] = useState<{ remove: boolean; results: BulkMemberResult[] } | null>(null);
   const [users, setUsers] = useState<EmployeeRecord[] | null>(null);
   const [pick, setPick] = useState('');
   const [busy, setBusy] = useState(false);
@@ -458,6 +450,24 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onChange
     }
   }
 
+  /** Add/remove several users; each succeeds or fails on its own, and the outcome is shown per person. */
+  async function runBulk(userIds: string[], remove: boolean) {
+    if (!detail) return;
+    setBusy(true); setActionError(''); setBulkResult(null);
+    try {
+      const results = await rolesApi.bulkMembers(detail.role.id, userIds, remove, token);
+      setBulkResult({ remove, results });
+      setPicked(new Set());
+      showToast(results.some(r => !r.ok) ? 'error' : 'success', summarizeBulk(results, remove));
+      setDetail(await rolesApi.get(detail.role.id, token));
+      onChanged();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Could not update those users.');
+    } finally {
+      setBusy(false); setConfirm(null);
+    }
+  }
+
   const role = detail?.role;
   const memberIds = new Set(detail?.members.map(m => m.userId));
   const candidates = (users ?? []).filter(u => !memberIds.has(u.userId) && u.active && u.email.toLowerCase() !== myEmail);
@@ -478,6 +488,12 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onChange
               <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Code <code>{role.code}</code> · Created {fmtDate(role.createdAt)} · Updated {fmtDate(role.updatedAt)}</span>
               <div style={{ flex: 1 }} />
               <button style={{ ...secondaryBtn, padding: '7px 12px', fontSize: 12 }} onClick={() => onEdit(detail)}>{role.permissionsEditable || role.metadataEditable ? 'Edit' : 'View permissions'}</button>
+              {onClone && role.code !== 'EMPLOYEE' && (
+                <button style={{ ...secondaryBtn, padding: '7px 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={() => onClone(detail)}
+                  title="Create a new role that starts with the same permissions">
+                  <Copy size={12} /> Clone
+                </button>
+              )}
               {role.metadataEditable && canEditMeta && (
                 <button style={{ ...secondaryBtn, padding: '7px 12px', fontSize: 12 }} disabled={busy}
                   onClick={() => role.active
@@ -509,18 +525,22 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onChange
             )}
             {actionError && <div style={{ padding: '12px 22px 0' }}><Banner tone="error">{actionError}</Banner></div>}
             <div style={{ display: 'flex', gap: 4, padding: '12px 22px 0' }}>
-              <ChipGroup ariaLabel="Role details section" value={tab} onChange={setTab}
-                options={[{ key: 'permissions', label: `Permissions (${detail.grants.length})` }, { key: 'members', label: `Users (${detail.members.length})` }]} />
+              <ChipGroup ariaLabel="Role details section" value={tab} onChange={k => setTab(k as typeof tab)}
+                options={[{ key: 'permissions', label: `Permissions (${detail.grants.length})` }, { key: 'members', label: `Users (${detail.members.length})` }, ...(role.code === 'EMPLOYEE' ? [] : [{ key: 'history', label: 'History' }])]} />
             </div>
             <div style={{ padding: '14px 22px 22px', overflowY: 'auto', flex: 1 }}>
               {tab === 'permissions' && (
                 grantedModules.length === 0
-                  ? <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>{role.code === 'EMPLOYEE' ? 'No extra permissions. Employee self-service (attendance, leave, requests and more) is available to every signed-in user.' : 'This role grants no permissions yet.'}</div>
+                  ? <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>{role.code === 'EMPLOYEE' ? 'The default category holds no permissions. Baseline self-service (attendance, leave, requests…) is available to every signed-in user; anything extra comes from an explicitly assigned role.' : 'This role grants no permissions yet.'}</div>
                   : <PermissionMatrix catalogue={grantedModules} map={toGrantMap(detail.grants)} readOnly />
               )}
+              {tab === 'history' && <RoleHistory token={token} roleId={role.id} catalogue={catalogue} />}
               {tab === 'members' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {canAssign && canListUsers && role.active && (
+                  {role.code === 'EMPLOYEE' && (
+                    <Banner tone="info">Default category — people with no additional role appear here. Anyone with an administrative or custom role is listed under that role instead. To move someone, assign or remove their other roles.</Banner>
+                  )}
+                  {canAssign && canListUsers && role.active && role.code !== 'EMPLOYEE' && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <select aria-label="Add a user to this role" value={pick} onChange={e => setPick(e.target.value)} style={{ ...inputStyle, flex: '1 1 240px', width: 'auto' }}>
                         <option value="">{users === null ? 'Loading users…' : 'Add a user…'}</option>
@@ -530,18 +550,46 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onChange
                         onClick={() => run('add user', () => rolesApi.addMember(role.id, pick, token), 'User added. They will be asked to sign in again').then(() => setPick(''))}>
                         <Plus size={14} /> Add
                       </button>
+                      <button style={{ ...secondaryBtn, padding: '8px 12px', fontSize: 12.5 }} disabled={busy} onClick={() => setAdding(a => !a)} aria-expanded={adding}>
+                        {adding ? 'Hide' : 'Add several…'}
+                      </button>
                     </div>
+                  )}
+                  {adding && canAssign && canListUsers && role.active && role.code !== 'EMPLOYEE' && (
+                    <BulkAddPanel candidates={candidates} busy={busy} onSubmit={ids => runBulk(ids, false)} />
+                  )}
+                  {bulkResult && (
+                    <Banner tone={bulkResult.results.some(r => !r.ok) ? 'warn' : 'info'}>
+                      <div style={{ fontWeight: 600, marginBottom: bulkResult.results.some(r => !r.ok) ? 6 : 0 }}>{summarizeBulk(bulkResult.results, bulkResult.remove)}</div>
+                      {bulkResult.results.filter(r => !r.ok).map(r => <div key={r.userId}>• {r.name}: {r.message}</div>)}
+                    </Banner>
                   )}
                   {!role.active && <Banner tone="info">Inactive roles can't be assigned. Activate the role to add users.</Banner>}
                   {detail.members.length === 0
-                    ? <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No users hold this role.</div>
+                    ? <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>{role.code === 'EMPLOYEE' ? 'Everyone currently has an additional role.' : 'No users hold this role.'}</div>
                     : (
+                      <>
+                      {picked.size > 0 && canAssign && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{picked.size} selected</span>
+                          <button style={{ ...dangerBtn, padding: '6px 12px', fontSize: 12 }} disabled={busy}
+                            onClick={() => setConfirm({ label: `Remove ${role.name} from ${picked.size} user${picked.size === 1 ? '' : 's'}? They lose its permissions and will be asked to sign in again.`, run: () => runBulk([...picked], true) })}>
+                            Remove selected
+                          </button>
+                          <button style={{ ...secondaryBtn, padding: '6px 12px', fontSize: 12 }} onClick={() => setPicked(new Set())}>Clear</button>
+                        </div>
+                      )}
                       <div className="nf-rl-members">
                         {detail.members.map((m, i) => {
                           const self = m.email.toLowerCase() === myEmail;
                           const removable = canAssign && role.code !== 'EMPLOYEE' && !self;
                           return (
                             <div key={m.userId} className="nf-rl-member" style={{ borderTop: i ? '1px solid var(--line)' : 'none', opacity: m.active ? 1 : 0.6 }}>
+                              {removable && (
+                                <input type="checkbox" aria-label={`Select ${m.fullName}`} checked={picked.has(m.userId)} disabled={busy}
+                                  onChange={() => setPicked(p => { const n = new Set(p); if (n.has(m.userId)) n.delete(m.userId); else n.add(m.userId); return n; })}
+                                  style={{ accentColor: 'var(--brand)' }} />
+                              )}
                               <EmployeeAvatar userId={m.userId} name={m.fullName} size={34} fontSize={12} background="var(--brand)" />
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.fullName}{self && <span style={{ color: 'var(--txt-dim)', fontWeight: 500 }}> (you)</span>}</div>
@@ -557,6 +605,7 @@ function RoleDetailsDrawer({ token, roleId, catalogue, onClose, onEdit, onChange
                           );
                         })}
                       </div>
+                      </>
                     )}
                 </div>
               )}
@@ -583,6 +632,10 @@ export default function RolesPermissionsPage() {
   const [editing, setEditing] = useState<RoleDetail | null | undefined>(undefined); // undefined = closed, null = create
   const [viewing, setViewing] = useState<number | null>(null);
   const [deletingRole, setDeletingRole] = useState<RoleSummary | null>(null);
+  const [cloning, setCloning] = useState<RoleDetail | null>(null);
+  const [compareIds, setCompareIds] = useState<number[]>([]);
+  const [comparing, setComparing] = useState<[number, number] | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
 
   const canCreate = hasPermission(mine, 'roles', 'CREATE', 'ALL');
   const canDelete = hasPermission(mine, 'roles', 'DELETE', 'ALL');
@@ -605,6 +658,14 @@ export default function RolesPermissionsPage() {
   });
   const customCount = roles.filter(r => !r.system).length;
 
+  async function cloneRole(roleId: number) {
+    try { setCloning(await rolesApi.get(roleId, token)); setEditing(null); } catch (e) { setLoadError(e instanceof Error ? e.message : 'Could not load the role.'); }
+  }
+
+  function toggleCompare(id: number) {
+    setCompareIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : prev.length >= 2 ? [prev[1], id] : [...prev, id]);
+  }
+
   async function openEditor(roleId: number) {
     try { setEditing(await rolesApi.get(roleId, token)); } catch (e) { setLoadError(e instanceof Error ? e.message : 'Could not load the role.'); }
   }
@@ -616,9 +677,12 @@ export default function RolesPermissionsPage() {
           <h1 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 21, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>Roles & Permissions</h1>
           <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 3 }}>Define what each role can do, create custom roles, and see who holds them.</p>
         </PageTitleBlock>
-        {canCreate && (
-          <button style={primaryBtn} onClick={() => setEditing(null)}><Plus size={14} /> Create Role</button>
-        )}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button style={secondaryBtn} onClick={() => setLookingUp(true)}><SearchIcon size={13} style={{ verticalAlign: -2, marginRight: 6 }} />Who has a permission?</button>
+          {canCreate && (
+            <button style={primaryBtn} onClick={() => { setCloning(null); setEditing(null); }}><Plus size={14} /> Create Role</button>
+          )}
+        </div>
       </div>
 
       {!loading && !loadError && (
@@ -645,6 +709,14 @@ export default function RolesPermissionsPage() {
         </select>
       </div>
 
+      {compareIds.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, fontSize: 12.5, color: 'var(--txt-mut)' }}>
+          <span>{compareIds.length === 1 ? 'Pick one more role to compare.' : `${compareIds.length} roles selected.`}</span>
+          <button style={{ ...primaryBtn, padding: '6px 14px', fontSize: 12, opacity: compareIds.length === 2 ? 1 : 0.5 }} disabled={compareIds.length !== 2}
+            onClick={() => setComparing([compareIds[0], compareIds[1]])}>Compare</button>
+          <button style={{ ...secondaryBtn, padding: '6px 12px', fontSize: 12 }} onClick={() => setCompareIds([])}>Clear</button>
+        </div>
+      )}
       <div className="nf-rl-card">
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
@@ -662,11 +734,17 @@ export default function RolesPermissionsPage() {
           <div style={{ overflowX: 'auto' }}>
             <table className="nf-rl-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, minWidth: 760 }}>
               <thead>
-                <tr>{['Role', 'Type', 'Users', 'Permissions', 'Status', 'Updated', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+                <tr>{['', 'Role', 'Type', 'Users', 'Permissions', 'Status', 'Updated', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {filtered.map(r => (
                   <tr key={r.id} className="is-click" style={{ opacity: r.active ? 1 : 0.65 }} onClick={() => setViewing(r.id)}>
+                    <td style={{ ...tdStyle, width: 34, paddingRight: 0 }} onClick={e => e.stopPropagation()}>
+                      {r.code !== 'EMPLOYEE' && (
+                        <input type="checkbox" aria-label={`Select ${r.name} to compare`} checked={compareIds.includes(r.id)}
+                          onChange={() => toggleCompare(r.id)} style={{ accentColor: 'var(--brand)', cursor: 'pointer' }} />
+                      )}
+                    </td>
                     <td style={tdStyle}>
                       <div className="nf-rl-role">
                         <span className={`nf-rl-role-ico${r.system ? '' : ' is-custom'}`}>{!r.permissionsEditable ? <Lock size={16} aria-label="Protected" /> : r.system ? <ShieldCheck size={16} /> : <KeyRound size={16} />}</span>
@@ -678,13 +756,19 @@ export default function RolesPermissionsPage() {
                     </td>
                     <td style={tdStyle}><RoleTypeBadge system={r.system} /></td>
                     <td style={tdStyle}><span className="nf-rl-num"><Users2 size={13} />{r.userCount}</span></td>
-                    <td style={tdStyle}>{r.code === 'EMPLOYEE' && r.permissionCount === 0 ? <span className="nf-rl-num is-soft">Self-service</span> : <span className="nf-rl-num"><KeyRound size={13} />{r.permissionCount}</span>}</td>
+                    <td style={tdStyle}>{r.code === 'EMPLOYEE' ? <span className="nf-rl-num is-soft">Baseline</span> : <span className="nf-rl-num"><KeyRound size={13} />{r.permissionCount}</span>}</td>
                     <td style={tdStyle}><StatusPill active={r.active} /></td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{fmtDate(r.updatedAt)}</td>
                     <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <button style={{ ...secondaryBtn, padding: '6px 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} onClick={e => { e.stopPropagation(); openEditor(r.id); }}>
                         {r.permissionsEditable || r.metadataEditable ? <><Pencil size={12} />Edit</> : <><Eye size={12} />View</>}
                       </button>
+                      {canCreate && r.code !== 'EMPLOYEE' && (
+                        <button style={{ ...secondaryBtn, padding: '5px 10px', fontSize: 12, marginLeft: 6 }} aria-label={`Clone ${r.name}`}
+                          onClick={e => { e.stopPropagation(); cloneRole(r.id); }}>
+                          Clone
+                        </button>
+                      )}
                       {!r.system && canDelete && (
                         <button style={{ ...dangerBtn, padding: '6px 12px', fontSize: 12, marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 5 }} aria-label={`Delete ${r.name}`}
                           onClick={e => { e.stopPropagation(); setDeletingRole(r); }}>
@@ -701,8 +785,9 @@ export default function RolesPermissionsPage() {
       </div>
 
       {editing !== undefined && createPortal(
-        <RoleEditorModal token={token} catalogue={catalogue} existing={editing} onClose={() => setEditing(undefined)}
-          onSaved={saved => { setEditing(undefined); reload(); setViewing(saved.role.id); }} />,
+        <RoleEditorModal token={token} catalogue={catalogue} existing={editing} template={cloning} existingNames={roles.map(r => r.name)}
+          onClose={() => { setEditing(undefined); setCloning(null); }}
+          onSaved={saved => { setEditing(undefined); setCloning(null); reload(); setViewing(saved.role.id); }} />,
         document.body,
       )}
       {deletingRole && (
@@ -711,8 +796,11 @@ export default function RolesPermissionsPage() {
       )}
       {viewing !== null && editing === undefined && (
         <RoleDetailsDrawer token={token} roleId={viewing} catalogue={catalogue} onClose={() => setViewing(null)}
-          onEdit={d => setEditing(d)} onChanged={reload} />
+          onEdit={d => { setCloning(null); setEditing(d); }}
+          onClone={canCreate ? d => { setCloning(d); setEditing(null); } : undefined} onChanged={reload} />
       )}
+      {comparing && <CompareRolesModal token={token} ids={comparing} catalogue={catalogue} onClose={() => setComparing(null)} />}
+      {lookingUp && <PermissionHoldersModal token={token} catalogue={catalogue} onClose={() => setLookingUp(false)} />}
     </div>
   );
 }

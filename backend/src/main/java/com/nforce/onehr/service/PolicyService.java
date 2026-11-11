@@ -8,6 +8,7 @@ import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.*;
 import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.util.RoleUtils;
 import com.nforce.onehr.util.AttachmentValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -44,7 +45,8 @@ public class PolicyService {
     @Transactional(readOnly = true)
     public List<PolicyResponse> myPolicies(String actorEmail) {
         User actor = requireUser(actorEmail);
-        Set<String> actorRoles = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
+        // EMPLOYEE is baseline for everyone, whether or not an EMPLOYEE role row exists.
+        Set<String> actorRoles = RoleUtils.effectiveRoleCodes(actor.getRoles());
         UUID actorId = actor.getId();
 
         List<PolicyListItem> active = policyRepo.findActiveListItems();
@@ -232,7 +234,8 @@ public class PolicyService {
 
     private void seedAcknowledgmentsAndNotify(Policy p, String notificationTitle, String notificationMessage) {
         Set<String> audienceRoles = parseAudienceToRoleCodes(p.getAudience());
-        List<Employee> targetEmployees = audienceRoles.equals(ALL_ROLE_CODES)
+        // An audience naming EMPLOYEE means everyone (the baseline), regardless of role rows.
+        List<Employee> targetEmployees = audienceRoles.equals(ALL_ROLE_CODES) || audienceRoles.contains("EMPLOYEE")
                 ? employeeRepo.findAllActiveWithDetails()
                 : employeeRepo.findActiveByRoleCodes(audienceRoles);
 

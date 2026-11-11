@@ -81,6 +81,7 @@ public class EmployeeController {
 
     /** Manager dashboard — direct reports for the caller. */
     @GetMapping("/my-reports")
+    @PreAuthorize("hasAuthority('employees:VIEW:TEAM')")
     public ManagerDashboardDto myReports(Principal principal) {
         return employeeService.getManagerDashboard(principal.getName());
     }

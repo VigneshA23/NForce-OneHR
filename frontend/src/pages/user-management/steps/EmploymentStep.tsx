@@ -1,5 +1,5 @@
 import { Briefcase, Building2 } from 'lucide-react';
-import { Field, Section, inputStyle } from '../formPrimitives';
+import { Field, Section, inputStyle, ManagerApprovalWarning } from '../formPrimitives';
 import { CreatableLocationSelect } from '../SharedControls';
 import { ROLES, EMPLOYMENT_TYPES, WORK_MODES, getDepartmentOptions, getDesignationOptions, getLocationOptions, getManagersForRole, type OrgOptions } from '../orgOptionsHelpers';
 import type { CreateUserPayload } from '../../../api/employees';
@@ -120,6 +120,7 @@ export function EmploymentStep({ form, setForm, opts, token, employeeCodeConflic
                 No {mgrRoleLabel} users found - add one first.
               </div>
             )}
+            <ManagerApprovalWarning manager={mgrList.find((m: any) => m.userId === form.managerId)} />
           </Field>
         );
       })()}

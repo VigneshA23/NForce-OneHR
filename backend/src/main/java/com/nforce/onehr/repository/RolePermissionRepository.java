@@ -27,6 +27,11 @@ public interface RolePermissionRepository extends JpaRepository<RolePermission, 
 
     void deleteByRole_Id(Integer roleId);
 
+    /** Every grant of module:action by an ACTIVE role (the roles that actually confer it), with the role fetched. */
+    @Query("select rp from RolePermission rp join fetch rp.role r "
+            + "where r.active = true and rp.permission.module.code = :module and rp.permission.action = :action")
+    List<RolePermission> findActiveGrants(@Param("module") String module, @Param("action") String action);
+
     /** Active, non-deleted users holding an ACTIVE role that grants module:action at one of {@code scopes}. */
     @Query("select distinct u.id from User u join u.roles r, RolePermission rp "
             + "where rp.role = r and r.active = true and u.active = true and u.deletedAt is null "
