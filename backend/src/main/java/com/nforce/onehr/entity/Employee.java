@@ -155,6 +155,17 @@ public class Employee {
     @Column(name = "national_id", length = 50)
     private String nationalId;
 
+    // US-C15/US-C21 — statutory IDs "My Finances" needs alongside bank details. Same self-service,
+    // masked-on-read treatment as nationalId/bankAccountNumber above (see ProfileService).
+    @Column(name = "pan_number", length = 20)
+    private String panNumber;
+
+    @Column(name = "uan_number", length = 20)
+    private String uanNumber;
+
+    @Column(name = "esi_number", length = 20)
+    private String esiNumber;
+
     // Job tab — read-only, HR-managed.
     @Column(name = "job_code", length = 50)
     private String jobCode;

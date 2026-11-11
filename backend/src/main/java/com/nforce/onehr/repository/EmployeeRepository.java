@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -227,4 +228,13 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
     /** US-A03: the Employee-module headcount the bench dashboard reconciles against. */
     @Query("SELECT COUNT(e) FROM Employee e WHERE e.user.deletedAt IS NULL AND e.user.active = true")
     long countActiveEmployees();
+
+    // Backs PayrollJoinersExitsService — scoped to a run's own employee set (ids) rather than a
+    // bare date-range scan of the whole table, same "ids" convention as findAllByIdWithDepartment
+    // etc. above.
+    @Query("SELECT e FROM Employee e WHERE e.userId IN :ids AND e.joiningDate BETWEEN :start AND :end")
+    List<Employee> findJoinersInRange(@Param("ids") Collection<UUID> ids, @Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    @Query("SELECT e FROM Employee e WHERE e.userId IN :ids AND e.lastWorkingDay BETWEEN :start AND :end")
+    List<Employee> findExitsInRange(@Param("ids") Collection<UUID> ids, @Param("start") LocalDate start, @Param("end") LocalDate end);
 }

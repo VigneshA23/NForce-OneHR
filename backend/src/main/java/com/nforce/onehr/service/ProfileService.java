@@ -84,6 +84,9 @@ public class ProfileService {
             response.setBankName(null);
             response.setBankIfsc(null);
             response.setNationalId(null);
+            response.setPanNumber(null);
+            response.setUanNumber(null);
+            response.setEsiNumber(null);
         }
         return response;
     }
@@ -178,6 +181,9 @@ public class ProfileService {
         if (req.getBankName() != null)         emp.setBankName(req.getBankName().trim());
         if (req.getBankIfsc() != null)         emp.setBankIfsc(req.getBankIfsc().trim());
         if (req.getNationalId() != null)       emp.setNationalId(req.getNationalId().trim());
+        if (req.getPanNumber() != null)        emp.setPanNumber(req.getPanNumber().trim().toUpperCase());
+        if (req.getUanNumber() != null)        emp.setUanNumber(req.getUanNumber().trim());
+        if (req.getEsiNumber() != null)         emp.setEsiNumber(req.getEsiNumber().trim());
 
         // fullName is derived, never client-set: join non-blank first/middle/last with single spaces.
         if (nameChanged) {
@@ -348,6 +354,9 @@ public class ProfileService {
                 .bankName(emp.getBankName())
                 .bankIfsc(emp.getBankIfsc())
                 .nationalId(maskTrailing4(emp.getNationalId()))
+                .panNumber(maskTrailing4(emp.getPanNumber()))
+                .uanNumber(maskTrailing4(emp.getUanNumber()))
+                .esiNumber(maskTrailing4(emp.getEsiNumber()))
                 .employeeCode(emp.getEmployeeCode())
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                 .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)

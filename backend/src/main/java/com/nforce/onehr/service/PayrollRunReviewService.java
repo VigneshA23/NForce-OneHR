@@ -233,6 +233,46 @@ public class PayrollRunReviewService {
         return toResponse(item);
     }
 
+    /** Bulk version of {@link #decideNoAttendance} — same action applied to every listed item.
+     *  All-or-nothing: unlike bulkDecideLeaveApplied, there's no external per-item dependency that
+     *  can fail independently, so a missing/foreign/wrong-step-type item fails the whole call
+     *  before anything is saved, same upfront-validation shape as the single-item decide. */
+    @Transactional
+    public List<PayrollRunReviewItemResponse> bulkDecideNoAttendance(UUID runId, BulkDecideNoAttendanceRequest req, String actorEmail) {
+        requireRun(runId);
+        if (NoAttendanceReviewDecision.DEDUCT_FROM_LEAVE.equals(req.getAction()) && req.getSelectedLeaveTypeId() == null) {
+            throw new IllegalArgumentException("selectedLeaveTypeId is required for DEDUCT_FROM_LEAVE");
+        }
+        if (NoAttendanceReviewDecision.NO_ACTION.equals(req.getAction()) && (req.getComment() == null || req.getComment().isBlank())) {
+            throw new IllegalArgumentException("comment is required for NO_ACTION");
+        }
+
+        List<PayrollRunReviewItem> items = payrollRunReviewItemRepository.findByIdIn(req.getItemIds());
+        if (items.size() != req.getItemIds().size()
+                || items.stream().anyMatch(i -> !i.getPayrollRun().getId().equals(runId))) {
+            throw new NoSuchElementException("One or more review items not found on this run");
+        }
+        if (items.stream().anyMatch(i -> !PayrollRunReviewStepType.NO_ATTENDANCE.equals(i.getStepType()))) {
+            throw new IllegalArgumentException("One or more items are not NO_ATTENDANCE items");
+        }
+
+        User actor = requireActor(actorEmail);
+        List<PayrollRunReviewItemResponse> results = new ArrayList<>();
+        for (PayrollRunReviewItem item : items) {
+            String before = auditSnapshot.toJson(itemSnapshot(item));
+            item.setDecision(req.getAction());
+            item.setSelectedLeaveTypeId(req.getSelectedLeaveTypeId());
+            item.setComment(req.getComment());
+            item.setDecidedBy(actor.getId());
+            item.setDecidedAt(LocalDateTime.now());
+            item = payrollRunReviewItemRepository.save(item);
+            auditService.log(actor.getId(), "PAYROLL_RUN_REVIEW_NO_ATTENDANCE_DECIDED", item.getId(), before,
+                    auditSnapshot.toJson(itemSnapshot(item)));
+            results.add(toResponse(item));
+        }
+        return results;
+    }
+
     private void decide(PayrollRunReviewItem item, String decision, UUID actorId) {
         item.setDecision(decision);
         item.setDecidedBy(actorId);

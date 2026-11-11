@@ -69,4 +69,17 @@ public class UpdateProfileRequest {
     private String bankName;
     private String bankIfsc;
     private String nationalId;
+
+    // US-C15/US-C21. PAN has one universal, well-known format regardless of company/state (unlike
+    // Professional Tax); UAN is always a 12-digit PF account number. Both get the same "^$|..."
+    // blank-allowed escape hatch as the other optional fields above — ProfileService only applies
+    // a field when the key is actually present, so a blank value here is never sent in the first
+    // place (see IdentityStatutoryModal's own "only send if replacing" comment), but the pattern
+    // must still not reject an absent/blank value on its own.
+    @Pattern(regexp = "^$|^[A-Z]{5}[0-9]{4}[A-Z]$", message = "PAN must be in the format ABCDE1234F")
+    private String panNumber;
+    @Pattern(regexp = "^$|^[0-9]{12}$", message = "UAN must be exactly 12 digits")
+    private String uanNumber;
+    // ESI number format varies enough across states/schemes that no single regex is reliable.
+    private String esiNumber;
 }

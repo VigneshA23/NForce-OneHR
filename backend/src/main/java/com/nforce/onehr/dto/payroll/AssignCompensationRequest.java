@@ -18,6 +18,9 @@ public class AssignCompensationRequest {
     private UUID employeeId;
 
     @NotNull
+    private UUID payGroupId;
+
+    @NotNull
     private UUID structureId;
 
     @NotNull

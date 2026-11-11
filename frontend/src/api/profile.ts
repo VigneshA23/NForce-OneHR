@@ -45,6 +45,9 @@ export interface ProfileData {
   bankName: string | null;
   bankIfsc: string | null;
   nationalId: string | null;            // masked
+  panNumber: string | null;             // masked
+  uanNumber: string | null;             // masked
+  esiNumber: string | null;             // masked
 
   // Job tab — read-only, HR-managed
   jobCode: string | null;
@@ -89,6 +92,9 @@ export interface UpdateProfilePayload {
   bankName?: string;
   bankIfsc?: string;
   nationalId?: string;
+  panNumber?: string;
+  uanNumber?: string;
+  esiNumber?: string;
 }
 
 export interface EducationEntry {

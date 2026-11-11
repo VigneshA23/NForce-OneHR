@@ -56,25 +56,72 @@ public class SalaryStructureService {
                 .financialYear(req.getFinancialYear() != null ? req.getFinancialYear().trim() : null)
                 .build());
 
-        // Two passes, same reason as before the catalog existed: a PERCENT_OF_COMPONENT request
-        // references a sibling by its catalog componentName, since that sibling has no
-        // structure-component id yet when the request is submitted — save every line first to get
-        // ids, then resolve names to ids and save again. Order-independent: HRA can list "Basic"
-        // whether Basic appears before or after it in the request. A plain Java field (not a DB
-        // CHECK constraint) enforces "reference set iff PERCENT_OF_COMPONENT" — see V250's own
-        // header for why a CHECK here doesn't work with this two-phase save.
-        List<SalaryStructureComponent> components = req.getComponents().stream()
-                .map(c -> toStructureComponentEntity(c, savedStructure, catalogByName.get(c.getComponentName().trim())))
+        List<SalaryStructureComponent> components = saveComponents(savedStructure, req.getComponents(), catalogByName);
+
+        User actor = requireActor(actorEmail);
+        String after = auditSnapshot.toJson(structureSnapshot(savedStructure, components));
+        auditService.log(actor.getId(), "SALARY_STRUCTURE_CREATED", savedStructure.getId(), null, after);
+
+        return toResponse(savedStructure, components);
+    }
+
+    /**
+     * Edits an existing structure in place — every employee currently assigned it (via
+     * EmployeeCompensation) picks up the new components on their NEXT payroll regenerate, same as
+     * any other config change. Safe to do retroactively: a Payslip/PayslipLineItem never
+     * references the structure or its components directly, only a frozen componentId/name/amount
+     * snapshot taken at generation time (see PayslipLineItem's own shape) — so editing never
+     * changes an already-generated payslip, only future ones. Components are deleted and
+     * recreated wholesale (not diffed) — same "delete and rebuild" pattern used everywhere else in
+     * this codebase a child-row set needs to exactly match a fresh request (e.g. a payroll run
+     * regenerate), simpler and less error-prone than reconciling adds/removes/renames by hand.
+     */
+    @Transactional
+    public SalaryStructureResponse update(UUID id, CreateSalaryStructureRequest req, String actorEmail) {
+        SalaryStructure structure = salaryStructureRepository.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Salary structure not found: " + id));
+        List<SalaryStructureComponent> before = salaryStructureComponentRepository.findByStructureId(id);
+        String beforeSnapshot = auditSnapshot.toJson(structureSnapshot(structure, before));
+
+        Map<String, SalaryComponent> catalogByName = resolveCatalogComponents(req.getComponents());
+        validateComponents(req.getComponents(), catalogByName);
+
+        structure.setName(req.getName().trim());
+        structure.setGrade(req.getGrade() != null ? req.getGrade().trim() : null);
+        structure.setFinancialYear(req.getFinancialYear() != null ? req.getFinancialYear().trim() : null);
+        structure = salaryStructureRepository.save(structure);
+
+        salaryStructureComponentRepository.deleteByStructureId(id);
+        salaryStructureComponentRepository.flush();
+        List<SalaryStructureComponent> components = saveComponents(structure, req.getComponents(), catalogByName);
+
+        User actor = requireActor(actorEmail);
+        String after = auditSnapshot.toJson(structureSnapshot(structure, components));
+        auditService.log(actor.getId(), "SALARY_STRUCTURE_UPDATED", structure.getId(), beforeSnapshot, after);
+
+        return toResponse(structure, components);
+    }
+
+    // Two passes, same reason as before the catalog existed: a PERCENT_OF_COMPONENT request
+    // references a sibling by its catalog componentName, since that sibling has no
+    // structure-component id yet when the request is submitted — save every line first to get
+    // ids, then resolve names to ids and save again. Order-independent: HRA can list "Basic"
+    // whether Basic appears before or after it in the request. A plain Java field (not a DB
+    // CHECK constraint) enforces "reference set iff PERCENT_OF_COMPONENT" — see V250's own
+    // header for why a CHECK here doesn't work with this two-phase save.
+    private List<SalaryStructureComponent> saveComponents(SalaryStructure structure, List<SalaryComponentRequest> requested, Map<String, SalaryComponent> catalogByName) {
+        List<SalaryStructureComponent> components = requested.stream()
+                .map(c -> toStructureComponentEntity(c, structure, catalogByName.get(c.getComponentName().trim())))
                 .collect(Collectors.toList());
         components = salaryStructureComponentRepository.saveAll(components);
 
         Map<String, SalaryStructureComponent> byComponentName = new HashMap<>();
         for (int i = 0; i < components.size(); i++) {
-            byComponentName.put(req.getComponents().get(i).getComponentName().trim(), components.get(i));
+            byComponentName.put(requested.get(i).getComponentName().trim(), components.get(i));
         }
         boolean anyReferenceResolved = false;
         for (int i = 0; i < components.size(); i++) {
-            SalaryComponentRequest reqComponent = req.getComponents().get(i);
+            SalaryComponentRequest reqComponent = requested.get(i);
             if (SalaryCalculationType.PERCENT_OF_COMPONENT.equals(reqComponent.getCalcType())) {
                 SalaryStructureComponent target = byComponentName.get(reqComponent.getReferenceComponentName().trim());
                 components.get(i).setReferenceStructureComponentId(target.getId());
@@ -84,12 +131,7 @@ public class SalaryStructureService {
         if (anyReferenceResolved) {
             components = salaryStructureComponentRepository.saveAll(components);
         }
-
-        User actor = requireActor(actorEmail);
-        String after = auditSnapshot.toJson(structureSnapshot(savedStructure, components));
-        auditService.log(actor.getId(), "SALARY_STRUCTURE_CREATED", savedStructure.getId(), null, after);
-
-        return toResponse(savedStructure, components);
+        return components;
     }
 
     @Transactional(readOnly = true)
