@@ -7,26 +7,48 @@ import { useAuthStore } from '../store/authStore';
 import { employeesApi, type EmployeeRecord } from '../api/employees';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
-import { projectsApi, projectAllocationsApi, type ProjectRecord, type AllocationResult } from '../api/projectAllocations';
+import { projectsApi, projectAllocationsApi, type ProjectRecord, type AllocationResult, type BulkAllocationPayload } from '../api/projectAllocations';
 import ProjectsPanel from './allocations/ProjectsPanel';
 import './allocations/allocations.css';
 
-function ResultsTable({ results, employees }: { results: AllocationResult[]; employees: EmployeeRecord[] }) {
+const STATUS_PILL: Record<AllocationResult['status'], { cls: string; label: string; Icon: typeof CheckCircle2 }> = {
+  SUCCESS: { cls: 'is-ok', label: 'Success', Icon: CheckCircle2 },
+  WARNING: { cls: 'is-warn', label: 'Over capacity', Icon: AlertTriangle },
+  FAILED: { cls: 'is-bad', label: 'Failed', Icon: XCircle },
+};
+
+function ResultsTable({ results, employees, onConfirm, confirming }: {
+  results: AllocationResult[]; employees: EmployeeRecord[]; onConfirm: () => void; confirming: boolean;
+}) {
   const nameFor = (id: string) => employees.find(e => e.userId === id)?.fullName ?? id;
   const successCount = results.filter(r => r.status === 'SUCCESS').length;
-  const failedCount = results.length - successCount;
+  const warningCount = results.filter(r => r.status === 'WARNING').length;
+  const failedCount = results.length - successCount - warningCount;
+  const clean = failedCount === 0 && warningCount === 0;
   const resultsPaged = usePaged(results);
   return (
     <div className="nf-pa-card nf-pa-results">
       <div className="nf-pa-head">
-        <span className={`nf-pa-ico ${failedCount === 0 ? 'is-ok' : 'is-warn'}`}>{failedCount === 0 ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}</span>
+        <span className={`nf-pa-ico ${clean ? 'is-ok' : 'is-warn'}`}>{clean ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}</span>
         <div className="nf-pa-titles">
           <span>{successCount} of {results.length} allocated successfully</span>
-          <small>{failedCount === 0 ? 'Every employee was allocated.' : `${failedCount} could not be allocated. See the reason for each below.`}</small>
+          <small>{clean ? 'Every employee was allocated.' : `${failedCount + warningCount} could not be allocated. See the reason for each below.`}</small>
         </div>
         <span className="nf-pa-count is-ok">{successCount} done</span>
+        {warningCount > 0 && <span className="nf-pa-count is-warn">{warningCount} over capacity</span>}
         {failedCount > 0 && <span className="nf-pa-count is-bad">{failedCount} failed</span>}
       </div>
+      {warningCount > 0 && (
+        <div role="alert" className="nf-pa-alert is-warn nf-pa-confirm">
+          <AlertTriangle size={14} />
+          <span>
+            {warningCount} employee{warningCount === 1 ? ' would' : 's would'} go over 100% capacity and {warningCount === 1 ? 'was' : 'were'} not allocated.
+          </span>
+          <button type="button" onClick={onConfirm} disabled={confirming} className="nf-pa-primary is-sm">
+            {confirming ? 'Allocating…' : 'Allocate anyway'}
+          </button>
+        </div>
+      )}
       <div style={{ overflowX: 'auto' }}>
         <table className="nf-pa-table">
           <thead>
@@ -37,9 +59,9 @@ function ResultsTable({ results, employees }: { results: AllocationResult[]; emp
               <tr key={r.employeeId}>
                 <td className="is-strong">{nameFor(r.employeeId)}</td>
                 <td>
-                  <span className={`nf-pa-pill ${r.status === 'SUCCESS' ? 'is-ok' : 'is-bad'}`}>
-                    {r.status === 'SUCCESS' ? <CheckCircle2 size={12} /> : <XCircle size={12} />}{r.status === 'SUCCESS' ? 'Success' : 'Failed'}
-                  </span>
+                  {(() => { const { cls, label, Icon } = STATUS_PILL[r.status]; return (
+                    <span className={`nf-pa-pill ${cls}`}><Icon size={12} />{label}</span>
+                  ); })()}
                 </td>
                 <td>{r.reason ?? '-'}</td>
               </tr>
@@ -71,6 +93,8 @@ export default function ProjectAllocationsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [results, setResults] = useState<AllocationResult[] | null>(null);
+  const [lastRequest, setLastRequest] = useState<Omit<BulkAllocationPayload, 'employeeIds'> | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   function load() {
     setLoading(true);
@@ -128,10 +152,27 @@ export default function ProjectAllocationsPage() {
         endDate,
       });
       setResults(res.results);
+      setLastRequest({ projectId, capacityPercent, startDate, endDate });
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Bulk allocation failed');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // US-B06 confirm-to-proceed: resubmit only the WARNING rows, with the same values they were checked against.
+  async function handleConfirmWarnings() {
+    if (!results || !lastRequest) return;
+    const warned = results.filter(r => r.status === 'WARNING').map(r => r.employeeId);
+    setConfirming(true);
+    try {
+      const res = await projectAllocationsApi.bulkAllocate(token, { ...lastRequest, employeeIds: warned, confirm: true });
+      const byId = new Map(res.results.map(r => [r.employeeId, r]));
+      setResults(prev => prev?.map(r => byId.get(r.employeeId) ?? r) ?? null);
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Allocation failed');
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -254,7 +295,7 @@ export default function ProjectAllocationsPage() {
         </div>
       </div>
 
-      {results && <ResultsTable results={results} employees={employees} />}
+      {results && <ResultsTable results={results} employees={employees} onConfirm={handleConfirmWarnings} confirming={confirming} />}
       </>)}
     </div>
   );

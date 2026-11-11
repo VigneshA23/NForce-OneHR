@@ -31,6 +31,8 @@ import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestRep
 import { orgApi, type DepartmentRow, type LocationRow } from '../api/org';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { kudosApi } from '../api/kudos';
+import { projectAllocationsApi } from '../api/projectAllocations';
+import TeamCapacityTab from './my-team/TeamCapacityTab';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
@@ -3101,8 +3103,8 @@ function SkillsGrowthTab({ token }: { token: string }) {
   );
 }
 
-type MyTeamTab = 'overview' | 'effort' | 'negligence' | 'penalties' | 'assignments' | 'reports' | 'growth';
-const ALL_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'effort', 'negligence', 'penalties', 'assignments', 'growth', 'reports'];
+type MyTeamTab = 'overview' | 'effort' | 'negligence' | 'penalties' | 'assignments' | 'reports' | 'growth' | 'capacity';
+const ALL_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'effort', 'negligence', 'penalties', 'assignments', 'growth', 'capacity', 'reports'];
 const HR_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'reports'];
 
 export default function MyTeamPage() {
@@ -3169,6 +3171,10 @@ export default function MyTeamPage() {
     const s = searchParams.get('status');
     return (['all', 'IN', 'OUT', 'NOT_IN_YET', 'LEAVE'] as string[]).includes(s ?? '') ? (s as any) : 'all';
   });
+  const [projectFilter, setProjectFilter] = useState('');
+  // employeeUserId -> ids of projects they're allocated to.
+  const [projectsByEmployee, setProjectsByEmployee] = useState<Map<string, Set<string>>>(new Map());
+  const [projectOptions, setProjectOptions] = useState<{ id: string; name: string }[]>([]);
   const [viewing, setViewing] = useState<RosterRow | null>(null);
   const [kudosTarget, setKudosTarget] = useState<KudosTarget | null>(null);
   const [showAllNotIn, setShowAllNotIn] = useState(false);
@@ -3247,6 +3253,20 @@ export default function MyTeamPage() {
     if (isEmployee) return;
     attendanceRequestApi.teamApprovedWfh(today, today, token).then(setTodayWfh).catch(() => setTodayWfh([]));
   }, [token, today, isEmployee]);
+
+  useEffect(() => {
+    if (isEmployee) return;
+    projectAllocationsApi.capacity(token).then(rows => {
+      const byEmp = new Map<string, Set<string>>();
+      const names = new Map<string, string>();
+      rows.forEach(r => r.allocations.forEach(a => {
+        byEmp.set(r.employeeId, (byEmp.get(r.employeeId) ?? new Set()).add(a.projectId));
+        names.set(a.projectId, a.projectName ?? 'Unnamed project');
+      }));
+      setProjectsByEmployee(byEmp);
+      setProjectOptions([...names].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
+    }).catch(() => {});
+  }, [token, isEmployee]);
 
   useEffect(() => {
     if (isEmployee) return;
@@ -3348,7 +3368,8 @@ export default function MyTeamPage() {
     const matchesFilter = statusFilter === 'all' || r.status === statusFilter;
     const q = search.trim().toLowerCase();
     const matchesSearch = !q || r.dr.fullName.toLowerCase().includes(q) || r.dr.employeeCode.toLowerCase().includes(q);
-    return matchesFilter && matchesSearch;
+    const matchesProject = !projectFilter || !!projectsByEmployee.get(r.dr.userId)?.has(projectFilter);
+    return matchesFilter && matchesSearch && matchesProject;
   });
 
   function removeAttentionItem(id: string) {
@@ -3434,6 +3455,7 @@ export default function MyTeamPage() {
           { key: 'penalties', label: 'Regularize & Cancel Penalties' },
           { key: 'assignments', label: 'Employee Assignments' },
           { key: 'growth', label: 'Performance' },
+          { key: 'capacity', label: 'Capacity' },
           { key: 'reports', label: 'Reports' },
         ] satisfies { key: MyTeamTab; label: string }[]).filter(t => allowedTabs.includes(t.key))}
       />
@@ -3458,7 +3480,16 @@ export default function MyTeamPage() {
           <MemberGridSection
             title="Team Members" subtitle="Your direct reports and their details"
             search={search} onSearch={setSearch} searchPlaceholder="Search by name or employee code…"
-            chips={(
+            chips={(<>
+              <select
+                aria-label="Filter by project"
+                value={projectFilter}
+                onChange={e => setProjectFilter(e.target.value)}
+                style={{ ...inputStyle, width: 'auto' }}
+              >
+                <option value="">All projects</option>
+                {projectOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
               <ChipGroup
                 ariaLabel="Roster status"
                 value={statusFilter}
@@ -3471,7 +3502,7 @@ export default function MyTeamPage() {
                   { key: 'LEAVE', label: 'On leave' },
                 ]}
               />
-            )}
+            </>)}
           >
             <MemberGrid scroll empty={loading ? 'Loading…' : filteredRoster.length === 0 ? 'No one matches this filter.' : undefined}>
               {filteredRoster.map(row => {
@@ -3630,6 +3661,7 @@ export default function MyTeamPage() {
       {tab === 'penalties' && <PenaltiesTab token={token} />}
       {tab === 'assignments' && <AssignmentsTab token={token} />}
       {tab === 'growth' && <SkillsGrowthTab token={token} />}
+      {tab === 'capacity' && <TeamCapacityTab token={token} />}
       {tab === 'reports' && <ReportsTab token={token} />}
       </>
       )}

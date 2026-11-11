@@ -19,6 +19,7 @@
 .nf-pa-count { flex-shrink: 0; padding: 4px 12px; font-size: 11.5px; font-weight: 700; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 999px; transition: color .15s, background .15s; }
 .nf-pa-count.is-on { color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border-color: color-mix(in srgb, var(--brand) 28%, transparent); }
 .nf-pa-count.is-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, var(--panel)); border-color: color-mix(in srgb, var(--ok) 28%, transparent); }
+.nf-pa-count.is-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 28%, transparent); }
 .nf-pa-count.is-bad { color: var(--risk); background: color-mix(in srgb, var(--risk) 10%, var(--panel)); border-color: color-mix(in srgb, var(--risk) 28%, transparent); }
 .nf-pa-x { flex-shrink: 0; width: 32px; height: 32px; display: grid; place-items: center; cursor: pointer; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; }
 .nf-pa-x:hover { color: var(--txt); }
@@ -60,6 +61,9 @@
 .nf-pa-btnrow { display: flex; gap: 10px; }
 .nf-pa-btnrow > * { flex: 1; }
 .nf-pa-alert { display: flex; align-items: flex-start; gap: 8px; padding: 10px 13px; font-size: 12.5px; font-weight: 600; color: var(--risk); background: color-mix(in srgb, var(--risk) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--risk) 28%, transparent); border-radius: 12px; }
+.nf-pa-alert.is-warn { color: var(--txt); background: color-mix(in srgb, var(--warn) 12%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.nf-pa-confirm { align-items: center; gap: 12px; margin: 14px 18px; }
+.nf-pa-confirm span { flex: 1; }
 .nf-pa-alert svg { flex-shrink: 0; margin-top: 1px; }
 
 /* buttons */

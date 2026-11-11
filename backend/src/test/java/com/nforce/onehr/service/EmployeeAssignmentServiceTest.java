@@ -482,6 +482,83 @@ class EmployeeAssignmentServiceTest {
         verifyNoInteractions(managerHistoryRepository);
     }
 
+    // ── Four-step employee creation wizard, Step 3: Weekly-Off assignment at creation ──────────
+    // (assignWeeklyOffAtCreation — deliberately NOT routed through bulkUpdateWeeklyOff, which
+    // scopes itself to the calling manager's current direct reports; a just-created employee can
+    // never already be one. Reuses the same validation/row-creation code bulkUpdateWeeklyOff
+    // itself uses — see that method's own tests above for the pending/current-replacement
+    // semantics, which a brand-new employee can never exercise since no prior assignment exists.)
+
+    @Test
+    void assignWeeklyOffAtCreation_succeeds_withExplicitEffectiveFrom() {
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        UUID newEmployeeId = UUID.randomUUID();
+        UUID createdBy = UUID.randomUUID();
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+        when(employeeRepository.findById(newEmployeeId)).thenReturn(Optional.of(Employee.builder().userId(newEmployeeId).build()));
+
+        service.assignWeeklyOffAtCreation(newEmployeeId, policy.getId(), tomorrow, createdBy);
+
+        ArgumentCaptor<com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment> captor =
+                ArgumentCaptor.forClass(com.nforce.onehr.entity.EmployeeWeeklyOffPolicyAssignment.class);
+        verify(employeeWeeklyOffPolicyAssignmentRepository).save(captor.capture());
+        assertEquals(newEmployeeId, captor.getValue().getEmployeeUserId());
+        assertEquals(policy, captor.getValue().getWeeklyOffPolicy());
+        assertEquals(tomorrow, captor.getValue().getEffectiveFrom());
+        assertEquals(createdBy, captor.getValue().getCreatedBy());
+    }
+
+    @Test
+    void assignWeeklyOffAtCreation_rejectsUnknownPolicy() {
+        UUID newEmployeeId = UUID.randomUUID();
+        UUID unknownPolicyId = UUID.randomUUID();
+        when(weeklyOffPolicyRepository.findById(unknownPolicyId)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.assignWeeklyOffAtCreation(newEmployeeId, unknownPolicyId, tomorrow, UUID.randomUUID()));
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
+    @Test
+    void assignWeeklyOffAtCreation_rejectsMissingEffectiveFrom() {
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        UUID newEmployeeId = UUID.randomUUID();
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+        when(employeeRepository.findById(newEmployeeId)).thenReturn(Optional.of(Employee.builder().userId(newEmployeeId).build()));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.assignWeeklyOffAtCreation(newEmployeeId, policy.getId(), null, UUID.randomUUID()));
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
+    @Test
+    void assignWeeklyOffAtCreation_rejectsPastEffectiveFrom() {
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        UUID newEmployeeId = UUID.randomUUID();
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+        when(employeeRepository.findById(newEmployeeId)).thenReturn(Optional.of(Employee.builder().userId(newEmployeeId).build()));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.assignWeeklyOffAtCreation(newEmployeeId, policy.getId(), today.minusDays(1), UUID.randomUUID()));
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
+    @Test
+    void assignWeeklyOffAtCreation_rejectsEffectiveFromBeforeEmployeesJoiningDate() {
+        WeeklyOffPolicy policy = newWeeklyOffPolicy("Standard");
+        UUID newEmployeeId = UUID.randomUUID();
+        LocalDate futureJoining = tomorrow.plusDays(10);
+        when(weeklyOffPolicyRepository.findById(policy.getId())).thenReturn(Optional.of(policy));
+        when(employeeRepository.findById(newEmployeeId))
+                .thenReturn(Optional.of(Employee.builder().userId(newEmployeeId).joiningDate(futureJoining).build()));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.assignWeeklyOffAtCreation(newEmployeeId, policy.getId(), tomorrow, UUID.randomUUID()));
+
+        assertTrue(ex.getMessage().contains("joining date"));
+        verifyNoInteractions(employeeWeeklyOffPolicyAssignmentRepository);
+    }
+
     // ── Section 26: Penalisation Policy bulk-assign routes through the Allocation service ────
 
     @Test

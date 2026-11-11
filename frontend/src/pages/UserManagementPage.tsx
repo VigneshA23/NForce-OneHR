@@ -1,26 +1,25 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PersonCell } from '../components/PersonCell';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
-import { Plus, X, ChevronDown, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, UserPlus, Pencil, KeyRound, Trash2, Power, CheckCircle2, Briefcase, MapPin, Clock, ListChecks } from 'lucide-react';
+import { Plus, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
-import { usersApi, employeesApi, type EmployeeRecord, type CreateUserPayload, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
-import { orgApi, type ShiftRow } from '../api/org';
-import { onboardingApi } from '../api/onboarding';
+import { usersApi, employeesApi, type EmployeeRecord, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
+import { orgApi } from '../api/org';
+import { employeeAssignmentsApi } from '../api/employeeAssignments';
 import { useToast } from '../context/ToastContext';
-import { ShiftFormModal, fmtShiftTime } from './OrgSetupPage';
 import { InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
 import { businessTodayIsoDate } from '../utils/businessDate';
+import { CreatableLocationSelect, ShiftSelect } from './user-management/SharedControls';
+import { ROLES, EMPLOYMENT_TYPES, WORK_MODES, fmtEffectiveDate, getShiftOptions, getDepartmentOptions, getDesignationOptions, getLocationOptions, getManagersForRole, type OrgOptions } from './user-management/orgOptionsHelpers';
+import { overlayStyle, modalStyle, inputStyle, labelStyle, primaryBtnStyle, secondaryBtnStyle, ModalHeader, Field } from './user-management/formPrimitives';
+import { EMAIL_PATTERN } from './user-management/wizardLogic';
+import { CreateEmployeeWizard } from './user-management/CreateEmployeeWizard';
 import { hasPermission } from '../lib/permissions';
 import ManageUserRolesModal from '../components/ManageUserRolesModal';
 import './userManagementPolish.css';
-
-/** "Sep 16, 2026" from a plain "YYYY-MM-DD" date-input value — for the Effective From helper text. */
-function fmtEffectiveDate(iso: string): string {
-  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
 
 /** Today as "YYYY-MM-DD" in the org's business timezone (see businessTodayIsoDate's own doc
  * comment) — matches what a plain <input type="date"> compares against, and matches the
@@ -29,25 +28,6 @@ function fmtEffectiveDate(iso: string): string {
 function todayIso(): string {
   return businessTodayIsoDate();
 }
-
-const ROLES = [
-  { value: 'EMPLOYEE',    label: 'Employee' },
-  { value: 'MANAGER',     label: 'Manager' },
-  { value: 'HR_ADMIN',    label: 'HR Admin' },
-  { value: 'SUPER_ADMIN', label: 'Super Admin' },
-];
-
-const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
-const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'];
-
-// Letters (any language), spaces, hyphens, and apostrophes only — blocks emojis, digits,
-// and other symbols while still allowing names like "O'Brien" or "Anne-Marie". Mirrors the
-// backend's CreateUserRequest @Pattern so both sides reject the same inputs.
-const NAME_PATTERN = /^(?=.*\p{L})[\p{L}\s'-]+$/u;
-// Requires a real, letters-only TLD (2+ chars) with nothing after it — rejects domains with
-// no dot (e.g. "a@99999999999") and trailing junk after the TLD (e.g. "a@example.com123").
-// Mirrors the backend's CreateUserRequest @Pattern so both sides reject the same inputs.
-const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
 const ROLE_COLOR: Record<string, string> = {
   EMPLOYEE: '#2FB67C', MANAGER: '#4C8DD6', HR_ADMIN: '#E0A93B', SUPER_ADMIN: '#E4373D',
@@ -106,171 +86,6 @@ function RowActionsMenu({ items }: {
   return <KebabMenu items={items} />;
 }
 
-interface OrgOptions { businessUnits: any[]; departments: any[]; designations: any[]; locations: any[]; managers: EmployeeRecord[]; shifts: ShiftRow[]; }
-
-const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,17,23,.6)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 };
-const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 16, width: '94vw', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.4)' };
-const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 9, padding: '10px 12px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
-const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' };
-const primaryBtnStyle: React.CSSProperties = { background: 'linear-gradient(135deg, var(--brand-bright), var(--brand))', color: '#fff', border: 'none', borderRadius: 9, padding: '10px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 6px 16px rgba(177,17,22,.25)' };
-const secondaryBtnStyle: React.CSSProperties = { background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 9, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' };
-
-function headerIcon(title: string): React.ComponentType<{ size?: number }> {
-  if (title.startsWith('Add')) return UserPlus;
-  if (title.startsWith('Edit')) return Pencil;
-  if (title.startsWith('Reset')) return KeyRound;
-  if (title.startsWith('Delete')) return Trash2;
-  if (title.startsWith('Deactivate') || title.startsWith('Activate') || title.startsWith('Reactivate')) return Power;
-  if (title.includes('Created')) return CheckCircle2;
-  return UserIcon;
-}
-
-function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose: () => void }) {
-  const Icon = headerIcon(title);
-  return (
-    <div className="nf-um-head">
-      <span className="nf-um-head-ico"><Icon size={20} /></span>
-      <div className="nf-um-head-txt">
-        <div className="nf-um-head-title">{title}</div>
-        {subtitle && <div className="nf-um-head-sub">{subtitle}</div>}
-      </div>
-      <button onClick={onClose} className="nf-um-close" aria-label="Close"><X size={16} /></button>
-    </div>
-  );
-}
-
-// Groups related fields under a small uppercase heading, matching the premium
-// section pattern used elsewhere on the User Management page — purely a
-// visual wrapper, no effect on the fields' state, validation, or submission.
-const SECTION_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
-  'Identity': UserIcon, 'Role & Employment': Briefcase, 'Location & Reporting': MapPin, 'Shift': Clock, 'Onboarding': ListChecks,
-};
-
-function FormSection({ label, columns = 2, children }: { label: string; columns?: 1 | 2; children: React.ReactNode }) {
-  const Icon = SECTION_ICONS[label] ?? UserIcon;
-  return (
-    <div className="nf-um-sec" style={{ gridColumn: '1/-1' }}>
-      <div className="nf-um-sec-hd">
-        <span className="nf-um-sec-ico"><Icon size={15} /></span>
-        <span className="nf-um-sec-title">{label}</span>
-      </div>
-      <div className={columns === 2 ? 'nf-grid-2col-collapse' : undefined} style={{ display: 'grid', gridTemplateColumns: columns === 2 ? '1fr 1fr' : '1fr', gap: 14 }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, span, children }: { label: string; span?: 'full'; children: React.ReactNode }) {
-  return <div style={span === 'full' ? { gridColumn: '1/-1' } : undefined}><label style={labelStyle}>{label}</label>{children}</div>;
-}
-
-// ─── Creatable Location Select ────────────────────────────────────────────────
-interface Location { id: string; name: string; active?: boolean; }
-
-// Picks from existing, already-created Locations only — a new Location needs a Timezone
-// (required, and constrained to a fixed supported set — see OrgService.SUPPORTED_TIMEZONES on
-// the backend), which doesn't fit this inline assignment picker, so location CREATION happens
-// exclusively via Organization Masters → Locations (see OrgSetupPage). `token` is accepted for
-// signature compatibility with call sites, even though this component no longer calls the API.
-function CreatableLocationSelect({ locations, value, onChange, disabled }: { locations: Location[]; value: string | undefined; onChange: (id: string | undefined) => void; token: string; disabled?: boolean }) {
-  const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const currentName = value ? (locations.find(l => l.id === value)?.name ?? '') : '';
-  useEffect(() => { if (!open) setQuery(currentName); }, [open, currentName]);
-  useEffect(() => {
-    function out(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
-    document.addEventListener('mousedown', out);
-    return () => document.removeEventListener('mousedown', out);
-  }, []);
-  const filtered = query.trim() ? locations.filter(l => l.name.toLowerCase().includes(query.toLowerCase())) : locations;
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <div style={{ position: 'relative' }}>
-        <input style={{ ...inputStyle, paddingRight: 32, opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'text' }} placeholder="Select a location…"
-          disabled={disabled}
-          value={open ? query : currentName}
-          onFocus={() => { setOpen(true); setQuery(currentName); }}
-          onChange={e => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange(undefined); }} />
-        <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-      </div>
-      {!disabled && open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, boxShadow: '0 8px 24px rgba(0,0,0,.3)', zIndex: 100, maxHeight: 240, overflowY: 'auto' }}>
-          {filtered.length === 0 && (
-            <div style={{ padding: '10px 14px', fontSize: 13, color: 'var(--txt-dim)' }}>
-              No locations found. Add one under Organization Masters → Locations.
-            </div>
-          )}
-          {filtered.map(l => (
-            <div key={l.id} onMouseDown={() => { onChange(l.id); setOpen(false); }}
-              style={{ padding: '9px 14px', fontSize: 13, color: value === l.id ? 'var(--brand-bright)' : 'var(--txt)', background: value === l.id ? 'rgba(176,17,22,.12)' : 'transparent', cursor: 'pointer' }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--raised)')}
-              onMouseLeave={e => (e.currentTarget.style.background = value === l.id ? 'rgba(176,17,22,.12)' : 'transparent')}>
-              {l.name}
-            </div>
-          ))}
-          <div onMouseDown={() => { onChange(undefined); setQuery(''); setOpen(false); }}
-            style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', cursor: 'pointer' }}>
-            – Clear - </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Shift Select (with inline "+ Add New Shift") ─────────────────────────────
-function ShiftSelect({ shifts, value, onChange, onCreated, token, disabled }: {
-  shifts: ShiftRow[]; value: string | undefined; onChange: (id: string | undefined) => void;
-  onCreated: (shift: ShiftRow) => void; token: string; disabled?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const current = shifts.find(s => s.id === value);
-  useEffect(() => {
-    function out(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
-    document.addEventListener('mousedown', out);
-    return () => document.removeEventListener('mousedown', out);
-  }, []);
-  const label = (s: ShiftRow) => `${s.name} - ${fmtShiftTime(s.startTime)}–${fmtShiftTime(s.endTime)}`;
-  return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <div style={{ position: 'relative' }} onClick={() => !disabled && setOpen(o => !o)}>
-        <input readOnly disabled={disabled} style={{ ...inputStyle, paddingRight: 32, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }} placeholder="Select a shift…"
-          value={current ? label(current) : ''} />
-        <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-      </div>
-      {!disabled && open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, boxShadow: '0 8px 24px rgba(0,0,0,.3)', zIndex: 100, maxHeight: 220, overflowY: 'auto' }}>
-          <div onMouseDown={() => { onChange(undefined); setOpen(false); }}
-            style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', cursor: 'pointer' }}>
-            – None - </div>
-          {shifts.map(s => (
-            <div key={s.id} onMouseDown={() => { onChange(s.id); setOpen(false); }}
-              style={{ padding: '9px 14px', fontSize: 13, color: value === s.id ? 'var(--brand-bright)' : 'var(--txt)', background: value === s.id ? 'rgba(176,17,22,.12)' : 'transparent', cursor: 'pointer' }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--raised)')}
-              onMouseLeave={e => (e.currentTarget.style.background = value === s.id ? 'rgba(176,17,22,.12)' : 'transparent')}>
-              {label(s)}
-            </div>
-          ))}
-          <div onMouseDown={() => { setShowCreate(true); setOpen(false); }}
-            style={{ padding: '9px 14px', fontSize: 13, color: '#4C8DD6', borderTop: '1px solid var(--line)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontWeight: 700 }}>+</span> Add New Shift
-          </div>
-        </div>
-      )}
-      {showCreate && (
-        <ShiftFormModal
-          token={token}
-          onClose={() => setShowCreate(false)}
-          onSaved={(saved) => { onCreated(saved); onChange(saved.id); setShowCreate(false); }}
-        />
-      )}
-    </div>
-  );
-}
-
 // `opts.managers` (the potential-managers list) is fetched once per page load and shared by
 // Add/Edit modals — see UserManagementPage's own comment on that state. Any action here that
 // changes a user's active status, role, or name (status toggle, edit, soft delete) needs to
@@ -282,441 +97,8 @@ function syncManagerOption(managers: EmployeeRecord[], updated: EmployeeRecord):
     : [...managers, updated];
 }
 
-// Same reasoning/shape as getManagersForRole just below: `shifts` (opts.shifts) is fetched once
-// per page load and shared by Add/Edit — an inactive shift must not be a pickable option for a
-// new or changed assignment, but an employee already on a shift that's since been deactivated
-// must still see their own current assignment rendered (not silently blanked out) when the Edit
-// modal opens. `currentShiftId` is `form.shiftId`, so this is a no-op filter for Add (starts
-// undefined) and only keeps the one already-assigned entry for Edit.
-function getShiftOptions(shifts: ShiftRow[], currentShiftId: string | undefined): ShiftRow[] {
-  return shifts.filter(s => s.active !== false || s.id === currentShiftId);
-}
-
-// Same reasoning/shape as getShiftOptions just above, for the 3 other master-data dropdowns that
-// were still handing out every row (including deactivated ones) unfiltered.
-function getDepartmentOptions(departments: any[], currentId: string | undefined): any[] {
-  return departments.filter(d => d.active !== false || d.id === currentId);
-}
-
-// Designations are department-scoped (V202) — only designations mapped to the selected
-// Department are offered, so a "QA Engineer III" can no longer be picked under Finance. A
-// designation with no departmentId at all predates V202 and isn't scoped to any department yet;
-// it's excluded here as unmapped (same as any other department mismatch) until someone re-saves
-// it in Org Setup with a Department. The currently-assigned designation is always kept, exactly
-// like the active/inactive exception above, so re-saving an employee whose designation was set
-// before this filter existed doesn't silently wipe it off the form.
-function getDesignationOptions(designations: any[], currentId: string | undefined, departmentId: string | undefined): any[] {
-  return designations.filter(d => (d.active !== false || d.id === currentId) && (d.id === currentId || d.departmentId === departmentId));
-}
-
-function getLocationOptions(locations: Location[], currentId: string | undefined): Location[] {
-  return locations.filter(l => l.active !== false || l.id === currentId);
-}
-
-// Deactivated managers are deliberately kept in this list (not filtered out) so an employee
-// already reporting to one still shows that name in the dropdown instead of it silently
-// vanishing — the option is rendered disabled (see the two <option> call sites below) rather
-// than excluded, so it can't be picked for a NEW assignment. A genuinely deleted manager is
-// excluded server-side already (EmployeeService.listPotentialManagers), so nothing to do here
-// for that case.
-//
-// An Employee can report to a Manager or an HR Admin; a Manager can report to an HR Admin or a
-// Super Admin; HR Admin/Super Admin still only report to a Super Admin. HR Admin was previously
-// excluded from every tier even though EmployeeService.listPotentialManagers already treats it
-// as an eligible manager role.
-function getManagersForRole(role: string, managers: EmployeeRecord[]): EmployeeRecord[] {
-  if (role === 'EMPLOYEE') return managers.filter(m => m.role === 'MANAGER' || m.role === 'HR_ADMIN');
-  if (role === 'MANAGER') return managers.filter(m => m.role === 'HR_ADMIN' || m.role === 'SUPER_ADMIN');
-  return managers.filter(m => m.role === 'SUPER_ADMIN');
-}
-
-// ─── Add User Modal ───────────────────────────────────────────────────────────
-function AddModal({ onClose, onCreated, token, opts, setOpts }: {
-  onClose: () => void; onCreated: (e: EmployeeRecord) => void; token: string;
-  // Org-wide reference data (departments/designations/locations/managers/shifts) — fetched ONCE
-  // by the parent UserManagementPage and shared with EditModal, instead of each modal re-fetching
-  // it (including the expensive potential-managers lookup) on every single open. See
-  // UserManagementPage's own orgOptions state/effect for where this actually loads.
-  opts: OrgOptions; setOpts: React.Dispatch<React.SetStateAction<OrgOptions>>;
-}) {
-  const { showToast } = useToast();
-  // effectiveFrom defaults to today (the business rule's own default) — today is a genuinely
-  // valid, final choice, never auto-advanced to "the next working day" or any other date; the
-  // admin can still move it to any future date, but never to the past (enforced both by the
-  // date input's own `min` and, independently, by the backend).
-  // Role/Employment Type/Work Mode/Business Unit/Department/Designation all start unselected
-  // (ONEHR — "Add User Dropdowns Display Default Values Instead of Selection Placeholders"):
-  // none of these should be preselected to a value the admin never actively chose. Employment
-  // Type and Work Mode still fall back to FULL_TIME/ONSITE server-side if left blank (see
-  // UserManagementService#createUser) — that backend default is unchanged, only the UI no longer
-  // shows it as though the admin had picked it.
-  const [form, setForm] = useState<CreateUserPayload>({
-    fullName: '', email: '', role: '', joiningDate: new Date().toISOString().slice(0, 10),
-    effectiveFrom: todayIso(),
-  });
-  const [startOnboarding, setStartOnboarding] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Set instead of `error` specifically when the backend rejects the submitted Employee ID as
-  // already taken (EmployeeCodeGenerator#claim's exact conflict message) — rendered as its own
-  // banner with a "Click here" action that fetches a fresh suggestion via the same non-consuming
-  // preview endpoint, without touching any other field or closing this modal.
-  const [employeeCodeConflict, setEmployeeCodeConflict] = useState(false);
-  const [fetchingNewId, setFetchingNewId] = useState(false);
-  const [created, setCreated] = useState<EmployeeRecord | null>(null);
-  const [onboardingOutcome, setOnboardingOutcome] = useState<'started' | 'skipped' | 'failed' | null>(null);
-  const [onboardingError, setOnboardingError] = useState<string | null>(null);
-  const [retryingOnboarding, setRetryingOnboarding] = useState(false);
-  // Auto-populated suggestion only (see employeesApi.previewNextCode) — fetched once on open
-  // and dropped straight into the (editable) Employee ID field below as a starting value. The
-  // admin can freely overwrite it; this fetch never reserves/consumes the ID. Whatever ends up
-  // in the field — untouched or edited — is submitted to the backend verbatim and validated as
-  // the exact requested Employee ID (see handleSubmit below and EmployeeCodeGenerator#claim on
-  // the backend): a stale submission must fail with a clear conflict, never silently resolve to
-  // a different ID.
-  const [previewLoading, setPreviewLoading] = useState(true);
-
-  useEffect(() => {
-    employeesApi.previewNextCode(token)
-      .then(r => setForm(f => ({ ...f, employeeCode: f.employeeCode ?? r.employeeCode })))
-      .catch(() => { /* leave the field blank — the backend auto-assigns one if none is submitted */ })
-      .finally(() => setPreviewLoading(false));
-  }, [token]);
-
-  // No shift is preselected — a shift-less employee is a valid, permanent state (ONEHR-355): the
-  // backend no longer defaults a newly-created employee onto the organization's Default Shift, so
-  // this form must not silently reintroduce that assignment on the admin's behalf either. Default
-  // Shift remains a completely ordinary, pickable option in the dropdown below for an admin who
-  // deliberately wants it.
-
-  // Fetches a fresh suggestion via the same non-consuming preview endpoint used on open, and
-  // drops it straight into the Employee ID field — nothing else in the form is touched, and the
-  // modal stays open. Backs the "Click here" action in the conflict banner below.
-  // Onboarding is started via a separate call from user creation — the account is safe either
-  // way, so a failure here is a soft failure, not a blocker. It's surfaced with a toast and an
-  // explicit error message (rather than only a generic banner) and can be retried in place
-  // without HR having to leave this screen or navigate to the Onboarding page.
-  async function startOnboardingFor(employeeUserId: string, name: string) {
-    setRetryingOnboarding(true);
-    setOnboardingOutcome(null);
-    try {
-      await onboardingApi.start({ employeeUserId }, token);
-      setOnboardingOutcome('started');
-      setOnboardingError(null);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not start onboarding';
-      setOnboardingOutcome('failed');
-      setOnboardingError(msg);
-      showToast('error', `Onboarding didn't start for ${name}: ${msg}`);
-    } finally {
-      setRetryingOnboarding(false);
-    }
-  }
-
-  async function handleGetNewId() {
-    setFetchingNewId(true);
-    try {
-      const r = await employeesApi.previewNextCode(token);
-      setForm(f => ({ ...f, employeeCode: r.employeeCode }));
-      setEmployeeCodeConflict(false);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not fetch a new Employee ID';
-      showToast('error', msg);
-    } finally {
-      setFetchingNewId(false);
-    }
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmedName = form.fullName.trim();
-    const rawEmail = form.email;
-    if (!trimmedName || !rawEmail) { setError('Name and email required.'); return; }
-    if (!NAME_PATTERN.test(trimmedName)) { setError("Full name can only contain letters, spaces, hyphens, and apostrophes - no emojis or symbols."); return; }
-    // Deliberately checked against the raw value, not a trimmed one — a leading/trailing
-    // space is rejected outright rather than silently stripped before validating.
-    if (rawEmail !== rawEmail.trim()) { setError('Email must not have leading or trailing spaces.'); return; }
-    if (!EMAIL_PATTERN.test(rawEmail)) { setError('Enter a valid email address with a proper domain (e.g. name@company.com).'); return; }
-    if (!form.role) { setError('Role is required.'); return; }
-    if (!form.locationId) { setError('Location is required - Leave & Holidays depends on it.'); return; }
-    if (!form.departmentId) { setError('Department is required.'); return; }
-    if (!form.designationId) { setError('Designation is required.'); return; }
-    if (form.role !== 'SUPER_ADMIN' && !form.managerId) { setError('Reporting Manager is required for this role.'); return; }
-    // Defense-in-depth: the date input's own `required`/`min` already keep this from happening
-    // through normal use — the backend independently rejects it too regardless.
-    if (form.shiftId && (!form.effectiveFrom || form.effectiveFrom < todayIso())) {
-      setError('Effective From is required and cannot be in the past.');
-      return;
-    }
-    setSubmitting(true); setError(null); setEmployeeCodeConflict(false);
-    // Submit the Employee ID exactly as displayed — untouched or edited — and let the backend
-    // validate that exact value. If it's already taken (e.g. another admin's form showed the
-    // same suggestion and got there first), the backend rejects it outright rather than
-    // silently assigning a different one; see the catch block below.
-    const trimmedCode = (form.employeeCode ?? '').trim();
-    try {
-      const emp = await usersApi.create({ ...form, fullName: trimmedName, email: rawEmail, employeeCode: trimmedCode || undefined }, token);
-      onCreated(emp);
-      showToast('success', `${emp.fullName} created successfully`);
-      // The account is already fully created at this point — show the success screen right away
-      // instead of making the user wait on a second, unrelated request. Starting onboarding is a
-      // genuinely separate concern (its own checklist rows, its own "soft failure is fine, retry
-      // from the Onboarding page" story below) that doesn't need to block navigation; it now runs
-      // in the background and just updates the outcome banner in place once it settles.
-      setCreated(emp);
-      if (startOnboarding) {
-        startOnboardingFor(emp.userId, emp.fullName);
-      } else {
-        setOnboardingOutcome('skipped');
-      }
-    } catch (err) {
-      // The backend rejects a submitted Employee ID that's already in use (or was just taken by
-      // a concurrent request) with this exact message — surfaced as its own banner with a
-      // "Click here" recovery action instead of the generic error text, so the admin doesn't
-      // have to reopen the form (and lose everything else they typed) to get a fresh ID.
-      const msg = err instanceof Error ? err.message : 'Create failed';
-      if (msg === 'Employee ID is unavailable. Please go back and retry.') {
-        setEmployeeCodeConflict(true);
-      } else {
-        setError(msg);
-      }
-      showToast('error', msg);
-    } finally { setSubmitting(false); }
-  }
-
-  if (created) {
-    return (
-      <div style={overlayStyle}>
-        <div className="nf-um-modal" style={modalStyle}>
-          <ModalHeader title="User Created" onClose={onClose} />
-          <div style={{ padding: 24 }}>
-            <div style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
-              <div style={{ color: '#2FB67C', fontWeight: 600, marginBottom: 8 }}>Account created successfully</div>
-              <div style={{ fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.8 }}>
-                <b style={{ color: 'var(--txt)' }}>Name:</b> {created.fullName}<br />
-                <b style={{ color: 'var(--txt)' }}>Email:</b> {created.email}<br />
-                <b style={{ color: 'var(--txt)' }}>Employee ID:</b> {created.employeeCode}<br />
-                <b style={{ color: 'var(--txt)' }}>Role:</b> {created.role}
-              </div>
-            </div>
-            {onboardingOutcome === null && (
-              <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: 'var(--txt-mut)' }}>
-                Starting onboarding checklist…
-              </div>
-            )}
-            {onboardingOutcome === 'started' && (
-              <div style={{ background: 'rgba(76,141,214,.1)', border: '1px solid rgba(76,141,214,.25)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: '#4C8DD6' }}>
-                Onboarding checklist started - find it under Onboarding → Onboarding Started.
-              </div>
-            )}
-            {onboardingOutcome === 'failed' && (
-              <div style={{ background: 'rgba(224,169,59,.1)', border: '1px solid rgba(224,169,59,.25)', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: 13, color: '#E0A93B' }}>
-                <div>Account created, but starting onboarding didn't go through{onboardingError ? ` (${onboardingError})` : ''}.</div>
-                <button
-                  onClick={() => startOnboardingFor(created.userId, created.fullName)}
-                  disabled={retryingOnboarding}
-                  style={{ marginTop: 8, background: 'none', border: '1px solid #E0A93B', color: '#E0A93B', borderRadius: 6, padding: '5px 12px', fontSize: 12.5, fontWeight: 600, cursor: retryingOnboarding ? 'default' : 'pointer' }}
-                >
-                  {retryingOnboarding ? 'Retrying…' : 'Retry now'}
-                </button>
-                <span style={{ marginLeft: 8 }}>or start it manually from the Onboarding page later.</span>
-              </div>
-            )}
-            {created.tempPassword && (
-              <div style={{ background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--risk)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.06em' }}>Temp password - share once, store nowhere</div>
-                <code style={{ fontSize: 14, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', userSelect: 'all' }}>{created.tempPassword}</code>
-              </div>
-            )}
-            <button onClick={onClose} style={{ ...primaryBtnStyle, marginTop: 20, width: '100%', padding: '11px 16px', fontSize: 14 }}>Done</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const set = (key: keyof CreateUserPayload, val: any) => setForm(f => ({ ...f, [key]: val || undefined }));
-
-  return (
-    <div style={overlayStyle}>
-      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 640 }}>
-        <ModalHeader title="Add User" subtitle="Create a new account with role, department, and access details." onClose={onClose} />
-        <form onSubmit={handleSubmit} style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
-          {error && !employeeCodeConflict && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
-
-          <FormSection label="Identity">
-          <Field label="Full Name *" span="full"><input style={inputStyle} value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} placeholder="Jane Smith" /></Field>
-          <Field label="Company Email *" span="full"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" /></Field>
-          <Field label="Employee ID">
-            <input
-              style={inputStyle}
-              value={form.employeeCode ?? ''}
-              onChange={e => setForm(f => ({ ...f, employeeCode: e.target.value }))}
-              placeholder={previewLoading ? 'Loading…' : 'e.g. NF-20260007'}
-            />
-            {employeeCodeConflict && (
-              <div style={{ marginTop: 6, color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>
-                Employee ID already exists.{' '}
-                <button
-                  type="button"
-                  onClick={handleGetNewId}
-                  disabled={fetchingNewId}
-                  style={{ background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', textDecoration: 'underline', cursor: fetchingNewId ? 'wait' : 'pointer' }}
-                >
-                  {fetchingNewId ? 'Fetching…' : 'Click here'}
-                </button>
-                {' '}to get a new ID.
-              </div>
-            )}
-          </Field>
-          <Field label="Joining Date *"><input type="date" style={inputStyle} value={form.joiningDate} onChange={e => setForm(f => ({ ...f, joiningDate: e.target.value }))} /></Field>
-          </FormSection>
-
-          <FormSection label="Role & Employment">
-          <Field label="Role *">
-            <select style={inputStyle} value={form.role} onChange={e => {
-              const newRole = e.target.value;
-              const newMgrs = getManagersForRole(newRole, opts.managers);
-              setForm(f => ({
-                ...f, role: newRole,
-                managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
-              }));
-            }}>
-              <option value="" disabled>Select Role</option>
-              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Employment Type">
-            <select style={inputStyle} value={form.employmentType ?? ''} onChange={e => set('employmentType', e.target.value)}>
-              <option value="">Select Employment Type</option>
-              {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
-            </select>
-          </Field>
-          <Field label="Work Mode">
-            <select style={inputStyle} value={form.workMode ?? ''} onChange={e => set('workMode', e.target.value)}>
-              <option value="">Select Work Mode</option>
-              {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
-            </select>
-          </Field>
-          <Field label="Business Unit">
-            <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
-              <option value="">Select Business Unit</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Department *">
-            <select style={inputStyle} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined, designationId: undefined }))}>
-              <option value="">Select Department</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Designation *">
-            <select style={inputStyle} value={form.designationId ?? ''} disabled={!form.departmentId} onChange={e => set('designationId', e.target.value)}>
-              <option value="">{form.departmentId ? 'Select Designation' : 'Select a Department first'}</option>
-              {getDesignationOptions(opts.designations, form.designationId, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
-            </select>
-          </Field>
-          </FormSection>
-
-          <FormSection label="Location & Reporting" columns={1}>
-          <div>
-            <Field label="Location *">
-              <CreatableLocationSelect locations={getLocationOptions(opts.locations, form.locationId)} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} />
-            </Field>
-          </div>
-          <div>
-            {(() => {
-              const noRoleYet = !form.role;
-              const isSA = form.role === 'SUPER_ADMIN';
-              const mgrList = noRoleYet ? [] : getManagersForRole(form.role, opts.managers);
-              const mgrRoleLabel = form.role === 'EMPLOYEE' ? 'Manager or HR Admin'
-                : form.role === 'MANAGER' ? 'HR Admin or Super Admin'
-                : 'Super Admin';
-              return (
-                <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
-                  <select style={inputStyle} value={form.managerId ?? ''} disabled={noRoleYet} onChange={e => set('managerId', e.target.value)}>
-                    <option value="">
-                      {noRoleYet ? '– Select a Role first –' : isSA ? '– None (optional) –' : '– Select a Reporting Manager –'}
-                    </option>
-                    {/* Deactivated managers stay in the list (see getManagersForRole) but as a
-                        disabled option, so they can't be picked for a new assignment — they're
-                        only shown to explain an EXISTING selection that already points at one. */}
-                    {mgrList.map((m: any) => (
-                      <option key={m.userId} value={m.userId} disabled={m.active === false}>
-                        {m.fullName} ({m.email}){m.active === false ? ' - Inactive' : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {!noRoleYet && !isSA && mgrList.length === 0 && (
-                    <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                      No {mgrRoleLabel} users found - add one first.
-                    </div>
-                  )}
-                </Field>
-              );
-            })()}
-          </div>
-          </FormSection>
-
-          <FormSection label="Shift" columns={1}>
-          <div>
-            <Field label="Shift">
-              <ShiftSelect
-                shifts={getShiftOptions(opts.shifts, form.shiftId)}
-                value={form.shiftId}
-                onChange={id => setForm(f => ({ ...f, shiftId: id }))}
-                onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
-                token={token}
-              />
-            </Field>
-          </div>
-          {form.shiftId && (
-            <div>
-              <Field label="Effective From *">
-                <input
-                  type="date"
-                  style={inputStyle}
-                  value={form.effectiveFrom ?? todayIso()}
-                  min={todayIso()}
-                  required
-                  onChange={e => setForm(f => ({ ...f, effectiveFrom: e.target.value }))}
-                />
-              </Field>
-              {form.effectiveFrom && (
-                <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 5 }}>
-                  This shift will become active for the employee from {fmtEffectiveDate(form.effectiveFrom)}.
-                </div>
-              )}
-            </div>
-          )}
-          </FormSection>
-
-          <FormSection label="Onboarding" columns={1}>
-          <div>
-            <label className="nf-um-check" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={startOnboarding}
-                onChange={e => setStartOnboarding(e.target.checked)}
-                style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0, accentColor: 'var(--brand)' }}
-              />
-              <span>
-                <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>Start onboarding for this employee</span>
-                <span style={{ display: 'block', fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>
-                  Creates their pre-boarding, document and setup checklist right away. Leave unchecked to add the account only and start onboarding later.
-                </span>
-              </span>
-            </label>
-          </div>
-          </FormSection>
-
-          <div className="nf-um-foot" style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={secondaryBtnStyle}>Cancel</button>
-            <button type="submit" disabled={submitting} style={{ ...primaryBtnStyle, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}>{submitting ? 'Creating…' : 'Create User'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+// AddModal was replaced by CreateEmployeeWizard — see
+// frontend/src/pages/user-management/CreateEmployeeWizard.tsx (rendered at the call site below).
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
 function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
@@ -838,17 +220,17 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
           </Field>
           <Field label="Business Unit">
             <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
-              <option value="">– None –</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              <option value="">None</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </Field>
           <Field label="Department">
             <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined, designationId: undefined }))}>
-              <option value="">– None –</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+              <option value="">None</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </Field>
           <Field label="Designation">
             <select style={inputStyle} disabled={gatedFieldsLocked || !form.departmentId} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">{form.departmentId ? '– None –' : 'Select a Department first'}</option>
+              <option value="">{form.departmentId ? 'None' : 'Select a Department first'}</option>
               {getDesignationOptions(opts.designations, form.designationId, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
             </select>
           </Field>
@@ -885,7 +267,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
               return (
                 <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
                   <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
-                    <option value="">{isSA ? '– None (optional) –' : '– Select a Reporting Manager –'}</option>
+                    <option value="">{isSA ? 'None (optional)' : 'Select a Reporting Manager'}</option>
                     {/* Deactivated managers stay in the list (see getManagersForRole) but as a
                         disabled option, so they can't be picked for a new assignment — they're
                         only shown to explain an EXISTING selection that already points at one. */}
@@ -1184,7 +566,14 @@ export default function UserManagementPage() {
       orgApi.listLocations(token),
       employeesApi.potentialManagers(token),
       orgApi.listShifts(token),
-    ]).then(([bu, d, des, l, m, sh]) => setOrgOptions({ businessUnits: bu, departments: d, designations: des, locations: l, managers: m, shifts: sh }));
+      // Step 3 (Work & Policy Configuration) dropdown data for the employee creation wizard —
+      // same single existing endpoint the My Team bulk-assignment screen already uses, fetched
+      // once here alongside everything else above rather than as a separate wizard-only call.
+      employeeAssignmentsApi.lookups(token),
+    ]).then(([bu, d, des, l, m, sh, lookups]) => setOrgOptions({
+      businessUnits: bu, departments: d, designations: des, locations: l, managers: m, shifts: sh,
+      weeklyOffPolicies: lookups.weeklyOffPolicies, penalisationPolicies: lookups.penalisationPolicies,
+    }));
   }, [token]);
 
   // Derived filter options from real data
@@ -1221,6 +610,21 @@ export default function UserManagementPage() {
   const filterSelect: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 12px', color: 'var(--txt-mut)', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', outline: 'none' };
 
   const ROLE_LABEL: Record<string, string> = { EMPLOYEE: 'Employee', MANAGER: 'Manager', HR_ADMIN: 'HR Admin', SUPER_ADMIN: 'Super Admin' };
+
+  // Full-page view switch — replaces the whole table/filters body with the Create Employee
+  // wizard, still inside this same /access route (same Shell sidebar/topbar, same Super Admin
+  // route protection). No portal, no overlay: CreateEmployeeWizard renders as plain page content.
+  if (showAdd) {
+    return (
+      <CreateEmployeeWizard
+        token={token}
+        opts={orgOptions}
+        setOpts={setOrgOptions}
+        onClose={() => setShowAdd(false)}
+        onCreated={u => setUsers(prev => [u, ...prev])}
+      />
+    );
+  }
 
   return (
     <div>
@@ -1328,8 +732,8 @@ export default function UserManagementPage() {
                           );
                         })()}
                       </td>
-                      <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
-                      <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{u.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>-</span>}</td>
+                      <td style={tdStyle}>{u.currentManager ? u.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>-</span>}</td>
                       <td style={tdStyle}><StatusBadge active={u.active} /></td>
                       <td style={{ ...tdStyle, padding: '8px 12px', width: 44 }}>
                         <RowActionsMenu
@@ -1398,7 +802,6 @@ export default function UserManagementPage() {
           transformed ancestor is positioned against that ancestor, not the window, which pushed these dialogs under
           the sticky top bar. Same approach DetailDrawer uses on the Attendance page. */}
       {createPortal(<>
-      {showAdd && <AddModal token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setShowAdd(false)} onCreated={u => setUsers(prev => [u, ...prev])} />}
       {editing && <EditModal user={editing} token={token} opts={orgOptions} setOpts={setOrgOptions} onClose={() => setEditing(null)} onUpdated={updated => {
         setUsers(prev => prev.map(u => u.userId === updated.userId ? updated : u));
         setOrgOptions(o => ({ ...o, managers: syncManagerOption(o.managers, updated) }));

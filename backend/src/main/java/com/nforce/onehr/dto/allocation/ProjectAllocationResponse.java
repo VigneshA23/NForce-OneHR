@@ -15,4 +15,9 @@ public class ProjectAllocationResponse {
     private Integer capacityPercent;
     private LocalDate startDate;
     private LocalDate endDate;
+    private LocalDate actualEndDate;
+    /** US-B06: employee's total capacity% over the range including this allocation. */
+    private Integer projectedCapacityPercent;
+    /** US-B06: set when projected > 100%. With id == null nothing was saved — resubmit with confirm=true. */
+    private String warning;
 }
