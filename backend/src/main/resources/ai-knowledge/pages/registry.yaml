@@ -112,6 +112,15 @@ pages:
         route: /payroll-setup
         description: "Create salary structures (Basic, HRA and other components with their calculation rules) and assign a structure plus CTC to an employee — the data a payroll run needs before it can generate payslips."
 
+  - pageId: statutory-compliance
+    module: payroll
+    permissions: ["payroll:CONFIGURE:ALL"]
+    variants:
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Statutory Compliance"
+        route: /statutory-compliance
+        description: "Configure and version-date PF, ESI and Professional Tax rules by country — the slab config every payslip's statutory deductions are computed from."
+
   - pageId: my-documents
     module: documents
     variants:

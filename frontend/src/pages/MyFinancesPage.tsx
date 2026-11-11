@@ -5,6 +5,8 @@ import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { payslipsApi } from '../api/payslips';
 import { payrollApi, type EmployeeCompensationResponse } from '../api/payroll';
+import { profileApi, type ProfileData } from '../api/profile';
+import { ReadField } from './profile/shared';
 import { panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, BtnGhost, SectionHead, StatTile } from './payroll/payrollShared';
 
 function formatPeriod(period: string) {
@@ -21,11 +23,16 @@ export default function MyFinancesPage() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [current, setCurrent] = useState<EmployeeCompensationResponse | null>(null);
   const [history, setHistory] = useState<EmployeeCompensationResponse[]>([]);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
 
   useEffect(() => {
     payslipsApi.listMyPeriods(token).then(setPeriods).catch(() => showToast('error', 'Failed to load your payslips'));
     payrollApi.getMyCurrentCompensation(token).then(setCurrent).catch(() => showToast('error', 'Failed to load your compensation'));
     payrollApi.getMyCompensationHistory(token).then(setHistory).catch(() => {});
+    // Bank/statutory details already live on the Profile page (Identity & Statutory section) —
+    // reused here read-only rather than duplicating that data entry, same masking the backend
+    // already applies (ProfileService#maskTrailing4).
+    profileApi.get(token).then(setProfile).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -76,6 +83,24 @@ export default function MyFinancesPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {profile && (profile.bankAccountNumber || profile.panNumber || profile.uanNumber || profile.esiNumber) && (
+        <div style={{ marginBottom: 24 }}>
+          <SectionHead title="Bank & Statutory Details" />
+          <div style={{ ...panelStyle, padding: '18px 22px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+              <ReadField label="Bank Account Number" value={profile.bankAccountNumber} />
+              <ReadField label="Bank Name & IFSC" value={profile.bankName ? `${profile.bankName}${profile.bankIfsc ? ` · IFSC: ${profile.bankIfsc}` : ''}` : null} />
+              <ReadField label="PAN" value={profile.panNumber} />
+              <ReadField label="UAN" value={profile.uanNumber} />
+              <ReadField label="ESI Number" value={profile.esiNumber} />
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 14 }}>
+              Masked for privacy — update these under My Profile → Identity &amp; Statutory.
+            </div>
           </div>
         </div>
       )}

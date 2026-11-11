@@ -147,6 +147,9 @@ export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; 
           <div style={{ gridColumn: 'span 2' }}>
             <ReadField label="Bank Name & IFSC" value={profile.bankName ? `${profile.bankName}${profile.bankIfsc ? ` · IFSC: ${profile.bankIfsc}` : ''}` : null} />
           </div>
+          <ReadField label="PAN" value={profile.panNumber} />
+          <ReadField label="UAN" value={profile.uanNumber} />
+          <ReadField label="ESI Number" value={profile.esiNumber} />
         </div>
       </SectionCard>
 

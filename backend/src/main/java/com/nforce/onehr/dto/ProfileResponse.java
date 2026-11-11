@@ -45,6 +45,9 @@ public class ProfileResponse {
     private String bankName;
     private String bankIfsc;
     private String nationalId;            // masked
+    private String panNumber;             // masked
+    private String uanNumber;             // masked
+    private String esiNumber;             // masked
 
     // Employment — read-only, HR-managed
     private String employeeCode;
