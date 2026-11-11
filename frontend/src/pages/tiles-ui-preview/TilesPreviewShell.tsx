@@ -1011,7 +1011,7 @@ function CreateEmployeeStepsPreview() {
           {step === 3 && (
             <div className="nf-ce-sec" style={{ padding: 20 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>Jane Smith has been created successfully.</div>
-              <CompensationFollowUp />
+              <CompensationFollowUp employeeId="mock-employee-id" employeeName="Jane Smith" />
               <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 10 }}>
                 Compensation is optional and can be configured later, it won't affect this employee's account, onboarding, or access.
               </div>

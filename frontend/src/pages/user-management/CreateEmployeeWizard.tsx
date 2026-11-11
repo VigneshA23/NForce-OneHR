@@ -218,7 +218,7 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>
               {created.fullName} has been created successfully.
             </div>
-            <CompensationFollowUp />
+            <CompensationFollowUp employeeId={created.userId} employeeName={created.fullName} />
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 10 }}>
               Compensation is optional and can be configured later, it won't affect this employee's account, onboarding, or access.
             </div>
