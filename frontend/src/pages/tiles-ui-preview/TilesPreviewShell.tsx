@@ -241,7 +241,12 @@ const AUDIT_ROWS: AuditLogEntry[] = [
 ].map(([action, actionGroup, targetLabel, occurredAt], i) => ({
   id: i + 1, occurredAt, actorId: null, actorName: i === 2 ? null : ['Naveen Kumar R', 'Anil Kumar Ramtenki', 'Vignesh Appani'][i % 3], actorEmail: i === 2 ? null : ['naveen@nforceone.com', 'anil@nforceone.com', 'vignesh@nforceone.com'][i % 3], action, actionCategory: action,
   actionGroup, targetId: null, targetLabel, targetEmployeeCode: null, affectedUsers: null, beforeState: null, afterState: null,
-} as unknown as AuditLogEntry));
+} as unknown as AuditLogEntry)).concat([{
+  id: 99, occurredAt: '2026-11-11T20:00:00', actorId: null, actorName: 'Naveen Kumar R', actorEmail: 'superadmin@nforceone.com', action: 'ROLE_PERMISSIONS_UPDATED', actionCategory: 'ACCESS',
+  actionGroup: 'ACCESS', targetId: null, targetLabel: 'Manager', targetEmployeeCode: null, affectedUsers: null,
+  beforeState: JSON.stringify({ permissions: 'project_allocations:CREATE:TEAM,project_allocations:VIEW:TEAM,projects:CREATE:TEAM,projects:VIEW:TEAM,leave:APPROVE:TEAM,attendance:VIEW:TEAM' }),
+  afterState: JSON.stringify({ permissions: 'project_allocations:CREATE:ALL,project_allocations:VIEW:ALL,projects:CREATE:ALL,projects:VIEW:ALL,leave:APPROVE:ALL,attendance:VIEW:ALL' }),
+} as unknown as AuditLogEntry]);
 
 function AuditPillsMock({ showAccess }: { showAccess: boolean }) {
   const [g, setG] = useState<'ALL' | 'EMPLOYEE' | 'ATTENDANCE' | 'LEAVE' | 'EXPENSE' | 'ASSET' | 'ACCESS' | 'OTHER'>('ALL');
