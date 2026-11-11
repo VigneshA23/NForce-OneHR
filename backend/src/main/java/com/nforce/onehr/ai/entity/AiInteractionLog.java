@@ -34,6 +34,10 @@ public class AiInteractionLog {
     public static final String FEEDBACK_UP = "UP";
     public static final String FEEDBACK_DOWN = "DOWN";
 
+    public static final String OUTCOME_MATCHED = "MATCHED";
+    public static final String OUTCOME_AMBIGUOUS = "AMBIGUOUS";
+    public static final String OUTCOME_NO_MATCH = "NO_MATCH";
+
     @Id
     @GeneratedValue
     private UUID id;
@@ -118,6 +122,14 @@ public class AiInteractionLog {
     /** Length of the question, not the question. See the V187 migration comment. */
     @Column(name = "question_chars", nullable = false)
     private int questionChars;
+
+    /** MATCHED, AMBIGUOUS or NO_MATCH; null for technical failures and guard declines. See V272. */
+    @Column(length = 10)
+    private String outcome;
+
+    /** Sanitised question, set only when {@link #outcome} is AMBIGUOUS or NO_MATCH. See V272. */
+    @Column(name = "question_phrase", length = 160)
+    private String questionPhrase;
 
     @Column(name = "feedback_rating", length = 10)
     private String feedbackRating;
