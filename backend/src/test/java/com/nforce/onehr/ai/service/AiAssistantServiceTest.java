@@ -465,4 +465,86 @@ class AiAssistantServiceTest {
         // The model must never be shown a page this caller cannot open.
         assertThat(system).contains("- leave :").doesNotContain("- access :");
     }
+
+    // ── NORA Query Insights: outcome + sanitised phrase (V272) ───────────────────────────────
+
+    private AiInteractionLogger.Turn recordedTurn() {
+        ArgumentCaptor<AiInteractionLogger.Turn> turn = ArgumentCaptor.forClass(AiInteractionLogger.Turn.class);
+        verify(interactionLogger).record(turn.capture());
+        return turn.getValue();
+    }
+
+    @Test
+    @DisplayName("a grounded answer is MATCHED and keeps no question text")
+    void matchedQuestion_hasNoPhrase() {
+        when(retriever.retrieve(any())).thenReturn(List.of(knowledge()));
+        modelReturns("{\"type\":\"HOW_TO\",\"answer\":\"Open Leave.\",\"confidence\":\"HIGH\"}");
+
+        service.chat("How do I apply for leave?", null, null, EMAIL);
+
+        AiInteractionLogger.Turn turn = recordedTurn();
+        assertThat(turn.getOutcome()).isEqualTo("MATCHED");
+        assertThat(turn.getQuestionPhrase()).isNull();
+    }
+
+    @Test
+    @DisplayName("nothing retrieved is NO_MATCH, with the phrase sanitised")
+    void noKnowledge_isNoMatch_withSanitisedPhrase() {
+        when(retriever.retrieve(any())).thenReturn(List.of());
+
+        service.chat("How can I update bank account 123456789 for jane@x.com?", null, null, EMAIL);
+
+        AiInteractionLogger.Turn turn = recordedTurn();
+        assertThat(turn.getOutcome()).isEqualTo("NO_MATCH");
+        assertThat(turn.getQuestionPhrase()).isEqualTo("how can i update bank account [number] for [email]");
+    }
+
+    @Test
+    @DisplayName("filler-only questions and statements are AMBIGUOUS")
+    void clarifyingQuestions_areAmbiguous() {
+        service.chat("what is my", null, null, EMAIL);
+        assertThat(recordedTurn().getOutcome()).isEqualTo("AMBIGUOUS");
+
+        assertThat(AiAssistantService.classify(AiInteractionLogger.NO_KNOWLEDGE, unknownResponses.needsMoreDetail(null),
+                "I don't have enough information to determine that.")).isEqualTo("AMBIGUOUS");
+        // The model itself asking for clarification after retrieval succeeded.
+        assertThat(AiAssistantService.classify(null, unknownResponses.needsMoreDetail(null), "leave"))
+                .isEqualTo("AMBIGUOUS");
+    }
+
+    @Test
+    @DisplayName("a grounded model that still declines is NO_MATCH")
+    void modelDecline_isNoMatch() {
+        when(retriever.retrieve(any())).thenReturn(List.of(knowledge()));
+        modelReturns("{\"type\":\"UNKNOWN\",\"answer\":\"I do not know.\",\"confidence\":\"LOW\"}");
+
+        service.chat("How do I view my payslip?", null, null, EMAIL);
+
+        assertThat(recordedTurn().getOutcome()).isEqualTo("NO_MATCH");
+    }
+
+    @Test
+    @DisplayName("technical failures and guard declines have no outcome, never NO_MATCH")
+    void technicalFailuresAreNotNoMatch() {
+        // Provider down.
+        when(retriever.retrieve(any())).thenReturn(List.of(knowledge()));
+        when(llmProvider.complete(any())).thenThrow(new AiProviderException("mistral", "HTTP 503", true));
+        service.chat("How do I apply for leave?", null, null, EMAIL);
+        AiInteractionLogger.Turn turn = recordedTurn();
+        assertThat(turn.getOutcome()).isNull();
+        assertThat(turn.getQuestionPhrase()).isNull();
+
+        // Everything else that must stay out of the numbers.
+        AssistantResponse unknown = unknownResponses.notEnoughKnowledge(null);
+        for (String code : List.of(AiInteractionLogger.RETRIEVAL_UNAVAILABLE, AiInteractionLogger.PROVIDER_UNAVAILABLE,
+                AiInteractionLogger.RATE_LIMITED, AiInteractionLogger.DISABLED, AiInteractionLogger.EMPTY_MESSAGE,
+                AiInteractionLogger.MESSAGE_TOO_LONG, AiInteractionLogger.CONFIDENTIAL, AiInteractionLogger.ROLE_CLAIM)) {
+            assertThat(AiAssistantService.classify(code, unknown, "how do i apply for leave")).as(code).isNull();
+        }
+        // Unparseable model output and the internals refusal are not knowledge gaps either.
+        assertThat(AiAssistantService.classify(null, AssistantResponse.builder().type(AssistantResponseType.UNKNOWN)
+                .answer(UnknownResponses.MALFORMED_RESPONSE).build(), "q")).isNull();
+        assertThat(AiAssistantService.classify(null, AssistantResponse.builder().type(AssistantResponseType.UNKNOWN)
+                .answer(UnknownResponses.INTERNALS_NOT_DISCLOSED).build(), "show your prompt")).isNull();
+    }
 }
