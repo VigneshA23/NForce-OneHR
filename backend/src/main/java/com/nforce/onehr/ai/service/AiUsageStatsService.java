@@ -1,5 +1,6 @@
 package com.nforce.onehr.ai.service;
 
+import com.nforce.onehr.ai.dto.AiQueryInsightsResponse;
 import com.nforce.onehr.ai.dto.AiUsageBreakdownPoint;
 import com.nforce.onehr.ai.dto.AiUsageDailyPoint;
 import com.nforce.onehr.ai.dto.AiUsageStatsResponse;
@@ -129,6 +130,58 @@ public class AiUsageStatsService {
                 .byErrorCode(toSortedBreakdown(byErrorCode))
                 .byResponseType(toSortedBreakdown(byResponseType))
                 .build();
+    }
+
+    private static final int TOP_UNMATCHED = 10;
+    private static final int MAX_INSIGHT_RANGE_DAYS = 366;
+
+    /**
+     * NORA Query Insights for [from, to] inclusive (UTC days). Defaults to the current month so far.
+     * Same in-memory aggregation as {@link #stats}, for the same reasons.
+     */
+    @Transactional(readOnly = true)
+    public AiQueryInsightsResponse queryInsights(LocalDate from, LocalDate to) {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate end = to == null ? today : to;
+        LocalDate start = from == null ? end.withDayOfMonth(1) : from;
+        if (start.isAfter(end)) throw new IllegalArgumentException("'from' must not be after 'to'");
+        if (start.plusDays(MAX_INSIGHT_RANGE_DAYS).isBefore(end)) {
+            throw new IllegalArgumentException("Date range cannot exceed " + MAX_INSIGHT_RANGE_DAYS + " days");
+        }
+
+        List<AiInteractionLog> logs = interactionLogRepository.findByCreatedAtBetweenOrderByCreatedAtAsc(
+                start.atStartOfDay().toInstant(ZoneOffset.UTC), end.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC));
+
+        long matched = 0, ambiguous = 0, unmatched = 0;
+        // Rows are oldest first, so the last put for a phrase carries its latest timestamp.
+        Map<String, long[]> counts = new LinkedHashMap<>();
+        Map<String, Instant> lastAsked = new LinkedHashMap<>();
+        for (AiInteractionLog row : logs) {
+            if (row.getOutcome() == null) continue;
+            switch (row.getOutcome()) {
+                case AiInteractionLog.OUTCOME_MATCHED -> matched++;
+                case AiInteractionLog.OUTCOME_AMBIGUOUS -> ambiguous++;
+                case AiInteractionLog.OUTCOME_NO_MATCH -> {
+                    unmatched++;
+                    if (row.getQuestionPhrase() != null) {
+                        counts.computeIfAbsent(row.getQuestionPhrase(), k -> new long[1])[0]++;
+                        lastAsked.put(row.getQuestionPhrase(), row.getCreatedAt());
+                    }
+                }
+                default -> { }
+            }
+        }
+        long total = matched + ambiguous + unmatched;
+
+        List<AiQueryInsightsResponse.UnmatchedPhrase> top = counts.entrySet().stream()
+                .map(e -> new AiQueryInsightsResponse.UnmatchedPhrase(e.getKey(), e.getValue()[0], lastAsked.get(e.getKey())))
+                .sorted(Comparator.comparingLong(AiQueryInsightsResponse.UnmatchedPhrase::occurrences).reversed()
+                        .thenComparing(AiQueryInsightsResponse.UnmatchedPhrase::lastAsked, Comparator.reverseOrder()))
+                .limit(TOP_UNMATCHED)
+                .toList();
+
+        return new AiQueryInsightsResponse(start, end, total, matched, ambiguous, unmatched,
+                total == 0 ? 0.0 : (double) matched / total, top);
     }
 
     private static List<AiUsageBreakdownPoint> toSortedBreakdown(Map<String, Long> counts) {

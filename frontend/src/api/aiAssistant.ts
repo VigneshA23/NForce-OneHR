@@ -235,6 +235,32 @@ export async function fetchUsageStats(token: string, days?: number): Promise<AiU
   return handle<AiUsageStats>(res);
 }
 
+// ── NORA Query Insights (Super Admin) ───────────────────────────────────────
+
+export interface AiUnmatchedPhrase {
+  phrase: string;
+  occurrences: number;
+  lastAsked: string;
+}
+
+export interface AiQueryInsights {
+  from: string;
+  to: string;
+  total: number;
+  matched: number;
+  ambiguous: number;
+  unmatched: number;
+  /** matched / total, 0..1 */
+  matchRate: number;
+  topUnmatched: AiUnmatchedPhrase[];
+}
+
+/** Super-Admin-only. `from`/`to` are inclusive yyyy-MM-dd; the server defaults to this month. */
+export async function fetchQueryInsights(token: string, from: string, to: string): Promise<AiQueryInsights> {
+  const res = await fetch(`${BASE}/admin/query-insights?from=${from}&to=${to}`, { headers: authHeaders(token) });
+  return handle<AiQueryInsights>(res);
+}
+
 // ── Billing estimate (Super Admin) ──────────────────────────────────────────
 //
 // An estimate computed from OneHR's own token logs × an admin-configured price, never real
