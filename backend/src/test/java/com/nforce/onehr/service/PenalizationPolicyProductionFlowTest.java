@@ -99,7 +99,7 @@ class PenalizationPolicyProductionFlowTest {
                 shiftVersionResolver, shiftRepository, SeedMatrix.permissionService());
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
-        lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeId));
+        lenient().when(userRepository.findAttendancePolicySubjectIds()).thenReturn(Set.of(employeeId));
         lenient().when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser()));
         lenient().when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                 any(), anyString(), any(), any())).thenReturn(List.of());

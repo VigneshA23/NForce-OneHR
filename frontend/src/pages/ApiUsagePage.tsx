@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import {
-  Activity, AlertTriangle, BarChart3, Database, ExternalLink, Gauge, Layers, MessageSquareText, MessagesSquare,
-  RefreshCw, Settings2, ShieldAlert, Wallet, Zap,
+  Activity, AlertTriangle, BarChart3, CheckCircle2, Database, ExternalLink, Gauge, HelpCircle, Layers, MessageSquareText,
+  MessagesSquare, RefreshCw, SearchX, Settings2, ShieldAlert, Wallet, Zap,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -14,8 +14,8 @@ import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
 import {
   fetchUsageStats, fetchBilling, fetchBillingSettings, updateBillingSettings,
-  fetchHealth, reindexKnowledge,
-  type AiUsageStats, type AiBilling, type AiBillingSettings, type AssistantHealth, type KnowledgeIndexingReport,
+  fetchHealth, reindexKnowledge, fetchQueryInsights,
+  type AiQueryInsights, type AiUsageStats, type AiBilling, type AiBillingSettings, type AssistantHealth, type KnowledgeIndexingReport,
 } from '../api/aiAssistant';
 
 // Same card/chart conventions as ReportsPage and My Team: theme tokens only, so light/dark and the
@@ -424,6 +424,100 @@ function KnowledgeBaseCard({ token, canConfigure }: { token: string; canConfigur
   );
 }
 
+/** yyyy-MM-dd in UTC, matching the server's day boundaries. */
+function isoDay(d: Date): string { return d.toISOString().slice(0, 10); }
+
+/**
+ * Which questions NORA answered, asked back about, or could not answer, and the unanswered phrases
+ * asked most. Has its own date range (default: this month so far) because it answers "what should
+ * we add to the knowledge base", not "how much did we spend".
+ */
+function QueryInsightsCard({ token }: { token: string }) {
+  const today = new Date();
+  const [from, setFrom] = useState(isoDay(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))));
+  const [to, setTo] = useState(isoDay(today));
+  const [data, setData] = useState<AiQueryInsights | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    if (!from || !to) return;
+    setLoading(true);
+    setError(null);
+    fetchQueryInsights(token, from, to)
+      .then(setData)
+      .catch(err => setError(err instanceof Error ? err.message : 'Failed to load query insights'))
+      .finally(() => setLoading(false));
+  }, [token, from, to]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const dateInput: React.CSSProperties = { ...inputS, width: 'auto' };
+
+  return (
+    <div style={{ ...card, padding: '18px 20px', marginTop: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <CardHead icon={<SearchX size={18} />} title="NORA Query Insights" sub="Questions NORA could not answer, so you know what to add to the knowledge base." />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="date" aria-label="From date" style={dateInput} value={from} max={to} onChange={e => setFrom(e.target.value)} />
+          <span style={{ color: 'var(--txt-mut)', fontSize: 12 }}>to</span>
+          <input type="date" aria-label="To date" style={dateInput} value={to} min={from} onChange={e => setTo(e.target.value)} />
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: '16px 0', color: 'var(--txt-dim)', fontSize: 12.5 }}>Loading…</div>
+      ) : error ? (
+        <div style={{ padding: '16px 0' }}>
+          <span style={{ color: COLOR_ERROR, fontSize: 12.5 }}>Couldn't load query insights ({error}).</span>{' '}
+          <button onClick={load} style={{ color: 'var(--info)', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontSize: 12.5, padding: 0 }}>Retry</button>
+        </div>
+      ) : data && (
+        <>
+          <div className="nf-kpi-2x2-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, margin: '16px 0 18px' }}>
+            <KpiCard icon={<MessageSquareText size={20} />} iconColor="var(--info)" label="Total questions" value={formatNumber(data.total)} />
+            <KpiCard icon={<CheckCircle2 size={20} />} iconColor="var(--ok)" label="Matched" value={formatNumber(data.matched)} />
+            <KpiCard icon={<HelpCircle size={20} />} iconColor="var(--warn)" label="Ambiguous" value={formatNumber(data.ambiguous)} />
+            <KpiCard icon={<SearchX size={20} />} iconColor="var(--risk)" label="Unmatched" value={formatNumber(data.unmatched)} />
+            <KpiCard icon={<Activity size={20} />} iconColor="var(--brand-bright)" label="Match rate" value={data.total > 0 ? `${Math.round(data.matchRate * 100)}%` : 'N/A'} />
+          </div>
+
+          <div style={{ ...miniLabel, marginBottom: 8 }}>Top 10 unmatched questions</div>
+          {data.topUnmatched.length === 0 ? (
+            <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12.5 }}>No unmatched questions in this period.</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', color: 'var(--txt-mut)' }}>
+                    <th style={{ padding: '6px 8px', fontWeight: 600 }}>Question phrase</th>
+                    <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Occurrences</th>
+                    <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Last asked</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.topUnmatched.map(p => (
+                    <tr key={p.phrase} style={{ borderTop: '1px solid var(--line)' }}>
+                      <td style={{ padding: '8px', color: 'var(--txt)' }}>{p.phrase}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700, color: 'var(--txt)' }}>{formatNumber(p.occurrences)}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
+                        {new Date(p.lastAsked).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 10 }}>
+            Phrases are lower-cased with emails, links and numbers masked. Technical failures are not counted as unmatched.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function ApiUsagePage() {
   const token = useAuthStore(s => s.token) ?? '';
   const permissions = useAuthStore(s => s.permissions);
@@ -490,6 +584,8 @@ export default function ApiUsagePage() {
         <BillingCard token={token} canConfigure={canConfigure} />
         <KnowledgeBaseCard token={token} canConfigure={canConfigure} />
       </div>
+
+      <QueryInsightsCard token={token} />
 
       {/* Period selector */}
       <div role="group" aria-label="Usage period" className="nf-api-seg" style={{ marginBottom: 18 }}>

@@ -1,0 +1,54 @@
+/* Roles & Permissions: role list, editor, details drawer and permission matrix. Presentation only; theme tokens throughout. */
+
+/* pills */
+.nf-rl-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; white-space: nowrap; font-size: 11px; font-weight: 700; letter-spacing: .03em; --pc: var(--info); color: var(--pc); background: color-mix(in srgb, var(--pc) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--pc) 30%, transparent); border-radius: 999px; }
+.nf-rl-pill.is-dot { letter-spacing: 0; }
+.nf-rl-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--pc); }
+
+/* filters + list card */
+.nf-rl-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; padding: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 4px 14px rgba(16, 24, 40, .04); }
+.nf-rl-filters input:focus, .nf-rl-filters select:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
+.nf-rl-card { overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 6px 22px rgba(16, 24, 40, .06); }
+.nf-rl-table tbody tr:last-child td { border-bottom: none; }
+.nf-rl-table tbody tr.is-click { cursor: pointer; }
+.nf-rl-table tbody tr:hover td { background: color-mix(in srgb, var(--brand) 5%, var(--panel)); }
+.nf-rl-role { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.nf-rl-role-ico { flex-shrink: 0; width: 36px; height: 36px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; color: var(--info); background: color-mix(in srgb, var(--info) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--info) 26%, transparent); }
+.nf-rl-role-ico.is-custom { color: #8B5CF6; background: color-mix(in srgb, #8B5CF6 12%, var(--panel)); border-color: color-mix(in srgb, #8B5CF6 28%, transparent); }
+.nf-rl-role-name { font-size: 13.5px; font-weight: 700; color: var(--txt); }
+.nf-rl-role-desc { margin-top: 2px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--txt-dim); }
+.nf-rl-num { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; font-size: 12.5px; font-weight: 700; color: var(--txt); background: var(--raised); border: 1px solid var(--line); border-radius: 999px; }
+.nf-rl-num svg { color: var(--txt-dim); }
+.nf-rl-num.is-soft { font-weight: 600; color: var(--txt-mut); }
+
+/* dialogs and drawer */
+.nf-rl-dlg { overflow: hidden; background: var(--panel); border: 1px solid var(--line2); border-radius: 20px; box-shadow: 0 28px 70px rgba(0, 0, 0, .45); animation: nf-rl-rise .2s ease-out; }
+.nf-rl-drawer { background: var(--panel); border-left: 1px solid var(--line2); box-shadow: -20px 0 50px rgba(0, 0, 0, .3); animation: nf-rl-slide .22s ease-out; }
+@keyframes nf-rl-rise { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes nf-rl-slide { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.nf-rl-head { display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-bottom: 1px solid var(--line); background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); }
+.nf-rl-head-ico { flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-rl-head-txt { flex: 1; min-width: 0; }
+.nf-rl-head-title { font-family: Inter, sans-serif; font-size: 16.5px; font-weight: 700; letter-spacing: -.01em; color: var(--txt); overflow-wrap: anywhere; }
+.nf-rl-head-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-rl-x { flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 11px; }
+.nf-rl-x:hover { color: var(--txt); }
+.nf-rl-foot { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--line); background: var(--raised); }
+.nf-rl-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 22px; border-bottom: 1px solid var(--line); }
+.nf-rl-dlg input:not([type='checkbox']):focus, .nf-rl-dlg select:focus, .nf-rl-drawer input:not([type='checkbox']):focus, .nf-rl-drawer select:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+
+/* permission matrix */
+.nf-rl-matrix { overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+.nf-rl-mod { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; background: var(--raised); transition: background .15s; }
+.nf-rl-mod:hover { background: color-mix(in srgb, var(--brand) 5%, var(--raised)); }
+.nf-rl-mod.is-open { background: color-mix(in srgb, var(--brand) 7%, var(--raised)); }
+.nf-rl-mod-name { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 700; color: var(--txt); }
+.nf-rl-count { flex-shrink: 0; padding: 2px 10px; white-space: nowrap; font-size: 11.5px; font-weight: 700; color: var(--txt-dim); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; }
+.nf-rl-count.is-on { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 30%, transparent); background: color-mix(in srgb, var(--brand) 9%, var(--panel)); }
+.nf-rl-acts { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; padding: 12px 16px 16px 42px; }
+.nf-rl-act { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 4px 12px; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; transition: border-color .15s, background .15s; }
+.nf-rl-act.is-on { background: color-mix(in srgb, var(--brand) 6%, var(--panel)); border-color: color-mix(in srgb, var(--brand) 32%, var(--line)); }
+
+/* members */
+.nf-rl-members { overflow: hidden; border: 1px solid var(--line); border-radius: 16px; }
+.nf-rl-member { display: flex; align-items: center; gap: 12px; padding: 11px 16px; background: var(--panel); }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import {
@@ -246,7 +247,9 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
 
   const dayCount = Number.isFinite(requestedDays) && requestedDays > 0 ? requestedDays : null;
 
-  return (
+  // Portaled to the body: an ancestor that has finished its entrance animation keeps a resolved transform,
+  // which would otherwise make this fixed overlay position against that ancestor (header clipped under the top bar).
+  return createPortal(
     <div className="nf-lv-dlg" style={overlayStyle}>
       <div className="nf-lv-card" style={modalStyle}>
         <ModalHeader
@@ -326,7 +329,8 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -498,16 +502,16 @@ export default function LeavePage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
         <SectionHeading icon={History} title="Leave History" />
         {!loading && requests.length > 0 && (
-          <div className="nf-leave-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <label className="nf-filter-search">
+          <div className="nf-leave-filter-bar" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', flex: '1 1 auto', minWidth: 0, justifyContent: 'flex-end' }}>
+            <label className="nf-filter-search" style={{ minWidth: 170, flex: '0 1 260px' }}>
               <Search size={15} />
               <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search reason or type…" />
             </label>
-            <select className="nf-filter-select" value={typeFilter} onChange={e => updateFilterAndResetPage(setTypeFilter, e.target.value)}>
+            <select className="nf-filter-select" style={{ flexShrink: 0 }} value={typeFilter} onChange={e => updateFilterAndResetPage(setTypeFilter, e.target.value)}>
               <option value="">All Types</option>
               {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
             </select>
-            <select className="nf-filter-select" value={statusFilter} onChange={e => updateFilterAndResetPage(setStatusFilter, e.target.value)}>
+            <select className="nf-filter-select" style={{ flexShrink: 0 }} value={statusFilter} onChange={e => updateFilterAndResetPage(setStatusFilter, e.target.value)}>
               <option value="">All Statuses</option>
               <option value="PENDING">Pending</option>
               <option value="APPROVED">Approved</option>

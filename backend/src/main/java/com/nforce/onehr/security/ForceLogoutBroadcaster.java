@@ -42,6 +42,27 @@ public class ForceLogoutBroadcaster {
         return emitter;
     }
 
+    /**
+     * Tells every open connection of these users that their permissions changed (a role's grants or
+     * active flag were edited) so the client re-fetches them right away. Unlike FORCE_LOGOUT the
+     * connections stay open. Enforcement never depends on this — authorities are re-resolved on
+     * every request — so a missed push only delays when the UI notices.
+     */
+    public void permissionsChanged(java.util.Collection<UUID> userIds) {
+        for (UUID userId : userIds) {
+            List<SseEmitter> emitters = connections.get(userId);
+            if (emitters == null) continue;
+            for (SseEmitter emitter : emitters) {
+                try {
+                    emitter.send(SseEmitter.event().name("PERMISSIONS_CHANGED").data("role-updated"));
+                } catch (IOException | IllegalStateException e) {
+                    log.debug("Failed to push PERMISSIONS_CHANGED to {}: {}", userId, e.getMessage());
+                    emitters.remove(emitter);
+                }
+            }
+        }
+    }
+
     /** Pushes FORCE_LOGOUT to every open connection for userId (usually one per open tab/device), then closes them. */
     public void forceLogout(UUID userId) {
         List<SseEmitter> emitters = connections.remove(userId);

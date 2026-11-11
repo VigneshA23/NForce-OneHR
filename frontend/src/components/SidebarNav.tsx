@@ -10,7 +10,7 @@ interface SidebarNavProps {
   /** Narrows NAV[role] down to what the current user's live permissions actually grant — see
    *  buildRoleNav's own doc comment. Omitted shows the role's full default set. */
   isVisible?: (item: NavItem) => boolean;
-  /** Items outside NAV[role] granted by the user's custom roles — see permissions.ts customRoleNavItems. */
+  /** Items outside NAV[role] granted by the user's custom roles — see permissions.ts permissionNavItems. */
   extraItems?: NavItem[];
   /** Called when a real (non-placeholder) module link is clicked — lets the shell close the mobile drawer. */
   onNavigate?: () => void;

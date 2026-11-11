@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Field, inputStyle } from '../formPrimitives';
+import { Clock, CalendarOff, CalendarDays } from 'lucide-react';
+import { Field, Section, inputStyle } from '../formPrimitives';
 import { ShiftSelect } from '../SharedControls';
 import { getShiftOptions, fmtEffectiveDate, type OrgOptions } from '../orgOptionsHelpers';
 import { businessTodayIsoDate } from '../../../utils/businessDate';
@@ -38,7 +39,8 @@ export function WorkPolicyStep({ form, setForm, opts, setOpts, token, startOnboa
   const penalisationPolicies = opts.penalisationPolicies ?? [];
 
   return (
-    <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+    <div className="nf-ce-stack">
+      <Section icon={Clock} title="Shift" hint="Optional. The shift becomes active from the date you choose.">
       <div style={{ gridColumn: '1/-1' }}>
         <Field label="Shift">
           <ShiftSelect
@@ -70,10 +72,12 @@ export function WorkPolicyStep({ form, setForm, opts, setOpts, token, startOnboa
         )}
       </div>
 
+      </Section>
+      <Section icon={CalendarOff} title="Weekly off and attendance policy" hint="Optional. Each policy has its own effective date.">
       <div>
         <Field label="Weekly-Off Policy">
           <select style={inputStyle} value={form.weeklyOffPolicyId ?? ''} onChange={e => setForm(f => ({ ...f, weeklyOffPolicyId: e.target.value || undefined }))}>
-            <option value="">– None –</option>
+            <option value="">None</option>
             {weeklyOffPolicies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
@@ -95,7 +99,7 @@ export function WorkPolicyStep({ form, setForm, opts, setOpts, token, startOnboa
       <div>
         <Field label="Attendance (Penalisation) Policy">
           <select style={inputStyle} value={form.penalisationPolicyId ?? ''} onChange={e => setForm(f => ({ ...f, penalisationPolicyId: e.target.value || undefined }))}>
-            <option value="">– None –</option>
+            <option value="">None</option>
             {penalisationPolicies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </Field>
@@ -113,17 +117,19 @@ export function WorkPolicyStep({ form, setForm, opts, setOpts, token, startOnboa
           </div>
         )}
         <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 10 }}>
-          Default leave balances are set up automatically — there's no separate Leave Policy to assign here.
+          Default leave balances are set up automatically, there's no separate Leave Policy to assign here.
         </div>
       </div>
 
+      </Section>
+      <Section icon={CalendarDays} title="Holiday calendar" hint="A read-only preview for the location you chose.">
       <div style={{ gridColumn: '1/-1' }}>
         <Field label="Holiday Calendar">
           {!form.locationId && (
             <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>Select a Location in the previous step to preview its holiday calendar.</div>
           )}
           {form.locationId && holidayError && (
-            <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>Couldn't load the holiday calendar preview ({holidayError}) — this won't stop employee creation.</div>
+            <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>Couldn't load the holiday calendar preview ({holidayError}) , this won't stop employee creation.</div>
           )}
           {form.locationId && !holidayError && holidays === null && (
             <div style={{ fontSize: 12.5, color: 'var(--txt-dim)' }}>Loading holiday calendar…</div>
@@ -145,7 +151,8 @@ export function WorkPolicyStep({ form, setForm, opts, setOpts, token, startOnboa
         </Field>
       </div>
 
-      <div style={{ gridColumn: '1/-1' }}>
+      </Section>
+      <div className="nf-ce-optin">
         <label className="nf-um-check" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 10, padding: '13px 14px', cursor: 'pointer' }}>
           <input
             type="checkbox"

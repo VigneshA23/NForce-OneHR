@@ -3,9 +3,11 @@ import PageTitleBlock from '../components/PageTitleBlock';
 import { PersonCell, PersonCellById } from '../components/PersonCell';
 import { createPortal } from 'react-dom';
 import './attendanceModals.css';
+import './attendanceRequests.css';
+import { RequestDrawer, RdSection, RdFacts, RdRows, RdQuote, RdDecision, RdActionForm } from './attendance/RequestDrawer';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Download, Eye, Turtle, Laptop, Home, Sun, FileText, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, XCircle, Mountain, MapPin, PartyPopper, Building2, UsersRound, Search, Moon, Plane, TriangleAlert, CircleCheck, BadgeCheck, Hourglass, Target, type LucideIcon } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Turtle, Laptop, Home, Sun, FileText, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, XCircle, Mountain, MapPin, PartyPopper, Building2, UsersRound, Search, Moon, Plane, TriangleAlert, CircleCheck, BadgeCheck, Hourglass, Target, type LucideIcon } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -6235,7 +6237,7 @@ function AttendanceRequestsSection({ token, canApprove, isPreview = false }: { t
           <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
             <table className="nf-req-table" style={reqTableStyle}>
               <ReqColGroup widths={showActions
-                ? ['11.5%', '9%', '8%', '10%', '9%', '10.5%', '10.5%', '10.5%', '21%']
+                ? ['15%', '9%', '7.5%', '9.5%', '8.5%', '10%', '10%', '10%', '20.5%']
                 : ['16%', '11%', '12%', '13%', '12%', '11%', '11%', '14%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showActions) — see renderPartialDayTable. */}
@@ -6306,7 +6308,7 @@ function AttendanceRequestsSection({ token, canApprove, isPreview = false }: { t
           <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
             <table className="nf-req-table" style={reqTableStyle}>
               <ReqColGroup widths={showActions
-                ? ['13%', '13%', '10.5%', '8.5%', '11%', '11%', '12%', '21%']
+                ? ['16%', '12%', '10%', '8%', '10%', '10%', '11%', '23%']
                 : ['17%', '13%', '9%', '18%', '14%', '13%', '16%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showActions) — in "My Requests"
@@ -6505,23 +6507,6 @@ function PartialDayActionMenu({ request, canApprove, onView, onApprove, onReject
   return <RowActions pending={request.status === 'PENDING'} canApprove={canApprove} onView={onView} onApprove={onApprove} onReject={onReject} />;
 }
 
-/** Day-number-over-weekday chip used in the WFH detail drawer's date range header (Keka's "25 THU"
- * boxes) — zone-less, same parsing convention as formatDay/formatShortDay above. */
-function DateBox({ isoDate }: { isoDate: string }) {
-  const [y, m, d] = isoDate.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  return (
-    <div style={{ textAlign: 'center', minWidth: 40 }}>
-      <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--txt)', lineHeight: 1.15 }}>
-        {date.toLocaleDateString(undefined, { day: 'numeric' })}
-      </div>
-      <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--txt-dim)', letterSpacing: '.05em', textTransform: 'uppercase' }}>
-        {date.toLocaleDateString(undefined, { weekday: 'short' })}
-      </div>
-    </div>
-  );
-}
-
 /**
  * Right-side slide-out detail drawer for a WFH batch, modeled on the Keka reference: requestor
  * summary, the date-range header ("2 Days of Work From Home Request" + per-day half-day mode),
@@ -6540,103 +6525,43 @@ function WfhDetailDrawer({ group, mode, comment, setComment, submitting, onClose
   onConfirmAction: () => void;
 }) {
   const first = group[0];
-  const last = group[group.length - 1];
   const status: AttendanceRequestStatus = group.some((r) => r.status === 'PENDING')
     ? 'PENDING'
     : group.every((r) => r.status === 'APPROVED') ? 'APPROVED' : 'REJECTED';
   const decided = group.filter((r) => r.reviewedByName && r.reviewedAt);
   const lastAction = decided.length ? decided.reduce((a, b) => (a.reviewedAt! > b.reviewedAt! ? a : b)) : null;
-  const initials = first.employeeName.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('');
 
   return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 600 }} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 100vw)', background: 'var(--panel)', borderLeft: '1px solid var(--line)', boxShadow: '-12px 0 32px rgba(0,0,0,.4)', zIndex: 601, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>Work From Home Request Details</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
-        </div>
+    <RequestDrawer
+      title="Work From Home Request Details" icon={Home}
+      userId={first.employeeUserId} employeeName={first.employeeName} requestedOn={formatDay(first.createdAt.slice(0, 10))}
+      statusNode={<RegularizationStatusPill status={status} />}
+      onClose={onClose}
+      footer={mode !== 'VIEW' ? (
+        <RdActionForm mode={mode} comment={comment} setComment={setComment} submitting={submitting} onClose={onClose} onConfirmAction={onConfirmAction} />
+      ) : undefined}
+    >
+      <RdSection title={`${group.length} day${group.length > 1 ? 's' : ''} of work from home`} icon={CalendarDays}>
+        <RdRows rows={group.map((r) => ({ left: formatDay(r.requestDate), right: wfhDayModeLabel(r.partialDayMode) }))} />
+      </RdSection>
 
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--raised2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, fontWeight: 700, color: 'var(--txt-mut)', flexShrink: 0 }}>
-              {initials || <User size={16} />}
-            </div>
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{first.employeeName}</div>
-              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Requested on {formatDay(first.createdAt.slice(0, 10))}</div>
-            </div>
-          </div>
+      {first.assignedApproverName && (
+        <RdSection title="Notified to" icon={User}>
+          <RdFacts items={[
+            { label: 'Approver', value: first.assignedApproverName },
+            ...(first.notifyUserName && first.notifyUserName !== first.assignedApproverName ? [{ label: 'Also notified', value: first.notifyUserName }] : []),
+          ]} />
+        </RdSection>
+      )}
 
-          <div style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 14 }}>
-            <DateBox isoDate={first.requestDate} />
-            {group.length > 1 && (<><span style={{ color: 'var(--txt-dim)' }}>–</span><DateBox isoDate={last.requestDate} /></>)}
-            <div>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{group.length} Day{group.length > 1 ? 's' : ''} of Work From Home Request</div>
-              <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>
-                {group.map((r) => `${formatShortDay(r.requestDate)} (${wfhDayModeLabel(r.partialDayMode)})`).join(' – ')}
-              </div>
-            </div>
-          </div>
+      <RdSection title="Note">
+        <RdQuote>{first.reason}</RdQuote>
+      </RdSection>
 
-          {first.assignedApproverName && (
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Notified To</div>
-              <div style={{ fontSize: 12.5, color: 'var(--txt)' }}>{first.assignedApproverName}</div>
-              {first.notifyUserName && first.notifyUserName !== first.assignedApproverName && <div style={{ fontSize: 12.5, color: 'var(--txt)', marginTop: 2 }}>{first.notifyUserName}</div>}
-            </div>
-          )}
-
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Note</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--raised2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)', flexShrink: 0 }}>
-                {initials || <User size={13} />}
-              </div>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
-                  {first.employeeName} <span style={{ fontWeight: 400, color: 'var(--txt-dim)', fontSize: 10.5 }}>{formatDay(first.createdAt.slice(0, 10))}</span>
-                </div>
-                <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>{first.reason}</div>
-              </div>
-            </div>
-          </div>
-
-          {lastAction && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: status === 'REJECTED' ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)', border: `1px solid ${status === 'REJECTED' ? 'rgba(228,55,61,.25)' : 'rgba(47,182,124,.25)'}`, borderRadius: 8, padding: '10px 12px' }}>
-              {status === 'REJECTED'
-                ? <XCircle size={15} style={{ color: '#E4373D', flexShrink: 0, marginTop: 1 }} />
-                : <CheckCircle2 size={15} style={{ color: '#2FB67C', flexShrink: 0, marginTop: 1 }} />}
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
-                  {status === 'REJECTED' ? 'Rejected' : 'Approved'} by {lastAction.reviewedByName}
-                  {lastAction.reviewedAt && <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}> · {formatDay(lastAction.reviewedAt.slice(0, 10))}</span>}
-                </div>
-                {lastAction.reviewComment && <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 3 }}>{lastAction.reviewComment}</div>}
-              </div>
-            </div>
-          )}
-
-          {mode !== 'VIEW' && (
-            <div>
-              <Field label={mode === 'APPROVE' ? 'Comment (optional)' : 'Reason for rejection *'}>
-                <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }} value={comment} onChange={(e) => setComment(e.target.value)} />
-              </Field>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 12 }}>
-                <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
-                <button
-                  onClick={onConfirmAction}
-                  disabled={submitting}
-                  style={{ background: mode === 'APPROVE' ? '#2FB67C' : '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
-                >
-                  {submitting ? 'Submitting…' : mode === 'APPROVE' ? 'Confirm Approval' : 'Reject Request'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </>
+      {lastAction && (
+        <RdDecision rejected={status === 'REJECTED'} by={lastAction.reviewedByName ?? ''} at={lastAction.reviewedAt ? formatDay(lastAction.reviewedAt.slice(0, 10)) : undefined} comment={lastAction.reviewComment} />
+      )}
+    </RequestDrawer>
   );
 }
 
@@ -6657,96 +6582,44 @@ function PartialDayDetailDrawer({ request, mode, comment, setComment, submitting
   onConfirmAction: () => void;
 }) {
   const { formatDuration } = useTimeFormat();
-  const initials = request.employeeName.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('');
   const modeLabel = PARTIAL_DAY_MODE_OPTIONS.find((o) => o.value === request.partialDayMode)?.label ?? dash;
   const hoursLabel = request.partialDayHours != null ? formatDuration(Math.round(request.partialDayHours * 60)) ?? dash : dash;
 
   return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 600 }} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 100vw)', background: 'var(--panel)', borderLeft: '1px solid var(--line)', boxShadow: '-12px 0 32px rgba(0,0,0,.4)', zIndex: 601, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>Partial Day Request Details</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
-        </div>
+    <RequestDrawer
+      title="Partial Day Request Details" icon={Hourglass}
+      userId={request.employeeUserId} employeeName={request.employeeName} requestedOn={formatDay(request.createdAt.slice(0, 10))}
+      statusNode={<RegularizationStatusPill status={request.status} />}
+      onClose={onClose}
+      footer={mode !== 'VIEW' ? (
+        <RdActionForm mode={mode} comment={comment} setComment={setComment} submitting={submitting} onClose={onClose} onConfirmAction={onConfirmAction} />
+      ) : undefined}
+    >
+      <RdSection title="Partial day" icon={CalendarDays}>
+        <RdFacts items={[
+          { label: 'Date', value: formatDay(request.requestDate) },
+          { label: 'Mode', value: modeLabel },
+          { label: 'Hours', value: hoursLabel },
+        ]} />
+      </RdSection>
 
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--raised2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, fontWeight: 700, color: 'var(--txt-mut)', flexShrink: 0 }}>
-              {initials || <User size={16} />}
-            </div>
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{request.employeeName}</div>
-              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Requested on {formatDay(request.createdAt.slice(0, 10))}</div>
-            </div>
-          </div>
+      {request.assignedApproverName && (
+        <RdSection title="Approver" icon={User}>
+          <RdFacts items={[
+            { label: 'Approver', value: request.assignedApproverName },
+            ...(request.notifyUserName && request.notifyUserName !== request.assignedApproverName ? [{ label: 'Also notified', value: request.notifyUserName }] : []),
+          ]} />
+        </RdSection>
+      )}
 
-          <div style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 14 }}>
-            <DateBox isoDate={request.requestDate} />
-            <div>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)' }}>{modeLabel}</div>
-              <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2 }}>{hoursLabel}</div>
-            </div>
-          </div>
+      <RdSection title="Note">
+        <RdQuote>{request.reason}</RdQuote>
+      </RdSection>
 
-          {request.assignedApproverName && (
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Approver</div>
-              <div style={{ fontSize: 12.5, color: 'var(--txt)' }}>{request.assignedApproverName}</div>
-              {request.notifyUserName && request.notifyUserName !== request.assignedApproverName && <div style={{ fontSize: 12.5, color: 'var(--txt)', marginTop: 2 }}>{request.notifyUserName}</div>}
-            </div>
-          )}
-
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Note</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--raised2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)', flexShrink: 0 }}>
-                {initials || <User size={13} />}
-              </div>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
-                  {request.employeeName} <span style={{ fontWeight: 400, color: 'var(--txt-dim)', fontSize: 10.5 }}>{formatDay(request.createdAt.slice(0, 10))}</span>
-                </div>
-                <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 2 }}>{request.reason}</div>
-              </div>
-            </div>
-          </div>
-
-          {request.reviewedByName && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: request.status === 'REJECTED' ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)', border: `1px solid ${request.status === 'REJECTED' ? 'rgba(228,55,61,.25)' : 'rgba(47,182,124,.25)'}`, borderRadius: 8, padding: '10px 12px' }}>
-              {request.status === 'REJECTED'
-                ? <XCircle size={15} style={{ color: '#E4373D', flexShrink: 0, marginTop: 1 }} />
-                : <CheckCircle2 size={15} style={{ color: '#2FB67C', flexShrink: 0, marginTop: 1 }} />}
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
-                  {request.status === 'REJECTED' ? 'Rejected' : 'Approved'} by {request.reviewedByName}
-                  {request.reviewedAt && <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}> · {formatDay(request.reviewedAt.slice(0, 10))}</span>}
-                </div>
-                {request.reviewComment && <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 3 }}>{request.reviewComment}</div>}
-              </div>
-            </div>
-          )}
-
-          {mode !== 'VIEW' && (
-            <div>
-              <Field label={mode === 'APPROVE' ? 'Comment (optional)' : 'Reason for rejection *'}>
-                <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }} value={comment} onChange={(e) => setComment(e.target.value)} />
-              </Field>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 12 }}>
-                <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
-                <button
-                  onClick={onConfirmAction}
-                  disabled={submitting}
-                  style={{ background: mode === 'APPROVE' ? '#2FB67C' : '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
-                >
-                  {submitting ? 'Submitting…' : mode === 'APPROVE' ? 'Confirm Approval' : 'Reject Request'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </>
+      {request.reviewedByName && (
+        <RdDecision rejected={request.status === 'REJECTED'} by={request.reviewedByName} at={request.reviewedAt ? formatDay(request.reviewedAt.slice(0, 10)) : undefined} comment={request.reviewComment} />
+      )}
+    </RequestDrawer>
   );
 }
 
@@ -6772,96 +6645,37 @@ function OvertimeDetailDrawer({ request, mode, comment, setComment, submitting, 
   onConfirmAction: () => void;
 }) {
   const { formatDuration } = useTimeFormat();
-  const [breakdownOpen, setBreakdownOpen] = useState(true);
   const approvedMinutes = request.status === 'APPROVED' ? request.requestedMinutes : null;
-  const initials = request.employeeName.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('');
 
   return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 600 }} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 100vw)', background: 'var(--panel)', borderLeft: '1px solid var(--line)', boxShadow: '-12px 0 32px rgba(0,0,0,.4)', zIndex: 601, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-          <span style={{ fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' }}>Overtime Request Details</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex' }}><X size={16} /></button>
-        </div>
+    <RequestDrawer
+      title="Overtime Request Details" icon={Clock}
+      userId={request.employeeUserId} employeeName={request.employeeName} requestedOn={formatDay(request.createdAt.slice(0, 10))}
+      statusNode={<RegularizationStatusPill status={request.status} />}
+      onClose={onClose}
+      footer={mode !== 'VIEW' ? (
+        <RdActionForm mode={mode} comment={comment} setComment={setComment} submitting={submitting} onClose={onClose} onConfirmAction={onConfirmAction} />
+      ) : undefined}
+    >
+      <RdSection title="Overtime" icon={Clock}>
+        <RdFacts items={[
+          { label: 'Applied hours', value: formatDuration(request.requestedMinutes) ?? dash },
+          { label: 'Approved hours', value: approvedMinutes != null ? formatDuration(approvedMinutes) : dash },
+        ]} />
+      </RdSection>
 
-        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--raised2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, fontWeight: 700, color: 'var(--txt-mut)', flexShrink: 0 }}>
-              {initials || <User size={16} />}
-            </div>
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--txt)', fontSize: 13 }}>{request.employeeName}</div>
-              <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>Requested on {formatDay(request.createdAt.slice(0, 10))}</div>
-            </div>
-          </div>
+      <RdSection title="Breakdown by day" icon={CalendarDays}>
+        <RdRows rows={[{ left: formatDay(request.workDate), right: formatDuration(request.requestedMinutes) ?? dash }]} />
+      </RdSection>
 
-          <div>
-            <button
-              onClick={() => setBreakdownOpen((o) => !o)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--brand)', fontSize: 12, fontWeight: 600, padding: 0 }}
-            >
-              View breakdown by day {breakdownOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-            </button>
-            {breakdownOpen && (
-              <div style={{ marginTop: 10, background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '10px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 12, color: 'var(--txt)', fontWeight: 600 }}>{formatDay(request.workDate)}</span>
-                <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{formatDuration(request.requestedMinutes) ?? dash}</span>
-              </div>
-            )}
-          </div>
+      <RdSection title="Reason">
+        <RdQuote>{request.reason}</RdQuote>
+      </RdSection>
 
-          <div style={{ display: 'flex', gap: 28 }}>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>Total Applied Hours</div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{formatDuration(request.requestedMinutes) ?? dash}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>Total Approved Hours</div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{approvedMinutes != null ? formatDuration(approvedMinutes) : dash}</div>
-            </div>
-          </div>
-
-          <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Reason</div>
-            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{request.reason}</div>
-          </div>
-
-          {request.reviewedByName && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: request.status === 'REJECTED' ? 'rgba(228,55,61,.08)' : 'rgba(47,182,124,.08)', border: `1px solid ${request.status === 'REJECTED' ? 'rgba(228,55,61,.25)' : 'rgba(47,182,124,.25)'}`, borderRadius: 8, padding: '10px 12px' }}>
-              {request.status === 'REJECTED'
-                ? <XCircle size={15} style={{ color: '#E4373D', flexShrink: 0, marginTop: 1 }} />
-                : <CheckCircle2 size={15} style={{ color: '#2FB67C', flexShrink: 0, marginTop: 1 }} />}
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--txt)' }}>
-                  {request.status === 'REJECTED' ? 'Rejected' : 'Approved'} by {request.reviewedByName}
-                  {request.reviewedAt && <span style={{ fontWeight: 400, color: 'var(--txt-dim)' }}> · {formatDay(request.reviewedAt.slice(0, 10))}</span>}
-                </div>
-                {request.reviewComment && <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 3 }}>{request.reviewComment}</div>}
-              </div>
-            </div>
-          )}
-
-          {mode !== 'VIEW' && (
-            <div>
-              <Field label={mode === 'APPROVE' ? 'Comment (optional)' : 'Reason for rejection *'}>
-                <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }} value={comment} onChange={(e) => setComment(e.target.value)} />
-              </Field>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 12 }}>
-                <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
-                <button
-                  onClick={onConfirmAction}
-                  disabled={submitting}
-                  style={{ background: mode === 'APPROVE' ? '#2FB67C' : '#C0392B', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
-                >
-                  {submitting ? 'Submitting…' : mode === 'APPROVE' ? 'Confirm Approval' : 'Reject Request'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </>
+      {request.reviewedByName && (
+        <RdDecision rejected={request.status === 'REJECTED'} by={request.reviewedByName} at={request.reviewedAt ? formatDay(request.reviewedAt.slice(0, 10)) : undefined} comment={request.reviewComment} />
+      )}
+    </RequestDrawer>
   );
 }
 
@@ -6932,7 +6746,7 @@ function OvertimeRequestsSection({ token, canApprove, isPreview = false }: { tok
           <div className="nf-req-wrap" style={{ overflowX: 'auto' }}>
             <table className="nf-req-table" style={reqTableStyle}>
               <ReqColGroup widths={showApprovalActions
-                ? ['13%', '12.5%', '10.5%', '10%', '11.5%', '11.5%', '10.5%', '20.5%']
+                ? ['17%', '12%', '10%', '9.5%', '11%', '10.5%', '9.5%', '20.5%']
                 : ['16%', '11%', '18%', '13%', '13%', '13%', '16%']} />
               <thead>
                 {/* Employee only shown for Pending Approvals (showApprovalActions) — see the same

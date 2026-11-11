@@ -38,9 +38,10 @@ import java.util.stream.Collectors;
  * working answer into an error — the user came here for help with their leave request, and the
  * metrics are for us.
  *
- * <p>Second, <em>no message text goes in</em>. {@link Turn} carries {@code questionChars}, an int,
- * rather than the question, so there is no field for the text to be put in by a later change that
- * seemed reasonable at the time. {@code com.nforce.onehr} logs at DEBUG in every environment, so
+ * <p>Second, <em>no raw message text goes in</em>. {@link Turn} carries {@code questionChars}, an int,
+ * rather than the question. The one exception is {@code questionPhrase}: a {@link QuestionPhrase}
+ * sanitised phrase, kept only for AMBIGUOUS and NO_MATCH turns (see V276) so Super Admins can see
+ * what NORA fails to answer. {@code com.nforce.onehr} logs at DEBUG in every environment, so
  * nothing here reaches the application logger either.
  */
 @Component
@@ -166,6 +167,11 @@ public class AiInteractionLogger {
                 .success(errorCode == null)
                 .errorCode(errorCode)
                 .questionChars(turn.getQuestionChars())
+                .outcome(turn.getOutcome())
+                // Enforced here as well as by the caller: matched questions never keep their text.
+                .questionPhrase(AiInteractionLog.OUTCOME_AMBIGUOUS.equals(turn.getOutcome())
+                        || AiInteractionLog.OUTCOME_NO_MATCH.equals(turn.getOutcome())
+                        ? turn.getQuestionPhrase() : null)
                 .createdAt(Instant.now())
                 .build();
     }
@@ -225,6 +231,10 @@ public class AiInteractionLogger {
         private UUID conversationId;
         /** The question's length. Never the question. */
         private int questionChars;
+        /** MATCHED, AMBIGUOUS, NO_MATCH, or null when the turn is not a question outcome (technical failure, guard decline). */
+        private String outcome;
+        /** {@link QuestionPhrase}-sanitised question; stored only for AMBIGUOUS and NO_MATCH. */
+        private String questionPhrase;
         private List<RetrievalResult> knowledge;
         private LlmCompletion completion;
         private AssistantResponse response;

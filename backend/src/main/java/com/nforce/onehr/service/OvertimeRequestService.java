@@ -280,7 +280,7 @@ public class OvertimeRequestService {
                 .collect(Collectors.toMap(User::getId, User::getEmail));
         Map<UUID, String> reviewerRoleById = reviewerIds.isEmpty() ? Map.of()
                 : userRepository.findAllByIdWithRoles(reviewerIds).stream()
-                        .collect(Collectors.toMap(User::getId, u -> RoleUtils.primaryRoleCode(u.getRoles(), null)));
+                        .collect(Collectors.toMap(User::getId, u -> RoleUtils.primaryRoleCode(u.getRoles(), "EMPLOYEE")));
 
         return requests.stream().map(req -> {
             String employeeName = nameById.getOrDefault(req.getEmployeeUserId(), "Unknown");

@@ -227,7 +227,7 @@ function resolveEntry(entry: HierarchyEntry, itemsByKey: Map<string, NavItem>): 
  * regardless of any one user's live, possibly-narrower permissions.
  *
  * `extraItems` are items outside NAV[role] that this user's custom roles grant (see
- * permissions.ts customRoleNavItems) — slotted into the same hierarchy.
+ * permissions.ts permissionNavItems) — slotted into the same hierarchy.
  */
 export function buildRoleNav(role: Role, isVisible?: (item: NavItem) => boolean, extraItems: NavItem[] = []): ResolvedNavNode[] {
   const all = [...NAV[role], ...extraItems];

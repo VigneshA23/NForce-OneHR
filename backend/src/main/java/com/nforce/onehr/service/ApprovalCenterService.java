@@ -59,11 +59,6 @@ public class ApprovalCenterService {
         User actor = userRepo.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
         Set<String> granted = effectivePermissionService.coverage(actor.getRoles());
-        // FAQs & Guides approval is relationship-based (the author's manager chain), so its queue
-        // stays on the role gate plus the hr_help_content:APPROVE:ALL fallback below.
-        Set<String> roleCodes = actor.getRoles().stream().map(Role::getCode).collect(Collectors.toSet());
-        boolean isAdmin = roleCodes.contains("HR_ADMIN") || roleCodes.contains("SUPER_ADMIN");
-        boolean isManager = roleCodes.contains("MANAGER");
 
         List<ApprovalItemDto> items = new ArrayList<>();
 
@@ -127,9 +122,10 @@ public class ApprovalCenterService {
             overtimeRequestService.listPendingForApprover(email).stream()
                     .map(this::overtimeToApprovalItem).forEach(items::add);
         }
-        // hr_help_content:APPROVE:ALL (V238, Super Admin by default) is the approval fallback —
-        // a custom role granted it gets the queue too; managers approve their own reports' content.
-        if (isManager || isAdmin || granted.contains("hr_help_content:APPROVE:ALL")) {
+        // FAQs & Guides: hr_help_content:APPROVE:TEAM (V271: Manager, HR Admin; cascaded from the
+        // V238 APPROVE:ALL fallback, Super Admin by default) — the author's manager decides their own
+        // reports' content, but only when they actually hold the permission. No role code involved.
+        if (granted.contains("hr_help_content:APPROVE:TEAM")) {
             // FAQs & Guides — attempts resolved to the caller; Super Admin has blanket
             // fallback-authority visibility, same convention as every other request type here.
             helpContentService.listPendingApprovalsForApprover(email).stream()

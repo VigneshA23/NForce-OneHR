@@ -15,6 +15,7 @@ import com.nforce.onehr.repository.DepartmentRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.ProjectRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -46,14 +47,17 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ProjectService {
 
-    private static final Set<String> ADMIN_ROLES = Set.of("HR_ADMIN", "SUPER_ADMIN");
-    private static final Set<String> OWNER_ROLES = Set.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN");
+    // Seeded (V241/V248): VIEW:ALL -> HR_ADMIN + SUPER_ADMIN (every project); VIEW:TEAM -> additionally
+    // MANAGER (own projects). A custom role granted either behaves the same — no role code involved.
+    private static final String VIEW_ALL = "projects:VIEW:ALL";
+    private static final String OWNER_AUTHORITY = "projects:VIEW:TEAM";
 
     private final ProjectRepository projectRepository;
     private final ClientRepository clientRepository;
     private final DepartmentRepository departmentRepository;
     private final EmployeeRepository employeeRepository;
     private final UserRepository userRepository;
+    private final EffectivePermissionService effectivePermissionService;
 
     /** Daily sweep; list() also runs it so a project never shows Active a moment after its end date. */
     @Scheduled(cron = "${app.projects.close-expired.cron:0 5 0 * * *}")
@@ -67,7 +71,7 @@ public class ProjectService {
         closeExpiredProjects();
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
-        List<Project> projects = userHasAnyRole(actor, ADMIN_ROLES)
+        List<Project> projects = effectivePermissionService.hasAuthority(actor, VIEW_ALL)
                 ? projectRepository.findAllByOrderByNameAsc()
                 : projectRepository.findByOwnerEmployeeIdOrderByNameAsc(actor.getId());
         return toResponses(projects);
@@ -146,18 +150,14 @@ public class ProjectService {
         if (req.getStatus() != null) project.setStatus(req.getStatus());
     }
 
-    /** US-B03: the owner is the person who allocates on the project, so it must be a Manager (or HR). */
+    /** US-B03: the owner is the person who allocates on the project, so it must be someone with project responsibility. */
     private void requireEligibleOwner(UUID ownerEmployeeId) {
         Employee owner = employeeRepository.findById(ownerEmployeeId)
                 .orElseThrow(() -> new NoSuchElementException("Project owner not found"));
         User user = owner.getUser();
-        if (user == null || user.getDeletedAt() != null || !userHasAnyRole(user, OWNER_ROLES)) {
+        if (user == null || user.getDeletedAt() != null || !effectivePermissionService.hasAuthority(user, OWNER_AUTHORITY)) {
             throw new IllegalArgumentException("Project owner must be an active Manager");
         }
-    }
-
-    private static boolean userHasAnyRole(User user, Set<String> roles) {
-        return user.getRoles().stream().anyMatch(r -> roles.contains(r.getCode()));
     }
 
     private List<ProjectResponse> toResponses(List<Project> projects) {

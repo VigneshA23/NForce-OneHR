@@ -9,6 +9,7 @@ import com.nforce.onehr.dto.ManagerDashboardDto;
 import com.nforce.onehr.dto.UpdateEmployeeRequest;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -35,7 +36,7 @@ public class EmployeeService {
     private final RoleRepository roleRepository;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
-    private final ManagerRoleSyncService managerRoleSyncService;
+    private final EffectivePermissionService effectivePermissionService;
     private final BusinessUnitRepository businessUnitRepository;
     private final DepartmentRepository departmentRepository;
     private final DesignationRepository designationRepository;
@@ -59,7 +60,7 @@ public class EmployeeService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /**
-     * HR Admin + Super Admin. Role is ALWAYS forced to EMPLOYEE regardless of caller.
+     * HR Admin + Super Admin. The new account is a plain employee: no role is assigned, whoever the caller is.
      */
     @Transactional
     public EmployeeResponse createEmployee(CreateEmployeeRequest req, String actorEmail) {
@@ -70,16 +71,31 @@ public class EmployeeService {
             throw new IllegalArgumentException("A user with this email already exists");
         }
 
-        String tempPassword = generateTempPassword();
-        Role employeeRole = roleRepository.findByCode("EMPLOYEE")
-                .orElseThrow(() -> new IllegalStateException("EMPLOYEE role not found"));
+        // Validated up front (before the employee code sequence is consumed or anything is saved):
+        // a reporting manager must hold explicit team responsibility. Assigning one only records the
+        // reporting line below — it never grants or changes any role or permission.
+        if (req.getManagerId() != null) {
+            User manager = userRepository.findById(req.getManagerId())
+                    .orElseThrow(() -> new IllegalArgumentException("Selected manager not found"));
+            if (!effectivePermissionService.isEligibleReportingManager(manager)) {
+                throw new IllegalArgumentException(
+                        "This user can't be a reporting manager: none of their roles grants team responsibility "
+                                + "(" + EffectivePermissionService.REPORTING_MANAGER_AUTHORITY + "). "
+                                + "Assign them the Manager role, or grant that permission to a role they hold, first.");
+            }
+        }
 
+        String tempPassword = generateTempPassword();
+
+        // A new employee gets NO role row: baseline employee access is not a role grant, and the
+        // default "Employee" category is derived (see RoleCategorization). Anything beyond baseline
+        // is assigned explicitly through Roles & Permissions.
         User newUser = User.builder()
                 .email(req.getEmail().toLowerCase().trim())
                 .passwordHash(passwordEncoder.encode(tempPassword))
                 .mustChangePassword(true)
                 .active(true)
-                .roles(new HashSet<>(Set.of(employeeRole)))
+                .roles(new HashSet<>())
                 .build();
         newUser = userRepository.save(newUser);
 
@@ -181,7 +197,6 @@ public class EmployeeService {
                     .changedBy(actor.getId())
                     .build();
             historyRepository.save(history);
-            managerRoleSyncService.grantIfNewManager(req.getManagerId(), actor.getId());
         }
 
         auditService.log(actor.getId(), "EMPLOYEE_CREATED", newUser.getId());
@@ -199,14 +214,14 @@ public class EmployeeService {
     }
 
     /**
-     * HR Admin + Super Admin. Returns all employees (role=EMPLOYEE users).
+     * HR Admin + Super Admin. Returns EVERY employee — administrators and managers included. This is
+     * the Employee Master, not a role list: whether someone also holds an admin or custom role (or
+     * any EMPLOYEE role row) has no bearing on appearing here. Role-based grouping lives in
+     * {@link com.nforce.onehr.util.RoleCategorization}.
      */
     @Transactional(readOnly = true)
     public List<EmployeeResponse> listEmployees() {
-        List<Employee> emps = employeeRepository.findAllWithDetails();
-        List<Employee> staff = emps.stream()
-                .filter(e -> e.getUser().getRoles().stream().anyMatch(r -> r.getCode().equals("EMPLOYEE")))
-                .toList();
+        List<Employee> staff = employeeRepository.findAllWithDetails();
         Map<UUID, EmployeeResponse.ManagerRef> managersByEmployeeId =
                 findCurrentManagersBulk(staff.stream().map(Employee::getUserId).toList());
         return staff.stream()
@@ -392,7 +407,11 @@ public class EmployeeService {
     }
 
     /**
-     * Returns users eligible to be assigned as managers (Manager, HR Admin, Super Admin roles).
+     * Returns users eligible to be selected as reporting managers: those whose active roles grant
+     * team responsibility ({@link EffectivePermissionService#REPORTING_MANAGER_AUTHORITY}) — Manager,
+     * HR Admin, Super Admin, or any custom role granted it. A custom role without it (e.g. one that
+     * only administers Roles & Permissions) never qualifies. The returned {@code role} is the
+     * candidate's hierarchy tier: their built-in admin role, or MANAGER for a custom-role team lead.
      */
     @Transactional(readOnly = true)
     public List<EmployeeResponse> listPotentialManagers() {
@@ -405,8 +424,7 @@ public class EmployeeService {
         // always sets both deletedAt and active=false together) is excluded outright, since that
         // account no longer exists as a real reporting-line candidate at all.
         List<User> eligible = userRepository.findAllWithRoles().stream()
-                .filter(u -> u.getDeletedAt() == null && u.getRoles().stream()
-                        .anyMatch(r -> Set.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN").contains(r.getCode())))
+                .filter(u -> u.getDeletedAt() == null && effectivePermissionService.isEligibleReportingManager(u))
                 .toList();
         if (eligible.isEmpty()) {
             return List.of();
@@ -431,10 +449,19 @@ public class EmployeeService {
                         .userId(u.getId())
                         .email(u.getEmail())
                         .fullName(namesByUserId.getOrDefault(u.getId(), u.getEmail()))
-                        .role(RoleUtils.primaryRoleCode(u.getRoles(), ""))
+                        .role(managerTier(u))
+                        .canApproveRequests(effectivePermissionService.hasAuthority(u, "leave:APPROVE:TEAM"))
                         .active(u.isActive())
                         .build())
                 .collect(Collectors.toList());
+    }
+
+    private static final Set<String> MANAGER_TIER_ROLES = Set.of("MANAGER", "HR_ADMIN", "SUPER_ADMIN");
+
+    /** Hierarchy tier of a reporting-manager candidate: a built-in admin role as-is, else MANAGER (custom-role team lead). */
+    private static String managerTier(User u) {
+        String primary = RoleUtils.primaryRoleCode(u.getRoles(), "");
+        return MANAGER_TIER_ROLES.contains(primary) ? primary : "MANAGER";
     }
 
     /**
@@ -789,6 +816,7 @@ public class EmployeeService {
                 .fullName(emp.getFullName())
                 .email(user.getEmail())
                 .role(role)
+                .categories(com.nforce.onehr.util.RoleCategorization.categoriesOf(user.getRoles()))
                 .businessUnitId(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getId().toString() : null)
                 .businessUnitName(emp.getBusinessUnit() != null ? emp.getBusinessUnit().getName() : null)
                 .departmentId(emp.getDepartment() != null ? emp.getDepartment().getId().toString() : null)

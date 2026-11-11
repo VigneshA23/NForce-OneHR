@@ -83,7 +83,7 @@ class ExceptionServiceTest {
                         "CUSTOM_ATT_TEAM", java.util.Map.of("attendance:VIEW", "TEAM"))));
         // Default: employeeId is the only account holding the EMPLOYEE role — matches
         // EmployeeService.listEmployees()'s own definition of who counts as an employee.
-        lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeId));
+        lenient().when(userRepository.findAttendancePolicySubjectIds()).thenReturn(Set.of(employeeId));
         // Default: the LATE_ARRIVAL/WORK_HOURS_SHORTAGE display paths resolve the record's own
         // snapshotted shiftId (resolveSnapshotShift) — stubWorkingDays() below gives that
         // employee a real Shift with the same id, so this just needs to resolve to *some*
@@ -125,7 +125,7 @@ class ExceptionServiceTest {
         UUID otherEmployeeId = UUID.randomUUID();
         User hr = userWithRole(hrEmail, "HR_ADMIN", UUID.randomUUID());
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hr));
-        when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeId, otherEmployeeId));
+        when(userRepository.findAttendancePolicySubjectIds()).thenReturn(Set.of(employeeId, otherEmployeeId));
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(anyList(), eq(from), eq(to)))
                 .thenReturn(List.of());
 
@@ -347,7 +347,7 @@ class ExceptionServiceTest {
     @Test
     void scheduledRun_detectsMissingPunchForNonEmployeeRole_butNeverEvaluatesAPenalty() {
         LocalDate day = to.minusDays(1);
-        // managerId is not in findEmployeeRoleUserIds() (only employeeId is) — i.e. a non-EMPLOYEE-only account.
+        // managerId is not in findAttendancePolicySubjectIds() (only employeeId is) — i.e. a non-EMPLOYEE-only account.
         when(userRepository.findAllNonDeletedUserIds()).thenReturn(Set.of(managerId));
         Attendance missing = Attendance.builder().employeeUserId(managerId).workDate(day)
                 .checkInAt(day.atTime(9, 30)).checkOutAt(null).lateByMinutes(0).build();

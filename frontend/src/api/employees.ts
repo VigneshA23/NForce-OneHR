@@ -22,6 +22,10 @@ export interface EmployeeRecord {
   role: string;
   /** Every role held, by display name (incl. custom roles) — populated by /api/users only. */
   roleNames?: string[];
+  /** Role list(s) this person belongs to: assigned roles (minus the baseline Employee), or [Employee] when none. */
+  categories?: { code: string; name: string }[];
+  /** Reporting-manager candidates only: holds leave:APPROVE:TEAM, i.e. could actually decide their reports' requests. */
+  canApproveRequests?: boolean;
   businessUnitId: string | null;
   businessUnitName: string | null;
   departmentId: string | null;

@@ -95,26 +95,46 @@ export function isNavItemVisible(item: NavItem, permissions: MyPermissionsRespon
 }
 
 /**
- * Gated nav items that this user's CUSTOM roles grant but their primary role's curated NAV doesn't
- * list. The sidebar is still chosen per primary (system) role, so without this a custom role's
- * admin grants (e.g. User Management) would never be reachable from the menu. Only custom-role
- * grants count (customRolePermissions), so no system role's curated nav changes shape. Items with
- * identical requirements (organization / masters → the same page) are only added once.
+ * Gated nav items the user's EFFECTIVE permissions grant but their persona's curated NAV doesn't
+ * list. The sidebar is a per-persona preset (labels/order, chosen from the primary built-in role),
+ * so without this a permission granted through ANY role — a custom role, or an extra grant added to
+ * a system role — would never be reachable from the menu. Access is decided by permissions only;
+ * a persona merely sets which items are listed by default. Items with identical requirements
+ * (organization / masters → the same page) are only added once. The Super Admin persona is left
+ * exactly as curated (it holds every permission by design — adding all of them would only
+ * crowd its menu).
  */
-export function customRoleNavItems(roleItems: NavItem[], permissions: MyPermissionsResponse | null | undefined): NavItem[] {
-  const custom = permissions?.customRolePermissions;
-  if (!custom || Object.keys(custom).length === 0) return [];
-  const customOnly = { ...permissions!, permissions: custom };
+export function permissionNavItems(
+  roleItems: NavItem[],
+  permissions: MyPermissionsResponse | null | undefined,
+  persona?: string,
+): NavItem[] {
+  if (!permissions || persona === 'Super Admin') return [];
   const have = new Set(roleItems.map((i) => i.key));
   const seen = new Set(roleItems.filter((i) => NAV_ITEM_REQUIREMENTS[i.key]).map((i) => JSON.stringify(NAV_ITEM_REQUIREMENTS[i.key])));
   return ALL_NAV_ITEMS.filter((i) => {
     const req = NAV_ITEM_REQUIREMENTS[i.key];
-    if (!req || have.has(i.key) || isNavItemDisabled(i) || !hasAnyPermission(customOnly, req)) return false;
+    if (!req || have.has(i.key) || isNavItemDisabled(i) || !hasAnyPermission(permissions, req)) return false;
     const sig = JSON.stringify(req);
     if (seen.has(sig)) return false;
     seen.add(sig);
     return true;
   });
+}
+
+/**
+ * Routes whose requirement is stricter than the nav item they live under — e.g. the Super Admin
+ * "View All & Audit Trail" regularization list sits under the ungated Attendance item, but its
+ * endpoint needs regularization:EXPORT:ALL. Checked by the route guard so a direct-URL visit
+ * doesn't mount the page (the endpoint still enforces it server-side).
+ */
+const ROUTE_REQUIREMENTS: { prefix: string; requirements: PermissionRequirement[] }[] = [
+  { prefix: '/attendance/regularization/all', requirements: [{ module: 'regularization', action: 'EXPORT', scope: 'ALL' }] },
+];
+
+export function isRoutePermitted(pathname: string, permissions: MyPermissionsResponse | null | undefined): boolean {
+  const rule = ROUTE_REQUIREMENTS.find((r) => pathname.startsWith(r.prefix));
+  return !rule || hasAnyPermission(permissions, rule.requirements);
 }
 
 /**

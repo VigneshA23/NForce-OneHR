@@ -57,7 +57,7 @@ export function CreatableLocationSelect({ locations, value, onChange, disabled }
           ))}
           <div onMouseDown={() => { onChange(undefined); setQuery(''); setOpen(false); }}
             style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', cursor: 'pointer' }}>
-            – Clear - </div>
+            Clear selection</div>
         </div>
       )}
     </div>
@@ -78,7 +78,7 @@ export function ShiftSelect({ shifts, value, onChange, onCreated, token, disable
     document.addEventListener('mousedown', out);
     return () => document.removeEventListener('mousedown', out);
   }, []);
-  const label = (s: ShiftRow) => `${s.name} - ${fmtShiftTime(s.startTime)}–${fmtShiftTime(s.endTime)}`;
+  const label = (s: ShiftRow) => `${s.name} - ${fmtShiftTime(s.startTime)} to ${fmtShiftTime(s.endTime)}`;
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <div style={{ position: 'relative' }} onClick={() => !disabled && setOpen(o => !o)}>
@@ -90,7 +90,7 @@ export function ShiftSelect({ shifts, value, onChange, onCreated, token, disable
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 7, boxShadow: '0 8px 24px rgba(0,0,0,.3)', zIndex: 100, maxHeight: 220, overflowY: 'auto' }}>
           <div onMouseDown={() => { onChange(undefined); setOpen(false); }}
             style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', cursor: 'pointer' }}>
-            – None - </div>
+            None</div>
           {shifts.map(s => (
             <div key={s.id} onMouseDown={() => { onChange(s.id); setOpen(false); }}
               style={{ padding: '9px 14px', fontSize: 13, color: value === s.id ? 'var(--brand-bright)' : 'var(--txt)', background: value === s.id ? 'rgba(176,17,22,.12)' : 'transparent', cursor: 'pointer' }}
