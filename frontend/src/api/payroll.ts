@@ -343,6 +343,9 @@ export const payrollApi = {
   createSalaryStructure: (payload: { name: string; grade?: string; financialYear?: string; components: SalaryComponentRequest[] }, token: string) =>
     fetch(`${BASE}/salary-structures`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<SalaryStructureResponse>),
 
+  updateSalaryStructure: (id: string, payload: { name: string; grade?: string; financialYear?: string; components: SalaryComponentRequest[] }, token: string) =>
+    fetch(`${BASE}/salary-structures/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<SalaryStructureResponse>),
+
   // US-C02 — Assign/revise an employee's compensation
   assignCompensation: (payload: { employeeId: string; payGroupId: string; structureId: string; ctc: number; effectiveFrom: string }, token: string) =>
     fetch(`${BASE}/employee-compensation`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<EmployeeCompensationResponse>),

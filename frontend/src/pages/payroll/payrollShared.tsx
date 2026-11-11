@@ -128,7 +128,7 @@ export function Modal({ title, subtitle, onClose, children, wide }: { title: str
   const Icon = modalIconFor(title);
   return (
     <div style={overlayStyle} className="nf-modal-overlay-in nf-pr-dlg">
-      <div style={wide ? { ...modalStyle, maxWidth: 960 } : modalStyle} className="nf-modal-panel-in nf-pr-card">
+      <div style={modalStyle} className={`nf-modal-panel-in nf-pr-card${wide ? ' nf-pr-card--wide' : ''}`}>
         <div className="nf-pr-head">
           <span className="nf-pr-ico"><Icon size={20} /></span>
           <div className="nf-pr-titles">

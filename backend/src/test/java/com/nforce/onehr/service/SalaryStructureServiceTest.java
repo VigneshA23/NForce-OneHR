@@ -355,4 +355,55 @@ class SalaryStructureServiceTest {
 
         assertThrows(NoSuchElementException.class, () -> salaryStructureService.get(missing));
     }
+
+    @Test
+    void update_unknownId_throwsNoSuchElement() {
+        UUID missing = UUID.randomUUID();
+        when(salaryStructureRepository.findById(missing)).thenReturn(Optional.empty());
+        catalog("Basic", "EARNING");
+        CreateSalaryStructureRequest req = createReq("New Name", null, fixed("Basic", "1"));
+
+        assertThrows(NoSuchElementException.class, () -> salaryStructureService.update(missing, req, actorEmail));
+        verify(salaryStructureComponentRepository, never()).deleteByStructureId(any());
+    }
+
+    @Test
+    void update_replacesComponentsAndUpdatesFieldsAndAudits() {
+        UUID structureId = UUID.randomUUID();
+        SalaryStructure existing = SalaryStructure.builder().id(structureId).name("Old Name").grade("L1").build();
+        when(salaryStructureRepository.findById(structureId)).thenReturn(Optional.of(existing));
+        SalaryComponent oldBasicCatalog = catalog("Basic", "EARNING");
+        SalaryStructureComponent oldComponent = SalaryStructureComponent.builder().id(UUID.randomUUID())
+                .structure(existing).component(oldBasicCatalog).calcType("FIXED").value(new BigDecimal("40000")).build();
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(oldComponent));
+
+        catalog("HRA", "EARNING");
+        CreateSalaryStructureRequest req = createReq("New Name", "L2",
+                percentOfGross("Basic", "60"), percentOfComponent("HRA", "40", "Basic"));
+        req.setFinancialYear("2027-28");
+
+        SalaryStructureResponse resp = salaryStructureService.update(structureId, req, actorEmail);
+
+        assertEquals("New Name", resp.getName());
+        assertEquals("L2", resp.getGrade());
+        assertEquals("2027-28", resp.getFinancialYear());
+        assertEquals(2, resp.getComponents().size());
+        var hra = resp.getComponents().stream().filter(c -> c.getComponentName().equals("HRA")).findFirst().orElseThrow();
+        assertEquals("Basic", hra.getReferenceComponentName());
+        verify(salaryStructureComponentRepository).deleteByStructureId(structureId);
+        verify(auditService).log(eq(actorId), eq("SALARY_STRUCTURE_UPDATED"), eq(structureId), any(), any());
+    }
+
+    @Test
+    void update_invalidComponent_isRejectedBeforeDeletingExisting() {
+        UUID structureId = UUID.randomUUID();
+        SalaryStructure existing = SalaryStructure.builder().id(structureId).name("Old Name").build();
+        when(salaryStructureRepository.findById(structureId)).thenReturn(Optional.of(existing));
+        lenient().when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of());
+
+        CreateSalaryStructureRequest req = createReq("New Name", null, fixed("NoSuchComponent", "1"));
+
+        assertThrows(IllegalArgumentException.class, () -> salaryStructureService.update(structureId, req, actorEmail));
+        verify(salaryStructureComponentRepository, never()).deleteByStructureId(any());
+    }
 }

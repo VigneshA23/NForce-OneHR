@@ -73,7 +73,13 @@ export default function PayrollSetupPage() {
       <TabBar tabs={SECTIONS} active={section} onChange={setSection} ariaLabel="Payroll setup sections" className="nf-pilltabs" style={{ marginBottom: 18 }} />
 
       {section === 'components' && <SalaryComponentsTab catalog={catalog} onChanged={reloadCatalog} />}
-      {section === 'structures' && <SalaryStructuresTab structures={structures} catalog={structureableCatalog} onCreated={s => setStructures(prev => [s, ...prev])} />}
+      {section === 'structures' && (
+        <SalaryStructuresTab
+          structures={structures} catalog={structureableCatalog}
+          onCreated={s => setStructures(prev => [s, ...prev])}
+          onUpdated={s => setStructures(prev => prev.map(x => (x.id === s.id ? s : x)))}
+        />
+      )}
       {section === 'pay-groups' && <PayGroupsTab payGroups={payGroups} onChanged={reloadPayGroups} />}
       {section === 'compensation' && <EmployeeCompensationTab structures={structures} payGroups={payGroups} />}
       {section === 'statutory' && <StatutoryRulesTab />}

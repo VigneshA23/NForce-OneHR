@@ -24,6 +24,7 @@
  * codebase's per-feature convention rather than importing another feature's stylesheet. */
 .nf-pr-dlg { background: rgba(8, 10, 16, .6) !important; backdrop-filter: blur(3px); }
 .nf-pr-card { max-width: 560px !important; border-radius: 20px !important; border-color: var(--line2) !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important; }
+.nf-pr-card--wide { max-width: 960px !important; }
 .nf-pr-head { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 18px 22px; background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line); }
 .nf-pr-ico { flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
 .nf-pr-titles { flex: 1; min-width: 0; }
