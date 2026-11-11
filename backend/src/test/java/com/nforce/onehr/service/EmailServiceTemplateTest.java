@@ -58,6 +58,21 @@ class EmailServiceTemplateTest {
     }
 
     @Test
+    @DisplayName("a comma-separated app.base-url still yields one clean sign-in link")
+    void listBaseUrlGivesOneLink() {
+        assertThat(EmailService.pickBaseUrl("http://localhost:5173,https://onehr.nforceone.ai"))
+                .isEqualTo("https://onehr.nforceone.ai");
+        assertThat(EmailService.pickBaseUrl(" https://onehr.nforceone.ai/ ")).isEqualTo("https://onehr.nforceone.ai");
+        assertThat(EmailService.pickBaseUrl("http://localhost:5180,http://localhost:5173")).isEqualTo("http://localhost:5180");
+        assertThat(EmailService.pickBaseUrl("http://localhost:5180")).isEqualTo("http://localhost:5180");
+
+        ReflectionTestUtils.setField(service, "baseUrl", "http://localhost:5173,https://onehr.nforceone.ai");
+        ReflectionTestUtils.invokeMethod(service, "normalizeBaseUrl");
+        assertThat((String) render("buildInviteHtml", "Nikhil", "n@x.com", "pw"))
+                .contains("href=\"https://onehr.nforceone.ai/login\"").doesNotContain("localhost:5173,");
+    }
+
+    @Test
     @DisplayName("user-supplied text is HTML-escaped")
     void escapesInput() {
         String html = render("buildPenaltyHtml", "<b>Eve</b>", date, "<script>alert(1)</script>", BigDecimal.ONE, null, null);

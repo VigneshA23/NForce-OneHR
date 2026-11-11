@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,28 @@ public class EmailService {
 
     @Value("${app.base-url:http://localhost:5180}")
     private String baseUrl;
+
+    /** APP_BASE_URL is meant to be one URL, but is sometimes set to a comma-separated list like
+     * CORS_ALLOWED_ORIGINS, which turns every emailed link into a broken "a,b/login" string. */
+    @PostConstruct
+    void normalizeBaseUrl() {
+        String single = pickBaseUrl(baseUrl);
+        if (!single.equals(baseUrl)) {
+            log.warn("app.base-url holds more than one URL; emails will link to {}. Set APP_BASE_URL to a single URL.", single);
+            baseUrl = single;
+        }
+    }
+
+    /** One URL, no trailing slash: for a list, the first non-localhost entry (the deployed one),
+     * else the first. */
+    static String pickBaseUrl(String configured) {
+        java.util.List<String> urls = java.util.Arrays.stream(configured.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty())
+                .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
+                .toList();
+        return urls.stream().filter(u -> !u.contains("localhost") && !u.contains("127.0.0.1"))
+                .findFirst().orElse(urls.isEmpty() ? configured : urls.get(0));
+    }
 
     /** Same per-environment allowlist CORS is configured with — reused here so the password-reset
      * link can safely echo back whichever environment's origin actually made the request, instead
