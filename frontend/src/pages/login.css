@@ -5,29 +5,33 @@
 .nf-lg { min-height: 100dvh; display: flex; background: #F4F6F9; font-family: Inter, system-ui, sans-serif; }
 
 /* ---------- brand panel ---------- */
-.nf-lg-brand { position: relative; display: none; flex: 0 0 58%; flex-direction: column; justify-content: space-between; padding: 48px; overflow: hidden; color: #fff; background: #0A0A0A; }
+.nf-lg-brand { position: relative; display: none; flex: 0 0 58%; flex-direction: column; justify-content: flex-start; padding: 48px; overflow: hidden; color: #fff; background: #0A0A0A; }
 @media (min-width: 1024px) { .nf-lg-brand { display: flex; } }
 @media (min-width: 1280px) { .nf-lg-brand { padding: 64px; } }
 
 .nf-lg-top, .nf-lg-hero, .nf-lg-copy { position: relative; z-index: 1; }
-.nf-lg-top { display: flex; align-items: center; gap: 16px; }
-.nf-lg-wordmark { height: 44px; width: auto; display: block; border-radius: 5px; }
-.nf-lg-divider { width: 1px; height: 28px; background: rgba(255, 255, 255, .2); }
-.nf-lg-product { font-size: 20px; font-weight: 600; line-height: 1; letter-spacing: -.025em; color: #fff; }
+.nf-lg-top { display: flex; align-items: center; gap: 14px; }
+.nf-lg-wordmark { height: 26px; width: auto; display: block; border-radius: 5px; }
+.nf-lg-divider { width: 1px; height: 20px; background: rgba(255, 255, 255, .22); }
+.nf-lg-product { font-size: 22px; font-weight: 700; line-height: 1; letter-spacing: -.02em; color: #fff; }
 
-.nf-lg-hero { max-width: 36rem; margin: auto 0; padding-bottom: 12vh; }
-.nf-lg-headline { margin: 0; font-family: 'Instrument Serif', 'Playfair Display', Georgia, 'Times New Roman', serif; font-size: 48px; font-weight: 400; line-height: 1.12; letter-spacing: -.02em; color: #fff; }
+/* headline sits close under the brand row (not floated to the middle) and ends well above the wave */
+.nf-lg-hero { max-width: 38rem; margin: clamp(22px, 3vh, 34px) 0 0; padding-bottom: 0; }
+.nf-lg-headline { margin: 0; font-family: inherit; font-size: clamp(34px, 3.4vw, 46px); font-weight: 700; line-height: 1.14; letter-spacing: -.03em; color: #fff; }
 .nf-lg-headline em { font-style: normal; color: #DC2626; }
-.nf-lg-sub { max-width: 28rem; margin: 20px 0 0; font-size: 16px; font-weight: 400; line-height: 1.625; color: #94A3B8; }
+.nf-lg-sub { max-width: 30rem; margin: 18px 0 0; font-size: 16px; font-weight: 400; line-height: 1.6; color: #B6C0CD; }
 @media (min-width: 1280px) {
-  .nf-lg-headline { font-size: 56px; }
-  .nf-lg-sub { font-size: 18px; }
+  .nf-lg-headline { font-size: clamp(44px, 3.4vw, 52px); }
+  .nf-lg-sub { font-size: 17px; }
 }
 
-/* ribbon sits on the bottom 65%; the mask melts its top edge into the #0A0A0A panel so no seam shows */
-.nf-lg-art { position: absolute; left: 0; right: 0; bottom: 0; z-index: 0; width: 100%; height: 65%; object-fit: cover; object-position: bottom; pointer-events: none; user-select: none;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, .6) 30%, #000 55%); mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, .6) 30%, #000 55%); }
-.nf-lg-copy { margin: 0; font-size: 12px; color: rgba(255, 255, 255, .5); }
+/* ribbon: in the flow right under the sentence (cropped image, no dead black band), full-bleed to the panel edges;
+ * the mask melts its top edge into the #0A0A0A panel so no seam shows */
+.nf-lg-art { position: relative; z-index: 0; flex: 1 1 0; min-height: 200px; max-width: none; width: calc(100% + 96px); margin: -34px -48px -48px; object-fit: cover; object-position: top; pointer-events: none; user-select: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, .55) 12%, #000 30%); mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, .55) 12%, #000 30%); }
+@media (min-width: 1280px) { .nf-lg-art { width: calc(100% + 128px); margin: -34px -64px -64px; } }
+.nf-lg-copy { position: absolute; left: 48px; bottom: 26px; margin: 0; font-size: 12.5px; color: rgba(255, 255, 255, .7); text-shadow: 0 1px 6px rgba(0, 0, 0, .9); }
+@media (min-width: 1280px) { .nf-lg-copy { left: 64px; bottom: 30px; } }
 
 /* ---------- form panel ---------- */
 .nf-lg-main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; background: linear-gradient(135deg, #F8FAFC 0%, #EEF2F6 50%, #E2E8F0 100%); }

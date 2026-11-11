@@ -123,7 +123,7 @@ class AttendancePenaltyServiceTest {
         User hrAdminUser = User.builder().roles(java.util.Set.of(hrAdminRole)).build();
         Employee hrAdmin = Employee.builder().userId(managerId).fullName("HR One").user(hrAdminUser).build();
         when(employeeRepository.findByUser_Email(managerEmail)).thenReturn(Optional.of(hrAdmin));
-        when(userRepository.findEmployeeRoleUserIds()).thenReturn(java.util.Set.of(otherEmpId));
+        when(userRepository.findAttendancePolicySubjectIds()).thenReturn(java.util.Set.of(otherEmpId));
         when(employeeRepository.findAllByIdWithScheduleDetails(List.of(otherEmpId)))
                 .thenReturn(List.of(Employee.builder().userId(otherEmpId).fullName("Other Employee").employeeCode("NF-2").build()));
         AttendancePenalty p = AttendancePenalty.builder().id(UUID.randomUUID()).employeeUserId(otherEmpId)
@@ -145,7 +145,7 @@ class AttendancePenaltyServiceTest {
         User hrAdminUser = User.builder().roles(java.util.Set.of(hrAdminRole)).build();
         Employee superAdmin = Employee.builder().userId(managerId).fullName("Super One").user(hrAdminUser).build();
         when(employeeRepository.findByUser_Email(managerEmail)).thenReturn(Optional.of(superAdmin));
-        when(userRepository.findEmployeeRoleUserIds()).thenReturn(java.util.Set.of(otherEmpId));
+        when(userRepository.findAttendancePolicySubjectIds()).thenReturn(java.util.Set.of(otherEmpId));
         AttendancePenalty p = AttendancePenalty.builder().id(UUID.randomUUID()).employeeUserId(otherEmpId)
                 .incidentDate(incidentDate).discrepancyType("LATE_ARRIVAL").status(AttendancePenaltyStatus.PENDING_REVIEW)
                 .evaluatedAt(LocalDateTime.now()).penalizedOn(LocalDateTime.now()).build();
@@ -581,7 +581,7 @@ class AttendancePenaltyServiceTest {
                 .incidentDate(incidentDate).discrepancyType("LATE_ARRIVAL").status(AttendancePenaltyStatus.PENDING_REVIEW)
                 .evaluatedAt(LocalDateTime.now()).penalizedOn(LocalDateTime.now()).build();
         when(attendancePenaltyRepository.findById(p.getId())).thenReturn(Optional.of(p));
-        lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(java.util.Set.of(otherEmpId));
+        lenient().when(userRepository.findAttendancePolicySubjectIds()).thenReturn(java.util.Set.of(otherEmpId));
         return p;
     }
 
@@ -602,7 +602,7 @@ class AttendancePenaltyServiceTest {
 
     @Test
     void list_orgWide_forCustomViewAll_directReportsOnlyForManager() {
-        when(userRepository.findEmployeeRoleUserIds()).thenReturn(java.util.Set.of(otherEmpId));
+        when(userRepository.findAttendancePolicySubjectIds()).thenReturn(java.util.Set.of(otherEmpId));
         when(employeeRepository.findAllByIdWithScheduleDetails(List.of(otherEmpId)))
                 .thenReturn(List.of(Employee.builder().userId(otherEmpId).fullName("Other").employeeCode("NF-2").build()));
         when(attendancePenaltyRepository.findAll((org.springframework.data.jpa.domain.Specification<AttendancePenalty>) any()))

@@ -6,16 +6,25 @@ import com.nforce.onehr.entity.Permission;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.RolePermission;
 import com.nforce.onehr.entity.User;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nforce.onehr.entity.AuditLog;
+import com.nforce.onehr.repository.AuditLogRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.security.ScopeCoverage;
+import org.springframework.data.domain.PageRequest;
 import com.nforce.onehr.repository.PermissionRepository;
 import com.nforce.onehr.repository.RolePermissionRepository;
 import com.nforce.onehr.repository.RoleRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.ForceLogoutBroadcaster;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -60,6 +69,9 @@ public class RoleAdminService {
     private final UserManagementService userManagementService;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
+    private final ForceLogoutBroadcaster forceLogoutBroadcaster;
+    private final AuditLogRepository auditLogRepository;
+    private final ObjectMapper objectMapper;
 
     // ─── Reads ──────────────────────────────────────────────────────────────────
 
@@ -71,7 +83,8 @@ public class RoleAdminService {
         return roleRepository.findAll().stream()
                 .filter(RoleAdminService::isListed)
                 .sorted(Comparator.comparing(Role::isSystem).reversed().thenComparing(Role::getId))
-                .map(r -> summary(r, users.getOrDefault(r.getId(), 0L), grants.getOrDefault(r.getId(), 0L)))
+                .map(r -> summary(r, isDefaultCategory(r) ? userRepository.countUsersWithoutAssignedRole()
+                        : users.getOrDefault(r.getId(), 0L), grants.getOrDefault(r.getId(), 0L)))
                 .toList();
     }
 
@@ -79,7 +92,10 @@ public class RoleAdminService {
     public RoleDetail get(Integer roleId) {
         Role role = requireListedRole(roleId);
         List<Grant> grants = grantsOf(roleId).stream().map(RoleAdminService::toGrant).sorted(GRANT_ORDER).toList();
-        List<User> holders = userRepository.findHoldersOfRole(roleId);
+        // EMPLOYEE is the default category, not an assignable role: its "members" are the people with
+        // no other role (see RoleCategorization), so admins/custom-role holders are never listed here.
+        List<User> holders = isDefaultCategory(role) ? userRepository.findUsersWithoutAssignedRole()
+                : userRepository.findHoldersOfRole(roleId);
         Map<UUID, Employee> employees = employeeRepository.findAllById(holders.stream().map(User::getId).toList())
                 .stream().collect(Collectors.toMap(Employee::getUserId, Function.identity()));
         List<RoleMember> members = holders.stream()
@@ -105,6 +121,101 @@ public class RoleAdminService {
                         ps.get(0).getModule().isCustomRoleReady(),
                         ps.stream().map(Permission::getAction).sorted(Comparator.comparingInt(ACTION_ORDER::indexOf)).toList()))
                 .toList();
+    }
+
+    // ─── History & reverse lookup ───────────────────────────────────────────────
+
+    private static final List<String> ROLE_AUDIT_ACTIONS = List.of(
+            "ROLE_CREATED", "ROLE_UPDATED", "ROLE_ACTIVATED", "ROLE_DEACTIVATED", "ROLE_PERMISSIONS_UPDATED");
+    private static final int HISTORY_SCAN = 500;
+    private static final int HISTORY_LIMIT = 50;
+
+    /** The role's audited changes, newest first, with permission edits expanded into what was added/removed. */
+    @Transactional(readOnly = true)
+    public List<RoleHistoryEntry> history(Integer roleId) {
+        Role role = requireListedRole(roleId);
+        List<AuditLog> rows = auditLogRepository.findByActionInOrderByOccurredAtDesc(ROLE_AUDIT_ACTIONS, PageRequest.of(0, HISTORY_SCAN));
+        List<AuditLog> mine = new ArrayList<>();
+        Map<Long, JsonNode[]> parsed = new HashMap<>();
+        for (AuditLog row : rows) {
+            JsonNode before = json(row.getBeforeState());
+            JsonNode after = json(row.getAfterState());
+            String code = text(after, "role") != null ? text(after, "role") : text(before, "role");
+            if (!role.getCode().equals(code)) continue;
+            mine.add(row);
+            parsed.put(row.getId(), new JsonNode[]{before, after});
+            if (mine.size() == HISTORY_LIMIT) break;
+        }
+        Set<UUID> actorIds = mine.stream().map(AuditLog::getActorId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, String> names = actorIds.isEmpty() ? Map.of() : employeeRepository.findNamesByUserIds(actorIds).stream()
+                .collect(Collectors.toMap(r -> (UUID) r[0], r -> (String) r[1], (a, b) -> a));
+        List<RoleHistoryEntry> out = new ArrayList<>();
+        for (AuditLog row : mine) {
+            JsonNode[] state = parsed.get(row.getId());
+            List<String> beforePerms = strings(state[0], "permissions");
+            List<String> afterPerms = strings(state[1], "permissions");
+            List<String> added = new ArrayList<>(afterPerms);
+            added.removeAll(beforePerms);
+            List<String> removed = new ArrayList<>(beforePerms);
+            removed.removeAll(afterPerms);
+            String summary = switch (row.getAction()) {
+                case "ROLE_CREATED" -> "Role created";
+                case "ROLE_UPDATED" -> "Details changed" + renameSuffix(state[0], state[1]);
+                case "ROLE_ACTIVATED" -> "Role activated";
+                case "ROLE_DEACTIVATED" -> "Role deactivated — holders keep it but it grants nothing";
+                default -> "Permissions changed";
+            };
+            out.add(new RoleHistoryEntry(row.getId(), row.getOccurredAt(), row.getAction(),
+                    row.getActorId() == null ? null : names.getOrDefault(row.getActorId(), "Unknown"),
+                    summary, "ROLE_CREATED".equals(row.getAction()) ? afterPerms : added,
+                    "ROLE_PERMISSIONS_UPDATED".equals(row.getAction()) ? removed : List.of()));
+        }
+        return out;
+    }
+
+    /** Who holds {@code module:action} through an active role — the reverse of the role editor. */
+    @Transactional(readOnly = true)
+    public List<PermissionHolder> holders(String module, String action) {
+        boolean registered = permissionRepository.findAllWithModule().stream()
+                .anyMatch(p -> p.getModule().getCode().equals(module) && p.getAction().equals(action));
+        if (!registered) throw new NoSuchElementException("Unknown permission: " + module + ":" + action);
+        record Acc(User user, String[] scope, Set<String> roles) {}
+        Map<UUID, Acc> byUser = new LinkedHashMap<>();
+        for (RolePermission rp : rolePermissionRepository.findActiveGrants(module, action)) {
+            for (User u : userRepository.findHoldersOfRole(rp.getRole().getId())) {
+                Acc acc = byUser.computeIfAbsent(u.getId(), id -> new Acc(u, new String[]{rp.getScope()}, new TreeSet<>()));
+                acc.roles().add(rp.getRole().getDisplayName());
+                if (ScopeCoverage.coverage(rp.getScope()).size() > ScopeCoverage.coverage(acc.scope()[0]).size())
+                    acc.scope()[0] = rp.getScope();
+            }
+        }
+        Map<UUID, String> names = byUser.isEmpty() ? Map.of() : employeeRepository.findNamesByUserIds(byUser.keySet()).stream()
+                .collect(Collectors.toMap(r -> (UUID) r[0], r -> (String) r[1], (a, b) -> a));
+        return byUser.values().stream()
+                .map(a -> new PermissionHolder(a.user().getId(), names.getOrDefault(a.user().getId(), a.user().getEmail()),
+                        a.user().getEmail(), a.user().isActive(), a.scope()[0], List.copyOf(a.roles())))
+                .sorted(Comparator.comparing(PermissionHolder::fullName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+    }
+
+    private JsonNode json(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try { return objectMapper.readTree(raw); } catch (Exception e) { return null; }
+    }
+
+    private static String text(JsonNode n, String field) {
+        return n != null && n.hasNonNull(field) ? n.get(field).asText() : null;
+    }
+
+    private static List<String> strings(JsonNode n, String field) {
+        List<String> out = new ArrayList<>();
+        if (n != null && n.has(field) && n.get(field).isArray()) n.get(field).forEach(x -> out.add(x.asText()));
+        return out;
+    }
+
+    private static String renameSuffix(JsonNode before, JsonNode after) {
+        String from = text(before, "name"), to = text(after, "name");
+        return from != null && to != null && !from.equals(to) ? " (renamed “" + from + "” → “" + to + "”)" : "";
     }
 
     // ─── Role CRUD ──────────────────────────────────────────────────────────────
@@ -165,6 +276,7 @@ public class RoleAdminService {
         assertRoleWithinCeiling(actor, role);
         role.setActive(active);
         roleRepository.save(role);
+        notifyHoldersAfterCommit(roleId);
         auditService.log(actor.getId(), active ? "ROLE_ACTIVATED" : "ROLE_DEACTIVATED", null,
                 auditSnapshot.toJson(Map.of("role", role.getCode(), "active", !active)),
                 auditSnapshot.toJson(Map.of("role", role.getCode(), "active", active)));
@@ -219,6 +331,7 @@ public class RoleAdminService {
         if (!before.equals(after)) {
             role.setUpdatedAt(LocalDateTime.now());
             roleRepository.save(role);
+            notifyHoldersAfterCommit(roleId);
             auditService.log(actor.getId(), "ROLE_PERMISSIONS_UPDATED", null,
                     auditSnapshot.toJson(Map.of("role", role.getCode(), "permissions", before)),
                     auditSnapshot.toJson(Map.of("role", role.getCode(), "permissions", after)));
@@ -236,6 +349,10 @@ public class RoleAdminService {
     private void applyGrants(User actor, Role role, List<Grant> requested) {
         if ("SUPER_ADMIN".equals(role.getCode()))
             throw new IllegalArgumentException("Super Admin's permissions are protected and cannot be changed.");
+        // Granting permissions to "everyone with no additional role" would be an implicit privilege:
+        // baseline access is not a role grant, so extra capabilities go in an explicit custom role.
+        if (isDefaultCategory(role))
+            throw new IllegalArgumentException("Employee is the default category and can't hold permissions. Create a custom role and assign it to the people who need extra access.");
 
         Map<String, Permission> registered = permissionRepository.findAllWithModule().stream()
                 .collect(Collectors.toMap(p -> key(p.getModule().getCode(), p.getAction()), Function.identity()));
@@ -287,17 +404,48 @@ public class RoleAdminService {
 
     @Transactional
     public RoleDetail addMember(Integer roleId, UUID userId, String actorEmail) {
-        requireListedRole(roleId);
+        if (isDefaultCategory(requireListedRole(roleId)))
+            throw new IllegalArgumentException("Employee is the default category for people with no additional role — it can't be assigned.");
         Set<Integer> ids = currentRoleIds(userId);
         if (ids.add(roleId)) userManagementService.setUserRoles(userId, ids, actorEmail);
         return get(roleId);
     }
 
+    /**
+     * Adds or removes one role for several users. Deliberately NOT one transaction: each user goes
+     * through the same guarded assignment path as a single change (privilege ceiling, no self-change,
+     * last Super Admin…) in its own transaction, so a refused user is reported without blocking the rest.
+     */
+    public List<BulkMemberResult> bulkMembers(Integer roleId, List<UUID> userIds, boolean remove, String actorEmail) {
+        Role role = requireListedRole(roleId);
+        if (isDefaultCategory(role))
+            throw new IllegalArgumentException("Employee is the default category for people with no additional role — it can't be assigned or removed.");
+        List<UUID> distinct = userIds.stream().distinct().toList();
+        if (distinct.isEmpty() || distinct.size() > 100)
+            throw new IllegalArgumentException("Choose between 1 and 100 users.");
+        Map<UUID, String> names = employeeRepository.findNamesByUserIds(new HashSet<>(distinct)).stream()
+                .collect(Collectors.toMap(r -> (UUID) r[0], r -> (String) r[1], (a, b) -> a));
+        List<BulkMemberResult> results = new ArrayList<>();
+        for (UUID userId : distinct) {
+            String name = names.getOrDefault(userId, userId.toString());
+            try {
+                Set<Integer> ids = currentRoleIds(userId);
+                boolean changed = remove ? ids.remove(roleId) : ids.add(roleId);
+                if (changed) userManagementService.setUserRoles(userId, ids, actorEmail);
+                results.add(new BulkMemberResult(userId, name, true,
+                        !changed ? (remove ? "Didn't hold this role" : "Already held this role") : (remove ? "Removed" : "Added")));
+            } catch (RuntimeException e) {
+                results.add(new BulkMemberResult(userId, name, false, e.getMessage() != null ? e.getMessage() : "Could not update this user (" + e.getClass().getSimpleName() + ")"));
+            }
+        }
+        return results;
+    }
+
     @Transactional
     public RoleDetail removeMember(Integer roleId, UUID userId, String actorEmail) {
         Role role = requireListedRole(roleId);
-        if ("EMPLOYEE".equals(role.getCode()))
-            throw new IllegalArgumentException("Every user holds the Employee role; it can't be removed.");
+        if (isDefaultCategory(role))
+            throw new IllegalArgumentException("Employee is the default category for people with no additional role — it can't be removed. Assign or remove other roles instead.");
         Set<Integer> ids = currentRoleIds(userId);
         if (ids.remove(roleId)) userManagementService.setUserRoles(userId, ids, actorEmail);
         return get(roleId);
@@ -311,13 +459,18 @@ public class RoleAdminService {
     private static final Comparator<Grant> GRANT_ORDER = Comparator.comparing(Grant::module)
             .thenComparingInt(g -> ACTION_ORDER.indexOf(g.action()));
 
+    /** The built-in Employee entry: a derived, read-only category rather than an assignable role. */
+    private static boolean isDefaultCategory(Role r) {
+        return "EMPLOYEE".equals(r.getCode());
+    }
+
     private static boolean isListed(Role r) {
         return !r.isSystem() || r.isPhase1();
     }
 
     private RoleSummary summary(Role r, long userCount, long permissionCount) {
         return new RoleSummary(r.getId(), r.getCode(), r.getDisplayName(), r.getDescription(), r.isSystem(), r.isActive(),
-                !"SUPER_ADMIN".equals(r.getCode()), !r.isSystem(), userCount, permissionCount, r.getCreatedAt(), r.getUpdatedAt(),
+                !"SUPER_ADMIN".equals(r.getCode()) && !isDefaultCategory(r), !r.isSystem(), userCount, permissionCount, r.getCreatedAt(), r.getUpdatedAt(),
                 r.getVersion());
     }
 
@@ -350,6 +503,26 @@ public class RoleAdminService {
     private void requireAuthority(User actor, String authority) {
         if (!effectivePermissionService.coverage(actor.getRoles()).contains(authority))
             throw new AccessDeniedException("Missing " + authority);
+    }
+
+    /**
+     * Tells every current holder's open sessions (once this transaction commits) that their
+     * permissions changed, so nav/route guards update immediately without a re-login. Purely a UX
+     * nudge: authorities are re-resolved on every request, so enforcement is already current.
+     */
+    private void notifyHoldersAfterCommit(Integer roleId) {
+        List<UUID> holderIds = userRepository.findHoldersOfRole(roleId).stream().map(User::getId).toList();
+        if (holderIds.isEmpty()) return;
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    forceLogoutBroadcaster.permissionsChanged(holderIds);
+                }
+            });
+            return;
+        }
+        forceLogoutBroadcaster.permissionsChanged(holderIds);
     }
 
     private Set<Integer> currentRoleIds(UUID userId) {

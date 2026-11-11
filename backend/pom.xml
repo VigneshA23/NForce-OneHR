@@ -107,6 +107,15 @@
             <version>5.3.0</version>
         </dependency>
 
+        <!-- OpenPDF — payslip PDF generation (US-C12). Picked over PDFBox: it has a high-level
+             table/paragraph API, which suits a tabular payslip; PDFBox is a low-level
+             coordinate-positioning API better suited to editing existing PDFs. -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>2.0.3</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

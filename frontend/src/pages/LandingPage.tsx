@@ -588,7 +588,7 @@ function LandingFeatures() {
           </div>
           <FadeIn delay={120} variant="right">
             <div style={{ borderRadius: 16, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.07)' }}>
-              <img src="/assets/photos/hr-meeting.jpg" alt="HR team" style={{ width: '100%', height: 260, objectFit: 'cover', display: 'block' }} />
+              <img src="/assets/photos/hr-meeting.jpg" alt="HR team" style={{ width: '100%', height: 340, objectFit: 'cover', objectPosition: 'center 6%', display: 'block' }} />
             </div>
           </FadeIn>
         </div>
@@ -621,6 +621,7 @@ const AGENT_LIST = [
     name: 'HR Assistant Agent',
     icon: MessageCircle,
     img: '/assets/photos/hr-agent-person.jpg',
+    pos: '50% 26%',
     desc: "Your HR inbox has 20 questions that come back every month: 'How many leaves do I have?' 'What's the WFH policy for Fridays?' 'Do I need a receipt for this amount?' This agent handles those - immediately, correctly - so your team spends time on things that actually need HR judgment.",
   },
   {
@@ -628,6 +629,7 @@ const AGENT_LIST = [
     name: 'Compliance Guardian',
     icon: FileCheck,
     img: '/assets/photos/hr-compliance.jpg',
+    pos: '46% 28%',
     desc: "Document expiry dates don't announce themselves. This agent tracks every form, acknowledgment, and certification across your whole team, and flags what's about to lapse in time for someone to actually do something about it - not after an audit already found it.",
   },
   {
@@ -635,6 +637,7 @@ const AGENT_LIST = [
     name: 'Attendance Monitor',
     icon: AlertTriangle,
     img: '/assets/photos/hr-ai-team.jpg',
+    pos: '50% 50%',
     desc: "A manager shouldn't need to run a report to notice someone has been clocking in 45 minutes late every Monday for six weeks. This agent tracks those patterns - inconsistent clock-ins, early exits, hours that don't line up with approved WFH - and flags them early.",
   },
   {
@@ -642,6 +645,7 @@ const AGENT_LIST = [
     name: 'Org Development Agent',
     icon: Building2,
     img: '/assets/photos/hr-professionals.jpg',
+    pos: '50% 40%',
     desc: "When one manager has 14 direct reports and another has 3, it usually surfaces as a performance issue before anyone realizes the structure underneath is the problem. This agent maps span-of-control across the org and flags where the reporting structure is working against people.",
   },
 ];
@@ -716,7 +720,7 @@ function LandingAI() {
                 onFocus={() => setOpenAgent(i)}
                 onClick={() => setOpenAgent(i)}
               >
-                <img className="lp-xp-bg" src={agent.img} alt="" />
+                <img className="lp-xp-bg" src={agent.img} alt="" style={{ objectPosition: agent.pos }} />
                 <span className="lp-xp-shade" />
                 <span className="lp-xp-num">{String(i + 1).padStart(2, '0')}</span>
 
@@ -884,7 +888,7 @@ function LandingHowItWorks() {
         {/* Photo strip — real office imagery */}
         <FadeIn delay={200} style={{ marginTop: 64 }}>
           <div className="lp-photo-strip" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, borderRadius: 18, overflow: 'hidden', boxShadow: '0 24px 72px rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <img src="/assets/photos/hr-discussion.jpg" alt="Team in discussion" style={{ width: '100%', height: 240, objectFit: 'cover', display: 'block' }} />
+            <img src="/assets/photos/hr-discussion.jpg" alt="Team in discussion" style={{ width: '100%', height: 240, objectFit: 'cover', objectPosition: 'center 10%', display: 'block' }} />
             <img src="/assets/photos/hr-office.jpg" alt="Modern office" style={{ width: '100%', height: 240, objectFit: 'cover', display: 'block' }} />
           </div>
         </FadeIn>

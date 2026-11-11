@@ -41,6 +41,7 @@ class PayrollRunServiceTest {
     @Mock private AdHocDeductionRepository adHocDeductionRepository;
     @Mock private AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     @Mock private SalaryHoldRepository salaryHoldRepository;
+    @Mock private PayrollRunReviewService payrollRunReviewService;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -66,7 +67,8 @@ class PayrollRunServiceTest {
                 payGroupRepository, employeeCompensationRepository, salaryStructureComponentRepository,
                 payrollLopCalculationService, payrollProrationService, approvalRuleEvaluationService,
                 adHocPaymentRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
-                salaryHoldRepository, userRepository, auditService, auditSnapshot);
+                salaryHoldRepository, payrollRunReviewService, new SalaryStructureResolutionService(), userRepository,
+                auditService, auditSnapshot);
 
         // Default actor holds HR_ADMIN — matches this app's one real approver role before US-C09,
         // and the legacy single-HR_ADMIN-stage default evaluatePayrollRun falls back to below.
@@ -95,8 +97,9 @@ class PayrollRunServiceTest {
         lenient().when(payslipLineItemRepository.save(any(PayslipLineItem.class))).thenAnswer(inv -> inv.getArgument(0));
 
         // No LOP/proration reduction by default — full 28-day cycle, fully employed, no LOP.
-        lenient().when(payrollLopCalculationService.recompute(any(), any())).thenReturn(
-                PayrollLopCalculationResponse.builder().effectiveLopDays(BigDecimal.ZERO).build());
+        lenient().when(payrollLopCalculationService.recomputeWithDetails(any(), any())).thenReturn(
+                new PayrollLopCalculationService.RecomputeResult(
+                        PayrollLopCalculationResponse.builder().effectiveLopDays(BigDecimal.ZERO).build(), List.of(), List.of()));
         lenient().when(payrollProrationService.recompute(any(), any())).thenReturn(
                 PayrollProrationResponse.builder().cycleDays(28).employedDays(28).prorationFactor(new BigDecimal("1.0000")).build());
 
@@ -113,8 +116,12 @@ class PayrollRunServiceTest {
         lenient().when(adHocDeductionRepository.save(any(AdHocDeduction.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(adHocDeductionInstallmentRepository.findByPayrollRunId(any())).thenReturn(List.of());
 
-        // US-C26: no active salary holds by default.
-        lenient().when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunId(any())).thenReturn(Set.of());
+        // US-C22/US-C23: no pending review items by default — individual tests override to verify
+        // submit()'s gating.
+        lenient().when(payrollRunReviewService.isStepComplete(any(), any())).thenReturn(true);
+
+        // US-C26: no active salary holds (of either type) by default.
+        lenient().when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(any(), any())).thenReturn(Set.of());
     }
 
     private SalaryComponent catalogComponent(String name, String type, boolean prorateOnLop) {
@@ -212,8 +219,9 @@ class PayrollRunServiceTest {
         when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic, conveyance));
         when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
         // 2 LOP days out of a 28-day cycle, fully employed: factor = (28-2)/28 = 0.9286
-        when(payrollLopCalculationService.recompute(any(), any())).thenReturn(
-                PayrollLopCalculationResponse.builder().effectiveLopDays(new BigDecimal("2")).build());
+        when(payrollLopCalculationService.recomputeWithDetails(any(), any())).thenReturn(
+                new PayrollLopCalculationService.RecomputeResult(
+                        PayrollLopCalculationResponse.builder().effectiveLopDays(new BigDecimal("2")).build(), List.of(), List.of()));
 
         service.generateDraft(generateReq(), actorEmail);
 
@@ -236,8 +244,9 @@ class PayrollRunServiceTest {
         when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
         when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
         // 2 LOP days out of 28 — would reduce a prorated component, but must NOT reduce the ad-hoc one.
-        when(payrollLopCalculationService.recompute(any(), any())).thenReturn(
-                PayrollLopCalculationResponse.builder().effectiveLopDays(new BigDecimal("2")).build());
+        when(payrollLopCalculationService.recomputeWithDetails(any(), any())).thenReturn(
+                new PayrollLopCalculationService.RecomputeResult(
+                        PayrollLopCalculationResponse.builder().effectiveLopDays(new BigDecimal("2")).build(), List.of(), List.of()));
 
         UUID adHocComponentId = UUID.randomUUID();
         AdHocPayment adHoc = AdHocPayment.builder().id(UUID.randomUUID())
@@ -384,7 +393,7 @@ class PayrollRunServiceTest {
     void generateDraft_heldEmployee_excludedEntirely_noPayslipNoDeductions() {
         when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
         when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
-        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunId(any())).thenReturn(Set.of(employeeId));
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(any(), eq(SalaryHoldType.PROCESSING))).thenReturn(Set.of(employeeId));
 
         PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
 
@@ -393,6 +402,36 @@ class PayrollRunServiceTest {
         assertEquals(0, BigDecimal.ZERO.compareTo(resp.getTotalNet()));
         verify(payslipRepository, never()).save(any());
         verify(payslipLineItemRepository, never()).save(any());
+    }
+
+    @Test
+    void generateDraft_perEmployee_generatesReviewItems() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.BALANCING_REMAINDER, null, null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        service.generateDraft(generateReq(), actorEmail);
+
+        verify(payrollRunReviewService).generateItemsForEmployee(any(), eq(employeeId), any(), any(), any(), any());
+        verify(payrollRunReviewService, never()).deleteItemsForEmployee(any(), any());
+    }
+
+    @Test
+    void generateDraft_heldEmployee_deletesTheirStaleReviewItems() {
+        // US-C22/US-C23: a PROCESSING-held employee never reaches buildPayslip (and therefore
+        // never reaches generateItemsForEmployee's own delete-then-recreate), so generateDraft
+        // must delete their review items from a prior regenerate itself — otherwise those stale
+        // PENDING rows would block submit() forever for a step that no longer applies to them.
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(any(), eq(SalaryHoldType.PROCESSING))).thenReturn(Set.of(employeeId));
+
+        service.generateDraft(generateReq(), actorEmail);
+
+        verify(payrollRunReviewService).deleteItemsForEmployee(any(), eq(employeeId));
+        verify(payrollRunReviewService, never()).generateItemsForEmployee(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -466,6 +505,25 @@ class PayrollRunServiceTest {
         when(payrollRunRepository.findById(submitted.getId())).thenReturn(Optional.of(submitted));
 
         assertThrows(IllegalStateException.class, () -> service.submit(submitted.getId(), actorEmail));
+    }
+
+    @Test
+    void submit_leaveAppliedStepIncomplete_rejected() {
+        PayrollRun draft = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(draft.getId())).thenReturn(Optional.of(draft));
+        when(payrollRunReviewService.isStepComplete(draft.getId(), PayrollRunReviewStepType.LEAVE_APPLIED)).thenReturn(false);
+
+        assertThrows(IllegalStateException.class, () -> service.submit(draft.getId(), actorEmail));
+        verify(payslipLineItemRepository, never()).sumAmountByComponentType(any());
+    }
+
+    @Test
+    void submit_noAttendanceStepIncomplete_rejected() {
+        PayrollRun draft = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(draft.getId())).thenReturn(Optional.of(draft));
+        when(payrollRunReviewService.isStepComplete(draft.getId(), PayrollRunReviewStepType.NO_ATTENDANCE)).thenReturn(false);
+
+        assertThrows(IllegalStateException.class, () -> service.submit(draft.getId(), actorEmail));
     }
 
     @Test
@@ -552,6 +610,24 @@ class PayrollRunServiceTest {
     }
 
     @Test
+    void disburse_withActivePayoutHold_flagsThatEmployeesPaymentWithheld() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(approved.getId(), SalaryHoldType.PAYOUT))
+                .thenReturn(Set.of(employeeId));
+        Payslip heldPayslip = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        Payslip otherPayslip = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(UUID.randomUUID()).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(heldPayslip, otherPayslip));
+
+        service.disburse(approved.getId(), actorEmail);
+
+        assertTrue(heldPayslip.isPaymentWithheld());
+        assertFalse(otherPayslip.isPaymentWithheld());
+        verify(payslipRepository).save(heldPayslip);
+        verify(payslipRepository, never()).save(otherPayslip);
+    }
+
+    @Test
     void rollback_fromApproved_revertsToDraft_withReasonAudited() {
         PayrollRun approved = run(PayrollRunStatus.APPROVED);
         when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
@@ -605,6 +681,76 @@ class PayrollRunServiceTest {
         RollbackRunRequest req = new RollbackRunRequest();
         req.setReason("test");
         assertThrows(IllegalStateException.class, () -> service.rollbackWholeRun(approved.getId(), req, actorEmail));
+    }
+
+    private RollbackEmployeePayslipRequest rollbackEmployeeReq(String reason) {
+        RollbackEmployeePayslipRequest req = new RollbackEmployeePayslipRequest();
+        req.setReason(reason);
+        return req;
+    }
+
+    @Test
+    void rollbackEmployeePayslip_draftRun_rejected() {
+        PayrollRun draft = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        assertThrows(IllegalStateException.class,
+                () -> service.rollbackEmployeePayslip(draft.getId(), employeeId, rollbackEmployeeReq("test"), actorEmail));
+    }
+
+    @Test
+    void rollbackEmployeePayslip_noPayslipForEmployee_rejected() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        when(payslipRepository.findByPayrollRunIdAndEmployeeId(approved.getId(), employeeId)).thenReturn(Optional.empty());
+
+        assertThrows(NoSuchElementException.class,
+                () -> service.rollbackEmployeePayslip(approved.getId(), employeeId, rollbackEmployeeReq("test"), actorEmail));
+    }
+
+    @Test
+    void rollbackEmployeePayslip_noCurrentCompensation_rejected() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        Payslip existing = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId).build();
+        when(payslipRepository.findByPayrollRunIdAndEmployeeId(approved.getId(), employeeId)).thenReturn(Optional.of(existing));
+        when(employeeCompensationRepository.findByEmployeeIdAndEffectiveAt(employeeId, cycleEnd)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalStateException.class,
+                () -> service.rollbackEmployeePayslip(approved.getId(), employeeId, rollbackEmployeeReq("test"), actorEmail));
+    }
+
+    @Test
+    void rollbackEmployeePayslip_success_deletesRebuildsAndRefreshesRunTotals() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.FIXED, new BigDecimal("600000"), null);
+
+        PayrollRun approvedRun = run(PayrollRunStatus.APPROVED);
+        Payslip existing = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId).payrollRun(approvedRun).build();
+        Payslip recomputed = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId).payrollRun(approvedRun)
+                .grossPay(new BigDecimal("50000.00")).totalDeductions(BigDecimal.ZERO).netPay(new BigDecimal("50000.00")).build();
+
+        when(payrollRunRepository.findById(approvedRun.getId())).thenReturn(Optional.of(approvedRun));
+        when(payslipRepository.findByPayrollRunIdAndEmployeeId(approvedRun.getId(), employeeId))
+                .thenReturn(Optional.of(existing))
+                .thenReturn(Optional.of(recomputed));
+        when(employeeCompensationRepository.findByEmployeeIdAndEffectiveAt(employeeId, cycleEnd))
+                .thenReturn(Optional.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payslipLineItemRepository.sumAmountByComponentType(approvedRun.getId()))
+                .thenReturn(List.<Object[]>of(new Object[]{SalaryComponentType.EARNING, new BigDecimal("50000.00")}));
+
+        PayslipResponse resp = service.rollbackEmployeePayslip(approvedRun.getId(), employeeId, rollbackEmployeeReq("Fixed a data entry error"), actorEmail);
+
+        verify(payslipLineItemRepository).deleteByPayrollRunIdAndEmployeeId(approvedRun.getId(), employeeId);
+        verify(payslipRepository).deleteByPayrollRunIdAndEmployeeId(approvedRun.getId(), employeeId);
+        // The run's own status is untouched — still APPROVED, not reset to DRAFT like rollbackWholeRun.
+        assertEquals(PayrollRunStatus.APPROVED, approvedRun.getStatus());
+        assertEquals(0, new BigDecimal("50000.00").compareTo(approvedRun.getTotalGross()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(approvedRun.getTotalDeductions()));
+        assertEquals(0, new BigDecimal("50000.00").compareTo(approvedRun.getTotalNet()));
+        assertEquals(employeeId, resp.getEmployeeId());
+        verify(auditService).log(eq(actorId), eq("PAYROLL_PAYSLIP_RECOMPUTED"), any(), any(), any());
     }
 
     @Test

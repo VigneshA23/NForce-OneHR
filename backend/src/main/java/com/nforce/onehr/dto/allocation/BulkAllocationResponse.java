@@ -20,6 +20,11 @@ public class BulkAllocationResponse {
             return AllocationResult.builder().employeeId(employeeId).status("SUCCESS").build();
         }
 
+        /** US-B06: over-allocated and not confirmed — not saved; resubmit this employee with confirm=true. */
+        public static AllocationResult warning(UUID employeeId, String reason) {
+            return AllocationResult.builder().employeeId(employeeId).status("WARNING").reason(reason).build();
+        }
+
         public static AllocationResult failed(UUID employeeId, String reason) {
             return AllocationResult.builder().employeeId(employeeId).status("FAILED").reason(reason).build();
         }

@@ -7,7 +7,7 @@ export interface MyPermissionsResponse {
   primaryRole: string;
   roles: string[];
   permissions: Record<string, Partial<Record<string, string[]>>>;
-  /** The subset granted by custom (non-system) roles — drives customRoleNavItems. Optional: a
+  /** The subset granted by custom (non-system) roles — drives the "custom roles" view in the Roles & Permissions UI. Optional: a
    *  persisted response from before this field existed simply has none. */
   customRolePermissions?: Record<string, Partial<Record<string, string[]>>>;
 }

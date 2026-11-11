@@ -25,6 +25,9 @@ public class ExpenseService {
     //   APPROVE:ALL / VIEW:ALL / CONFIGURE:ALL -> HR_ADMIN + SUPER_ADMIN (MANAGER's TEAM grant doesn't reach ALL)
     //   OVERRIDE (expenses_override:APPROVE:ALL, V236) -> SUPER_ADMIN only
     private static final String APPROVE_ALL = "expenses:APPROVE:ALL";
+    // Manager-stage approval needs this permission AND the reporting line — see requireCurrentManagerOf.
+    private static final String APPROVE_TEAM = "expenses:APPROVE:TEAM";
+    private static final String VIEW_TEAM = "expenses:VIEW:TEAM";
     private static final String VIEW_ALL = "expenses:VIEW:ALL";
     private static final String CONFIGURE_ALL = "expenses:CONFIGURE:ALL";
     private static final String OVERRIDE = "expenses_override:APPROVE:ALL";
@@ -226,6 +229,7 @@ public class ExpenseService {
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> pendingForManager(String actorEmail) {
         User actor = requireActor(actorEmail);
+        requirePermission(actor, APPROVE_TEAM);
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
         if (reportIds.isEmpty()) return List.of();
         return toClaimResponses(claimRepo.findSummaryByEmployeeUserIdInAndStatus(reportIds, "SUBMITTED"));
@@ -346,6 +350,7 @@ public class ExpenseService {
         requireFinalStageAccess(approver);
         ExpenseClaim claim = requireClaimInStatus(claimId, "MANAGER_APPROVED");
         requireCanActAtFinalStage(approver, claim);
+        requireNotOwnClaim(actor, claim.getEmployeeUserId());
         requireNotSameApproverAsManagerStage(actor, claim);
 
         // Multi-layer approval: this approval satisfies the current stage, plus any immediately
@@ -392,6 +397,7 @@ public class ExpenseService {
         requireFinalStageAccess(approver);
         ExpenseClaim claim = requireClaimInStatus(claimId, "MANAGER_APPROVED");
         requireCanActAtFinalStage(approver, claim);
+        requireNotOwnClaim(actor, claim.getEmployeeUserId());
         requireNotSameApproverAsManagerStage(actor, claim);
 
         String before = auditSnapshot.toJson(Map.of("status", "MANAGER_APPROVED"));
@@ -442,6 +448,7 @@ public class ExpenseService {
     @Transactional(readOnly = true)
     public List<ExpenseClaimResponse> allTeamClaims(String actorEmail) {
         User actor = requireActor(actorEmail);
+        requirePermission(actor, VIEW_TEAM);
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
         if (reportIds.isEmpty()) return List.of();
         return toClaimResponses(claimRepo.findSummaryByEmployeeUserIdInOrderByCreatedAtDesc(reportIds));
@@ -452,6 +459,7 @@ public class ExpenseService {
     @Transactional(readOnly = true)
     public Map<String, Object> managerTileSummary(String actorEmail) {
         User actor = requireActor(actorEmail);
+        requirePermission(actor, VIEW_TEAM);
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
         long pendingCount = reportIds.isEmpty() ? 0 :
                 claimRepo.countByEmployeeUserIdInAndStatus(reportIds, "SUBMITTED");
@@ -606,17 +614,29 @@ public class ExpenseService {
         return "by " + stageLabel(approverRole) + " on behalf of your manager";
     }
 
+    /**
+     * Manager-stage gate — permission AND eligibility, never the reporting line alone:
+     * nobody decides their own claim; expenses:APPROVE:ALL holders (HR_ADMIN/SUPER_ADMIN by
+     * default, or a custom role granted it) may decide any claim; everyone else needs
+     * expenses:APPROVE:TEAM (Manager, or any custom role granted it — no built-in role required)
+     * AND must be the employee's current reporting manager.
+     */
     private void requireCurrentManagerOf(Approver approver, UUID employeeUserId) {
-        // expenses:APPROVE:ALL holders (HR_ADMIN/SUPER_ADMIN by default) may decide the manager
-        // stage too, not just the final stage — same override convention as every other approval
-        // workflow in the app (Regularization/Asset/Overtime/AttendanceRequest/WebClockIn).
-        // ONEHR-140 follow-up: this manager-stage check was the one place in this service missing
-        // that override, causing HR Admin "Access Denied" on managerApprove/managerReject.
+        requireNotOwnClaim(approver.user(), employeeUserId);
         if (approver.can(APPROVE_ALL)) return;
+        if (!approver.can(APPROVE_TEAM)) {
+            throw new AccessDeniedException("Permission required: " + APPROVE_TEAM);
+        }
         EmployeeManagerHistory current = historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(employeeUserId)
                 .orElseThrow(() -> new AccessDeniedException("Employee has no assigned manager"));
         if (!current.getManagerUserId().equals(approver.user().getId())) {
             throw new AccessDeniedException("You are not the current manager of this employee");
+        }
+    }
+
+    private void requireNotOwnClaim(User actor, UUID claimOwnerUserId) {
+        if (actor.getId().equals(claimOwnerUserId)) {
+            throw new AccessDeniedException("You cannot decide on your own expense claim");
         }
     }
 

@@ -25,6 +25,7 @@ class SalaryHoldServiceTest {
 
     @Mock private SalaryHoldRepository salaryHoldRepository;
     @Mock private PayrollRunRepository payrollRunRepository;
+    @Mock private PayslipRepository payslipRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
@@ -39,7 +40,7 @@ class SalaryHoldServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SalaryHoldService(salaryHoldRepository, payrollRunRepository, employeeRepository, userRepository, auditService, auditSnapshot);
+        service = new SalaryHoldService(salaryHoldRepository, payrollRunRepository, payslipRepository, employeeRepository, userRepository, auditService, auditSnapshot);
 
         User actor = User.builder().id(actorId).email(actorEmail).build();
         lenient().when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
@@ -59,10 +60,19 @@ class SalaryHoldServiceTest {
     }
 
     private CreateSalaryHoldRequest req() {
+        return req(SalaryHoldType.PROCESSING);
+    }
+
+    private CreateSalaryHoldRequest req(String type) {
         CreateSalaryHoldRequest r = new CreateSalaryHoldRequest();
         r.setEmployeeId(employeeId);
         r.setReason("Under disciplinary review");
+        r.setType(type);
         return r;
+    }
+
+    private PayrollRun run(String status) {
+        return PayrollRun.builder().id(runId).status(status).build();
     }
 
     @Test
@@ -102,6 +112,24 @@ class SalaryHoldServiceTest {
     }
 
     @Test
+    void create_payoutHold_onApprovedRun_succeeds() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(run(PayrollRunStatus.APPROVED)));
+        when(salaryHoldRepository.existsByPayrollRunIdAndEmployeeIdAndStatus(runId, employeeId, SalaryHoldStatus.ACTIVE)).thenReturn(false);
+
+        SalaryHoldResponse resp = service.create(runId, req(SalaryHoldType.PAYOUT), actorEmail);
+
+        assertEquals(SalaryHoldType.PAYOUT, resp.getHoldType());
+        verify(auditService).log(eq(actorId), eq("PAYROLL_SALARY_HOLD_CREATED"), any(), isNull(), any());
+    }
+
+    @Test
+    void create_payoutHold_onDisbursedRun_rejected() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(run(PayrollRunStatus.DISBURSED)));
+
+        assertThrows(IllegalStateException.class, () -> service.create(runId, req(SalaryHoldType.PAYOUT), actorEmail));
+    }
+
+    @Test
     void release_activeHold_succeeds() {
         when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(draftRun()));
         UUID holdId = UUID.randomUUID();
@@ -116,11 +144,48 @@ class SalaryHoldServiceTest {
     }
 
     @Test
-    void release_runNotDraft_rejected() {
-        PayrollRun approved = PayrollRun.builder().id(runId).status(PayrollRunStatus.APPROVED).build();
+    void release_processingHold_runNotDraft_rejected() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
         when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(approved));
+        UUID holdId = UUID.randomUUID();
+        SalaryHold hold = SalaryHold.builder().id(holdId).payrollRun(approved).employeeId(employeeId)
+                .reason("test").status(SalaryHoldStatus.ACTIVE).holdType(SalaryHoldType.PROCESSING).createdBy(actorId).build();
+        when(salaryHoldRepository.findById(holdId)).thenReturn(Optional.of(hold));
 
-        assertThrows(IllegalStateException.class, () -> service.release(runId, UUID.randomUUID(), actorEmail));
+        assertThrows(IllegalStateException.class, () -> service.release(runId, holdId, actorEmail));
+    }
+
+    @Test
+    void release_payoutHold_onDisbursedRun_paysEmployeeNow() {
+        PayrollRun disbursedRun = run(PayrollRunStatus.DISBURSED);
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(disbursedRun));
+        UUID holdId = UUID.randomUUID();
+        SalaryHold hold = SalaryHold.builder().id(holdId).payrollRun(disbursedRun).employeeId(employeeId)
+                .reason("test").status(SalaryHoldStatus.ACTIVE).holdType(SalaryHoldType.PAYOUT).createdBy(actorId).build();
+        when(salaryHoldRepository.findById(holdId)).thenReturn(Optional.of(hold));
+        Payslip payslip = Payslip.builder().id(UUID.randomUUID()).payrollRun(disbursedRun).employeeId(employeeId)
+                .paymentWithheld(true).build();
+        when(payslipRepository.findByPayrollRunIdAndEmployeeId(runId, employeeId)).thenReturn(Optional.of(payslip));
+
+        SalaryHoldResponse resp = service.release(runId, holdId, actorEmail);
+
+        assertEquals(SalaryHoldStatus.RELEASED, resp.getStatus());
+        assertFalse(payslip.isPaymentWithheld());
+        verify(payslipRepository).save(payslip);
+    }
+
+    @Test
+    void release_payoutHold_beforeDisbursement_succeedsWithoutTouchingPayslip() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(run(PayrollRunStatus.APPROVED)));
+        UUID holdId = UUID.randomUUID();
+        SalaryHold hold = SalaryHold.builder().id(holdId).payrollRun(run(PayrollRunStatus.APPROVED)).employeeId(employeeId)
+                .reason("test").status(SalaryHoldStatus.ACTIVE).holdType(SalaryHoldType.PAYOUT).createdBy(actorId).build();
+        when(salaryHoldRepository.findById(holdId)).thenReturn(Optional.of(hold));
+
+        SalaryHoldResponse resp = service.release(runId, holdId, actorEmail);
+
+        assertEquals(SalaryHoldStatus.RELEASED, resp.getStatus());
+        verify(payslipRepository, never()).findByPayrollRunIdAndEmployeeId(any(), any());
     }
 
     @Test
@@ -148,6 +213,7 @@ class SalaryHoldServiceTest {
 
     @Test
     void list_returnsAllForRun() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(draftRun()));
         SalaryHold hold = SalaryHold.builder().id(UUID.randomUUID()).payrollRun(draftRun()).employeeId(employeeId)
                 .reason("test").status(SalaryHoldStatus.ACTIVE).createdBy(actorId).build();
         when(salaryHoldRepository.findByPayrollRunId(runId)).thenReturn(List.of(hold));
@@ -155,5 +221,12 @@ class SalaryHoldServiceTest {
         List<SalaryHoldResponse> result = service.list(runId);
 
         assertEquals(1, result.size());
+    }
+
+    @Test
+    void list_unknownRun_throwsNoSuchElement() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.empty());
+
+        assertThrows(NoSuchElementException.class, () -> service.list(runId));
     }
 }

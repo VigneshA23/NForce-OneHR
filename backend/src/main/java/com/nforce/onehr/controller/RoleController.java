@@ -44,6 +44,18 @@ public class RoleController {
         return roleAdminService.catalogue();
     }
 
+    @GetMapping("/api/roles/{roleId}/history")
+    @PreAuthorize("hasAuthority('roles:VIEW:ALL')")
+    public List<RoleHistoryEntry> history(@PathVariable Integer roleId) {
+        return roleAdminService.history(roleId);
+    }
+
+    @GetMapping("/api/permissions/holders")
+    @PreAuthorize("hasAuthority('roles:VIEW:ALL')")
+    public List<PermissionHolder> holders(@RequestParam String module, @RequestParam String action) {
+        return roleAdminService.holders(module, action);
+    }
+
     @PostMapping("/api/roles")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('roles:CREATE:ALL')")
@@ -82,6 +94,13 @@ public class RoleController {
     @PreAuthorize("hasAuthority('user_roles:EDIT:ALL')")
     public RoleDetail addMember(@PathVariable Integer roleId, @Valid @RequestBody AddRoleMemberRequest req, Principal principal) {
         return roleAdminService.addMember(roleId, req.userId(), principal.getName());
+    }
+
+    @PostMapping("/api/roles/{roleId}/members/bulk")
+    @PreAuthorize("hasAuthority('user_roles:EDIT:ALL')")
+    public List<BulkMemberResult> bulkMembers(@PathVariable Integer roleId, @Valid @RequestBody BulkRoleMembersRequest req,
+                                              Principal principal) {
+        return roleAdminService.bulkMembers(roleId, req.userIds(), req.remove(), principal.getName());
     }
 
     @DeleteMapping("/api/roles/{roleId}/members/{userId}")

@@ -40,7 +40,7 @@ class EmployeeServiceCreateTest {
     @Mock private RoleRepository roleRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private EmployeeManagerHistoryRepository historyRepository;
-    @Mock private ManagerRoleSyncService managerRoleSyncService;
+    @Mock private com.nforce.onehr.security.EffectivePermissionService effectivePermissionService;
     @Mock private DepartmentRepository departmentRepository;
     @Mock private DesignationRepository designationRepository;
     @Mock private LocationRepository locationRepository;
@@ -82,6 +82,53 @@ class EmployeeServiceCreateTest {
         req.setFullName("Jane Smith");
         req.setEmail("jane@nforceone.com");
         req.setJoiningDate(LocalDate.now());
+    }
+
+    @Test
+    void createEmployee_withEligibleManager_recordsOnlyTheReportingLine_noRoleIsGranted() {
+        when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+        UUID managerId = UUID.randomUUID();
+        User manager = User.builder().id(managerId).email("lead@test.com").build();
+        when(userRepository.findById(managerId)).thenReturn(Optional.of(manager));
+        when(effectivePermissionService.isEligibleReportingManager(manager)).thenReturn(true);
+        req.setManagerId(managerId);
+
+        employeeService.createEmployee(req, actorEmail);
+
+        verify(historyRepository).save(argThat(h -> managerId.equals(h.getManagerUserId())));
+        // The manager's roles are never touched: MANAGER is not granted automatically.
+        verify(roleRepository, never()).findByCode("MANAGER");
+        verify(userRepository, never()).save(manager);
+    }
+
+    @Test
+    void createEmployee_withManagerLackingTeamResponsibility_isRejected_beforeAnythingIsConsumedOrSaved() {
+        UUID managerId = UUID.randomUUID();
+        User rolesOnly = User.builder().id(managerId).email("rolesonly@test.com").build();
+        when(userRepository.findById(managerId)).thenReturn(Optional.of(rolesOnly));
+        when(effectivePermissionService.isEligibleReportingManager(rolesOnly)).thenReturn(false);
+        req.setManagerId(managerId);
+
+        assertThrows(IllegalArgumentException.class, () -> employeeService.createEmployee(req, actorEmail));
+
+        verifyNoInteractions(employeeCodeGenerator);
+        verify(userRepository, never()).save(any(User.class));
+        verify(historyRepository, never()).save(any());
+    }
+
+    @Test
+    void createEmployee_assignsNoRole_baselineAccessIsNotARoleGrant() {
+        when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
+
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        var response = employeeService.createEmployee(req, actorEmail);
+
+        verify(userRepository).save(captor.capture());
+        assertTrue(captor.getValue().getRoles().isEmpty(), "a new employee holds no role row");
+        verify(roleRepository, never()).findByCode("EMPLOYEE");
+        // …yet is categorised as an ordinary Employee and resolves to the EMPLOYEE primary role.
+        assertEquals("EMPLOYEE", response.getRole());
+        assertEquals(java.util.List.of("EMPLOYEE"), response.getCategories().stream().map(c -> c.code()).toList());
     }
 
     @Test

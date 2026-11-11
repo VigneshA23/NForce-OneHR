@@ -43,7 +43,7 @@ export function TablePagination({
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderTop: '1px solid var(--line)', flexWrap: 'wrap', gap: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
-          Showing {first}–{last} of {total} {noun}
+          Showing {first} to {last} of {total} {noun}
         </span>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-dim)' }}>
           Rows per page

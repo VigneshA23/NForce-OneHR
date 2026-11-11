@@ -6,6 +6,8 @@ import { hierarchyApi, type PersonCard } from '../../../api/hierarchy';
 import { dashboardApi, type DirectReport } from '../../../api/dashboard';
 import { SectionHeader, ReadField } from '../shared';
 import { PersonCell } from '../../../components/PersonCell';
+import { hasPermission } from '../../../lib/permissions';
+import { useAuthStore } from '../../../store/authStore';
 
 function Card({ title, badge, icon, children }: { title: string; badge?: string; icon?: LucideIcon; children: React.ReactNode }) {
   return (
@@ -37,12 +39,15 @@ export function JobTab({ profile, token }: { profile: ProfileData; token: string
     return () => { cancelled = true; };
   }, [token, profile.userId]);
 
+  const canSeeTeam = hasPermission(useAuthStore(s => s.permissions), 'employees', 'VIEW', 'TEAM');
   useEffect(() => {
+    // The direct-reports endpoint needs employees:VIEW:TEAM; without it there is nothing to show.
+    if (!canSeeTeam) { setReportsLoaded(true); return; }
     dashboardApi.managerDashboard(token)
       .then(d => setDirectReports(d.directReports))
       .catch(() => {})
       .finally(() => setReportsLoaded(true));
-  }, [token]);
+  }, [token, canSeeTeam]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

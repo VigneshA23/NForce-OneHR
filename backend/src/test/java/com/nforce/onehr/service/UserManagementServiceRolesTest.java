@@ -45,7 +45,6 @@ class UserManagementServiceRolesTest {
     @Mock private RoleRepository roleRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private EmployeeManagerHistoryRepository historyRepository;
-    @Mock private ManagerRoleSyncService managerRoleSyncService;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -98,12 +97,13 @@ class UserManagementServiceRolesTest {
     // ─── Manage Roles (setUserRoles) ───────────────────────────────────────────
 
     @Test
-    void superAdmin_assignsMultipleRoles_keepsEmployee_invalidatesSession_andAudits() {
+    void superAdmin_assignsMultipleRoles_addsNoEmployeeRole_invalidatesSession_andAudits() {
         int tv = employee.getTokenVersion();
 
         service.setUserRoles(employee.getId(), List.of(f.manager.getId(), f.userAdmin.getId()), "sa@test.com");
 
-        assertEquals(Set.of("EMPLOYEE", "MANAGER", "CUSTOM_USER_ADMIN"), codes(employee));
+        // Exactly what was requested: the baseline is not a role, so none is added.
+        assertEquals(Set.of("MANAGER", "CUSTOM_USER_ADMIN"), codes(employee));
         assertEquals(tv + 1, employee.getTokenVersion());
         assertEquals("PROFILE_UPDATED", employee.getTokenVersionReason());
         verify(auditService).log(eq(superAdmin.getId()), eq("ROLE_CHANGED"), eq(employee.getId()), anyString(), anyString());
@@ -121,7 +121,26 @@ class UserManagementServiceRolesTest {
     void duplicateRoleIds_areCollapsed() {
         service.setUserRoles(employee.getId(), List.of(f.manager.getId(), f.manager.getId()), "sa@test.com");
 
-        assertEquals(Set.of("EMPLOYEE", "MANAGER"), codes(employee));
+        assertEquals(Set.of("MANAGER"), codes(employee));
+    }
+
+    @Test
+    void requestNamingTheEmployeeRole_isIgnored_itIsADefaultCategoryNotARole() {
+        service.setUserRoles(employee.getId(), List.of(f.employee.getId(), f.manager.getId()), "sa@test.com");
+
+        assertEquals(Set.of("MANAGER"), codes(employee));
+    }
+
+    @Test
+    void legacyEmployeeRow_isNotByItselfAChange_butDropsOutWhenRolesReallyChange() {
+        // employee (fixture) holds a legacy EMPLOYEE row. Re-saving the same effective set is a no-op…
+        service.setUserRoles(employee.getId(), List.of(), "sa@test.com");
+        verify(userRepository, never()).save(any());
+        verifyNoInteractions(auditService);
+
+        // …and a real change leaves the legacy row out of the new set.
+        service.setUserRoles(employee.getId(), List.of(f.manager.getId()), "sa@test.com");
+        assertEquals(Set.of("MANAGER"), codes(employee));
     }
 
     @Test
@@ -198,18 +217,45 @@ class UserManagementServiceRolesTest {
 
         service.setUserRoles(otherSa.getId(), List.of(f.hrAdmin.getId()), "sa@test.com");
 
-        assertEquals(Set.of("EMPLOYEE", "HR_ADMIN"), codes(otherSa));
+        assertEquals(Set.of("HR_ADMIN"), codes(otherSa));
     }
 
     @Test
-    void autoGrantedManager_isKeptEvenIfOmitted() {
+    void removedManagerRole_staysRemoved_nothingIsRestoredImplicitly() {
+        // MANAGER is never re-added behind an administrator's back (it used to be restored for
+        // "auto-granted" managers). Only what was explicitly requested remains.
         employee.getRoles().add(f.manager);
-        doAnswer(inv -> { inv.<Set<Role>>getArgument(1).add(f.manager); return null; })
-                .when(managerRoleSyncService).restoreIfAutoGranted(eq(employee.getId()), any());
 
         service.setUserRoles(employee.getId(), List.of(f.userAdmin.getId()), "sa@test.com");
 
-        assertEquals(Set.of("EMPLOYEE", "MANAGER", "CUSTOM_USER_ADMIN"), codes(employee));
+        assertEquals(Set.of("CUSTOM_USER_ADMIN"), codes(employee));
+    }
+
+    @Test
+    void plainEmployeeWithNoRoleRow_savedAsEmployee_isNotARoleChange() {
+        // The edit form always sends the primary role; for a plain employee that is EMPLOYEE — with
+        // no EMPLOYEE row to compare against, it must not look like a change (no logout, no audit).
+        User plain = user("plain@test.com");
+        UpdateUserRequest req = new UpdateUserRequest();
+        req.setRole("EMPLOYEE");
+        int tv = plain.getTokenVersion();
+
+        service.updateUser(plain.getId(), req, "sa@test.com");
+
+        assertTrue(plain.getRoles().isEmpty());
+        assertEquals(tv, plain.getTokenVersion());
+        verify(auditService, never()).log(any(), eq("ROLE_CHANGED"), any(), anyString(), anyString());
+    }
+
+    @Test
+    void settingTheEmployeeRole_onAManager_removesTheAdministrativeRole_andLeavesNoRoleRow() {
+        User mgr = user("mgr@test.com", f.manager);
+        UpdateUserRequest req = new UpdateUserRequest();
+        req.setRole("EMPLOYEE");
+
+        service.updateUser(mgr.getId(), req, "sa@test.com");
+
+        assertTrue(mgr.getRoles().isEmpty(), "a plain employee holds no role row");
     }
 
     // ─── Other user-management paths must not bypass the same rules ────────────
@@ -242,7 +288,7 @@ class UserManagementServiceRolesTest {
 
         service.updateUser(employee.getId(), req, "sa@test.com");
 
-        assertEquals(Set.of("EMPLOYEE", "MANAGER", "CUSTOM_USER_ADMIN"), codes(employee));
+        assertEquals(Set.of("MANAGER", "CUSTOM_USER_ADMIN"), codes(employee));
     }
 
     @Test

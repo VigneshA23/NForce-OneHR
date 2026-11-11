@@ -13,9 +13,14 @@ import java.util.UUID;
  * here for fast reads and for US-C10's reconciliation check.
  *
  * <p>{@code released} gates employee-facing visibility (US-C12, not built yet, will read this) —
- * deliberately separate from {@link PayrollRun#getStatus()} so a future per-employee rollback
- * (US-C27, not yet implemented) can withdraw one payslip without needing a different run-level
- * status model.
+ * deliberately separate from {@link PayrollRun#getStatus()} so a per-employee rollback (US-C27,
+ * {@code PayrollRunService#rollbackEmployeePayslip}) can withdraw one payslip without needing a
+ * different run-level status model.
+ *
+ * <p>{@code paymentWithheld} is US-C26's "Hold payout" (see {@link SalaryHold}'s own Javadoc):
+ * set by {@code PayrollRunService#disburse} for whichever employee has an ACTIVE {@link
+ * SalaryHoldType#PAYOUT} hold on this run at that moment, rather than excluding them from this
+ * payslip's own generation the way {@link SalaryHoldType#PROCESSING} does.
  */
 @Entity
 @Table(name = "payslips")
@@ -62,6 +67,10 @@ public class Payslip {
     @Column(nullable = false)
     @Builder.Default
     private boolean released = false;
+
+    @Column(name = "payment_withheld", nullable = false)
+    @Builder.Default
+    private boolean paymentWithheld = false;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

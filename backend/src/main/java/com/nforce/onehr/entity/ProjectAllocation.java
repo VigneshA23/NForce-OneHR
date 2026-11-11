@@ -31,6 +31,10 @@ public class ProjectAllocation {
     @Column(name = "end_date", nullable = false)
     private LocalDate endDate;
 
+    /** Set when the allocation ends before its planned endDate; null = still running to plan. */
+    @Column(name = "actual_end_date")
+    private LocalDate actualEndDate;
+
     @Column(name = "created_at", nullable = false, updatable = false, columnDefinition = "TIMESTAMPTZ")
     @Builder.Default
     private Instant createdAt = Instant.now();

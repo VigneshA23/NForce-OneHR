@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { UsersRound } from 'lucide-react';
+import { UsersRound, CheckCircle2 } from 'lucide-react';
+import './bench/bench.css';
 import { useAuthStore } from '../store/authStore';
 import { hasPermission } from '../lib/permissions';
 import { TabBar, type TabDef } from '../components/TabBar';
@@ -32,7 +33,7 @@ export default function BenchPage() {
   const [flash, setFlash] = useState('');
 
   return (
-    <div>
+    <div className="nf-bn">
       <PageTitleBlock card icon={UsersRound} style={{ marginBottom: 14 }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--txt)', margin: 0, fontFamily: 'Inter, sans-serif' }}>Bench Management</h1>
         <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: 13 }}>
@@ -44,11 +45,9 @@ export default function BenchPage() {
 
       {canManage ? (
         <>
-          <TabBar tabs={HR_TABS} active={tab} onChange={t => { setTab(t); setFlash(''); }} ariaLabel="Bench sections" style={{ marginBottom: 16 }} />
+          <TabBar tabs={HR_TABS} active={tab} onChange={t => { setTab(t); setFlash(''); }} ariaLabel="Bench sections" className="nf-pilltabs" style={{ marginBottom: 16 }} />
           {flash && (
-            <div role="status" style={{ background: 'rgba(47,182,124,.12)', border: '1px solid rgba(47,182,124,.3)', borderRadius: 6, padding: '8px 10px', marginBottom: 12, color: 'var(--ok)', fontSize: 12.5 }}>
-              {flash}
-            </div>
+            <div role="status" className="nf-bn-flash"><CheckCircle2 size={16} />{flash}</div>
           )}
           {tab === 'overview' && <OverviewSection token={token} />}
           {tab === 'list' && <BenchListSection token={token} />}

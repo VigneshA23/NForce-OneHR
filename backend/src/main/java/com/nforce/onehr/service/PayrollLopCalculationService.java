@@ -21,22 +21,26 @@ import java.util.stream.Collectors;
 /**
  * US-C04 (ONEHR-610) / US-C05 (ONEHR-611), Phase 2 — computes Loss-of-Pay days for one employee
  * over one {@link PayGroup#resolveCycle} window, and lets an HR Admin override the result.
+ * {@code PayrollRunService#buildPayslip} consumes {@code effectiveLopDays} directly; this service
+ * only computes and stores the number, same as before.
  *
  * <p><b>Formula source and its limits:</b> the divisor-is-the-pay-cycle's-own-day-count rule and
  * the per-component proration shape come from a Keka product walkthrough (2026-11-03/04), not a
  * confirmed BA spec — its own notes flag the exact daily-rate-vs-proportional-gross formula,
- * half-day "no attendance" support, and per-pay-group divisor variation as still open. This
- * service only computes and stores the LOP day count (Phase 2's own scope); nothing here applies
- * it to a payslip yet — that's Phase 3, once {@code PayrollRun} exists to consume it.
+ * half-day "no attendance" support, and per-pay-group divisor variation as still open.
  *
- * <p><b>Three components, summed into {@code computedLopDays}:</b>
+ * <p><b>Four components, summed into {@code computedLopDays}:</b>
  * <ol>
  *   <li><b>Unpaid leave</b> — approved {@link LeaveRequest}s whose {@link LeaveType} is
  *       {@link LeaveTypeClassification#UNPAID}, attributed to whichever cycle contains the
  *       request's startDate. (Simplification: a request spanning a cycle boundary is NOT split —
- *       its full totalDays goes to the start cycle. Revisit if that matters in practice.)</li>
+ *       its full totalDays goes to the start cycle. Revisit if that matters in practice.) US-C22:
+ *       excludes any request a Payroll Admin has rejected for the given {@code runId} — see
+ *       {@link RecomputeLopRequest#getRunId()}.</li>
  *   <li><b>Penalty-driven LOP</b> — {@link AttendancePenalty#getLopDays()} for still-active
- *       ({@code PENDING_REVIEW}) penalties with {@code incidentDate} in the cycle.</li>
+ *       ({@code PENDING_REVIEW}) penalties with {@code incidentDate} in the cycle. US-C22's reject
+ *       path calls {@code AttendancePenaltyService#cancelBulk} directly, so a rejected penalty
+ *       simply stops matching this query — no separate exclusion logic needed here.</li>
  *   <li><b>No-attendance days</b> — {@link WorkingDayService} expected-working dates with no
  *       {@link Attendance} row, no penalty, no leave. Per the Keka walkthrough ("if an employee
  *       has no paid leave balance, the system automatically treats the absence as unpaid"): a date
@@ -44,6 +48,9 @@ import java.util.stream.Collectors;
  *       the cycle start's year) is zero or less; otherwise it's left for a human to resolve
  *       (US-C23's "No Attendance" review step) and listed in {@code needsManualReviewDates}
  *       instead of being silently counted.</li>
+ *   <li><b>US-C23 "mark LOP" decisions</b> — one extra day per {@code NO_ATTENDANCE} review item
+ *       a Payroll Admin has explicitly marked {@link NoAttendanceReviewDecision#MARK_LOP} for the
+ *       given {@code runId}, on top of the no-attendance shortcut above.</li>
  * </ol>
  */
 @Service
@@ -61,6 +68,7 @@ public class PayrollLopCalculationService {
     private final LeaveTypeRepository leaveTypeRepository;
     private final WorkingDayService workingDayService;
     private final LeaveBalanceAvailabilityService leaveBalanceAvailabilityService;
+    private final PayrollRunReviewItemRepository payrollRunReviewItemRepository;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final AuditService auditService;
@@ -68,11 +76,28 @@ public class PayrollLopCalculationService {
 
     @Transactional
     public PayrollLopCalculationResponse recompute(RecomputeLopRequest req, String actorEmail) {
+        return recomputeWithDetails(req, actorEmail).response();
+    }
+
+    /**
+     * US-C22/US-C23: {@code PayrollRunService#buildPayslip} needs the same unpaid-leave requests
+     * and PENDING_REVIEW penalties this method already fetches, to generate review items right
+     * after — calling it through {@link #recompute} and then re-querying both lists a second time
+     * would double a per-employee round trip this app's Neon pooled endpoint is already tight on
+     * (see {@code application.yml}'s {@code transaction.default-timeout} comment). Returns them
+     * alongside the normal response instead, so {@code recompute} (the standalone admin-endpoint
+     * entry point, which has no such caller) stays a one-line delegate with its public contract
+     * unchanged.
+     */
+    @Transactional
+    public RecomputeResult recomputeWithDetails(RecomputeLopRequest req, String actorEmail) {
         Employee employee = employeeRepository.findById(req.getEmployeeId())
                 .orElseThrow(() -> new NoSuchElementException("Employee not found: " + req.getEmployeeId()));
         PayCycleWindow window = resolveCycle(req.getPayGroupId(), req.getReferenceDate());
+        UUID runId = req.getRunId();
 
-        BigDecimal unpaidLeaveDays = computeUnpaidLeaveDays(employee.getUserId(), window);
+        List<LeaveRequest> unpaidLeaveRequests = findUnpaidLeaveRequests(employee.getUserId(), window);
+        BigDecimal unpaidLeaveDays = sumUnpaidLeaveDays(unpaidLeaveRequests, employee.getUserId(), runId);
         List<AttendancePenalty> penalties = attendancePenaltyRepository.findByEmployeeUserIdAndIncidentDateBetweenAndStatus(
                 employee.getUserId(), window.start(), window.end(), AttendancePenaltyStatus.PENDING_REVIEW);
         BigDecimal penaltyLopDays = penalties.stream()
@@ -88,7 +113,15 @@ public class PayrollLopCalculationService {
                 : BigDecimal.valueOf(noAttendanceDates.size());
         List<LocalDate> needsManualReviewDates = hasAvailablePaidBalance ? noAttendanceDates : List.of();
 
-        BigDecimal computedLopDays = unpaidLeaveDays.add(penaltyLopDays).add(autoLopNoAttendanceDays);
+        // US-C23: each NO_ATTENDANCE review item a Payroll Admin has explicitly marked LOP adds a
+        // day on top of the shortcut above — only reachable when hasAvailablePaidBalance is true,
+        // since that's the only case needsManualReviewDates (and therefore any review item) exists
+        // for this employee at all.
+        BigDecimal markLopDays = (runId != null && hasAvailablePaidBalance)
+                ? BigDecimal.valueOf(payrollRunReviewItemRepository.countMarkLopDecisions(runId, employee.getUserId()))
+                : BigDecimal.ZERO;
+
+        BigDecimal computedLopDays = unpaidLeaveDays.add(penaltyLopDays).add(autoLopNoAttendanceDays).add(markLopDays);
 
         Optional<PayrollLopCalculation> existing = payrollLopCalculationRepository
                 .findByEmployeeIdAndCycleStartAndCycleEnd(employee.getUserId(), window.start(), window.end());
@@ -111,7 +144,12 @@ public class PayrollLopCalculationService {
         String after = auditSnapshot.toJson(computedSnapshot(calc));
         auditService.log(actor.getId(), "PAYROLL_LOP_COMPUTED", calc.getId(), before, after);
 
-        return toResponse(calc);
+        return new RecomputeResult(toResponse(calc), unpaidLeaveRequests, penalties);
+    }
+
+    /** {@link #recomputeWithDetails}'s result — see that method's own Javadoc for why it exists. */
+    public record RecomputeResult(PayrollLopCalculationResponse response,
+            List<LeaveRequest> unpaidLeaveRequests, List<AttendancePenalty> pendingPenalties) {
     }
 
     @Transactional
@@ -153,23 +191,47 @@ public class PayrollLopCalculationService {
         return payGroup.resolveCycle(referenceDate != null ? referenceDate : LocalDate.now());
     }
 
-    private BigDecimal computeUnpaidLeaveDays(UUID employeeId, PayCycleWindow window) {
-        List<UUID> unpaidLeaveTypeIds = leaveTypeRepository.findAll().stream()
+    private BigDecimal sumUnpaidLeaveDays(List<LeaveRequest> requests, UUID employeeId, UUID runId) {
+        // US-C22: a request a Payroll Admin has rejected for THIS run is excluded from the sum —
+        // see PayrollRunReviewItem's own Javadoc for why this exclusion isn't durable across a
+        // regenerate (unlike a rejected/cancelled penalty).
+        Set<UUID> rejectedIds = runId != null
+                ? payrollRunReviewItemRepository.findRejectedLeaveRequestIds(runId, employeeId)
+                : Set.of();
+        return requests.stream()
+                .filter(r -> !rejectedIds.contains(r.getId()))
+                .map(LeaveRequest::getTotalDays)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /** US-C22 reuses this to list the same unpaid-leave requests for review-item generation,
+     * rather than re-deriving "which leave types are unpaid" a second time. */
+    public List<LeaveRequest> findUnpaidLeaveRequests(UUID employeeId, PayCycleWindow window) {
+        List<UUID> unpaidLeaveTypeIds = unpaidLeaveTypeIds();
+        if (unpaidLeaveTypeIds.isEmpty()) return List.of();
+        return leaveRequestRepository.findByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
+                employeeId, unpaidLeaveTypeIds, LEAVE_STATUS_APPROVED, window.start(), window.end());
+    }
+
+    public List<UUID> unpaidLeaveTypeIds() {
+        return leaveTypeRepository.findAll().stream()
                 .filter(lt -> !lt.isPaid())
                 .map(LeaveType::getId)
                 .collect(Collectors.toList());
-        if (unpaidLeaveTypeIds.isEmpty()) return BigDecimal.ZERO;
-
-        BigDecimal sum = leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
-                employeeId, unpaidLeaveTypeIds, LEAVE_STATUS_APPROVED, window.start(), window.end());
-        return sum != null ? sum : BigDecimal.ZERO;
     }
 
     private List<LocalDate> computeNoAttendanceDates(Employee employee, PayCycleWindow window, Set<LocalDate> penalizedDates) {
         WorkingDaySchedule schedule = workingDayService.computeExpectedWorkingDays(employee, window.start(), window.end());
+        // One batched query for the whole cycle rather than one round trip per candidate working
+        // date — an employee with little or no attendance in the cycle (a new joiner, or this
+        // story's own test fixture) used to mean a DB round trip per day, easily tipping this
+        // app's 30s transaction timeout (see application.yml) on its own.
+        Set<LocalDate> attendedDates = attendanceRepository
+                .findByEmployeeUserIdAndWorkDateBetweenOrderByWorkDateDesc(employee.getUserId(), window.start(), window.end())
+                .stream().map(Attendance::getWorkDate).collect(Collectors.toSet());
         return schedule.getWorkingDates().stream()
                 .filter(date -> !penalizedDates.contains(date))
-                .filter(date -> attendanceRepository.findByEmployeeUserIdAndWorkDate(employee.getUserId(), date).isEmpty())
+                .filter(date -> !attendedDates.contains(date))
                 .sorted()
                 .collect(Collectors.toList());
     }

@@ -54,6 +54,7 @@ public class AttendanceRequestController {
 
     /** Approved WFH requests in [from, to] for the caller's direct reports — My Team. */
     @GetMapping("/team/wfh")
+    @PreAuthorize("hasAuthority('attendance_requests:VIEW:TEAM')")
     public List<AttendanceRequestResponse> teamApprovedWfh(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,

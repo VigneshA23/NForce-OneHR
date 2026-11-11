@@ -41,7 +41,16 @@ export interface RoleDetail { role: RoleSummary; grants: Grant[]; members: RoleM
 /** `configurable: false` = still governed by role-code logic on the server; shown read-only. */
 export interface CatalogueModule { code: string; name: string; configurable: boolean; actions: string[]; }
 
-export interface RoleRef { id: number; code: string; name: string; system: boolean; active: boolean; autoGranted: boolean; }
+export interface RoleRef { id: number; code: string; name: string; system: boolean; active: boolean; /** @deprecated MANAGER is no longer granted automatically; always false. */ autoGranted?: boolean; }
+
+/** One audited change to a role; `added`/`removed` are "module:ACTION:SCOPE" strings (permission edits only). */
+export interface RoleHistoryEntry { id: number; occurredAt: string; action: string; actorName: string | null; summary: string; added: string[]; removed: string[]; }
+
+/** A user who holds a permission through an active role, at the widest scope any of those roles grants. */
+export interface PermissionHolder { userId: string; fullName: string; email: string; active: boolean; scope: string; roles: string[]; }
+
+/** Per-user outcome of a bulk membership change. */
+export interface BulkMemberResult { userId: string; name: string; ok: boolean; message: string; }
 
 export interface EffectiveGrant { module: string; moduleName: string; action: string; scope: string; sources: string[]; }
 
@@ -78,6 +87,17 @@ export const rolesApi = {
 
   removeMember: (id: number, userId: string, token: string) =>
     fetch(`${BASE}/roles/${id}/members/${userId}`, { method: 'DELETE', headers: authHeaders(token) }).then(handle<RoleDetail>),
+
+  history: (id: number, token: string) =>
+    fetch(`${BASE}/roles/${id}/history`, { headers: authHeaders(token) }).then(handle<RoleHistoryEntry[]>),
+
+  /** Reverse lookup: who holds module:action through an active role. */
+  holders: (module: string, action: string, token: string) =>
+    fetch(`${BASE}/permissions/holders?module=${encodeURIComponent(module)}&action=${encodeURIComponent(action)}`, { headers: authHeaders(token) }).then(handle<PermissionHolder[]>),
+
+  /** Add or remove one role for several users; each user succeeds or fails on its own. */
+  bulkMembers: (id: number, userIds: string[], remove: boolean, token: string) =>
+    fetch(`${BASE}/roles/${id}/members/bulk`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ userIds, remove }) }).then(handle<BulkMemberResult[]>),
 
   userRoles: (userId: string, token: string) =>
     fetch(`${BASE}/users/${userId}/roles`, { headers: authHeaders(token) }).then(handle<UserRoles>),

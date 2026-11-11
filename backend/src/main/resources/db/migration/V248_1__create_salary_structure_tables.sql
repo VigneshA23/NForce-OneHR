@@ -8,10 +8,15 @@
 -- flyway_schema_history on the shared DB itself before claiming a version, not just local files
 -- or even `dev` — a version can be live from a branch nobody has merged yet.
 --
+-- IDEMPOTENT ON PURPOSE: this exact content was already applied to the shared dev database as V247
+-- (V247 is kept as deployed; this file re-runs it as V248.1 for environments that never had it), so every
+-- statement below is safe to run when the objects already exist (IF NOT EXISTS / ON CONFLICT DO NOTHING).
+-- Nothing here changes data or structure that is already in place.
+--
 -- ============================================================
 -- SALARY STRUCTURES  (a reusable pay-component template, e.g. per grade)
 -- ============================================================
-CREATE TABLE salary_structures (
+CREATE TABLE IF NOT EXISTS salary_structures (
     id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     name            VARCHAR(100) NOT NULL,
     grade           VARCHAR(50),
@@ -21,7 +26,7 @@ CREATE TABLE salary_structures (
 -- ============================================================
 -- SALARY COMPONENTS  (Basic, HRA, allowances, deductions — one row per component on a structure)
 -- ============================================================
-CREATE TABLE salary_components (
+CREATE TABLE IF NOT EXISTS salary_components (
     id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     structure_id    UUID          NOT NULL REFERENCES salary_structures(id),
     name            VARCHAR(50)   NOT NULL,
@@ -33,7 +38,7 @@ CREATE TABLE salary_components (
     CONSTRAINT chk_salary_components_calc_type CHECK (calc_type IN ('FIXED', 'PERCENT_OF_BASIC')),
     CONSTRAINT chk_salary_components_value_non_negative CHECK (value >= 0)
 );
-CREATE INDEX idx_salary_components_structure ON salary_components(structure_id);
+CREATE INDEX IF NOT EXISTS idx_salary_components_structure ON salary_components(structure_id);
 
 -- ============================================================
 -- PERMISSION MATRIX — new 'payroll' module (see V224/V225 for the module x action x scope
@@ -47,12 +52,14 @@ CREATE INDEX idx_salary_components_structure ON salary_components(structure_id);
 -- per that migration's own documented convention, since the trigger beats this INSERT to it.
 -- ============================================================
 INSERT INTO modules (code, display_name) VALUES
-    ('payroll', 'Payroll & Compensation');
+    ('payroll', 'Payroll & Compensation')
+ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO permissions (module_id, action)
 SELECT m.id, v.action
 FROM (VALUES ('payroll', 'VIEW'), ('payroll', 'CONFIGURE')) AS v(module_code, action)
-JOIN modules m ON m.code = v.module_code;
+JOIN modules m ON m.code = v.module_code
+ON CONFLICT (module_id, action) DO NOTHING;
 
 INSERT INTO role_permissions (role_id, permission_id, scope)
 SELECT r.id, p.id, v.scope
