@@ -10,7 +10,7 @@ import { TabBar, type TabDef } from '../../components/TabBar';
 import { useAuthStore } from '../../store/authStore';
 import { hasPermission } from '../../lib/permissions';
 import { useToast } from '../../context/ToastContext';
-import { payrollApi, type PayrollRunResponse, type PayrollRunStatus } from '../../api/payroll';
+import { payrollApi, type PayrollRunResponse, type PayrollRunStatus, type PayGroupResponse } from '../../api/payroll';
 import {
   fmtCurrency, fmtDate, fmtDateTime, StatusBadge, StatTile, Modal, FormRow, labelStyle, inputStyle,
   BtnPrimary, BtnGhost,
@@ -74,10 +74,12 @@ const LEAVE_ATTENDANCE_SUBTABS: TabDef<LeaveAttendanceSubTab>[] = [
   { key: 'payable-units', label: 'Payable Units' },
 ];
 
-type ReimbursementSubTab = 'salary-component-claim' | 'expenses' | 'adhoc-payments' | 'adhoc-deductions';
+// "Salary Component Claim" and "Expenses" used to be two separate sub-tabs that rendered the
+// exact same component with no difference — reads as broken ("I clicked a different tab and
+// nothing changed") rather than two genuinely distinct views. Collapsed into one.
+type ReimbursementSubTab = 'salary-component-claim' | 'adhoc-payments' | 'adhoc-deductions';
 const REIMBURSEMENT_SUBTABS: TabDef<ReimbursementSubTab>[] = [
-  { key: 'salary-component-claim', label: 'Salary Component Claim' },
-  { key: 'expenses', label: 'Expenses' },
+  { key: 'salary-component-claim', label: 'Salary Component Claim / Expenses' },
   { key: 'adhoc-payments', label: 'Adhoc Payments', icon: <PlusCircle size={14} /> },
   { key: 'adhoc-deductions', label: 'Adhoc Deductions', icon: <MinusCircle size={14} /> },
 ];
@@ -143,6 +145,7 @@ export default function PayrollRunDetailPage() {
   const { showToast } = useToast();
 
   const [run, setRun] = useState<PayrollRunResponse | null>(null);
+  const [payGroups, setPayGroups] = useState<PayGroupResponse[]>([]);
   const [step, setStep] = useState<StepKey>('overview');
   const [leaveAttendanceSubTab, setLeaveAttendanceSubTab] = useState<LeaveAttendanceSubTab>('leave-applied');
   const [reimbursementSubTab, setReimbursementSubTab] = useState<ReimbursementSubTab>('adhoc-payments');
@@ -158,6 +161,11 @@ export default function PayrollRunDetailPage() {
   }, [runId, token]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // Pay Group name only, for the header — there's no second pay group's worth of UI to build yet,
+  // just a one-time reminder of which pay group this run belongs to (today's only real gap once a
+  // company has more than one).
+  useEffect(() => { payrollApi.listPayGroups(token).then(setPayGroups).catch(() => {}); }, [token]);
 
   async function act(action: () => Promise<PayrollRunResponse>, successMessage: string) {
     setBusy(true);
@@ -177,6 +185,7 @@ export default function PayrollRunDetailPage() {
   }
 
   const actions = canConfigure ? availableActions(run.status) : [];
+  const payGroupName = payGroups.find(pg => pg.id === run.payGroupId)?.name;
 
   return (
     <div style={{ padding: '24px 28px' }}>
@@ -189,7 +198,10 @@ export default function PayrollRunDetailPage() {
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>
             {fmtDate(run.cycleStart)} – {fmtDate(run.cycleEnd)}
           </h1>
-          <div style={{ marginTop: 4 }}><StatusBadge status={run.status} /></div>
+          <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <StatusBadge status={run.status} />
+            {payGroupName && <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{payGroupName}</span>}
+          </div>
         </PageTitleBlock>
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -256,14 +268,14 @@ export default function PayrollRunDetailPage() {
         <div>
           <TabBar tabs={BONUS_REVISIONS_OT_SUBTABS} active={bonusRevisionsOtSubTab} onChange={setBonusRevisionsOtSubTab} size="sm" ariaLabel="Bonus, salary revisions and overtime steps" style={{ marginBottom: 16 }} />
           {bonusRevisionsOtSubTab === 'bonus-ot' && <AdHocPaymentsTab runId={runId} canConfigure={canConfigure} />}
-          {bonusRevisionsOtSubTab === 'salary-revision' && <SalaryRevisionTab payGroupId={run.payGroupId} canConfigure={canConfigure} />}
+          {bonusRevisionsOtSubTab === 'salary-revision' && <SalaryRevisionTab runId={runId} payGroupId={run.payGroupId} canConfigure={canConfigure} />}
         </div>
       )}
 
       {step === 'reimbursement-adhoc' && (
         <div>
           <TabBar tabs={REIMBURSEMENT_SUBTABS} active={reimbursementSubTab} onChange={setReimbursementSubTab} size="sm" ariaLabel="Reimbursement, adhoc payment and deduction steps" style={{ marginBottom: 16 }} />
-          {(reimbursementSubTab === 'salary-component-claim' || reimbursementSubTab === 'expenses') && <SalaryComponentClaimTab runId={runId} />}
+          {reimbursementSubTab === 'salary-component-claim' && <SalaryComponentClaimTab runId={runId} />}
           {reimbursementSubTab === 'adhoc-payments' && <AdHocPaymentsTab runId={runId} canConfigure={canConfigure} />}
           {reimbursementSubTab === 'adhoc-deductions' && <AdHocDeductionsTab runId={runId} canConfigure={canConfigure} />}
         </div>

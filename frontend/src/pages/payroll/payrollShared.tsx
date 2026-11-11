@@ -90,6 +90,29 @@ export function SectionHead({ title, action }: { title: string; action?: ReactNo
   );
 }
 
+// Consistent "you can look but not touch" wording — several tabs used to just silently omit
+// their Add/Create button for a non-configuring viewer with no explanation at all, while others
+// (SalaryRevisionTab) already explained why. Same message everywhere now.
+export function NoPermissionNote({ action }: { action: string }) {
+  return <span style={{ fontSize: 13, color: 'var(--txt-dim)' }}>View only — you don't have permission to {action}.</span>;
+}
+
+// The hand-rolled "Select… + employees.map(...)" dropdown used to be copy-pasted near-identically
+// across half a dozen tabs (Ad-hoc Payments/Deductions, Salary Holds, Statutory Override, Employee
+// Compensation, Salary Revision) — some scoped to the full org directory, others to just this
+// run's own employees. `options` takes whichever list the caller already has and how it wants each
+// one labelled, so this stays agnostic to that distinction rather than picking one for everybody.
+export function EmployeePicker({ value, onChange, options }: {
+  value: string; onChange: (id: string) => void; options: { id: string; label: string }[];
+}) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)} style={inputStyle}>
+      <option value="">Select…</option>
+      {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+    </select>
+  );
+}
+
 export function EmptyRow({ cols, msg }: { cols: number; msg: string }) {
   return (
     <tr>
@@ -122,6 +145,35 @@ function modalIconFor(title: string): LucideIcon {
   if (t.includes('payment')) return Receipt;
   if (t.includes('override') || t.includes('lop')) return FileCheck2;
   return Wallet;
+}
+
+// A plain yes/no confirmation for an irreversible action with no other input to collect (removing
+// an ad-hoc payment, cancelling a deduction, releasing a hold, clearing an override) — distinct
+// from the Reason-collecting modals (Rollback, Reject) elsewhere in this module, which already
+// have their own built-in pause-before-acting step. None of ActionDock's own danger-flagged items
+// had one until now; a misclick used to fire immediately.
+export function ConfirmDialog({ title, message, confirmLabel = 'Confirm', onConfirm, onClose }: {
+  title: string; message: string; confirmLabel?: string; onConfirm: () => Promise<void> | void; onClose: () => void;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  async function handleConfirm() {
+    setSubmitting(true);
+    try {
+      await onConfirm();
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  }
+  return (
+    <Modal title={title} onClose={onClose}>
+      <div style={{ fontSize: 13.5, color: 'var(--txt-mut)', marginBottom: 18 }}>{message}</div>
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+        <BtnGhost onClick={onClose}>Cancel</BtnGhost>
+        <BtnPrimary onClick={handleConfirm} disabled={submitting}>{submitting ? 'Working…' : confirmLabel}</BtnPrimary>
+      </div>
+    </Modal>
+  );
 }
 
 export function Modal({ title, subtitle, onClose, children, wide }: { title: string; subtitle?: string | null; onClose: () => void; children: ReactNode; wide?: boolean }) {

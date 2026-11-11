@@ -427,6 +427,9 @@ export const payrollApi = {
   decideNoAttendance: (runId: string, itemId: string, payload: { action: 'DEDUCT_FROM_LEAVE' | 'MARK_LOP' | 'NO_ACTION'; selectedLeaveTypeId?: string; comment?: string }, token: string) =>
     fetch(`${BASE}/runs/${runId}/review/no-attendance/${itemId}/decide`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayrollRunReviewItemResponse>),
 
+  bulkDecideNoAttendance: (runId: string, payload: { itemIds: string[]; action: 'DEDUCT_FROM_LEAVE' | 'MARK_LOP' | 'NO_ACTION'; selectedLeaveTypeId?: string; comment?: string }, token: string) =>
+    fetch(`${BASE}/runs/${runId}/review/no-attendance/decide`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayrollRunReviewItemResponse[]>),
+
   // US-C24 — Ad-hoc payments (run-scoped)
   listAdHocPayments: (runId: string, token: string) =>
     fetch(`${BASE}/runs/${runId}/ad-hoc-payments`, { headers: bearerOnly(token) }).then(handle<AdHocPaymentResponse[]>),

@@ -159,10 +159,18 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, canConfigure }: { r
   useEffect(reload, [runId, token]);
 
   const { pageRows, pagerProps } = usePaged(payslips, [runId]);
+  const totalNet = payslips.reduce((sum, p) => sum + p.netPay, 0);
 
   return (
     <div>
-      <SectionHead title="Payslips" />
+      <SectionHead
+        title="Payslips"
+        action={payslips.length > 0 && (
+          <span style={{ fontSize: 13, color: 'var(--txt-mut)' }}>
+            {payslips.length} payslip{payslips.length === 1 ? '' : 's'} · {fmtCurrency(totalNet)} total net
+          </span>
+        )}
+      />
       <div style={panelStyle}>
         <table className="nf-pr-table nf-pr-table-clickable" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>

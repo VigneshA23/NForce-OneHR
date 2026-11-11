@@ -22,11 +22,23 @@ export function ArrearsTab({ runId }: { runId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId, token]);
 
+  const pending = rows.filter(r => r.status === 'PENDING');
+  const applied = rows.filter(r => r.status === 'APPLIED');
+  const pendingTotal = pending.reduce((sum, r) => sum + r.amount, 0);
+
   return (
     <div>
-      <SectionHead title="Arrears" />
+      <SectionHead
+        title="Arrears"
+        action={rows.length > 0 && (
+          <span style={{ fontSize: 13, color: 'var(--txt-mut)' }}>
+            {pending.length} pending ({fmtCurrency(pendingTotal)}) · {applied.length} already applied
+          </span>
+        )}
+      />
       <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
         Auto-computed from backdated salary revisions, LOP reversals and salary hold releases — never manually entered.
+        A PENDING row lands on this employee's next payslip; an APPLIED one already has.
       </div>
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>

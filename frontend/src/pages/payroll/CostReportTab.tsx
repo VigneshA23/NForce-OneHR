@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayrollCostReportResponse, type PayrollRunStatus } from '../../api/payroll';
-import { panelStyle, thStyle, tdStyle, fmtCurrency, EmptyRow, SectionHead, StatTile } from './payrollShared';
-import { Users, IndianRupee, MinusCircle } from 'lucide-react';
+import { panelStyle, thStyle, tdStyle, fmtCurrency, EmptyRow, SectionHead } from './payrollShared';
 
 /** US-C16 — only buildable once a run leaves DRAFT/SUBMITTED (the backend enforces this; the
  * report's own department/project splits aren't meaningful until the run's numbers are final). */
@@ -33,13 +32,9 @@ export function CostReportTab({ runId, runStatus }: { runId: string; runStatus: 
 
   return (
     <div>
-      <div className="nf-pr-tiles" style={{ marginBottom: 22 }}>
-        <StatTile tone="var(--info)" icon={<Users size={20} />} label="Employees" value={String(report.employeeCount)} />
-        <StatTile tone="var(--brand)" icon={<IndianRupee size={20} />} label="Gross Pay" value={fmtCurrency(report.grossPay)} />
-        <StatTile tone="var(--warn)" icon={<MinusCircle size={20} />} label="Deductions" value={fmtCurrency(report.totalDeductions)} />
-        <StatTile tone="var(--ok)" icon={<IndianRupee size={20} />} label="Net Pay" value={fmtCurrency(report.netPay)} />
-      </div>
-
+      {/* No Employees/Gross/Deductions/Net tiles here — the run console's top-level KPI row
+          (PayrollRunDetailPage.tsx) already shows those same totals on every step. This tab's
+          own job is the department/project breakdown below, not a restatement of the run total. */}
       <SectionHead title="By Department" />
       <div style={{ ...panelStyle, marginBottom: 24 }}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>

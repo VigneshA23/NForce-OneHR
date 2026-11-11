@@ -7,7 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type AdHocPaymentResponse, type SalaryComponentCatalogResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDateTime, EmptyRow, Modal, FormRow, labelStyle,
-  inputStyle, BtnPrimary, BtnGhost, SectionHead, useEmployeeDirectory,
+  inputStyle, BtnPrimary, BtnGhost, SectionHead, NoPermissionNote, ConfirmDialog, EmployeePicker, useEmployeeDirectory,
 } from './payrollShared';
 
 function AddPaymentModal({ runId, components, onClose, onCreated }: {
@@ -46,10 +46,7 @@ function AddPaymentModal({ runId, components, onClose, onCreated }: {
     <Modal title="Add Ad-hoc Payment" subtitle="A one-off amount for this run, added at face value — never prorated for LOP or joiner/exit." onClose={onClose}>
       <FormRow>
         <label style={labelStyle}>Employee *</label>
-        <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
-          <option value="">Select…</option>
-          {employees.map(e => <option key={e.userId} value={e.userId}>{e.fullName}</option>)}
-        </select>
+        <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employees.map(e => ({ id: e.userId, label: e.fullName }))} />
       </FormRow>
       <FormRow>
         <label style={labelStyle}>Component *</label>
@@ -80,6 +77,7 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
   const [payments, setPayments] = useState<AdHocPaymentResponse[]>([]);
   const [components, setComponents] = useState<SalaryComponentCatalogResponse[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [removing, setRemoving] = useState<AdHocPaymentResponse | null>(null);
 
   function reload() {
     payrollApi.listAdHocPayments(runId, token).then(setPayments).catch(() => showToast('error', 'Failed to load ad-hoc payments'));
@@ -106,7 +104,16 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
     <div>
       <SectionHead
         title="Ad-hoc Payments"
-        action={canConfigure && <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Payment</BtnPrimary>}
+        action={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {payments.length > 0 && (
+              <span style={{ fontSize: 13, color: 'var(--txt-mut)' }}>{fmtCurrency(payments.reduce((sum, p) => sum + p.amount, 0))} this cycle</span>
+            )}
+            {canConfigure ? (
+              <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Payment</BtnPrimary>
+            ) : <NoPermissionNote action="add ad-hoc payments" />}
+          </div>
+        }
       />
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -123,7 +130,7 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
                 <td style={tdStyle}>{p.addedByName}</td>
                 <td style={tdStyle}>{fmtDateTime(p.addedAt)}</td>
                 <td style={tdStyle}>
-                  {canConfigure && <ActionDock items={[{ label: 'Remove', icon: Trash2, danger: true, onClick: () => remove(p.id) }]} />}
+                  {canConfigure && <ActionDock items={[{ label: 'Remove', icon: Trash2, danger: true, onClick: () => setRemoving(p) }]} />}
                 </td>
               </tr>
             ))}
@@ -137,6 +144,15 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
           components={components}
           onClose={() => setShowAdd(false)}
           onCreated={p => setPayments(prev => [p, ...prev])}
+        />
+      )}
+      {removing && (
+        <ConfirmDialog
+          title="Remove Ad-hoc Payment"
+          message={`Remove the ${fmtCurrency(removing.amount)} ${removing.componentName} payment for ${nameFor(removing.employeeId)}? This can't be undone.`}
+          confirmLabel="Remove"
+          onClose={() => setRemoving(null)}
+          onConfirm={() => remove(removing.id)}
         />
       )}
     </div>

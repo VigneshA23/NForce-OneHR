@@ -2,16 +2,22 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { payrollApi, type SalaryStructureResponse, type EmployeeCompensationResponse } from '../../api/payroll';
-import { fmtCurrency, fmtDate, FormRow, labelStyle, inputStyle, BtnPrimary, SectionHead, useEmployeeDirectory } from './payrollShared';
+import { fmtCurrency, fmtDate, FormRow, labelStyle, inputStyle, BtnPrimary, SectionHead, EmployeePicker, useEmployeeDirectory } from './payrollShared';
 
 /** Keka's "Salary Revisions" sub-step — a run-scoped convenience wrapper around the same
  * assignCompensation call the Settings page's Employee Compensation tab uses for the general
  * case. A revision whose effectiveFrom lands on/before an already-closed cycle automatically
- * produces an Arrears row (see ArrearsTab) — this form itself doesn't need to know that. */
-export function SalaryRevisionTab({ payGroupId, canConfigure }: { payGroupId: string; canConfigure: boolean }) {
+ * produces an Arrears row (see ArrearsTab) — this form itself doesn't need to know that.
+ *
+ * Employee picker is genuinely run-scoped (this run's own payslips, same pattern as
+ * AdHocDeductionsTab) — it used to offer the full org roster despite being documented as a
+ * run-scoped convenience, which was misleading even though the backend validates pay group
+ * membership separately regardless. */
+export function SalaryRevisionTab({ runId, payGroupId, canConfigure }: { runId: string; payGroupId: string; canConfigure: boolean }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
-  const { employees } = useEmployeeDirectory();
+  const { nameFor } = useEmployeeDirectory();
+  const [employeeIds, setEmployeeIds] = useState<string[]>([]);
   const [structures, setStructures] = useState<SalaryStructureResponse[]>([]);
   const [employeeId, setEmployeeId] = useState('');
   const [structureId, setStructureId] = useState('');
@@ -19,6 +25,10 @@ export function SalaryRevisionTab({ payGroupId, canConfigure }: { payGroupId: st
   const [effectiveFrom, setEffectiveFrom] = useState('');
   const [current, setCurrent] = useState<EmployeeCompensationResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    payrollApi.listPayslips(runId, token).then(payslips => setEmployeeIds(payslips.map(p => p.employeeId))).catch(() => {});
+  }, [runId, token]);
 
   useEffect(() => {
     payrollApi.listSalaryStructures(token).then(setStructures).catch(() => {});
@@ -60,10 +70,7 @@ export function SalaryRevisionTab({ payGroupId, canConfigure }: { payGroupId: st
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 14 }}>
             <FormRow>
               <label style={labelStyle}>Employee *</label>
-              <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
-                <option value="">Select…</option>
-                {employees.map(e => <option key={e.userId} value={e.userId}>{e.fullName}</option>)}
-              </select>
+              <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employeeIds.map(id => ({ id, label: nameFor(id) }))} />
             </FormRow>
             <FormRow>
               <label style={labelStyle}>Salary Structure *</label>

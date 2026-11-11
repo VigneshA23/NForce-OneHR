@@ -6,7 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type StatutoryOverrideResponse, type StatutoryPreviewResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, FormRow, labelStyle, inputStyle,
-  BtnPrimary, SectionHead, useEmployeeDirectory,
+  BtnPrimary, SectionHead, NoPermissionNote, ConfirmDialog, EmployeePicker, useEmployeeDirectory,
 } from './payrollShared';
 
 const RULE_TYPES = ['PF', 'ESI', 'PROFESSIONAL_TAX'];
@@ -26,6 +26,7 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<StatutoryPreviewResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [clearing, setClearing] = useState<StatutoryOverrideResponse | null>(null);
 
   function reload(forEmployeeId: string) {
     if (!forEmployeeId) { setOverrides([]); return; }
@@ -78,16 +79,18 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
 
   return (
     <div>
+      {!canConfigure && (
+        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 22px', marginBottom: 20 }}>
+          <NoPermissionNote action="create statutory overrides" />
+        </div>
+      )}
       {canConfigure && (
         <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 22px', marginBottom: 20 }}>
           <SectionHead title="Override Statutory Deduction" />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 14 }}>
             <FormRow>
               <label style={labelStyle}>Employee *</label>
-              <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
-                <option value="">Select…</option>
-                {employees.map(e => <option key={e.userId} value={e.userId}>{e.fullName}</option>)}
-              </select>
+              <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employees.map(e => ({ id: e.userId, label: e.fullName }))} />
             </FormRow>
             <FormRow>
               <label style={labelStyle}>Rule Type *</label>
@@ -132,7 +135,7 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
                     <td style={tdStyle}>{o.overrideReason}</td>
                     <td style={tdStyle}>{fmtDate(o.overriddenAt)}</td>
                     <td style={tdStyle}>
-                      {canConfigure && <ActionDock items={[{ label: 'Clear', icon: Ban, onClick: () => clear(o) }]} />}
+                      {canConfigure && <ActionDock items={[{ label: 'Clear', icon: Ban, danger: true, onClick: () => setClearing(o) }]} />}
                     </td>
                   </tr>
                 ))}
@@ -141,6 +144,15 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
             </table>
           </div>
         </div>
+      )}
+      {clearing && (
+        <ConfirmDialog
+          title="Clear Override"
+          message={`Clear the ${clearing.ruleType.replace(/_/g, ' ')} override for ${nameFor(clearing.employeeId)}? Their next regenerate will fall back to the StatutoryRule formula.`}
+          confirmLabel="Clear"
+          onClose={() => setClearing(null)}
+          onConfirm={() => clear(clearing)}
+        />
       )}
     </div>
   );

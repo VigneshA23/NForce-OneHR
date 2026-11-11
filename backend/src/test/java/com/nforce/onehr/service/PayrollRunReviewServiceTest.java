@@ -308,4 +308,94 @@ class PayrollRunReviewServiceTest {
 
         assertThrows(IllegalArgumentException.class, () -> service.decideNoAttendance(runId, item.getId(), req, actorEmail));
     }
+
+    @Test
+    void bulkDecideNoAttendance_markLop_decidesEveryItem() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(run()));
+        PayrollRunReviewItem item1 = PayrollRunReviewItem.builder().id(UUID.randomUUID()).payrollRun(run())
+                .employeeId(employeeId).stepType(PayrollRunReviewStepType.NO_ATTENDANCE)
+                .sourceType(PayrollReviewItemSourceType.NO_ATTENDANCE).itemDate(cycleStart).days(BigDecimal.ONE)
+                .decision(NoAttendanceReviewDecision.PENDING).build();
+        PayrollRunReviewItem item2 = PayrollRunReviewItem.builder().id(UUID.randomUUID()).payrollRun(run())
+                .employeeId(employeeId).stepType(PayrollRunReviewStepType.NO_ATTENDANCE)
+                .sourceType(PayrollReviewItemSourceType.NO_ATTENDANCE).itemDate(cycleStart.plusDays(1)).days(BigDecimal.ONE)
+                .decision(NoAttendanceReviewDecision.PENDING).build();
+        when(payrollRunReviewItemRepository.findByIdIn(List.of(item1.getId(), item2.getId()))).thenReturn(List.of(item1, item2));
+
+        BulkDecideNoAttendanceRequest req = new BulkDecideNoAttendanceRequest();
+        req.setItemIds(List.of(item1.getId(), item2.getId()));
+        req.setAction("MARK_LOP");
+
+        List<PayrollRunReviewItemResponse> result = service.bulkDecideNoAttendance(runId, req, actorEmail);
+
+        assertEquals(2, result.size());
+        assertTrue(result.stream().allMatch(r -> "MARK_LOP".equals(r.getDecision())));
+        verify(auditService, times(2)).log(eq(actorId), eq("PAYROLL_RUN_REVIEW_NO_ATTENDANCE_DECIDED"), any(), any(), any());
+    }
+
+    @Test
+    void bulkDecideNoAttendance_deductFromLeave_requiresLeaveTypeId() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(run()));
+        BulkDecideNoAttendanceRequest req = new BulkDecideNoAttendanceRequest();
+        req.setItemIds(List.of(UUID.randomUUID()));
+        req.setAction("DEDUCT_FROM_LEAVE");
+
+        assertThrows(IllegalArgumentException.class, () -> service.bulkDecideNoAttendance(runId, req, actorEmail));
+        verifyNoInteractions(payrollRunReviewItemRepository);
+    }
+
+    @Test
+    void bulkDecideNoAttendance_noAction_requiresComment() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(run()));
+        BulkDecideNoAttendanceRequest req = new BulkDecideNoAttendanceRequest();
+        req.setItemIds(List.of(UUID.randomUUID()));
+        req.setAction("NO_ACTION");
+
+        assertThrows(IllegalArgumentException.class, () -> service.bulkDecideNoAttendance(runId, req, actorEmail));
+    }
+
+    @Test
+    void bulkDecideNoAttendance_itemFromDifferentRun_rejectsWholeBatch() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(run()));
+        PayrollRun otherRun = PayrollRun.builder().id(UUID.randomUUID()).status(PayrollRunStatus.DRAFT).build();
+        PayrollRunReviewItem item = PayrollRunReviewItem.builder().id(UUID.randomUUID()).payrollRun(otherRun)
+                .employeeId(employeeId).stepType(PayrollRunReviewStepType.NO_ATTENDANCE)
+                .sourceType(PayrollReviewItemSourceType.NO_ATTENDANCE).itemDate(cycleStart).days(BigDecimal.ONE)
+                .decision(NoAttendanceReviewDecision.PENDING).build();
+        when(payrollRunReviewItemRepository.findByIdIn(List.of(item.getId()))).thenReturn(List.of(item));
+
+        BulkDecideNoAttendanceRequest req = new BulkDecideNoAttendanceRequest();
+        req.setItemIds(List.of(item.getId()));
+        req.setAction("MARK_LOP");
+
+        assertThrows(NoSuchElementException.class, () -> service.bulkDecideNoAttendance(runId, req, actorEmail));
+        verify(payrollRunReviewItemRepository, never()).save(any());
+    }
+
+    @Test
+    void bulkDecideNoAttendance_wrongStepType_rejectsWholeBatch() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(run()));
+        PayrollRunReviewItem item = PayrollRunReviewItem.builder().id(UUID.randomUUID()).payrollRun(run())
+                .employeeId(employeeId).stepType(PayrollRunReviewStepType.LEAVE_APPLIED)
+                .sourceType(PayrollReviewItemSourceType.LEAVE_UNPAID).itemDate(cycleStart).days(BigDecimal.ONE)
+                .decision(LeaveReviewDecision.PENDING).build();
+        when(payrollRunReviewItemRepository.findByIdIn(List.of(item.getId()))).thenReturn(List.of(item));
+
+        BulkDecideNoAttendanceRequest req = new BulkDecideNoAttendanceRequest();
+        req.setItemIds(List.of(item.getId()));
+        req.setAction("MARK_LOP");
+
+        assertThrows(IllegalArgumentException.class, () -> service.bulkDecideNoAttendance(runId, req, actorEmail));
+    }
+
+    @Test
+    void bulkDecideNoAttendance_missingItem_rejectsWholeBatch() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(run()));
+        BulkDecideNoAttendanceRequest req = new BulkDecideNoAttendanceRequest();
+        req.setItemIds(List.of(UUID.randomUUID()));
+        req.setAction("MARK_LOP");
+        when(payrollRunReviewItemRepository.findByIdIn(req.getItemIds())).thenReturn(List.of());
+
+        assertThrows(NoSuchElementException.class, () -> service.bulkDecideNoAttendance(runId, req, actorEmail));
+    }
 }

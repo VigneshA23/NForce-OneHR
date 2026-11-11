@@ -4,7 +4,7 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type SalaryStructureResponse, type EmployeeCompensationResponse, type PayGroupResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, FormRow, labelStyle, inputStyle,
-  BtnPrimary, SectionHead, useEmployeeDirectory,
+  BtnPrimary, SectionHead, EmployeePicker, useEmployeeDirectory,
 } from './payrollShared';
 
 export function EmployeeCompensationTab({ structures, payGroups }: { structures: SalaryStructureResponse[]; payGroups: PayGroupResponse[] }) {
@@ -15,7 +15,10 @@ export function EmployeeCompensationTab({ structures, payGroups }: { structures:
   const [payGroupId, setPayGroupId] = useState(payGroups[0]?.id ?? '');
   const [structureId, setStructureId] = useState(structures[0]?.id ?? '');
   const [ctc, setCtc] = useState('');
-  const [effectiveFrom, setEffectiveFrom] = useState('2025-01-01');
+  // Defaults to today, not a stale hardcoded past date — a revision submitted without noticing
+  // this field would otherwise silently backdate, raising a spurious Arrears row (see
+  // EmployeeCompensationService#raiseArrearsForBackdatedRevision) for every closed cycle since.
+  const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [current, setCurrent] = useState<EmployeeCompensationResponse | null>(null);
   const [history, setHistory] = useState<EmployeeCompensationResponse[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -58,10 +61,7 @@ export function EmployeeCompensationTab({ structures, payGroups }: { structures:
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 14 }}>
           <FormRow>
             <label style={labelStyle}>Employee *</label>
-            <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
-              <option value="">Select…</option>
-              {employees.map(e => <option key={e.userId} value={e.userId}>{e.fullName} ({e.departmentName ?? 'No dept'})</option>)}
-            </select>
+            <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employees.map(e => ({ id: e.userId, label: `${e.fullName} (${e.departmentName ?? 'No dept'})` }))} />
           </FormRow>
           <FormRow>
             <label style={labelStyle}>Pay Group *</label>

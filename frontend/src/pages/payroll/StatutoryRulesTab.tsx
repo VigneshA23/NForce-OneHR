@@ -9,7 +9,12 @@ import {
   BtnPrimary, BtnGhost, SectionHead,
 } from './payrollShared';
 
-const RULE_TYPE_SUGGESTIONS = ['PF', 'ESI', 'PROFESSIONAL_TAX', 'TDS', 'LWF', 'GRATUITY'];
+// Only these three are actually read by StatutoryDeductionService.computeDeductions — TDS and
+// Gratuity are explicitly out of scope (see that service's own Javadoc: TDS needs a full annual
+// income-tax slab computation, Gratuity is an employer-side accrual, never a payslip line item).
+// A rule saved under any other name is valid data but will never be computed by payroll — the
+// note below the field says so; this list is deliberately not open to suggesting them.
+const RULE_TYPE_SUGGESTIONS = ['PF', 'ESI', 'PROFESSIONAL_TAX'];
 
 function ReviseRuleModal({ onClose, onCreated }: { onClose: () => void; onCreated: (r: StatutoryRuleResponse) => void }) {
   const token = useAuthStore(s => s.token)!;
@@ -59,6 +64,11 @@ function ReviseRuleModal({ onClose, onCreated }: { onClose: () => void; onCreate
         <datalist id="rule-type-suggestions">
           {RULE_TYPE_SUGGESTIONS.map(t => <option key={t} value={t} />)}
         </datalist>
+        {ruleType && !RULE_TYPE_SUGGESTIONS.includes(ruleType) && (
+          <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 4 }}>
+            Payroll only computes PF, ESI and Professional Tax today — a rule saved under "{ruleType}" will be stored but never applied to a payslip.
+          </div>
+        )}
       </FormRow>
       <FormRow>
         <label style={labelStyle}>Effective From *</label>

@@ -7,7 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type SalaryHoldResponse, type SalaryHoldType } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtDateTime, StatusBadge, EmptyRow, Modal, FormRow, labelStyle,
-  inputStyle, BtnPrimary, BtnGhost, SectionHead, useEmployeeDirectory,
+  inputStyle, BtnPrimary, BtnGhost, SectionHead, NoPermissionNote, ConfirmDialog, EmployeePicker, useEmployeeDirectory,
 } from './payrollShared';
 
 function CreateHoldModal({ runId, fixedType, onClose, onCreated }: {
@@ -46,10 +46,7 @@ function CreateHoldModal({ runId, fixedType, onClose, onCreated }: {
     >
       <FormRow>
         <label style={labelStyle}>Employee *</label>
-        <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
-          <option value="">Select…</option>
-          {employees.map(e => <option key={e.userId} value={e.userId}>{e.fullName}</option>)}
-        </select>
+        <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employees.map(e => ({ id: e.userId, label: e.fullName }))} />
       </FormRow>
       {!fixedType && (
         <FormRow>
@@ -81,6 +78,7 @@ export function SalaryHoldsTab({ runId, holdType, canConfigure }: { runId: strin
   const { nameFor } = useEmployeeDirectory();
   const [holds, setHolds] = useState<SalaryHoldResponse[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [releasing, setReleasing] = useState<SalaryHoldResponse | null>(null);
 
   function reload() {
     payrollApi.listSalaryHolds(runId, token).then(setHolds).catch(() => showToast('error', 'Failed to load salary holds'));
@@ -105,7 +103,9 @@ export function SalaryHoldsTab({ runId, holdType, canConfigure }: { runId: strin
     <div>
       <SectionHead
         title={holdType === 'PAYOUT' ? 'Salary Payout on Hold' : holdType === 'PROCESSING' ? 'Salary Processing on Hold' : 'Salary Holds'}
-        action={canConfigure && <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Employee</BtnPrimary>}
+        action={canConfigure
+          ? <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Employee</BtnPrimary>
+          : <NoPermissionNote action="add holds" />}
       />
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -123,7 +123,7 @@ export function SalaryHoldsTab({ runId, holdType, canConfigure }: { runId: strin
                 <td style={tdStyle}>{h.releasedByName ? `${h.releasedByName} · ${fmtDateTime(h.releasedAt)}` : '–'}</td>
                 <td style={tdStyle}>
                   {canConfigure && h.status === 'ACTIVE' && (
-                    <ActionDock items={[{ label: 'Release', icon: Unlock, onClick: () => release(h.id) }]} />
+                    <ActionDock items={[{ label: 'Release', icon: Unlock, onClick: () => setReleasing(h) }]} />
                   )}
                 </td>
               </tr>
@@ -134,6 +134,15 @@ export function SalaryHoldsTab({ runId, holdType, canConfigure }: { runId: strin
       </div>
       {showAdd && (
         <CreateHoldModal runId={runId} fixedType={holdType} onClose={() => setShowAdd(false)} onCreated={h => setHolds(prev => [h, ...prev])} />
+      )}
+      {releasing && (
+        <ConfirmDialog
+          title="Release Hold"
+          message={`Release the ${releasing.holdType.toLowerCase()} hold for ${nameFor(releasing.employeeId)}? They'll be included again starting with the next regenerate.`}
+          confirmLabel="Release"
+          onClose={() => setReleasing(null)}
+          onConfirm={() => release(releasing.id)}
+        />
       )}
     </div>
   );

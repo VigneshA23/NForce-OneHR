@@ -6,7 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type AdHocDeductionResponse, type SalaryComponentCatalogResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, StatusBadge, EmptyRow, Modal, FormRow,
-  labelStyle, inputStyle, BtnPrimary, BtnGhost, SectionHead, useEmployeeDirectory,
+  labelStyle, inputStyle, BtnPrimary, BtnGhost, SectionHead, NoPermissionNote, ConfirmDialog, EmployeePicker, useEmployeeDirectory,
 } from './payrollShared';
 
 function CreateDeductionModal({ employeeId, components, onClose, onCreated }: {
@@ -79,6 +79,7 @@ export function AdHocDeductionsTab({ runId, canConfigure }: { runId: string; can
   const [deductions, setDeductions] = useState<AdHocDeductionResponse[]>([]);
   const [components, setComponents] = useState<SalaryComponentCatalogResponse[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [cancelling, setCancelling] = useState<AdHocDeductionResponse | null>(null);
 
   // This run's own employees — ad-hoc deductions are employee-scoped, not run-scoped (they're
   // applied as installments across whichever future runs are open when they're created).
@@ -113,14 +114,22 @@ export function AdHocDeductionsTab({ runId, canConfigure }: { runId: string; can
     <div>
       <SectionHead
         title="Ad-hoc Deductions"
-        action={canConfigure && employeeId && <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Deduction</BtnPrimary>}
+        action={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            {deductions.length > 0 && (
+              <span style={{ fontSize: 13, color: 'var(--txt-mut)' }}>
+                {fmtCurrency(deductions.reduce((sum, d) => sum + d.remainingBalance, 0))} remaining across {deductions.length} plan{deductions.length === 1 ? '' : 's'}
+              </span>
+            )}
+            {employeeId && (canConfigure
+              ? <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Deduction</BtnPrimary>
+              : <NoPermissionNote action="add ad-hoc deductions" />)}
+          </div>
+        }
       />
       <div style={{ marginBottom: 16, maxWidth: 320 }}>
         <label style={labelStyle}>Employee (from this run)</label>
-        <select value={employeeId} onChange={e => setEmployeeId(e.target.value)} style={inputStyle}>
-          <option value="">Select…</option>
-          {employeeIds.map(id => <option key={id} value={id}>{nameFor(id)}</option>)}
-        </select>
+        <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employeeIds.map(id => ({ id, label: nameFor(id) }))} />
       </div>
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -138,7 +147,7 @@ export function AdHocDeductionsTab({ runId, canConfigure }: { runId: string; can
                 <td style={tdStyle}>{d.reason}</td>
                 <td style={tdStyle}>
                   {canConfigure && d.status === 'ACTIVE' && (
-                    <ActionDock items={[{ label: 'Cancel', icon: Ban, danger: true, onClick: () => cancel(d.id) }]} />
+                    <ActionDock items={[{ label: 'Cancel', icon: Ban, danger: true, onClick: () => setCancelling(d) }]} />
                   )}
                 </td>
               </tr>
@@ -153,6 +162,15 @@ export function AdHocDeductionsTab({ runId, canConfigure }: { runId: string; can
           components={components}
           onClose={() => setShowAdd(false)}
           onCreated={d => setDeductions(prev => [d, ...prev])}
+        />
+      )}
+      {cancelling && (
+        <ConfirmDialog
+          title="Cancel Deduction"
+          message={`Cancel the ${cancelling.componentName} deduction plan (${fmtCurrency(cancelling.remainingBalance)} remaining)? Future installments will no longer be deducted.`}
+          confirmLabel="Cancel Deduction"
+          onClose={() => setCancelling(null)}
+          onConfirm={() => cancel(cancelling.id)}
         />
       )}
     </div>

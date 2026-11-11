@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Wallet, Download, IndianRupee } from 'lucide-react';
+import { Wallet, Download, IndianRupee, CalendarDays } from 'lucide-react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -53,7 +53,7 @@ export default function MyFinancesPage() {
         <div className="nf-pr-tiles" style={{ marginBottom: 22 }}>
           <StatTile tone="var(--brand)" icon={<IndianRupee size={20} />} label="Current CTC" value={fmtCurrency(current.ctc)} />
           <StatTile tone="var(--info)" icon={<Wallet size={20} />} label="Salary Structure" value={current.structureName} />
-          <StatTile tone="var(--ok)" icon={<IndianRupee size={20} />} label="Effective From" value={fmtDate(current.effectiveFrom)} />
+          <StatTile tone="var(--ok)" icon={<CalendarDays size={20} />} label="Effective From" value={fmtDate(current.effectiveFrom)} />
         </div>
       )}
 
