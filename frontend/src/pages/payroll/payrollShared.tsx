@@ -122,17 +122,29 @@ export function EmptyRow({ cols, msg }: { cols: number; msg: string }) {
 }
 
 /** KPI tile: label and icon on top, the number at the bottom, a coloured edge on the left. */
-export function StatTile({ label, value, hint, icon, tone }: { label: string; value: string; hint?: string; icon: ReactNode; tone: string }) {
-  return (
-    <div className="nf-pr-tile" style={{ ['--mk' as string]: tone }}>
+// onClick is optional — most StatTile uses are pure KPI display (the run console's
+// Employees/Gross/Deductions/Net row has nowhere to navigate to). Where a tile corresponds to an
+// actual section elsewhere on the page (Payroll Setup's per-section counts), passing onClick turns
+// it into a quick-nav button too — same visual, doubling as the thing the user asked for either way.
+export function StatTile({ label, value, hint, icon, tone, onClick }: { label: string; value: string; hint?: string; icon: ReactNode; tone: string; onClick?: () => void }) {
+  const content = (
+    <>
       <div className="nf-pr-tile-top">
         <span className="nf-pr-tile-label">{label}</span>
         <span className="nf-pr-tile-ico">{icon}</span>
       </div>
       <div className="nf-pr-tile-val">{value}</div>
       {hint && <div className="nf-pr-tile-hint">{hint}</div>}
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" className="nf-pr-tile" style={{ ['--mk' as string]: tone, cursor: 'pointer', textAlign: 'left', width: '100%', font: 'inherit', color: 'inherit' }} onClick={onClick}>
+        {content}
+      </button>
+    );
+  }
+  return <div className="nf-pr-tile" style={{ ['--mk' as string]: tone }}>{content}</div>;
 }
 
 // ── Modal wrapper ─────────────────────────────────────────

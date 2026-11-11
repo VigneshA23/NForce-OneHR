@@ -7,6 +7,7 @@ import { hasPermission } from '../../lib/permissions';
 import {
   payrollApi, type SalaryStructureResponse, type SalaryComponentCatalogResponse, type PayGroupResponse,
 } from '../../api/payroll';
+import { StatTile } from './payrollShared';
 import { SalaryComponentsTab } from './SalaryComponentsTab';
 import { SalaryStructuresTab } from './SalaryStructuresTab';
 import { PayGroupsTab } from './PayGroupsTab';
@@ -71,6 +72,31 @@ export default function PayrollSetupPage() {
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Payroll Setup</h1>
         <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Components, structures, pay groups and compensation — everything a payroll run needs before it can generate. Statutory rules live under Statutory Compliance.</p>
       </PageTitleBlock>
+
+      {/* Stat cards double as quick-nav buttons to their own tab — "where do I go to see my pay
+          groups?" shouldn't require reading tab labels first. */}
+      <div className="nf-pr-tiles" style={{ marginBottom: 22 }}>
+        <StatTile
+          tone="var(--info)" icon={<Receipt size={20} />} label="Salary Components"
+          value={String(catalog.length)} hint={`${catalog.filter(c => c.active).length} active`}
+          onClick={() => setSection('components')}
+        />
+        <StatTile
+          tone="var(--brand)" icon={<FileStack size={20} />} label="Salary Structures"
+          value={String(structures.length)} hint={structures.length === 0 ? 'None created yet' : undefined}
+          onClick={() => setSection('structures')}
+        />
+        <StatTile
+          tone="var(--ok)" icon={<WalletIcon size={20} />} label="Pay Groups"
+          value={String(payGroups.length)} hint={`${payGroups.filter(pg => pg.active).length} active`}
+          onClick={() => setSection('pay-groups')}
+        />
+        <StatTile
+          tone="var(--warn)" icon={<UserCog size={20} />} label="Employee Compensation"
+          value="Manage" hint="Assign or revise an employee's pay"
+          onClick={() => setSection('compensation')}
+        />
+      </div>
 
       <TabBar tabs={SECTIONS} active={section} onChange={setSection} ariaLabel="Payroll setup sections" className="nf-pilltabs" style={{ marginBottom: 18 }} />
 

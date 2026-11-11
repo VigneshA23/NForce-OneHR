@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Plus, History } from 'lucide-react';
+import { Plus, History, CheckCircle2, AlertCircle } from 'lucide-react';
 import { ActionDock } from '../../components/ActionDock';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { payrollApi, type StatutoryRuleResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtDate, EmptyRow, Modal, FormRow, labelStyle, inputStyle,
-  BtnPrimary, BtnGhost, SectionHead,
+  BtnPrimary, BtnGhost, SectionHead, StatTile,
 } from './payrollShared';
 
 // Only these three are actually read by StatutoryDeductionService.computeDeductions — TDS and
@@ -15,6 +15,7 @@ import {
 // A rule saved under any other name is valid data but will never be computed by payroll — the
 // note below the field says so; this list is deliberately not open to suggesting them.
 const RULE_TYPE_SUGGESTIONS = ['PF', 'ESI', 'PROFESSIONAL_TAX'];
+const RULE_TYPE_LABEL: Record<string, string> = { PF: 'Provident Fund', ESI: 'ESI', PROFESSIONAL_TAX: 'Professional Tax' };
 
 function ReviseRuleModal({ onClose, onCreated }: { onClose: () => void; onCreated: (r: StatutoryRuleResponse) => void }) {
   const token = useAuthStore(s => s.token)!;
@@ -133,6 +134,24 @@ export function StatutoryRulesTab() {
 
   return (
     <div>
+      {/* At-a-glance: is each statutory deduction actually configured, so a rule saved under the
+          wrong country/name (or just never created) is obvious without reading the table below. */}
+      <div className="nf-pr-tiles" style={{ marginBottom: 22 }}>
+        {RULE_TYPE_SUGGESTIONS.map(type => {
+          const rule = rules.find(r => r.ruleType === type);
+          return (
+            <StatTile
+              key={type}
+              tone={rule ? 'var(--ok)' : 'var(--warn)'}
+              icon={rule ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
+              label={RULE_TYPE_LABEL[type] ?? type}
+              value={rule ? 'Configured' : 'Not Set Up'}
+              hint={rule ? `${rule.country} · effective ${fmtDate(rule.effectiveFrom)}` : 'No rule saved for this yet — payslips will skip this deduction'}
+            />
+          );
+        })}
+      </div>
+
       <SectionHead
         title="Statutory Rules"
         action={<BtnPrimary onClick={() => setShowCreate(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add / Revise Rule</BtnPrimary>}
