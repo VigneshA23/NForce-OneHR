@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { dashboardApi } from '../api/dashboard';
+import { hasPermission } from './permissions';
 
 // Employee ID lookup for screens whose records carry only an employee's name/user id.
 //
@@ -30,16 +31,19 @@ function load(token: string, isHr: boolean): Promise<Map<string, string>> {
 
 export function useEmployeeCodes(): (userId: string | null | undefined) => string | null {
   const token = useAuthStore(s => s.token) ?? '';
-  const role = useAuthStore(s => s.user?.role);
-  const isHr = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  const permissions = useAuthStore(s => s.permissions);
+  // Org-wide codes need employees:VIEW:ALL; a team's need employees:VIEW:TEAM (the endpoints' own gates).
+  // Anyone with neither has no team to look up, so nothing is fetched.
+  const isHr = hasPermission(permissions, 'employees', 'VIEW', 'ALL');
+  const canLookUp = isHr || hasPermission(permissions, 'employees', 'VIEW', 'TEAM');
   const [map, setMap] = useState<Map<string, string>>(() => cache?.map ?? new Map());
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !canLookUp) return;
     let live = true;
     load(token, isHr).then(m => { if (live) setMap(m); });
     return () => { live = false; };
-  }, [token, isHr]);
+  }, [token, isHr, canLookUp]);
 
   return (userId) => (userId ? map.get(userId) ?? null : null);
 }

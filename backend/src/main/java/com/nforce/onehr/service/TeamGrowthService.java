@@ -45,7 +45,9 @@ public class TeamGrowthService {
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
         boolean isOverride = effectivePermissionService.hasAuthority(actor, "talent_skills:VIEW:ALL");
-        if (!isOverride && !directReportScopeService.isDirectReport(actorEmail, employeeUserId)) {
+        // Reporting line is eligibility only: the relationship path also needs skill_ratings:VIEW:TEAM.
+        boolean teamViewer = effectivePermissionService.hasAuthority(actor, "skill_ratings:VIEW:TEAM");
+        if (!isOverride && !(teamViewer && directReportScopeService.isDirectReport(actorEmail, employeeUserId))) {
             throw new AccessDeniedException("This person is not your direct report");
         }
         String employeeName = employeeRepository.findById(employeeUserId)

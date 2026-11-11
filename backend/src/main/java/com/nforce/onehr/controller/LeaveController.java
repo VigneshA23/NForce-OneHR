@@ -56,6 +56,7 @@ public class LeaveController {
     }
 
     /** Current-year balances for the caller's current direct reports — My Team roster. */
+    @PreAuthorize("hasAuthority('leave:VIEW:TEAM')")
     @GetMapping("/balances/team")
     public List<LeaveBalanceResponse> teamBalances(Principal principal) {
         return leaveService.listTeamBalances(principal.getName());
@@ -80,11 +81,13 @@ public class LeaveController {
         return leaveService.update(id, req, principal.getName());
     }
 
+    @PreAuthorize("hasAuthority('leave:APPROVE:TEAM')")
     @GetMapping("/approvals")
     public List<LeaveRequestResponse> pendingApprovals(Principal principal) {
         return leaveService.listPendingApprovals(principal.getName());
     }
 
+    @PreAuthorize("hasAuthority('leave:VIEW:TEAM')")
     @GetMapping("/team")
     public List<LeaveRequestResponse> team(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
@@ -111,11 +114,13 @@ public class LeaveController {
         return leaveService.listPeerLeave(principal.getName(), from, to);
     }
 
+    @PreAuthorize("hasAuthority('leave:APPROVE:TEAM')")
     @PostMapping("/requests/{id}/approve")
     public LeaveRequestResponse approve(@PathVariable UUID id, Principal principal) {
         return leaveService.approve(id, principal.getName());
     }
 
+    @PreAuthorize("hasAuthority('leave:APPROVE:TEAM')")
     @PostMapping("/requests/{id}/reject")
     public LeaveRequestResponse reject(@PathVariable UUID id,
                                         @Valid @RequestBody RejectLeaveRequestRequest req,

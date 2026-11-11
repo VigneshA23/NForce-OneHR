@@ -26,10 +26,39 @@ public final class RoleUtils {
 
     private RoleUtils() {}
 
-    /** Returns the highest-priority Role in the collection, or empty if null/empty. */
+    /**
+     * Returns the highest-priority BUILT-IN role in the collection, or empty if there is none. A
+     * custom role is never a "primary" role: this feeds the 7-code {@code role} contract the
+     * frontend/AI/audit all rely on, so a user holding only custom roles resolves to the caller's
+     * fallback (EMPLOYEE) instead of leaking a CUSTOM_* code.
+     */
     public static Optional<Role> primaryRole(Collection<Role> roles) {
         if (roles == null || roles.isEmpty()) return Optional.empty();
-        return roles.stream().min(Comparator.comparingInt(r -> rank(r.getCode())));
+        return roles.stream()
+                .filter(r -> PRIORITY_ORDER.contains(r.getCode()))
+                .min(Comparator.comparingInt(r -> rank(r.getCode())));
+    }
+
+    /**
+     * Audit/approval-history LABEL only, never an access decision: the highest-priority role code
+     * including custom roles (built-ins first, then a custom role), or {@code fallback} if none.
+     * Unlike {@link #primaryRoleCode} it may return a CUSTOM_* code — use it only where a custom
+     * approver should be labelled with their own role.
+     */
+    public static String labelRoleCode(Collection<Role> roles, String fallback) {
+        if (roles == null || roles.isEmpty()) return fallback;
+        return roles.stream().min(Comparator.comparingInt(r -> rank(r.getCode()))).map(Role::getCode).orElse(fallback);
+    }
+
+    /**
+     * Role codes used to match audience targeting (policies, announcements…): every assigned role
+     * plus EMPLOYEE, which is the baseline every user has whether or not an EMPLOYEE role row exists.
+     */
+    public static Set<String> effectiveRoleCodes(Collection<Role> roles) {
+        Set<String> codes = new HashSet<>();
+        if (roles != null) for (Role r : roles) codes.add(r.getCode());
+        codes.add("EMPLOYEE");
+        return codes;
     }
 
     /** Returns the highest-priority role code, or {@code fallback} if null/empty. */
@@ -62,7 +91,8 @@ public final class RoleUtils {
      */
     public static Set<String> audienceBuckets(Collection<Role> roles) {
         if (roles == null) return Set.of();
-        Set<String> buckets = new HashSet<>();
+        // EMPLOYEE is the baseline of every user, independent of any EMPLOYEE role row.
+        Set<String> buckets = new HashSet<>(Set.of("EMPLOYEE"));
         for (Role r : roles) {
             String bucket = AUDIENCE_BUCKET.get(r.getCode());
             if (bucket != null) buckets.add(bucket);

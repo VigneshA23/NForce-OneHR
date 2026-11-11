@@ -25,6 +25,8 @@ class RoleUtilsTest {
             case "FINANCE" -> 5;
             case "DELIVERY" -> 6;
             case "EMPLOYEE" -> 7;
+            case "CUSTOM_TEAM_LEAD" -> 8;
+            case "CUSTOM_OTHER" -> 9;
             default -> throw new IllegalArgumentException("Unknown code: " + code);
         };
     }
@@ -108,14 +110,48 @@ class RoleUtilsTest {
         // Same collapse as the frontend's toShellRole() — these three fold into EMPLOYEE for nav,
         // and (via rolesFor()) a user holding one of them also holds EMPLOYEE for real, so this
         // is a defensive check on the mapping table itself, not a case that occurs without it.
-        assertEquals(Set.of(), RoleUtils.audienceBuckets(Set.of(role("LEADERSHIP"))));
-        assertEquals(Set.of(), RoleUtils.audienceBuckets(Set.of(role("FINANCE"))));
-        assertEquals(Set.of(), RoleUtils.audienceBuckets(Set.of(role("DELIVERY"))));
+        // They contribute no bucket of their own; EMPLOYEE is the baseline of every user.
+        assertEquals(Set.of("EMPLOYEE"), RoleUtils.audienceBuckets(Set.of(role("LEADERSHIP"))));
+        assertEquals(Set.of("EMPLOYEE"), RoleUtils.audienceBuckets(Set.of(role("FINANCE"))));
+        assertEquals(Set.of("EMPLOYEE"), RoleUtils.audienceBuckets(Set.of(role("DELIVERY"))));
     }
 
     @Test
-    void emptyOrNullRoles_returnsEmptyBucketSet() {
-        assertEquals(Set.of(), RoleUtils.audienceBuckets(Set.of()));
+    void noRoles_stillBucketsToEmployee_nullIsDefensivelyEmpty() {
+        // Baseline: a user with no role row at all is still an Employee for Help & Guidance audiences.
+        assertEquals(Set.of("EMPLOYEE"), RoleUtils.audienceBuckets(Set.of()));
         assertEquals(Set.of(), RoleUtils.audienceBuckets(null));
+    }
+
+    @Test
+    void userWithNoEmployeeRoleRow_managerAndCustom_bucketsToEmployeeAndManager() {
+        assertEquals(Set.of("EMPLOYEE", "MANAGER"),
+                RoleUtils.audienceBuckets(Set.of(role("MANAGER"), role("CUSTOM_TEAM_LEAD"))));
+    }
+
+    // ── custom roles are never a "primary" role ─────────────────────────────────
+
+    @Test
+    void customRoleOnly_primaryIsTheEmployeeFallback_neverACustomCode() {
+        assertEquals("EMPLOYEE", RoleUtils.primaryRoleCode(Set.of(role("CUSTOM_TEAM_LEAD")), "EMPLOYEE"));
+        assertNull(RoleUtils.primaryRoleCode(Set.of(role("CUSTOM_TEAM_LEAD")), null));
+    }
+
+    @Test
+    void customRolePlusBuiltIn_primaryIsTheBuiltIn() {
+        assertEquals("MANAGER", RoleUtils.primaryRoleCode(Set.of(role("CUSTOM_TEAM_LEAD"), role("MANAGER")), "EMPLOYEE"));
+    }
+
+    @Test
+    void labelRoleCode_mayReturnACustomCode_forApprovalHistoryLabels() {
+        assertEquals("CUSTOM_TEAM_LEAD", RoleUtils.labelRoleCode(Set.of(role("CUSTOM_TEAM_LEAD")), "EMPLOYEE"));
+        assertEquals("MANAGER", RoleUtils.labelRoleCode(Set.of(role("CUSTOM_TEAM_LEAD"), role("MANAGER")), "EMPLOYEE"));
+        assertEquals("EMPLOYEE", RoleUtils.labelRoleCode(Set.of(), "EMPLOYEE"));
+    }
+
+    @Test
+    void effectiveRoleCodes_alwaysIncludeTheBaseline() {
+        assertEquals(Set.of("EMPLOYEE", "CUSTOM_TEAM_LEAD"), RoleUtils.effectiveRoleCodes(Set.of(role("CUSTOM_TEAM_LEAD"))));
+        assertEquals(Set.of("EMPLOYEE"), RoleUtils.effectiveRoleCodes(null));
     }
 }

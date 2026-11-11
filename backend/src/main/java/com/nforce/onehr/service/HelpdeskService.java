@@ -92,8 +92,9 @@ public class HelpdeskService {
 
         auditService.log(employee.getId(), "HELPDESK_TICKET_CREATED", ticket.getId());
 
-        // Active-only: a deactivated HR/Super Admin shouldn't be paged for a brand-new ticket.
-        for (UUID hrUserId : userRepo.findActiveAdminUserIds()) {
+        // Active-only, and permission-driven: whoever holds helpdesk:EDIT:ALL (seeded HR Admin +
+        // Super Admin, or any custom role granted it) is paged — a deactivated agent isn't.
+        for (UUID hrUserId : assignableUserIds()) {
             notificationService.send(hrUserId, "HELPDESK_TICKET_CREATED",
                     "New Help Desk ticket",
                     "Ticket " + ticket.getTicketNumber() + " (" + category.getName() + ") raised by "
@@ -193,7 +194,7 @@ public class HelpdeskService {
                     "New reply on ticket " + ticket.getTicketNumber(), LINK_ADMIN_QUEUE);
         } else {
             // Active-only, same reasoning as createTicket's fan-out above.
-            for (UUID hrUserId : userRepo.findActiveAdminUserIds()) {
+            for (UUID hrUserId : assignableUserIds()) {
                 notificationService.send(hrUserId, "HELPDESK_TICKET_REPLIED",
                         "Employee replied on an unassigned ticket",
                         "New reply on ticket " + ticket.getTicketNumber(), LINK_ADMIN_QUEUE);
@@ -368,7 +369,7 @@ public class HelpdeskService {
                     "Ticket reopened",
                     "Ticket " + ticket.getTicketNumber() + " was reopened by the employee", LINK_ADMIN_QUEUE);
         } else {
-            for (UUID hrUserId : userRepo.findActiveAdminUserIds()) {
+            for (UUID hrUserId : assignableUserIds()) {
                 notificationService.send(hrUserId, "HELPDESK_TICKET_REOPENED",
                         "Ticket reopened",
                         "Ticket " + ticket.getTicketNumber() + " was reopened by the employee", LINK_ADMIN_QUEUE);
@@ -642,8 +643,8 @@ public class HelpdeskService {
         return actor;
     }
 
-    /** Active users who can work (and so be assigned) a ticket — helpdesk:EDIT:ALL, seeded to the
-     *  same HR_ADMIN + SUPER_ADMIN pair findActiveAdminUserIds returns. */
+    /** Active users who can work (be assigned and be paged about) a ticket — helpdesk:EDIT:ALL, seeded
+     *  to HR_ADMIN + SUPER_ADMIN; a custom role granted it qualifies too. */
     private Set<UUID> assignableUserIds() {
         return effectivePermissionService.activeUserIdsWithAuthority("helpdesk", "EDIT", "ALL");
     }

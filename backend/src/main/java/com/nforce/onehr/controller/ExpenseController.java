@@ -9,6 +9,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
@@ -75,21 +76,25 @@ public class ExpenseController {
     // ── Manager stage ─────────────────────────────────────
     // Decisions are made HERE — not on Team Assets page.
 
+    @PreAuthorize("hasAuthority('expenses:APPROVE:TEAM')")
     @GetMapping("/claims/pending-manager")
     public List<ExpenseClaimResponse> pendingForManager(Principal principal) {
         return expenseService.pendingForManager(principal.getName());
     }
 
+    @PreAuthorize("hasAuthority('expenses:VIEW:TEAM')")
     @GetMapping("/claims/team-all")
     public List<ExpenseClaimResponse> allTeamClaims(Principal principal) {
         return expenseService.allTeamClaims(principal.getName());
     }
 
+    @PreAuthorize("hasAuthority('expenses:APPROVE:TEAM')")
     @PostMapping("/claims/{id}/manager-approve")
     public ExpenseClaimResponse managerApprove(@PathVariable UUID id, Principal principal) {
         return expenseService.managerApprove(id, principal.getName());
     }
 
+    @PreAuthorize("hasAuthority('expenses:APPROVE:TEAM')")
     @PostMapping("/claims/{id}/manager-reject")
     public ExpenseClaimResponse managerReject(@PathVariable UUID id,
                                                @Valid @RequestBody RejectExpenseClaimRequest req,
@@ -136,6 +141,7 @@ public class ExpenseController {
         return expenseService.employeeTileSummary(principal.getName());
     }
 
+    @PreAuthorize("hasAuthority('expenses:VIEW:TEAM')")
     @GetMapping("/tiles/manager")
     public Map<String, Object> managerTiles(Principal principal) {
         return expenseService.managerTileSummary(principal.getName());

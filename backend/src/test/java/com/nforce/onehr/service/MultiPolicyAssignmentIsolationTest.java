@@ -105,7 +105,7 @@ class MultiPolicyAssignmentIsolationTest {
                 shiftVersionResolver, shiftRepository, SeedMatrix.permissionService());
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
-        lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeAId, employeeBId));
+        lenient().when(userRepository.findAttendancePolicySubjectIds()).thenReturn(Set.of(employeeAId, employeeBId));
         lenient().when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser()));
         lenient().when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                 any(), anyString(), any(), any())).thenReturn(List.of());
@@ -224,7 +224,7 @@ class MultiPolicyAssignmentIsolationTest {
         when(employeeRepository.findById(employeeAId)).thenReturn(Optional.of(employee(employeeAId, null)));
         when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeAId), date, date))
                 .thenReturn(List.of(lateAttendance(employeeAId, 20)));
-        lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeAId));
+        lenient().when(userRepository.findAttendancePolicySubjectIds()).thenReturn(Set.of(employeeAId));
         when(employeeRepository.findAllByIdWithScheduleDetails(any()))
                 .thenReturn(List.of(employee(employeeAId, null)));
 

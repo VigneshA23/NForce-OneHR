@@ -120,11 +120,11 @@ public class ExceptionService {
      * for any user holding both roles.
      *
      * This dashboard is an individual-contributor view only: an exception subject must
-     * hold the EMPLOYEE role and none of MANAGER/HR_ADMIN/SUPER_ADMIN (see
-     * UserRepository.findEmployeeRoleUserIds()). Admin/HR/Manager accounts never appear
-     * as exception subjects, company-wide or as a direct report, even if they were also
-     * granted EMPLOYEE (e.g. to punch in/out themselves) or their own attendance would
-     * otherwise qualify.
+     * be an ordinary employee: none of MANAGER/HR_ADMIN/SUPER_ADMIN and no current direct
+     * reports (see UserRepository.findAttendancePolicySubjectIds(); no EMPLOYEE role row is
+     * required). Admin/HR/Manager accounts never appear as exception subjects, company-wide or as
+     * a direct report, even though they punch in/out like everyone else or their own attendance
+     * would otherwise qualify.
      */
     @Transactional
     public List<ExceptionResponse> getExceptionsForCaller(String actorEmail, LocalDate from, LocalDate to) {
@@ -166,7 +166,7 @@ public class ExceptionService {
     private List<UUID> resolveCallerScopeIds(String actorEmail, String module) {
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
-        Set<UUID> employeeRoleIds = userRepository.findEmployeeRoleUserIds();
+        Set<UUID> employeeRoleIds = userRepository.findAttendancePolicySubjectIds();
 
         if (effectivePermissionService.hasAuthority(actor, module + ":VIEW:ALL")) {
             return new java.util.ArrayList<>(employeeRoleIds);
@@ -740,8 +740,8 @@ public class ExceptionService {
     private void evaluatePolicy(Attendance record, String exceptionType) {
         // The nightly run now detects (and emails) every role, but the Penalization Policy has only
         // ever applied to EMPLOYEE-only accounts — keep it that way.
-        // ponytail: one findEmployeeRoleUserIds() per newly-detected row; cache per run if a big backlog makes it slow.
-        if (!userRepository.findEmployeeRoleUserIds().contains(record.getEmployeeUserId())) {
+        // ponytail: one findAttendancePolicySubjectIds() per newly-detected row; cache per run if a big backlog makes it slow.
+        if (!userRepository.findAttendancePolicySubjectIds().contains(record.getEmployeeUserId())) {
             return;
         }
         if (isPastEmploymentTermination(record.getEmployeeUserId(), record.getWorkDate())) {

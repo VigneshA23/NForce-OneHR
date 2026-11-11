@@ -150,7 +150,7 @@ class ExceptionServiceDetectionTest {
                 currentEmployeeShift == null ? Optional.empty()
                         : Optional.of(EmployeeShiftAssignment.builder().employeeUserId(employeeId).shift(currentEmployeeShift).effectiveFrom(LocalDate.MIN).build()));
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
-        lenient().when(userRepository.findEmployeeRoleUserIds()).thenReturn(Set.of(employeeId));
+        lenient().when(userRepository.findAttendancePolicySubjectIds()).thenReturn(Set.of(employeeId));
         lenient().when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser()));
         lenient().when(leaveRequestRepository.findByEmployeeUserIdInAndStatusAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                 any(), anyString(), any(), any())).thenReturn(List.of());

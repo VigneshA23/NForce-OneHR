@@ -38,7 +38,8 @@ class TeamGrowthServiceTest {
 
     private final EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
             "CUSTOM_TALENT_VIEWER", Map.of("talent_skills:VIEW", "ALL"),
-            "CUSTOM_OTHER", Map.of("talent_skills:CONFIGURE", "ALL")));
+            "CUSTOM_OTHER", Map.of("talent_skills:CONFIGURE", "ALL"),
+            "CUSTOM_TEAM_SKILLS", Map.of("skill_ratings:VIEW", "TEAM")));
 
     private TeamGrowthService service;
     private final UUID stranger = UUID.randomUUID();
@@ -66,10 +67,27 @@ class TeamGrowthServiceTest {
     }
 
     @Test
+    void directReportsAreViewable_onlyWithTheTeamPermission_aReportingLineAloneIsNotEnough() {
+        // Manager (seeded skill_ratings:VIEW:TEAM) and a custom role granted it — no MANAGER role needed.
+        for (String code : List.of("MANAGER", "CUSTOM_TEAM_SKILLS")) {
+            String email = actor(code);
+            when(directReportScopeService.isDirectReport(email, stranger)).thenReturn(true);
+            assertEquals(stranger, service.getEmployeeGrowth(email, stranger).getEmployeeUserId(), code);
+        }
+        // Holds no team permission although they ARE the person's direct manager: denied.
+        String plain = actor("CUSTOM_OTHER");
+        lenient().when(directReportScopeService.isDirectReport(plain, stranger)).thenReturn(true);
+        assertThrows(AccessDeniedException.class, () -> service.getEmployeeGrowth(plain, stranger));
+        String employee = actor("EMPLOYEE");
+        lenient().when(directReportScopeService.isDirectReport(employee, stranger)).thenReturn(true);
+        assertThrows(AccessDeniedException.class, () -> service.getEmployeeGrowth(employee, stranger));
+    }
+
+    @Test
     void everyoneElse_isLimitedToTheirDirectReports() {
         for (String code : List.of("EMPLOYEE", "MANAGER", "CUSTOM_OTHER")) {
             String email = actor(code);
-            when(directReportScopeService.isDirectReport(email, stranger)).thenReturn(false);
+            lenient().when(directReportScopeService.isDirectReport(email, stranger)).thenReturn(false);
             assertThrows(AccessDeniedException.class, () -> service.getEmployeeGrowth(email, stranger), code);
         }
     }

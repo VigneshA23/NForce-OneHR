@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -74,5 +76,69 @@ class NoRawRoleChecksTest {
         assertTrue(offenders.isEmpty(),
                 "hasRole(/hasAnyRole( SpEL checks remain (replace with hasAuthority(module:ACTION:SCOPE)): "
                         + offenders);
+    }
+
+    // ── Role-code literals: every remaining use must be reviewed and classified ──────────────────
+    //
+    // hasRole( is gone, but a service can still decide access with a bare comparison such as
+    // "SUPER_ADMIN".equals(role.getCode()). Authorization must come from permissions
+    // (module:ACTION:SCOPE) — a role's NAME must never grant anything. This test fails when a NEW
+    // main-source file starts mentioning one of the built-in admin role codes as a string literal, so
+    // the author has to decide: use a permission instead, or add the file below with its reason.
+    //
+    // Allowed categories (see the Roles & Permissions hardening plan):
+    //   WORKFLOW — the role names a configured business stage/routing responsibility, not an access check
+    //              (approval stages, payroll stages, "Assign To" lists, last-Super-Admin safeguards);
+    //   DISPLAY  — labels, priority ordering, categorisation, audience targeting, AI/UI shell mapping.
+    private static final Map<String, String> ALLOWED_ROLE_CODE_LITERALS = Map.ofEntries(
+            Map.entry("util/RoleUtils.java", "DISPLAY: priority order, audience buckets"),
+            Map.entry("util/RoleCategorization.java", "DISPLAY: role-list categorisation"),
+            Map.entry("service/PayslipAccessPolicy.java", "AUTHORIZATION (reviewed exception, added by the payslip feature): owner or HR_ADMIN/SUPER_ADMIN by role code; "
+                    + "migrate to an explicit payroll permission so custom roles can be granted payslip access"),
+            Map.entry("ai/contract/ShellRole.java", "DISPLAY: AI/UI shell mapping"),
+            Map.entry("ai/data/PeopleDataProviders.java", "DISPLAY: role labels"),
+            Map.entry("dto/ApprovalItemDto.java", "WORKFLOW: approval stage tag"),
+            Map.entry("dto/attendance/OvertimeRequestResponse.java", "DISPLAY: reviewer role label"),
+            Map.entry("entity/PayrollRun.java", "WORKFLOW: payroll approval stage"),
+            Map.entry("service/ApprovalRuleService.java", "WORKFLOW: Workflow Studio stage roles"),
+            Map.entry("service/ApprovalRuleEvaluationService.java", "WORKFLOW: approval stage resolution"),
+            Map.entry("service/PayrollRunService.java", "WORKFLOW: payroll stage (endpoint is permission-gated)"),
+            Map.entry("service/ExpenseService.java", "WORKFLOW: expense approval stages + labels"),
+            Map.entry("service/ApprovalCenterService.java", "WORKFLOW: expense stage tags"),
+            Map.entry("service/OrgHierarchyService.java", "DISPLAY: org-chart role label"),
+            Map.entry("service/UserManagementService.java", "WORKFLOW: last-Super-Admin safeguards, primary-role picker"),
+            Map.entry("service/RoleAdminService.java", "WORKFLOW: protected Super Admin role (a restriction, never a bypass)"),
+            Map.entry("service/LeaveService.java", "WORKFLOW: routing of a Super Admin's OWN leave"),
+            Map.entry("service/RegularizationService.java", "DISPLAY: acting-role label, assignee-list exclusion"),
+            Map.entry("service/AttendanceRequestService.java", "WORKFLOW: Super Admin not offered as 'Assign To'"),
+            Map.entry("service/OvertimeRequestService.java", "WORKFLOW: Super Admin not offered as 'Assign To'"),
+            Map.entry("service/EmployeeService.java", "WORKFLOW: reporting-hierarchy tier of a manager candidate"),
+            Map.entry("service/PolicyService.java", "DISPLAY: policy audience targeting codes"),
+            Map.entry("service/HelpContentService.java", "DISPLAY: help-content audience buckets"));
+
+    private static final Pattern ROLE_CODE_LITERAL = Pattern.compile("\"(SUPER_ADMIN|HR_ADMIN|MANAGER)\"");
+
+    @Test
+    void roleCodeLiteralsAreOnlyUsedWhereReviewedAndClassified() throws IOException {
+        TreeSet<String> unreviewed = new TreeSet<>();
+        List<Path> javaFiles;
+        try (Stream<Path> files = Files.walk(SOURCE_ROOT)) {
+            javaFiles = files.filter(p -> p.toString().endsWith(".java")).toList();
+        }
+        {
+            for (Path path : javaFiles) {
+                String source = Files.readString(path);
+                source = BLOCK_COMMENT.matcher(source).replaceAll("");
+                source = LINE_COMMENT.matcher(source).replaceAll("");
+                if (!ROLE_CODE_LITERAL.matcher(source).find()) continue;
+                String rel = path.toString().replace('\\', '/');
+                rel = rel.substring(rel.indexOf("com/nforce/onehr/") + "com/nforce/onehr/".length());
+                if (!ALLOWED_ROLE_CODE_LITERALS.containsKey(rel)) unreviewed.add(rel);
+            }
+        }
+        assertTrue(unreviewed.isEmpty(),
+                "A built-in role code literal (SUPER_ADMIN/HR_ADMIN/MANAGER) now appears in files not reviewed as WORKFLOW/DISPLAY. "
+                        + "Authorize with a permission (hasAuthority/EffectivePermissionService) instead, or classify the file in "
+                        + "ALLOWED_ROLE_CODE_LITERALS: " + unreviewed);
     }
 }

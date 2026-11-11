@@ -2,13 +2,15 @@ import PageTitleBlock from '../components/PageTitleBlock';
 import { Award } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { SkillsCard } from './profile/tabs/SkillsCard';
+import { hasPermission } from '../lib/permissions';
 import { SkillRatingsCard, TeamSkillEndorsementsCard } from './SkillRatings';
 
 // US-A07: 1–5 self-rating against the HR-managed taxonomy, plus manager endorsement of direct reports.
 export default function MySkillsPage() {
   const token = useAuthStore(s => s.token) ?? '';
-  const role = useAuthStore(s => s.user?.role);
-  const canEndorse = role === 'MANAGER' || role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  const permissions = useAuthStore(s => s.permissions);
+  // Endorsing a direct report's skills is gated server-side by skill_ratings:VIEW:TEAM — mirror that, not a role code.
+  const canEndorse = hasPermission(permissions, 'skill_ratings', 'VIEW', 'TEAM');
 
   return (
     <div>

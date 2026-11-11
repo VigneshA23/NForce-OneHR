@@ -14,10 +14,11 @@ import { InactiveEditBanner, InactiveFieldsConfirm } from '../components/Employe
 import { businessTodayIsoDate } from '../utils/businessDate';
 import { CreatableLocationSelect, ShiftSelect } from './user-management/SharedControls';
 import { ROLES, EMPLOYMENT_TYPES, WORK_MODES, fmtEffectiveDate, getShiftOptions, getDepartmentOptions, getDesignationOptions, getLocationOptions, getManagersForRole, type OrgOptions } from './user-management/orgOptionsHelpers';
-import { overlayStyle, modalStyle, inputStyle, labelStyle, primaryBtnStyle, secondaryBtnStyle, ModalHeader, Field } from './user-management/formPrimitives';
+import { overlayStyle, modalStyle, inputStyle, labelStyle, primaryBtnStyle, secondaryBtnStyle, ModalHeader, Field, ManagerApprovalWarning } from './user-management/formPrimitives';
 import { EMAIL_PATTERN } from './user-management/wizardLogic';
 import { CreateEmployeeWizard } from './user-management/CreateEmployeeWizard';
 import { hasPermission } from '../lib/permissions';
+import { categoriesOf, roleCountsOf, roleOptionsOf } from '../lib/roleCategories';
 import ManageUserRolesModal from '../components/ManageUserRolesModal';
 import './userManagementPolish.css';
 
@@ -33,11 +34,11 @@ const ROLE_COLOR: Record<string, string> = {
   EMPLOYEE: '#2FB67C', MANAGER: '#4C8DD6', HR_ADMIN: '#E0A93B', SUPER_ADMIN: '#E4373D',
 };
 
-function RoleBadge({ role }: { role: string }) {
-  const c = ROLE_COLOR[role] ?? '#9BA1AC';
+function RoleBadge({ role, name }: { role: string; name?: string }) {
+  const c = ROLE_COLOR[role] ?? '#8B5CF6'; // custom roles use the "custom" accent
   return (
     <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.03em', color: c, background: `${c}1A`, borderRadius: 6, padding: '3px 9px', whiteSpace: 'nowrap' }}>
-      {role.replace(/_/g, ' ')}
+      {name ?? role.replace(/_/g, ' ')}
     </span>
   );
 }
@@ -282,6 +283,7 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
                       No {mgrRoleLabel} users found - add one first.
                     </div>
                   )}
+                  <ManagerApprovalWarning manager={mgrList.find((m: any) => m.userId === form.managerId)} />
                 </Field>
               );
             })()}
@@ -578,14 +580,13 @@ export default function UserManagementPage() {
 
   // Derived filter options from real data
   const departments = Array.from(new Set(users.map(u => u.departmentName).filter(Boolean))) as string[];
-  const roles = Array.from(new Set(users.map(u => u.role).filter(Boolean))) as string[];
+  const roleOptions = roleOptionsOf(users);
 
   // Stats
   const total = users.length;
   const active = users.filter(u => u.active).length;
   const inactive = total - active;
-  const roleCounts: Record<string, number> = {};
-  users.forEach(u => { if (u.role) roleCounts[u.role] = (roleCounts[u.role] ?? 0) + 1; });
+  const roleCounts = roleCountsOf(users);
   const activeSuperAdminCount = users.filter(u => u.role === 'SUPER_ADMIN' && u.active).length;
 
   // Filter logic
@@ -595,7 +596,7 @@ export default function UserManagementPage() {
     if (statusFilter === 'ACTIVE' && !u.active) return false;
     if (statusFilter === 'INACTIVE' && u.active) return false;
     if (deptFilter && u.departmentName !== deptFilter) return false;
-    if (roleFilter && u.role !== roleFilter) return false;
+    if (roleFilter && !categoriesOf(u).some(c => c.code === roleFilter)) return false;
     return true;
   });
 
@@ -609,7 +610,6 @@ export default function UserManagementPage() {
   const tdStyle: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
   const filterSelect: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 12px', color: 'var(--txt-mut)', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', outline: 'none' };
 
-  const ROLE_LABEL: Record<string, string> = { EMPLOYEE: 'Employee', MANAGER: 'Manager', HR_ADMIN: 'HR Admin', SUPER_ADMIN: 'Super Admin' };
 
   // Full-page view switch — replaces the whole table/filters body with the Create Employee
   // wizard, still inside this same /access route (same Shell sidebar/topbar, same Super Admin
@@ -647,7 +647,7 @@ export default function UserManagementPage() {
       {/* Stats tiles */}
       {!loading && (
         <div style={{ marginBottom: 20 }}>
-          <AccessStatTiles total={total} active={active} inactive={inactive} roleSummary={Object.entries(roleCounts).map(([r, c]) => `${c} ${ROLE_LABEL[r] ?? r}`).join(' · ')} />
+          <AccessStatTiles total={total} active={active} inactive={inactive} roleSummary={roleOptions.map(r => `${roleCounts[r.code] ?? 0} ${r.name}`).join(' · ')} />
         </div>
       )}
 
@@ -673,7 +673,7 @@ export default function UserManagementPage() {
         </select>
         <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={filterSelect}>
           <option value="">All Roles</option>
-          {roles.map(r => <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>)}
+          {roleOptions.map(r => <option key={r.code} value={r.code}>{r.name}</option>)}
         </select>
         {(search || statusFilter !== 'ALL' || deptFilter || roleFilter) && (
           <button onClick={() => { setSearch(''); setStatusFilter('ALL'); setDeptFilter(''); setRoleFilter(''); }}
@@ -720,14 +720,20 @@ export default function UserManagementPage() {
                       </td>
                       <td style={{ ...tdStyle, color: 'var(--txt)' }}>{u.email}</td>
                       <td style={tdStyle}>
-                        <RoleBadge role={u.role} />
                         {(() => {
-                          // Roles beyond the primary one (custom roles, a manager who is also HR…);
-                          // Employee is implied for everyone so it isn't counted.
-                          const extra = (u.roleNames ?? []).filter(n => n !== 'Employee' && n !== ROLE_LABEL[u.role]);
-                          return extra.length > 0 && (
-                            <span title={extra.join(', ')} style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', borderRadius: 6, padding: '3px 7px', whiteSpace: 'nowrap' }}>
-                              +{extra.length}
+                          // One badge per role list the person is in (never "Employee" alongside an
+                          // administrative or custom role); the first two are shown, the rest as +N.
+                          const cats = categoriesOf(u);
+                          const shown = cats.slice(0, 2);
+                          const rest = cats.slice(2);
+                          return (
+                            <span style={{ display: 'inline-flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                              {shown.map(c => <RoleBadge key={c.code} role={c.code} name={c.name} />)}
+                              {rest.length > 0 && (
+                                <span title={rest.map(c => c.name).join(', ')} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', borderRadius: 6, padding: '3px 7px', whiteSpace: 'nowrap' }}>
+                                  +{rest.length}
+                                </span>
+                              )}
                             </span>
                           );
                         })()}

@@ -57,7 +57,9 @@ class ExpenseServiceTest {
             "CUSTOM_APPROVER", Map.of("expenses:APPROVE", "ALL"),
             "CUSTOM_CONFIG", Map.of("expenses:CONFIGURE", "ALL"),
             "CUSTOM_VIEWER", Map.of("expenses:VIEW", "ALL"),
-            "CUSTOM_OVERRIDE", Map.of("expenses_override:APPROVE", "ALL")));
+            "CUSTOM_OVERRIDE", Map.of("expenses_override:APPROVE", "ALL"),
+            "CUSTOM_TEAM_APPROVER", Map.of("expenses:APPROVE", "TEAM", "expenses:VIEW", "TEAM"),
+            "CUSTOM_ROLES_ONLY", Map.of("roles:VIEW", "ALL")));
 
     @InjectMocks
     private ExpenseService expenseService;
@@ -198,7 +200,7 @@ class ExpenseServiceTest {
 
     @Test
     void managerApprove_requiresSecondApproval_movesToManagerApprovedOnly() {
-        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        User manager = userWith("manager@test.com", SeedMatrix.role("MANAGER"));
         ExpenseClaim claim = claimInStatus("SUBMITTED", true);
         stubManagerOf(manager, claim.getEmployeeUserId());
 
@@ -214,7 +216,7 @@ class ExpenseServiceTest {
 
     @Test
     void managerApprove_secondApprovalNotRequired_autoclearsToPayroll() {
-        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        User manager = userWith("manager@test.com", SeedMatrix.role("MANAGER"));
         ExpenseClaim claim = claimInStatus("SUBMITTED", false);
         stubManagerOf(manager, claim.getEmployeeUserId());
 
@@ -235,7 +237,7 @@ class ExpenseServiceTest {
 
     @Test
     void managerApprove_byActualReportingManager_recordsManagerRole() {
-        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        User manager = userWith("manager@test.com", SeedMatrix.role("MANAGER"));
         ExpenseClaim claim = claimInStatus("SUBMITTED", true);
         stubManagerOf(manager, claim.getEmployeeUserId());
         when(userRepo.findByEmail("manager@test.com")).thenReturn(Optional.of(manager));
@@ -343,7 +345,7 @@ class ExpenseServiceTest {
 
     @Test
     void getReceipt_currentManagerOfEmployee_allowed() {
-        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        User manager = userWith("manager@test.com", SeedMatrix.role("MANAGER"));
         ExpenseClaim claim = claimWithReceipt(UUID.randomUUID(), "data:image/png;base64," + PNG_BASE64);
         stubManagerOf(manager, claim.getEmployeeUserId());
 
@@ -356,7 +358,7 @@ class ExpenseServiceTest {
     @Test
     void getReceipt_unrelatedManager_deniedAccessDenied() {
         // A manager with no manager-history record at all for this employee — not their report.
-        User unrelatedManager = User.builder().id(UUID.randomUUID()).email("other-manager@test.com").build();
+        User unrelatedManager = userWith("other-manager@test.com", SeedMatrix.role("MANAGER"));
         ExpenseClaim claim = claimWithReceipt(UUID.randomUUID(), "data:image/png;base64," + PNG_BASE64);
 
         when(userRepo.findByEmail("other-manager@test.com")).thenReturn(Optional.of(unrelatedManager));
@@ -400,7 +402,6 @@ class ExpenseServiceTest {
 
         when(userRepo.findByEmail("coworker@test.com")).thenReturn(Optional.of(otherEmployee));
         when(claimRepo.findById(claim.getId())).thenReturn(Optional.of(claim));
-        when(historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(claim.getEmployeeUserId())).thenReturn(Optional.empty());
 
         assertThrows(AccessDeniedException.class,
                 () -> expenseService.getReceipt(claim.getId(), "coworker@test.com"));
@@ -499,7 +500,7 @@ class ExpenseServiceTest {
 
     @Test
     void managerApprove_threeStageClaim_awaitsHrAdminFirst() {
-        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        User manager = userWith("manager@test.com", SeedMatrix.role("MANAGER"));
         ExpenseClaim claim = claimInStatus("SUBMITTED", true);
         claim.setApprovalStages("MANAGER,HR_ADMIN,SUPER_ADMIN");
         stubManagerOf(manager, claim.getEmployeeUserId());
@@ -652,10 +653,70 @@ class ExpenseServiceTest {
     }
 
     @Test
+    void managerApprove_byReportingManagerWithoutTheApprovalPermission_isDenied() {
+        // The reporting line alone must never authorize a decision (Manager role removed, custom
+        // Roles-only role assigned): the user IS the employee's current manager but holds no
+        // expenses:APPROVE.
+        User rolesOnlyManager = userWith("rom@test.com", custom("CUSTOM_ROLES_ONLY"));
+        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
+        // They ARE the current manager — lenient because the permission check denies before the line is read.
+        lenient().when(historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(claim.getEmployeeUserId())).thenReturn(Optional.of(
+                EmployeeManagerHistory.builder().employeeUserId(claim.getEmployeeUserId()).managerUserId(rolesOnlyManager.getId()).build()));
+        stubFinalStage(rolesOnlyManager, claim);
+
+        assertThrows(AccessDeniedException.class, () -> expenseService.managerApprove(claim.getId(), rolesOnlyManager.getEmail()));
+        assertThrows(AccessDeniedException.class, () -> expenseService.managerReject(claim.getId(), "No", rolesOnlyManager.getEmail()));
+        assertEquals("SUBMITTED", claim.getStatus());
+    }
+
+    @Test
+    void managerApprove_customRoleWithTeamApprove_whoIsTheReportingManager_isAllowed_withoutTheManagerRole() {
+        User teamLead = userWith("tl@test.com", custom("CUSTOM_TEAM_APPROVER"));
+        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
+        stubManagerOf(teamLead, claim.getEmployeeUserId());
+        stubFinalStage(teamLead, claim);
+
+        assertEquals("MANAGER_APPROVED", expenseService.managerApprove(claim.getId(), teamLead.getEmail()).getStatus());
+    }
+
+    @Test
+    void managerApprove_customRoleWithTeamApprove_butNotTheEmployeesManager_isDenied() {
+        User teamLead = userWith("tl@test.com", custom("CUSTOM_TEAM_APPROVER"));
+        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
+        stubManagerOf(User.builder().id(UUID.randomUUID()).build(), claim.getEmployeeUserId());
+        stubFinalStage(teamLead, claim);
+
+        assertThrows(AccessDeniedException.class, () -> expenseService.managerApprove(claim.getId(), teamLead.getEmail()));
+        assertEquals("SUBMITTED", claim.getStatus());
+    }
+
+    @Test
+    void managerApprove_ownClaim_isDenied_evenForAnApproveAllHolder() {
+        User hr = hrAdminUser();
+        ExpenseClaim claim = claimInStatus("SUBMITTED", true);
+        claim.setEmployeeUserId(hr.getId());
+        stubFinalStage(hr, claim);
+
+        assertThrows(AccessDeniedException.class, () -> expenseService.managerApprove(claim.getId(), hr.getEmail()));
+        assertThrows(AccessDeniedException.class, () -> expenseService.managerReject(claim.getId(), "No", hr.getEmail()));
+        assertEquals("SUBMITTED", claim.getStatus());
+    }
+
+    @Test
+    void teamReads_requireTheTeamPermission_aReportingLineIsNotEnough() {
+        User rolesOnly = userWith("rom@test.com", custom("CUSTOM_ROLES_ONLY"));
+        when(userRepo.findByEmail(rolesOnly.getEmail())).thenReturn(Optional.of(rolesOnly));
+
+        assertThrows(AccessDeniedException.class, () -> expenseService.pendingForManager(rolesOnly.getEmail()));
+        assertThrows(AccessDeniedException.class, () -> expenseService.allTeamClaims(rolesOnly.getEmail()));
+        assertThrows(AccessDeniedException.class, () -> expenseService.managerTileSummary(rolesOnly.getEmail()));
+        verify(historyRepo, never()).findCurrentDirectReportIds(any());
+    }
+
+    @Test
     void managerApprove_customRoleWithoutApprove_notTheManager_denied() {
         User plain = userWith("p@test.com", custom("CUSTOM_VIEWER"));
         ExpenseClaim claim = claimInStatus("SUBMITTED", true);
-        stubManagerOf(User.builder().id(UUID.randomUUID()).build(), claim.getEmployeeUserId());
         stubFinalStage(plain, claim);
 
         assertThrows(AccessDeniedException.class, () -> expenseService.managerApprove(claim.getId(), plain.getEmail()));
@@ -728,7 +789,7 @@ class ExpenseServiceTest {
 
     @Test
     void managerApprove_customStageRule_awaitsTheCustomRole() {
-        User manager = User.builder().id(UUID.randomUUID()).email("manager@test.com").build();
+        User manager = userWith("manager@test.com", SeedMatrix.role("MANAGER"));
         ExpenseClaim claim = claimInStatus("SUBMITTED", true);
         claim.setApprovalStages("MANAGER,CUSTOM_FIN");
         stubManagerOf(manager, claim.getEmployeeUserId());
@@ -825,7 +886,7 @@ class ExpenseServiceTest {
 
         ExpenseClaim submitted = claimWithReceipt(UUID.randomUUID(), "data:image/png;base64," + PNG_BASE64);
         when(claimRepo.findById(submitted.getId())).thenReturn(Optional.of(submitted));
-        when(historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(submitted.getEmployeeUserId())).thenReturn(Optional.empty());
+        // Not at their stage and holding no expenses:APPROVE — denied on the missing permission.
         assertThrows(AccessDeniedException.class, () -> expenseService.getReceipt(submitted.getId(), holder.getEmail()));
     }
 }

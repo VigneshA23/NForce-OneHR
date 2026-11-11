@@ -104,7 +104,7 @@ class HelpdeskServiceTest {
         when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(categoryRepo.findById(1)).thenReturn(Optional.of(category));
         when(ticketRepo.nextTicketSequence()).thenReturn(1L);
-        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId));
+        doReturn(Set.of(hrAdminId)).when(effectivePermissionService).activeUserIdsWithAuthority("helpdesk", "EDIT", "ALL");
 
         CreateHelpdeskTicketRequest req = new CreateHelpdeskTicketRequest();
         req.setCategoryId(1);
@@ -241,7 +241,7 @@ class HelpdeskServiceTest {
         HelpdeskTicket ticket = openTicket();
         when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
-        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId));
+        doReturn(Set.of(hrAdminId)).when(effectivePermissionService).activeUserIdsWithAuthority("helpdesk", "EDIT", "ALL");
 
         var reply = helpdeskService.addReply(ticket.getId(), "please help", true, null, employeeEmail);
 
@@ -637,7 +637,7 @@ class HelpdeskServiceTest {
         HelpdeskTicket ticket = closedTicket(); // unassigned
         when(userRepo.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(ticketRepo.findById(ticket.getId())).thenReturn(Optional.of(ticket));
-        when(userRepo.findActiveAdminUserIds()).thenReturn(Set.of(hrAdminId));
+        doReturn(Set.of(hrAdminId)).when(effectivePermissionService).activeUserIdsWithAuthority("helpdesk", "EDIT", "ALL");
 
         helpdeskService.reopenTicket(ticket.getId(), null, employeeEmail);
 

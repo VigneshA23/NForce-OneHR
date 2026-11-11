@@ -37,6 +37,20 @@ public final class RoleDtos {
 
     public record AddRoleMemberRequest(@NotNull UUID userId) {}
 
+    /** Add ({@code remove=false}) or remove one role for up to 100 users in one call. */
+    public record BulkRoleMembersRequest(@NotNull @Size(min = 1, max = 100) List<UUID> userIds, boolean remove) {}
+
+    /** Per-user outcome of a bulk membership change — one failure never blocks the others. */
+    public record BulkMemberResult(UUID userId, String name, boolean ok, String message) {}
+
+    /** One audited change to a role. {@code added}/{@code removed} are "module:ACTION:SCOPE" strings (permission edits only). */
+    public record RoleHistoryEntry(Long id, java.time.Instant occurredAt, String action, String actorName,
+                                   String summary, List<String> added, List<String> removed) {}
+
+    /** A user who holds a permission through an active role, at the widest scope any of those roles grants. */
+    public record PermissionHolder(UUID userId, String fullName, String email, boolean active, String scope,
+                                   List<String> roles) {}
+
     /**
      * @param permissionsEditable false for SUPER_ADMIN (locked) — tells the UI up front instead of
      *                            letting a save fail.

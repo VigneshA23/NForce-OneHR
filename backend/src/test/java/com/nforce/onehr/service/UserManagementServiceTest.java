@@ -46,7 +46,6 @@ class UserManagementServiceTest {
     @Mock private RoleRepository roleRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private EmployeeManagerHistoryRepository historyRepository;
-    @Mock private ManagerRoleSyncService managerRoleSyncService;
     @Mock private DepartmentRepository departmentRepository;
     @Mock private DesignationRepository designationRepository;
     @Mock private LocationRepository locationRepository;
@@ -380,11 +379,19 @@ class UserManagementServiceTest {
                         .employeeUserId(targetUserId)
                         .managerUserId(currentManagerId)
                         .build()));
+        User newManager = User.builder().id(newManagerId).email("newmanager@test.com").build();
+        lenient().when(userRepository.findById(newManagerId)).thenReturn(Optional.of(newManager));
+        when(effectivePermissionService.isEligibleReportingManager(newManager)).thenReturn(true);
+        Set<Role> rolesBefore = new HashSet<>(targetUser.getRoles());
 
         UpdateUserRequest req = new UpdateUserRequest();
         req.setManagerId(newManagerId);
 
         assertForcedLogout(req);
+
+        // Changing the reporting line never touches roles or permissions.
+        assertEquals(rolesBefore, targetUser.getRoles());
+        verify(roleRepository, never()).findByCode("MANAGER");
 
         verify(historyRepository).closeCurrentEntry(eq(targetUserId), any());
         verify(historyRepository).save(argThat(h ->
@@ -393,6 +400,26 @@ class UserManagementServiceTest {
                         && actorId.equals(h.getChangedBy())));
         verify(notificationService).send(targetUserId, "ACCOUNT", "Manager Updated", "Your manager has been updated.", "/profile");
         verify(notificationService, never()).send(eq(targetUserId), eq("ACCOUNT"), eq("Role Updated"), any(), any());
+    }
+
+    @Test
+    void updateUser_managerWithoutTeamResponsibility_isRejected_nothingIsChanged() {
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(targetUserId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder()
+                        .employeeUserId(targetUserId)
+                        .managerUserId(currentManagerId)
+                        .build()));
+        // E.g. a custom role that only administers Roles & Permissions: no employees:VIEW:TEAM.
+        User rolesOnly = User.builder().id(newManagerId).email("rolesonly@test.com").build();
+        lenient().when(userRepository.findById(newManagerId)).thenReturn(Optional.of(rolesOnly));
+        when(effectivePermissionService.isEligibleReportingManager(rolesOnly)).thenReturn(false);
+
+        UpdateUserRequest req = new UpdateUserRequest();
+        req.setManagerId(newManagerId);
+
+        assertThrows(IllegalArgumentException.class, () -> userManagementService.updateUser(targetUserId, req, actorEmail));
+        verify(historyRepository, never()).closeCurrentEntry(any(), any());
+        verify(historyRepository, never()).save(any(EmployeeManagerHistory.class));
     }
 
     @Test
@@ -520,6 +547,21 @@ class UserManagementServiceTest {
             req.setEmail("jane@nforceone.com");
             req.setRole("EMPLOYEE");
             req.setJoiningDate(LocalDate.now());
+        }
+
+        @Test
+        void managerWithoutTeamResponsibility_isRejected_beforeTheCodeSequenceIsConsumed() {
+            UUID managerId = UUID.randomUUID();
+            User rolesOnly = User.builder().id(managerId).email("rolesonly@test.com").build();
+            when(userRepository.findById(managerId)).thenReturn(Optional.of(rolesOnly));
+            when(effectivePermissionService.isEligibleReportingManager(rolesOnly)).thenReturn(false);
+            req.setManagerId(managerId);
+
+            assertThrows(IllegalArgumentException.class, () -> userManagementService.createUser(req, actorEmail));
+
+            verifyNoInteractions(employeeCodeGenerator);
+            verify(userRepository, never()).save(any(User.class));
+            verify(historyRepository, never()).save(any(EmployeeManagerHistory.class));
         }
 
         @Test

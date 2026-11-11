@@ -37,7 +37,7 @@ public enum AuditActionCategory {
             // who holds admin privileges is access-control-sensitive in a way a routine profile
             // edit isn't, and deserves its own filterable/queryable action.
             "ROLE_CHANGED",
-            // ManagerRoleSyncService — MANAGER role auto-granted/revoked as reporting lines
+            // HISTORICAL rows only (the automatic MANAGER grant was retired in V269): MANAGER role auto-granted/revoked as reporting lines
             // change (not an admin's own action, but still access-control-sensitive; logged
             // against the actor who triggered the underlying manager-history change).
             "ROLE_AUTO_GRANTED", "ROLE_AUTO_REVOKED",

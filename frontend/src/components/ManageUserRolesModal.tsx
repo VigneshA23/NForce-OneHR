@@ -11,7 +11,7 @@ import { useBackToClose } from '../lib/backToClose';
  * effective permissions (and which role grants each). Server-side, PUT /api/users/{id}/roles runs
  * the same guards as every other assignment path (no self-change, privilege ceiling, last Super
  * Admin, inactive roles) — this dialog only mirrors the obvious ones and shows the server's error
- * for the rest. Employee is always kept; an auto-granted Manager follows reporting lines.
+ * for the rest. Nothing is added or restored implicitly; Employee is the default category, not a role.
  */
 
 const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(15,17,23,.6)', backdropFilter: 'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 16 };
@@ -62,13 +62,13 @@ export default function ManageUserRolesModal({ token, userId, isSelf, onClose, o
 
   // Listed: every active role, plus any inactive role the user still holds (so it can be removed).
   const options = roles
+    // Employee is the default category (people with no additional role), not an assignable role.
+    .filter(r => r.code !== 'EMPLOYEE')
     .filter(r => r.active || held.has(r.id))
     .filter(r => !query.trim() || r.name.toLowerCase().includes(query.trim().toLowerCase()));
 
   function lockReason(r: RoleSummary): string | null {
     if (isSelf) return 'You cannot change your own roles.';
-    if (r.code === 'EMPLOYEE') return 'Every user holds the Employee role.';
-    if (held.get(r.id)?.autoGranted) return 'Granted automatically while this user has direct reports.';
     if (!r.active && !held.has(r.id)) return 'Inactive roles cannot be assigned.';
     return null;
   }
@@ -142,7 +142,6 @@ export default function ManageUserRolesModal({ token, userId, isSelf, onClose, o
                           {r.name}
                           <span style={{ fontSize: 10, fontWeight: 700, color: r.system ? '#4C8DD6' : '#8B5CF6' }}>{r.system ? 'SYSTEM' : 'CUSTOM'}</span>
                           {!r.active && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)' }}>INACTIVE · GRANTS NOTHING</span>}
-                          {held.get(r.id)?.autoGranted && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)' }}>AUTO</span>}
                         </div>
                         {(reason && !isSelf) ? <div style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}><Lock size={10} style={{ verticalAlign: -1 }} /> {reason}</div>
                           : r.description && <div style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{r.description}</div>}
