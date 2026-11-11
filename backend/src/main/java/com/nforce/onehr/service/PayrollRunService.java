@@ -98,31 +98,36 @@ import java.util.stream.Collectors;
  *       from CTC, live outside the structure's own component list — US-C29's gratuity provision is
  *       a separate ledger, not a payslip line item). BALANCING_REMAINDER = {@code annual CTC −
  *       sum(every other EARNING-type component computed so far)}.</li>
- *   <li><b>PF, Gratuity, Professional Tax and TDS are deliberately NOT computed here</b> — confirmed
- *       why, not just deferred on a guess: none of US-C01's four calc types can express PF's real
- *       formula, and Gratuity/PT/TDS have their own separate mechanisms. This is exactly Decision #5
- *       (which mechanism owns each statutory deduction) still being open — this story correctly
- *       stops at the four calc types' reach rather than guessing a formula for something it
- *       structurally can't represent yet.
- *       <p><i>2026-11-10 update, from real post-revision payslips</i> — the {@code (CTC−HRA)×12%}
- *       reading noted here earlier (from the Keka screenshot, under the OLD ₹15,000 wage ceiling)
- *       is confirmed WRONG by real data and superseded regardless: PF Employee is actually
- *       {@code 12% × Basic}, uncapped until a wage ceiling (₹15,000 before 17 Sep 2026 per the
- *       Code on Social Security 2020 notification, ₹25,000 from the employee's October 2026
- *       payslip onward — confirmed to the rupee: ₹19,058 Basic × 12% = ₹2,286.96 → ₹2,287, exactly
- *       what that payslip shows), flat-capped at 12% of the ceiling above it. Also observed (not
- *       yet HR-confirmed as a rule, see the open question list): PF appeared to be computed on the
- *       PRIOR cycle's Basic, not the current one's.
- *       <p><b>Whenever PF (or ESI/PT/TDS) computation actually gets built, none of the numbers in
- *       the paragraph above — the 12% rate, the ₹15,000/₹25,000 ceilings, the one-cycle lag, any of
- *       it — may be hardcoded as a Java constant.</b> They're exactly what {@link StatutoryRule}
- *       (US-C13) exists to hold: HR edits them (rate, ceiling, whatever else a slab needs) through
- *       that story's admin UI as effective-dated, versioned {@code slabConfig} JSON, and the
- *       computation reads the row effective for the payslip's own period — the same way a {@link
- *       com.nforce.onehr.entity.SalaryStructureComponent}'s percentage is an HR-entered value, never
- *       a constant in this class, even though EVERY example above happens to use today's real
- *       numbers. A rate change (exactly like the one just described) must be a data change HR makes
- *       through the UI, never a deploy.</li>
+ *   <li><b>PF, ESI and Professional Tax ARE computed, as of US-C13 Phase 3</b> — by
+ *       {@link StatutoryDeductionService}, called right after the ad-hoc deduction installment loop
+ *       below, reading whichever {@link StatutoryRule} version was effective for this cycle's own
+ *       end date. PF Employee = {@code 12% × Basic} (this payslip's own, already-prorated Basic —
+ *       read back from the structure component literally named "Basic", not re-derived from annual
+ *       CTC), flat-capped at 12% of a wage ceiling that itself changed mid-2026 (₹15,000 before 17
+ *       Sep 2026 per the Code on Social Security 2020 notification, ₹25,000 from the employee's
+ *       October 2026 payslip onward — confirmed to the rupee against a real payslip: ₹19,058 Basic
+ *       × 12% = ₹2,286.96 → ₹2,287). This supersedes an earlier, wrong {@code (CTC−HRA)×12%}
+ *       reading (from a Keka screenshot, under the OLD ceiling) that real post-revision payslips
+ *       disproved. The one-cycle-lag question this note used to flag as "observed but not yet
+ *       HR-confirmed" IS resolved — Rohit confirmed directly it was a one-off manual override
+ *       ("we did the override thats why this had happened, going forward it will consider the
+ *       actual basic"), not a standing rule, so PF reads the CURRENT cycle's Basic. ESI uses an
+ *       industry-standard default (0.75% employee, ₹21,000 monthly eligibility ceiling — below it,
+ *       {@code grossPay × rate}; above it, not deducted at all) flagged as a best-effort default,
+ *       not yet HR-confirmed. Professional Tax is country-level only, not per-state, because
+ *       {@code Location.state} is null on every real location today — a real data gap, not a design
+ *       choice. <b>Gratuity and TDS remain deliberately NOT computed</b>: Gratuity is an
+ *       employer-side accrual that's never a payslip line item (needs its own provision ledger,
+ *       US-C29, unbuilt); TDS needs full annual income-tax slab computation across other income and
+ *       exemptions (Phase 5/US-C14, unbuilt) — {@code cap}/{@code useLowerOfCap} below were reserved
+ *       for it and still aren't applied to anything.
+ *       <p><b>None of PF/ESI/PT's numbers — rates, ceilings, the flat PT amount — are hardcoded as
+ *       Java constants.</b> They live in {@link StatutoryRule} (US-C13): HR edits them (rate,
+ *       ceiling, whatever else a slab needs) through that story's admin UI as effective-dated,
+ *       versioned {@code slabConfig} JSON, and the computation reads the row effective for the
+ *       payslip's own period — the same way a {@link com.nforce.onehr.entity.SalaryStructureComponent}'s
+ *       percentage is an HR-entered value, never a constant in this class. A rate change must be a
+ *       data change HR makes through the UI, never a deploy.</li>
  *   <li><b>cap/useLowerOfCap are NOT applied to the paid amount in this story.</b> They read as
  *       exemption-calculation fields for TDS (a Phase 5/US-C14 concern, unbuilt), not as a ceiling
  *       on take-home pay — applying them here risked silently underpaying someone on a guessed
@@ -169,11 +174,23 @@ public class PayrollRunService {
     private final SalaryHoldRepository salaryHoldRepository;
     private final PayrollRunReviewService payrollRunReviewService;
     private final SalaryStructureResolutionService salaryStructureResolutionService;
+    private final StatutoryDeductionService statutoryDeductionService;
+    private final ArrearsService arrearsService;
+    private final SalaryComponentRepository salaryComponentRepository;
+    private final EmployeeRepository employeeRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
 
-    @Transactional
+    // Default-timeout (30s, see application.yml) is sized for this app's normal transactions,
+    // which are short and single-method. This one isn't: it loops once per included employee,
+    // and each iteration makes ~10-15 sequential round trips (LOP recompute, review-item
+    // generation, proration, structure/line-item writes) against the same shared Neon pooled
+    // endpoint — so its real cost scales with employee count, not with "one request." Even two
+    // employees were enough to trip the 30s ceiling on an ordinary (not even unusually slow)
+    // round-trip pace. Overridden here rather than raising the global default, which would blunt
+    // real-stall protection for every other, genuinely short, transaction in the app.
+    @Transactional(timeout = 180)
     public PayrollRunResponse generateDraft(GenerateDraftRequest req, String actorEmail) {
         PayGroup payGroup = payGroupRepository.findById(req.getPayGroupId())
                 .orElseThrow(() -> new NoSuchElementException("Pay group not found: " + req.getPayGroupId()));
@@ -524,6 +541,11 @@ public class PayrollRunService {
 
         BigDecimal grossPay = BigDecimal.ZERO;
         BigDecimal totalDeductions = BigDecimal.ZERO;
+        // US-C13 Phase 3: PF is 12% of this payslip's own, already-prorated Basic — read back from
+        // whichever structure component is literally named "Basic" (same name-matching convention
+        // this class already uses throughout), not re-derived from annual CTC, so proration is
+        // reflected exactly once, by construction.
+        BigDecimal basicAmount = BigDecimal.ZERO;
         for (SalaryStructureComponent sc : components) {
             SalaryComponent catalog = sc.getComponent();
             BigDecimal monthlyBase = annualByComponentId.get(sc.getId())
@@ -544,6 +566,9 @@ public class PayrollRunService {
                 grossPay = grossPay.add(amount);
             } else if (DEDUCTION_TYPES.contains(catalog.getType())) {
                 totalDeductions = totalDeductions.add(amount);
+            }
+            if ("Basic".equalsIgnoreCase(catalog.getName())) {
+                basicAmount = amount;
             }
         }
 
@@ -580,6 +605,56 @@ public class PayrollRunService {
             totalDeductions = totalDeductions.add(installment.getAmount());
         }
 
+        // US-C13 Phase 3 — PF/ESI/Professional Tax, read from whichever StatutoryRule version was
+        // effective for this cycle. Silently computes nothing for a rule type that isn't configured
+        // yet (no catalog component, no effective rule, or no Location on the employee) — see
+        // StatutoryDeductionService's own Javadoc for why that's deliberate, not a bug.
+        Employee employee = employeeRepository.findById(comp.getEmployeeId())
+                .orElseThrow(() -> new NoSuchElementException("Employee not found: " + comp.getEmployeeId()));
+        for (StatutoryDeductionService.ComputedDeduction deduction : statutoryDeductionService.computeDeductions(employee, basicAmount, grossPay, window.start(), window.end())) {
+            SalaryComponent catalog = deduction.component();
+            payslipLineItemRepository.save(PayslipLineItem.builder()
+                    .payslip(payslip)
+                    .componentId(catalog.getId())
+                    .componentName(catalog.getName())
+                    .componentType(catalog.getType())
+                    .amount(deduction.amount())
+                    .prorated(false)
+                    .build());
+            totalDeductions = totalDeductions.add(deduction.amount());
+        }
+
+        // Arrears — pick up anything PENDING for this employee (see Arrears' own doc comment for
+        // the three triggers that create these) and turn each into its own line item, flipping it
+        // APPLIED. Left PENDING (not silently dropped) if "Arrears"/"Arrears Recovery" isn't set up
+        // in the catalog yet — unlike a statutory deduction's "nothing configured" steady state,
+        // this represents real money already owed from a real triggering event, so it waits for
+        // the next regenerate once HR adds the component rather than vanishing.
+        for (Arrears pending : arrearsService.findPendingFor(comp.getEmployeeId())) {
+            boolean isRecovery = pending.getAmount().signum() < 0;
+            String componentName = isRecovery ? "Arrears Recovery" : "Arrears";
+            Optional<SalaryComponent> catalogOpt = salaryComponentRepository.findByNameIgnoreCase(componentName).filter(SalaryComponent::isActive);
+            if (catalogOpt.isEmpty()) {
+                continue;
+            }
+            SalaryComponent catalog = catalogOpt.get();
+            BigDecimal amount = pending.getAmount().abs();
+            payslipLineItemRepository.save(PayslipLineItem.builder()
+                    .payslip(payslip)
+                    .componentId(catalog.getId())
+                    .componentName(catalog.getName())
+                    .componentType(catalog.getType())
+                    .amount(amount)
+                    .prorated(false)
+                    .build());
+            if (isRecovery) {
+                totalDeductions = totalDeductions.add(amount);
+            } else {
+                grossPay = grossPay.add(amount);
+            }
+            arrearsService.markApplied(pending, run.getId());
+        }
+
         payslip.setGrossPay(grossPay);
         payslip.setTotalDeductions(totalDeductions);
         payslip.setNetPay(grossPay.subtract(totalDeductions));
@@ -589,6 +664,50 @@ public class PayrollRunService {
         result.grossPay = grossPay;
         result.totalDeductions = totalDeductions;
         return result;
+    }
+
+    /**
+     * Arrears triggers 2 (backdated salary revision) and 3 (salary hold release) both need "what
+     * would this ALREADY-CLOSED cycle's net pay be under {@code comp} instead of whatever was
+     * actually used" — without touching the real, already-persisted {@link Payslip} for that
+     * cycle. Deliberately NOT a reuse of {@link #buildPayslip}: that method recomputes LOP (a live
+     * side-effecting write to {@link PayrollLopCalculation}) and regenerates US-C22/US-C23 review
+     * items — both wrong here, since a closed cycle's LOP/attendance facts are frozen, not up for
+     * re-derivation. This reuses the historical payslip's own already-frozen {@code
+     * prorationFactor} instead, and otherwise mirrors buildPayslip's structure-component +
+     * statutory-deduction math exactly (same two collaborators, same formulas) so the two never
+     * drift apart. No {@link Payslip}/{@link PayslipLineItem} is created or saved.
+     */
+    public BigDecimal previewNetPay(EmployeeCompensation comp, LocalDate cycleStart, LocalDate cycleEnd, BigDecimal prorationFactor) {
+        List<SalaryStructureComponent> components = salaryStructureComponentRepository.findByStructureId(comp.getStructure().getId());
+        Map<UUID, BigDecimal> annualByComponentId = salaryStructureResolutionService.resolveAnnualValues(components, comp.getCtc());
+
+        BigDecimal grossPay = BigDecimal.ZERO;
+        BigDecimal totalDeductions = BigDecimal.ZERO;
+        BigDecimal basicAmount = BigDecimal.ZERO;
+        for (SalaryStructureComponent sc : components) {
+            SalaryComponent catalog = sc.getComponent();
+            BigDecimal monthlyBase = annualByComponentId.get(sc.getId())
+                    .divide(BigDecimal.valueOf(MONTHS_PER_YEAR), 6, RoundingMode.HALF_UP);
+            boolean prorated = catalog.isProrateOnLop();
+            BigDecimal amount = (prorated ? monthlyBase.multiply(prorationFactor) : monthlyBase).setScale(2, RoundingMode.HALF_UP);
+            if (EARNING_TYPES.contains(catalog.getType())) {
+                grossPay = grossPay.add(amount);
+            } else if (DEDUCTION_TYPES.contains(catalog.getType())) {
+                totalDeductions = totalDeductions.add(amount);
+            }
+            if ("Basic".equalsIgnoreCase(catalog.getName())) {
+                basicAmount = amount;
+            }
+        }
+
+        Employee employee = employeeRepository.findById(comp.getEmployeeId())
+                .orElseThrow(() -> new NoSuchElementException("Employee not found: " + comp.getEmployeeId()));
+        for (StatutoryDeductionService.ComputedDeduction deduction : statutoryDeductionService.computeDeductions(employee, basicAmount, grossPay, cycleStart, cycleEnd)) {
+            totalDeductions = totalDeductions.add(deduction.amount());
+        }
+
+        return grossPay.subtract(totalDeductions);
     }
 
     /**

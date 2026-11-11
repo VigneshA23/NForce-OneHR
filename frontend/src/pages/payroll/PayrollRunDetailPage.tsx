@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Users, IndianRupee, MinusCircle, Wallet, LayoutGrid, Receipt, CalendarCheck,
   PlusCircle, PauseCircle, Undo2, UserRoundPlus, Gift, Receipt as ReceiptIcon, History,
-  ShieldCheck,
+  ShieldCheck, PieChart,
 } from 'lucide-react';
 import PageTitleBlock from '../../components/PageTitleBlock';
 import { TabBar, type TabDef } from '../../components/TabBar';
@@ -21,6 +21,13 @@ import { NoAttendanceReviewTab } from './NoAttendanceReviewTab';
 import { AdHocPaymentsTab } from './AdHocPaymentsTab';
 import { AdHocDeductionsTab } from './AdHocDeductionsTab';
 import { SalaryHoldsTab } from './SalaryHoldsTab';
+import { CostReportTab } from './CostReportTab';
+import { PayableUnitsTab } from './PayableUnitsTab';
+import { JoinersExitsTab } from './JoinersExitsTab';
+import { SalaryRevisionTab } from './SalaryRevisionTab';
+import { SalaryComponentClaimTab } from './SalaryComponentClaimTab';
+import { StatutoryOverrideTab } from './StatutoryOverrideTab';
+import { ArrearsTab } from './ArrearsTab';
 import './payroll.css';
 
 export type RunAction = 'regenerate' | 'submit' | 'approve' | 'disburse' | 'rollback';
@@ -44,17 +51,18 @@ export function availableActions(status: PayrollRunStatus): RunAction[] {
 // equivalent note below) — NOT_AVAILABLE steps/sub-steps are disabled rather than omitted, so the
 // shape of the real workflow is visible even before the backend behind them exists. ──
 
-type StepKey = 'overview' | 'payslips' | 'leave-attendance' | 'joiners-exits' | 'bonus-revisions-ot' | 'reimbursement-adhoc' | 'holds-arrears' | 'statutory-override';
+type StepKey = 'overview' | 'payslips' | 'leave-attendance' | 'joiners-exits' | 'bonus-revisions-ot' | 'reimbursement-adhoc' | 'holds-arrears' | 'statutory-override' | 'cost-report';
 
 const STEPS: TabDef<StepKey>[] = [
   { key: 'overview', label: 'Overview', icon: <LayoutGrid size={15} /> },
   { key: 'payslips', label: 'Payslips', icon: <Receipt size={15} /> },
   { key: 'leave-attendance', label: 'Leave, Attendance & Payable Units', icon: <CalendarCheck size={15} /> },
-  { key: 'joiners-exits', label: 'New Joinees & Exits', icon: <UserRoundPlus size={15} />, disabled: true, title: 'Not available in this release' },
-  { key: 'bonus-revisions-ot', label: 'Bonus, Salary Revisions & Overtime', icon: <Gift size={15} />, disabled: true, title: 'Not available in this release' },
+  { key: 'joiners-exits', label: 'New Joinees & Exits', icon: <UserRoundPlus size={15} /> },
+  { key: 'bonus-revisions-ot', label: 'Bonus, Salary Revisions & Overtime', icon: <Gift size={15} /> },
   { key: 'reimbursement-adhoc', label: 'Reimbursement, Adhoc Payment, Deduction', icon: <ReceiptIcon size={15} /> },
   { key: 'holds-arrears', label: 'Salaries on Hold & Arrears', icon: <PauseCircle size={15} /> },
-  { key: 'statutory-override', label: 'Override (PT, ESI, TDS, LWF)', icon: <ShieldCheck size={15} />, disabled: true, title: 'Not available in this release' },
+  { key: 'statutory-override', label: 'Override (PF, ESI, PT)', icon: <ShieldCheck size={15} /> },
+  { key: 'cost-report', label: 'Cost Report', icon: <PieChart size={15} /> },
 ];
 
 type LeaveAttendanceSubTab = 'leave-applied' | 'no-attendance' | 'lop-summary' | 'lop-reversal' | 'payable-units';
@@ -62,23 +70,29 @@ const LEAVE_ATTENDANCE_SUBTABS: TabDef<LeaveAttendanceSubTab>[] = [
   { key: 'leave-applied', label: 'Leave Applied' },
   { key: 'no-attendance', label: 'No Attendance' },
   { key: 'lop-summary', label: 'LOP Summary', disabled: true, title: 'Not available in this release — use the Payslips tab\'s Recompute/Override LOP actions' },
-  { key: 'lop-reversal', label: 'LOP Reversal', disabled: true, title: 'Not available in this release' },
-  { key: 'payable-units', label: 'Payable Units', disabled: true, title: 'Not available in this release' },
+  { key: 'lop-reversal', label: 'LOP Reversal', disabled: true, title: 'Use the Payslips tab\'s Override LOP action on the historical cycle\'s own run — it now raises Arrears automatically when that cycle is already closed' },
+  { key: 'payable-units', label: 'Payable Units' },
 ];
 
 type ReimbursementSubTab = 'salary-component-claim' | 'expenses' | 'adhoc-payments' | 'adhoc-deductions';
 const REIMBURSEMENT_SUBTABS: TabDef<ReimbursementSubTab>[] = [
-  { key: 'salary-component-claim', label: 'Salary Component Claim', disabled: true, title: 'Not available in this release' },
-  { key: 'expenses', label: 'Expenses', disabled: true, title: 'Not available in this release' },
+  { key: 'salary-component-claim', label: 'Salary Component Claim' },
+  { key: 'expenses', label: 'Expenses' },
   { key: 'adhoc-payments', label: 'Adhoc Payments', icon: <PlusCircle size={14} /> },
   { key: 'adhoc-deductions', label: 'Adhoc Deductions', icon: <MinusCircle size={14} /> },
+];
+
+type BonusRevisionsOtSubTab = 'bonus-ot' | 'salary-revision';
+const BONUS_REVISIONS_OT_SUBTABS: TabDef<BonusRevisionsOtSubTab>[] = [
+  { key: 'bonus-ot', label: 'Bonus & Overtime' },
+  { key: 'salary-revision', label: 'Salary Revision' },
 ];
 
 type HoldsSubTab = 'processing-hold' | 'payout-hold' | 'arrears';
 const HOLDS_SUBTABS: TabDef<HoldsSubTab>[] = [
   { key: 'processing-hold', label: 'Salary Processing on Hold' },
   { key: 'payout-hold', label: 'Salary Payout on Hold' },
-  { key: 'arrears', label: 'Arrears', icon: <History size={14} />, disabled: true, title: 'Not available in this release — auto-computed from backdated revisions, hold releases and LOP reversal' },
+  { key: 'arrears', label: 'Arrears', icon: <History size={14} /> },
 ];
 
 function RollbackModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (reason: string) => Promise<void> }) {
@@ -133,6 +147,7 @@ export default function PayrollRunDetailPage() {
   const [leaveAttendanceSubTab, setLeaveAttendanceSubTab] = useState<LeaveAttendanceSubTab>('leave-applied');
   const [reimbursementSubTab, setReimbursementSubTab] = useState<ReimbursementSubTab>('adhoc-payments');
   const [holdsSubTab, setHoldsSubTab] = useState<HoldsSubTab>('processing-hold');
+  const [bonusRevisionsOtSubTab, setBonusRevisionsOtSubTab] = useState<BonusRevisionsOtSubTab>('bonus-ot');
   const [busy, setBusy] = useState(false);
   const [showRollback, setShowRollback] = useState(false);
 
@@ -226,17 +241,29 @@ export default function PayrollRunDetailPage() {
 
       {step === 'payslips' && <PayslipsTab runId={runId} payGroupId={run.payGroupId} cycleStart={run.cycleStart} canConfigure={canConfigure} />}
 
+      {step === 'joiners-exits' && <JoinersExitsTab runId={runId} />}
+
       {step === 'leave-attendance' && (
         <div>
           <TabBar tabs={LEAVE_ATTENDANCE_SUBTABS} active={leaveAttendanceSubTab} onChange={setLeaveAttendanceSubTab} size="sm" ariaLabel="Leave, attendance and payable units steps" style={{ marginBottom: 16 }} />
           {leaveAttendanceSubTab === 'leave-applied' && <LeaveAppliedReviewTab runId={runId} canConfigure={canConfigure} />}
           {leaveAttendanceSubTab === 'no-attendance' && <NoAttendanceReviewTab runId={runId} canConfigure={canConfigure} />}
+          {leaveAttendanceSubTab === 'payable-units' && <PayableUnitsTab runId={runId} />}
+        </div>
+      )}
+
+      {step === 'bonus-revisions-ot' && (
+        <div>
+          <TabBar tabs={BONUS_REVISIONS_OT_SUBTABS} active={bonusRevisionsOtSubTab} onChange={setBonusRevisionsOtSubTab} size="sm" ariaLabel="Bonus, salary revisions and overtime steps" style={{ marginBottom: 16 }} />
+          {bonusRevisionsOtSubTab === 'bonus-ot' && <AdHocPaymentsTab runId={runId} canConfigure={canConfigure} />}
+          {bonusRevisionsOtSubTab === 'salary-revision' && <SalaryRevisionTab payGroupId={run.payGroupId} canConfigure={canConfigure} />}
         </div>
       )}
 
       {step === 'reimbursement-adhoc' && (
         <div>
           <TabBar tabs={REIMBURSEMENT_SUBTABS} active={reimbursementSubTab} onChange={setReimbursementSubTab} size="sm" ariaLabel="Reimbursement, adhoc payment and deduction steps" style={{ marginBottom: 16 }} />
+          {(reimbursementSubTab === 'salary-component-claim' || reimbursementSubTab === 'expenses') && <SalaryComponentClaimTab runId={runId} />}
           {reimbursementSubTab === 'adhoc-payments' && <AdHocPaymentsTab runId={runId} canConfigure={canConfigure} />}
           {reimbursementSubTab === 'adhoc-deductions' && <AdHocDeductionsTab runId={runId} canConfigure={canConfigure} />}
         </div>
@@ -247,8 +274,13 @@ export default function PayrollRunDetailPage() {
           <TabBar tabs={HOLDS_SUBTABS} active={holdsSubTab} onChange={setHoldsSubTab} size="sm" ariaLabel="Salaries on hold and arrears steps" style={{ marginBottom: 16 }} />
           {holdsSubTab === 'processing-hold' && <SalaryHoldsTab runId={runId} holdType="PROCESSING" canConfigure={canConfigure} />}
           {holdsSubTab === 'payout-hold' && <SalaryHoldsTab runId={runId} holdType="PAYOUT" canConfigure={canConfigure} />}
+          {holdsSubTab === 'arrears' && <ArrearsTab runId={runId} />}
         </div>
       )}
+
+      {step === 'statutory-override' && <StatutoryOverrideTab payGroupId={run.payGroupId} cycleStart={run.cycleStart} canConfigure={canConfigure} />}
+
+      {step === 'cost-report' && <CostReportTab runId={runId} runStatus={run.status} />}
 
       {showRollback && (
         <RollbackModal

@@ -66,6 +66,7 @@ const STATUS_TONE: Record<string, string> = {
   RELEASED: 'var(--ok)',
   CANCELLED: 'var(--txt-dim)',
   COMPLETED: 'var(--ok)',
+  APPLIED: 'var(--ok)',
 };
 
 export function StatusBadge({ status }: { status: string }) {

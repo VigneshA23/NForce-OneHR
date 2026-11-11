@@ -42,6 +42,10 @@ class PayrollRunServiceTest {
     @Mock private AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     @Mock private SalaryHoldRepository salaryHoldRepository;
     @Mock private PayrollRunReviewService payrollRunReviewService;
+    @Mock private StatutoryDeductionService statutoryDeductionService;
+    @Mock private ArrearsService arrearsService;
+    @Mock private SalaryComponentRepository salaryComponentRepository;
+    @Mock private EmployeeRepository employeeRepository;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -67,8 +71,20 @@ class PayrollRunServiceTest {
                 payGroupRepository, employeeCompensationRepository, salaryStructureComponentRepository,
                 payrollLopCalculationService, payrollProrationService, approvalRuleEvaluationService,
                 adHocPaymentRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
-                salaryHoldRepository, payrollRunReviewService, new SalaryStructureResolutionService(), userRepository,
-                auditService, auditSnapshot);
+                salaryHoldRepository, payrollRunReviewService, new SalaryStructureResolutionService(),
+                statutoryDeductionService, arrearsService, salaryComponentRepository, employeeRepository,
+                userRepository, auditService, auditSnapshot);
+
+        // US-C13 Phase 3 default: no statutory deductions, no Location — every existing test in
+        // this class predates the statutory engine and asserts totals/line-items without it: it
+        // may compute to "nothing" in them, never throw. Tests exercising the engine itself live in
+        // StatutoryDeductionServiceTest; tests here that care about the integration point override
+        // this stub explicitly.
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(Employee.builder().userId(employeeId).build()));
+        lenient().when(statutoryDeductionService.computeDeductions(any(), any(), any(), any(), any())).thenReturn(List.of());
+        // Arrears default: nothing PENDING — tests exercising the trigger/apply integration
+        // override this stub explicitly.
+        lenient().when(arrearsService.findPendingFor(any())).thenReturn(List.of());
 
         // Default actor holds HR_ADMIN — matches this app's one real approver role before US-C09,
         // and the legacy single-HR_ADMIN-stage default evaluatePayrollRun falls back to below.
@@ -205,6 +221,121 @@ class PayrollRunServiceTest {
 
         // 40% of CTC monthly (100,000) = 40,000.
         assertEquals(0, new BigDecimal("40000.00").compareTo(resp.getTotalGross()));
+    }
+
+    @Test
+    void generateDraft_statutoryDeductions_addedAsLineItemsAndToTotalDeductions() {
+        // US-C13 Phase 3 — PayrollRunService doesn't compute PF/ESI/PT itself, it just passes this
+        // payslip's own Basic/grossPay to StatutoryDeductionService and turns whatever comes back
+        // into line items; the formulas themselves are covered by StatutoryDeductionServiceTest.
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.PERCENT_OF_GROSS, new BigDecimal("50"), null);
+
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        SalaryComponent pfCatalog = SalaryComponent.builder().id(UUID.randomUUID()).name("PF").type(SalaryComponentType.DEDUCTION).build();
+        when(statutoryDeductionService.computeDeductions(any(), any(), any(), any(), eq(cycleEnd)))
+                .thenReturn(List.of(new StatutoryDeductionService.ComputedDeduction(pfCatalog, new BigDecimal("6000.00"))));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        org.mockito.ArgumentCaptor<PayslipLineItem> captor = org.mockito.ArgumentCaptor.forClass(PayslipLineItem.class);
+        verify(payslipLineItemRepository, times(2)).save(captor.capture());
+        PayslipLineItem pfLine = captor.getAllValues().stream().filter(i -> "PF".equals(i.getComponentName())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("6000.00").compareTo(pfLine.getAmount()));
+        assertFalse(pfLine.isProrated());
+
+        // Gross (50% of 100,000 CTC-monthly = 50,000) unaffected; deduction subtracted into net.
+        assertEquals(0, new BigDecimal("50000.00").compareTo(resp.getTotalGross()));
+        assertEquals(0, new BigDecimal("6000.00").compareTo(resp.getTotalDeductions()));
+        assertEquals(0, new BigDecimal("44000.00").compareTo(resp.getTotalNet()));
+    }
+
+    @Test
+    void generateDraft_noStatutoryRulesConfigured_behavesExactlyAsBeforeThisPhase() {
+        // The default stub (empty list) from setUp — an unconfigured tenant must still generate
+        // payroll with zero statutory line items, not fail.
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.PERCENT_OF_GROSS, new BigDecimal("50"), null);
+
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        verify(payslipLineItemRepository, times(1)).save(any(PayslipLineItem.class));
+        assertEquals(0, BigDecimal.ZERO.compareTo(resp.getTotalDeductions()));
+    }
+
+    @Test
+    void generateDraft_pendingPositiveArrears_becomesAnEarningLineItem_andIsMarkedApplied() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.PERCENT_OF_GROSS, new BigDecimal("50"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        Arrears pending = Arrears.builder().id(UUID.randomUUID()).employeeId(employeeId).amount(new BigDecimal("4000.00")).build();
+        when(arrearsService.findPendingFor(employeeId)).thenReturn(List.of(pending));
+        SalaryComponent arrearsCatalog = SalaryComponent.builder().id(UUID.randomUUID()).name("Arrears").type(SalaryComponentType.AD_HOC_EARNING).active(true).build();
+        when(salaryComponentRepository.findByNameIgnoreCase("Arrears")).thenReturn(Optional.of(arrearsCatalog));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        org.mockito.ArgumentCaptor<PayslipLineItem> captor = org.mockito.ArgumentCaptor.forClass(PayslipLineItem.class);
+        verify(payslipLineItemRepository, times(2)).save(captor.capture());
+        PayslipLineItem arrearsLine = captor.getAllValues().stream().filter(i -> "Arrears".equals(i.getComponentName())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("4000.00").compareTo(arrearsLine.getAmount()));
+        assertFalse(arrearsLine.isProrated());
+
+        // 50,000 (50% of CTC-monthly) + 4,000 arrears = 54,000 gross; no deductions.
+        assertEquals(0, new BigDecimal("54000.00").compareTo(resp.getTotalGross()));
+        verify(arrearsService).markApplied(pending, resp.getId());
+    }
+
+    @Test
+    void generateDraft_pendingNegativeArrears_becomesARecoveryDeduction() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.PERCENT_OF_GROSS, new BigDecimal("50"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        Arrears pending = Arrears.builder().id(UUID.randomUUID()).employeeId(employeeId).amount(new BigDecimal("-1500.00")).build();
+        when(arrearsService.findPendingFor(employeeId)).thenReturn(List.of(pending));
+        SalaryComponent recoveryCatalog = SalaryComponent.builder().id(UUID.randomUUID()).name("Arrears Recovery").type(SalaryComponentType.AD_HOC_DEDUCTION).active(true).build();
+        when(salaryComponentRepository.findByNameIgnoreCase("Arrears Recovery")).thenReturn(Optional.of(recoveryCatalog));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        org.mockito.ArgumentCaptor<PayslipLineItem> captor = org.mockito.ArgumentCaptor.forClass(PayslipLineItem.class);
+        verify(payslipLineItemRepository, times(2)).save(captor.capture());
+        PayslipLineItem recoveryLine = captor.getAllValues().stream().filter(i -> "Arrears Recovery".equals(i.getComponentName())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("1500.00").compareTo(recoveryLine.getAmount())); // stored as a positive deduction amount
+
+        assertEquals(0, new BigDecimal("1500.00").compareTo(resp.getTotalDeductions()));
+        verify(arrearsService).markApplied(pending, resp.getId());
+    }
+
+    @Test
+    void generateDraft_pendingArrearsWithNoCatalogComponent_isLeftPendingNotSilentlyDropped() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.PERCENT_OF_GROSS, new BigDecimal("50"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        Arrears pending = Arrears.builder().id(UUID.randomUUID()).employeeId(employeeId).amount(new BigDecimal("4000.00")).build();
+        when(arrearsService.findPendingFor(employeeId)).thenReturn(List.of(pending));
+        when(salaryComponentRepository.findByNameIgnoreCase("Arrears")).thenReturn(Optional.empty());
+
+        service.generateDraft(generateReq(), actorEmail);
+
+        verify(payslipLineItemRepository, times(1)).save(any(PayslipLineItem.class)); // just Basic, no arrears line
+        verify(arrearsService, never()).markApplied(any(), any());
     }
 
     @Test

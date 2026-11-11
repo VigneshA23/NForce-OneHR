@@ -227,6 +227,101 @@ export interface SalaryComponentCatalogResponse {
   active: boolean;
 }
 
+export interface DepartmentCostResponse {
+  departmentId: string | null;
+  departmentName: string;
+  employeeCount: number;
+  grossPay: number;
+  totalDeductions: number;
+  netPay: number;
+}
+
+export interface ProjectCostResponse {
+  projectId: string | null;
+  projectCode: string | null;
+  projectName: string;
+  grossPay: number;
+  totalDeductions: number;
+  netPay: number;
+}
+
+export interface PayrollCostReportResponse {
+  runId: string;
+  cycleStart: string;
+  cycleEnd: string;
+  employeeCount: number;
+  grossPay: number;
+  totalDeductions: number;
+  netPay: number;
+  byDepartment: DepartmentCostResponse[];
+  byProject: ProjectCostResponse[];
+}
+
+// US-C13 — opaque, version-dated statutory config (PF/ESI/PT/TDS slabs etc.). Phase 2 only stores
+// and versions it; nothing in payroll-run generation reads slabConfig yet (see payroll-no-hardcoded-
+// values memory — this is the HR-editable config layer that replaces hardcoded Java constants, once
+// a later phase wires computation up to it).
+export interface EmployeeDateEntry {
+  employeeId: string;
+  employeeName: string;
+  date: string;
+}
+
+export interface PayrollJoinersExitsResponse {
+  runId: string;
+  cycleStart: string;
+  cycleEnd: string;
+  joiners: EmployeeDateEntry[];
+  exits: EmployeeDateEntry[];
+}
+
+export interface PayrollClaimResponse {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  categoryName: string;
+  amount: number;
+  expenseDate: string;
+  status: string;
+}
+
+export interface StatutoryOverrideResponse {
+  id: string;
+  employeeId: string;
+  country: string;
+  ruleType: string;
+  cycleStart: string;
+  cycleEnd: string;
+  overrideAmount: number;
+  overrideReason: string;
+  overriddenBy: string;
+  overriddenAt: string;
+}
+
+export interface ArrearsResponse {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  amount: number;
+  reason: string;
+  sourceType: string;
+  sourceCycleStart: string;
+  sourceCycleEnd: string;
+  status: string;
+  appliedToRunId: string | null;
+  createdAt: string;
+}
+
+export interface StatutoryRuleResponse {
+  id: string;
+  country: string;
+  ruleType: string;
+  slabConfig: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  createdAt: string;
+}
+
 export const payrollApi = {
   // Pay groups (read-only picker for this slice)
   listPayGroups: (token: string) =>
@@ -252,6 +347,18 @@ export const payrollApi = {
 
   getCompensationHistory: (employeeId: string, token: string) =>
     fetch(`${BASE}/employee-compensation/employee/${employeeId}/history`, { headers: bearerOnly(token) }).then(handle<EmployeeCompensationResponse[]>),
+
+  // US-C02 self-service follow-up — "me" resolved server-side from the JWT, no employeeId needed.
+  // Returns null (not a thrown error) when nothing's been assigned yet — a real, expected state for
+  // this endpoint specifically, unlike every other call here where a 404 means something's wrong.
+  getMyCurrentCompensation: async (token: string): Promise<EmployeeCompensationResponse | null> => {
+    const res = await fetch(`${BASE}/employee-compensation/me/current`, { headers: bearerOnly(token) });
+    if (res.status === 404) return null;
+    return handle<EmployeeCompensationResponse>(res);
+  },
+
+  getMyCompensationHistory: (token: string) =>
+    fetch(`${BASE}/employee-compensation/me/history`, { headers: bearerOnly(token) }).then(handle<EmployeeCompensationResponse[]>),
 
   // Runs
   generateDraft: (payload: { payGroupId: string; referenceDate?: string }, token: string) =>
@@ -344,4 +451,57 @@ export const payrollApi = {
 
   releaseSalaryHold: (runId: string, holdId: string, token: string) =>
     fetch(`${BASE}/runs/${runId}/salary-holds/${holdId}/release`, { method: 'POST', headers: authHeaders(token) }).then(handle<SalaryHoldResponse>),
+
+  // US-C16 — Cost report (only buildable once a run is APPROVED or DISBURSED — backend-enforced)
+  getCostReport: (runId: string, token: string) =>
+    fetch(`${BASE}/runs/${runId}/cost-report`, { headers: bearerOnly(token) }).then(handle<PayrollCostReportResponse>),
+
+  // New Joinees & Exits
+  getJoinersExits: (runId: string, token: string) =>
+    fetch(`${BASE}/runs/${runId}/joiners-exits`, { headers: bearerOnly(token) }).then(handle<PayrollJoinersExitsResponse>),
+
+  // Salary Component Claim / Expenses — read-only visibility into expense claims cleared for payroll
+  getClaims: (runId: string, token: string) =>
+    fetch(`${BASE}/runs/${runId}/claims`, { headers: bearerOnly(token) }).then(handle<PayrollClaimResponse[]>),
+
+  // Statutory Override — one employee's PF/ESI/Professional Tax amount for one cycle
+  createStatutoryOverride: (payload: { employeeId: string; payGroupId: string; referenceDate?: string; ruleType: string; overrideAmount: number; overrideReason: string }, token: string) =>
+    fetch(`${BASE}/statutory-overrides`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<StatutoryOverrideResponse>),
+
+  clearStatutoryOverride: (employeeId: string, ruleType: string, payGroupId: string, referenceDate: string | undefined, token: string) => {
+    const params = new URLSearchParams({ employeeId, ruleType, payGroupId });
+    if (referenceDate) params.set('referenceDate', referenceDate);
+    return fetch(`${BASE}/statutory-overrides?${params.toString()}`, { method: 'DELETE', headers: authHeaders(token) }).then(handle<void>);
+  },
+
+  listStatutoryOverridesForEmployee: (employeeId: string, token: string) =>
+    fetch(`${BASE}/statutory-overrides/by-employee/${employeeId}`, { headers: bearerOnly(token) }).then(handle<StatutoryOverrideResponse[]>),
+
+  // Arrears — read-only, auto-computed (see Arrears' own backend doc comment)
+  getArrears: (runId: string, token: string) =>
+    fetch(`${BASE}/runs/${runId}/arrears`, { headers: bearerOnly(token) }).then(handle<ArrearsResponse[]>),
+
+  // US-C19 — Pay Groups (full CRUD; previously only wrapped for reading)
+  createPayGroup: (payload: { name: string; legalEntity?: string; frequency?: string; currency?: string; cycleStartDay: number; cycleEndDay: number; processingDay: number }, token: string) =>
+    fetch(`${BASE}/pay-groups`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayGroupResponse>),
+
+  updatePayGroup: (id: string, payload: Partial<{ name: string; legalEntity: string; frequency: string; currency: string; cycleStartDay: number; cycleEndDay: number; processingDay: number; active: boolean }>, token: string) =>
+    fetch(`${BASE}/pay-groups/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayGroupResponse>),
+
+  // US-C20 — Salary Component catalog (full CRUD; previously only wrapped for reading)
+  createSalaryComponent: (payload: { name: string; type: string; taxable?: boolean; taxSection?: string; includedInCtc?: boolean; shownOnPayslip?: boolean; prorateOnLop?: boolean }, token: string) =>
+    fetch(`${BASE}/salary-components`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<SalaryComponentCatalogResponse>),
+
+  updateSalaryComponent: (id: string, payload: Partial<{ name: string; type: string; taxable: boolean; taxSection: string; includedInCtc: boolean; shownOnPayslip: boolean; prorateOnLop: boolean; active: boolean }>, token: string) =>
+    fetch(`${BASE}/salary-components/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<SalaryComponentCatalogResponse>),
+
+  // US-C13 — Statutory Rules (config/versioning only — see StatutoryRuleResponse's own doc comment)
+  listStatutoryRules: (token: string) =>
+    fetch(`${BASE}/statutory-rules`, { headers: bearerOnly(token) }).then(handle<StatutoryRuleResponse[]>),
+
+  getStatutoryRuleHistory: (country: string, ruleType: string, token: string) =>
+    fetch(`${BASE}/statutory-rules/history?${new URLSearchParams({ country, ruleType }).toString()}`, { headers: bearerOnly(token) }).then(handle<StatutoryRuleResponse[]>),
+
+  createOrReviseStatutoryRule: (payload: { country: string; ruleType: string; slabConfig: string; effectiveFrom: string }, token: string) =>
+    fetch(`${BASE}/statutory-rules`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<StatutoryRuleResponse>),
 };

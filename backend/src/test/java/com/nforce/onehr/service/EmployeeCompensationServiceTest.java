@@ -8,6 +8,7 @@ import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeCompensationRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.PayGroupRepository;
+import com.nforce.onehr.repository.PayslipRepository;
 import com.nforce.onehr.repository.SalaryStructureComponentRepository;
 import com.nforce.onehr.repository.SalaryStructureRepository;
 import com.nforce.onehr.repository.UserRepository;
@@ -38,6 +39,9 @@ class EmployeeCompensationServiceTest {
     @Mock private PayGroupRepository payGroupRepository;
     @Mock private SalaryStructureRepository salaryStructureRepository;
     @Mock private SalaryStructureComponentRepository salaryStructureComponentRepository;
+    @Mock private PayslipRepository payslipRepository;
+    @Mock private PayrollRunService payrollRunService;
+    @Mock private ArrearsService arrearsService;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -61,6 +65,9 @@ class EmployeeCompensationServiceTest {
             if (c.getId() == null) c.setId(UUID.randomUUID());
             return c;
         });
+        // Arrears trigger 2 default: no already-closed cycles for this employee — individual tests
+        // exercising the backdated-revision trigger override this.
+        lenient().when(payslipRepository.findVisibleForEmployee(any(), any())).thenReturn(List.of());
     }
 
     private SalaryStructure structure() {

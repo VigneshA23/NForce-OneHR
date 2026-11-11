@@ -2,12 +2,16 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.payroll.AssignCompensationRequest;
 import com.nforce.onehr.dto.payroll.EmployeeCompensationResponse;
+import com.nforce.onehr.entity.ArrearsSourceType;
 import com.nforce.onehr.entity.EmployeeCompensation;
+import com.nforce.onehr.entity.Payslip;
+import com.nforce.onehr.entity.PayrollRunStatus;
 import com.nforce.onehr.entity.SalaryStructure;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeCompensationRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.PayGroupRepository;
+import com.nforce.onehr.repository.PayslipRepository;
 import com.nforce.onehr.repository.SalaryStructureComponentRepository;
 import com.nforce.onehr.repository.SalaryStructureRepository;
 import com.nforce.onehr.repository.UserRepository;
@@ -15,11 +19,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -43,6 +49,9 @@ public class EmployeeCompensationService {
     private final PayGroupRepository payGroupRepository;
     private final SalaryStructureRepository salaryStructureRepository;
     private final SalaryStructureComponentRepository salaryStructureComponentRepository;
+    private final PayslipRepository payslipRepository;
+    private final PayrollRunService payrollRunService;
+    private final ArrearsService arrearsService;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -88,7 +97,31 @@ public class EmployeeCompensationService {
         String after = auditSnapshot.toJson(compensationSnapshot(saved));
         auditService.log(actor.getId(), "EMPLOYEE_COMPENSATION_ASSIGNED", saved.getId(), before, after);
 
+        raiseArrearsForBackdatedRevision(saved, actorEmail);
+
         return toResponse(saved);
+    }
+
+    // Arrears trigger 2 — see Arrears' own doc comment. A revision effectiveFrom on/before an
+    // already-closed (APPROVED/DISBURSED) cycle's own end date means that cycle was paid at the
+    // OLD rate; this computes what it would have paid under the NEW one and records the delta as a
+    // PENDING Arrears row per affected cycle, without touching that cycle's real Payslip.
+    private void raiseArrearsForBackdatedRevision(EmployeeCompensation revised, String actorEmail) {
+        List<Payslip> closedCyclePayslips = payslipRepository.findVisibleForEmployee(
+                revised.getEmployeeId(), Set.of(PayrollRunStatus.APPROVED, PayrollRunStatus.DISBURSED));
+
+        for (Payslip historical : closedCyclePayslips) {
+            if (historical.getPayrollRun().getCycleEnd().isBefore(revised.getEffectiveFrom())) {
+                continue; // this cycle ended before the revision takes effect — unaffected
+            }
+            BigDecimal revisedNetPay = payrollRunService.previewNetPay(revised,
+                    historical.getPayrollRun().getCycleStart(), historical.getPayrollRun().getCycleEnd(), historical.getProrationFactor());
+            BigDecimal delta = revisedNetPay.subtract(historical.getNetPay());
+            arrearsService.createPending(revised.getEmployeeId(), revised.getPayGroupId(), delta,
+                    "Backdated compensation revision effective " + revised.getEffectiveFrom() + " affects the cycle "
+                            + historical.getPayrollRun().getCycleStart() + "-" + historical.getPayrollRun().getCycleEnd(),
+                    ArrearsSourceType.SALARY_REVISION, historical.getPayrollRun().getCycleStart(), historical.getPayrollRun().getCycleEnd(), actorEmail);
+        }
     }
 
     @Transactional(readOnly = true)
