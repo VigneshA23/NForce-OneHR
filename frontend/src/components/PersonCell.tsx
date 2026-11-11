@@ -52,7 +52,7 @@ export function PersonCell({ userId, name, code, extra, photoDataUrl }: {
   photoDataUrl?: string | null;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 200 }}>
+    <div className="nf-person" style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 200 }}>
       <PersonAvatar userId={userId} name={name} photoDataUrl={photoDataUrl} />
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--txt)' }}>{name}</div>

@@ -1,0 +1,55 @@
+/* Attendance request tables (alignment fix) and the request detail drawer. Presentation only; theme tokens throughout. */
+
+/* ── Table alignment ──
+ * The shared PersonCell reserves min-width 200px for the other (auto-layout) tables. In these fixed-layout request tables
+ * that made the Employee cell spill over the next column when the page was zoomed or the window narrowed, so the name sat
+ * on top of the date. Here the cell takes the column's width and the name wraps instead. */
+.nf-req-table .nf-person { min-width: 0 !important; gap: 10px !important; }
+.nf-req-table .nf-person > :first-child { flex-shrink: 0; }
+.nf-req-table .nf-person > div:last-child { min-width: 0; overflow-wrap: anywhere; }
+.nf-req-table td { overflow: hidden; }
+
+/* ── Detail drawer ── */
+.nf-qd-overlay { position: fixed; inset: 0; z-index: 600; display: flex; justify-content: flex-end; background: rgba(8, 10, 16, .55); backdrop-filter: blur(3px); }
+.nf-qd { width: min(480px, 100vw); height: 100%; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line2); box-shadow: -20px 0 50px rgba(0, 0, 0, .35); animation: nf-qd-slide .22s ease-out; }
+@keyframes nf-qd-slide { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
+.nf-qd-head { flex-shrink: 0; display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-bottom: 1px solid var(--line); background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); }
+.nf-qd-ico { flex-shrink: 0; width: 42px; height: 42px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-qd-titles { flex: 1; min-width: 0; }
+.nf-qd-title { font-family: Inter, sans-serif; font-size: 16px; font-weight: 700; letter-spacing: -.01em; color: var(--txt); }
+.nf-qd-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-qd-x { flex-shrink: 0; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-radius: 11px; }
+.nf-qd-x:hover { color: var(--txt); background: var(--raised2); }
+.nf-qd-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; padding: 18px 22px 22px; }
+.nf-qd-who { display: flex; align-items: center; gap: 13px; padding: 14px 16px; background: var(--raised); border: 1px solid var(--line); border-radius: 16px; }
+.nf-qd-name { font-size: 14.5px; font-weight: 700; color: var(--txt); }
+.nf-qd-sec { display: flex; flex-direction: column; gap: 9px; }
+.nf-qd-sec-title { display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-dim); }
+.nf-qd-sec-title svg { color: var(--brand); }
+.nf-qd-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.nf-qd-fact { padding: 12px 14px; background: var(--raised); border: 1px solid var(--line); border-radius: 14px; }
+.nf-qd-fact small { display: block; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-dim); }
+.nf-qd-fact b { display: block; margin-top: 4px; font-family: Inter, sans-serif; font-size: 15px; font-weight: 700; color: var(--txt); overflow-wrap: anywhere; }
+.nf-qd-rows { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; }
+.nf-qd-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; font-size: 13px; color: var(--txt); background: var(--raised); }
+.nf-qd-row + .nf-qd-row { border-top: 1px solid var(--line); }
+.nf-qd-row b { font-weight: 700; color: var(--txt-mut); text-align: right; }
+.nf-qd-quote { padding: 12px 15px; font-size: 13px; line-height: 1.55; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); border-left: 4px solid color-mix(in srgb, var(--brand) 55%, var(--line)); border-radius: 12px; overflow-wrap: anywhere; }
+.nf-qd-decision { display: flex; align-items: flex-start; gap: 12px; padding: 13px 15px; border-radius: 16px; --dc: var(--ok); background: color-mix(in srgb, var(--dc) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--dc) 30%, transparent); }
+.nf-qd-decision.is-bad { --dc: var(--risk); }
+.nf-qd-decision-ico { flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--dc); background: color-mix(in srgb, var(--dc) 14%, var(--panel)); }
+.nf-qd-decision b { display: block; font-size: 13px; color: var(--txt); }
+.nf-qd-decision small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--txt-dim); }
+.nf-qd-decision p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--txt-mut); }
+
+.nf-qd-foot { flex-shrink: 0; padding: 14px 22px 18px; background: var(--raised); border-top: 1px solid var(--line); }
+.nf-qd-form label { display: block; margin-bottom: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-dim); }
+.nf-qd-form textarea { width: 100%; box-sizing: border-box; padding: 11px 13px; resize: vertical; font: inherit; font-size: 13px; color: var(--txt); background: var(--panel); border: 1px solid var(--line2); border-radius: 12px; outline: none; transition: border-color .15s, box-shadow .15s; }
+.nf-qd-form textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
+.nf-qd-form-btns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
+.nf-qd-ghost, .nf-qd-ok, .nf-qd-danger { padding: 10px 20px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 700; border-radius: 12px; transition: transform .15s; }
+.nf-qd-ghost { color: var(--txt-mut); background: var(--panel); border: 1px solid var(--line2); }
+.nf-qd-ok { color: #fff; border: none; background: linear-gradient(135deg, var(--ok), color-mix(in srgb, var(--ok) 72%, #000)); box-shadow: 0 8px 18px color-mix(in srgb, var(--ok) 26%, transparent); }
+.nf-qd-danger { color: #fff; border: none; background: linear-gradient(135deg, var(--risk), color-mix(in srgb, var(--risk) 72%, #000)); box-shadow: 0 8px 18px color-mix(in srgb, var(--risk) 26%, transparent); }
+.nf-qd-ok:hover:not(:disabled), .nf-qd-danger:hover:not(:disabled) { transform: translateY(-1px); }
+.nf-qd-ok:disabled, .nf-qd-danger:disabled { cursor: not-allowed; opacity: .65; box-shadow: none; }
