@@ -31,7 +31,7 @@ import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestRep
 import { orgApi, type DepartmentRow, type LocationRow } from '../api/org';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { kudosApi } from '../api/kudos';
-import { projectAllocationsApi } from '../api/projectAllocations';
+import { projectAllocationsApi, projectsApi } from '../api/projectAllocations';
 import TeamCapacityTab from './my-team/TeamCapacityTab';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
@@ -3264,7 +3264,19 @@ export default function MyTeamPage() {
         names.set(a.projectId, a.projectName ?? 'Unnamed project');
       }));
       setProjectsByEmployee(byEmp);
-      setProjectOptions([...names].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
+      setProjectOptions(prev => {
+        const byId = new Map(prev.map(p => [p.id, p]));
+        names.forEach((name, id) => byId.set(id, { id, name }));
+        return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+      });
+    }).catch(() => {});
+    // Also offer the projects this manager owns, so the filter is populated before anyone is allocated.
+    projectsApi.list(token).then(list => {
+      setProjectOptions(prev => {
+        const byId = new Map(prev.map(p => [p.id, p]));
+        list.filter(p => p.status === 'ACTIVE').forEach(p => { if (!byId.has(p.id)) byId.set(p.id, { id: p.id, name: p.name }); });
+        return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+      });
     }).catch(() => {});
   }, [token, isEmployee]);
 

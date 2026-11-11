@@ -5,6 +5,7 @@ import com.nforce.onehr.dto.allocation.BulkProjectAllocationRequest;
 import com.nforce.onehr.dto.allocation.EmployeeCapacityResponse;
 import com.nforce.onehr.dto.allocation.ProjectAllocationRequest;
 import com.nforce.onehr.dto.allocation.ProjectAllocationResponse;
+import com.nforce.onehr.dto.allocation.ProjectAllocationUpdateRequest;
 import com.nforce.onehr.service.ProjectAllocationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,14 @@ public class ProjectAllocationController {
     public ResponseEntity<ProjectAllocationResponse> allocate(@Valid @RequestBody ProjectAllocationRequest req, Principal principal) {
         ProjectAllocationResponse res = service.allocate(principal.getName(), req);
         return ResponseEntity.status(res.getId() != null ? HttpStatus.CREATED : HttpStatus.OK).body(res);
+    }
+
+    /** US-B03: edit or release an allocation; the service only lets the project's owner or HR through. */
+    @PatchMapping("/{id}")
+    @PreAuthorize("hasAuthority('project_allocations:CREATE:TEAM')")
+    public ProjectAllocationResponse update(@PathVariable UUID id, @Valid @RequestBody ProjectAllocationUpdateRequest req,
+                                            Principal principal) {
+        return service.update(principal.getName(), id, req);
     }
 
     /** US-B10: bulk-allocate the same project/capacity/date-range to multiple employees, with per-employee partial success. */

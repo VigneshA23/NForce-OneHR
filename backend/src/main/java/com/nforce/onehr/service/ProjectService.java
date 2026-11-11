@@ -16,9 +16,11 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.ProjectRepository;
 import com.nforce.onehr.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -53,8 +55,16 @@ public class ProjectService {
     private final EmployeeRepository employeeRepository;
     private final UserRepository userRepository;
 
-    @Transactional(readOnly = true)
+    /** Daily sweep; list() also runs it so a project never shows Active a moment after its end date. */
+    @Scheduled(cron = "${app.projects.close-expired.cron:0 5 0 * * *}")
+    @Transactional
+    public int closeExpiredProjects() {
+        return projectRepository.closeExpired(LocalDate.now());
+    }
+
+    @Transactional
     public List<ProjectResponse> list(String actorEmail) {
+        closeExpiredProjects();
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
         List<Project> projects = userHasAnyRole(actor, ADMIN_ROLES)

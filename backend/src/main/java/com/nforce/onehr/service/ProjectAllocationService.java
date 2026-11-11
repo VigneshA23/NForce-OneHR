@@ -21,6 +21,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.nforce.onehr.dto.allocation.ProjectAllocationUpdateRequest;
+
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -91,6 +93,29 @@ public class ProjectAllocationService {
                 : null;
     }
 
+    /**
+     * US-B03: edit or release (actualEndDate) an allocation. The ownership gate runs against the
+     * allocation's own project, so a Manager can only touch allocations on projects they own.
+     */
+    @Transactional
+    public ProjectAllocationResponse update(String actorEmail, UUID allocationId, ProjectAllocationUpdateRequest req) {
+        ProjectAllocation allocation = allocationRepository.findById(allocationId)
+                .orElseThrow(() -> new NoSuchElementException("Allocation not found"));
+        Project project = findProject(allocation.getProjectId());
+        requireCanAllocate(resolveUser(actorEmail), project);
+        if (req.getCapacityPercent() != null) allocation.setCapacityPercent(req.getCapacityPercent());
+        if (req.getEndDate() != null) allocation.setEndDate(req.getEndDate());
+        if (req.getActualEndDate() != null) allocation.setActualEndDate(req.getActualEndDate());
+        LocalDate end = allocation.getEndDate();
+        if (end.isBefore(allocation.getStartDate())
+                || (allocation.getActualEndDate() != null && allocation.getActualEndDate().isBefore(allocation.getStartDate()))) {
+            throw new IllegalArgumentException("End date cannot be before start date");
+        }
+        Employee employee = findEmployee(allocation.getEmployeeUserId());
+        return toResponse(allocationRepository.save(allocation), employee, project,
+                allocatedCapacity(employee.getUserId(), allocation.getStartDate(), end), null);
+    }
+
     /** US-B10: project/capacity/dates are shared across the request; each employee is still validated on its own. */
     @Transactional
     public BulkAllocationResponse bulkAllocate(String actorEmail, BulkProjectAllocationRequest req) {
@@ -133,7 +158,9 @@ public class ProjectAllocationService {
 
     /** Hard rules (4xx). Over-allocation is deliberately NOT here — it's a soft warning (US-B06). */
     private static void validate(Project project, LocalDate startDate, LocalDate endDate) {
-        if (project.getStatus() != ProjectStatus.ACTIVE) {
+        // An expired project is closed even if the daily sweep hasn't flipped its status yet.
+        boolean expired = project.getEndDate() != null && project.getEndDate().isBefore(LocalDate.now());
+        if (project.getStatus() != ProjectStatus.ACTIVE || expired) {
             throw new IllegalArgumentException("Project \"" + project.getName() + "\" is not active");
         }
         if (endDate.isBefore(startDate)) {

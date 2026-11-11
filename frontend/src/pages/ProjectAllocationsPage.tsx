@@ -99,12 +99,18 @@ export default function ProjectAllocationsPage() {
   function load() {
     setLoading(true);
     setLoadError('');
-    Promise.all([employeesApi.list(token), projectsApi.list(token)])
+    // Independent loads: one failing (e.g. employee list) must not lock the whole page.
+    Promise.allSettled([employeesApi.list(token), projectsApi.list(token)])
       .then(([emps, projs]) => {
-        setEmployees(emps.filter(e => e.active));
-        setProjects(projs);
+        if (emps.status === 'fulfilled') setEmployees(emps.value.filter(e => e.active));
+        if (projs.status === 'fulfilled') setProjects(projs.value);
+        const failed = [emps, projs].find(r => r.status === 'rejected') as PromiseRejectedResult | undefined;
+        if (projs.status === 'rejected' && emps.status === 'rejected') {
+          setLoadError(failed?.reason instanceof Error ? failed.reason.message : 'Failed to load employees/projects');
+        } else if (failed) {
+          setFormError(failed.reason instanceof Error ? failed.reason.message : 'Some data failed to load');
+        }
       })
-      .catch(e => setLoadError(e instanceof Error ? e.message : 'Failed to load employees/projects'))
       .finally(() => setLoading(false));
   }
 
@@ -125,7 +131,10 @@ export default function ProjectAllocationsPage() {
   }
 
   // Only ACTIVE projects accept allocations (ON_HOLD/CLOSED are rejected by the backend too).
-  const activeProjects = useMemo(() => projects.filter(p => p.status === 'ACTIVE'), [projects]);
+  const activeProjects = useMemo(() => {
+    const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local
+    return projects.filter(p => p.status === 'ACTIVE' && (!p.endDate || p.endDate >= today));
+  }, [projects]);
 
   function handleProjectSaved(saved: ProjectRecord) {
     setProjects(prev => {
