@@ -10,6 +10,7 @@ import { ActionDock } from '../components/ActionDock';
 import { TabBar } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
 import { assetsExpensesView } from '../lib/permissions';
+import { useCan } from '../lib/access';
 import { useToast } from '../context/ToastContext';
 import {
   assetsApi,
@@ -662,6 +663,11 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
   const navigate = useNavigate();
   const { showToast } = useToast();
   const assetRequestsRef = useRef<HTMLDivElement>(null);
+  const can = useCan();
+  const canCreateAsset = can('assets', 'CREATE');
+  const canEditAsset = can('assets', 'EDIT');
+  const canConfigExpenses = can('expenses', 'CONFIGURE');
+  const canPayExpenses = can('expenses', 'APPROVE');
 
   const [hrTiles, setHrTiles] = useState<AssetTileHR | null>(null);
   const [hrExpTiles, setHrExpTiles] = useState<ExpenseTileHR | null>(null);
@@ -769,11 +775,11 @@ This can only be done for an asset that was never assigned. An asset with assign
       {activeTab === 'inventory' && (<div>
         <SectionHead
           title="Company Asset Inventory"
-          action={
+          action={!canCreateAsset ? undefined : (
             <button onClick={() => setShowAddAsset(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 30%, transparent)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               <Plus size={13} /> Add Asset
             </button>
-          }
+          )}
         />
         <div className="nf-filterbar">
           <label className="nf-filter-search">
@@ -814,7 +820,7 @@ This can only be done for an asset that was never assigned. An asset with assign
                       )}
                     </td>
                     <td style={{ ...tdStyle, padding: '8px 12px' }}>
-                      <ActionDock items={[
+                      {canEditAsset && <ActionDock items={[
                         ...(a.status === 'AVAILABLE' ? [{ label: 'Assign', icon: UserPlus, onClick: () => setShowAssignModal(a) }] : []),
                         ...(a.status === 'ASSIGNED' ? [
                           { label: 'Reassign', icon: Repeat, onClick: () => setShowReassignModal(a) },
@@ -822,7 +828,7 @@ This can only be done for an asset that was never assigned. An asset with assign
                         ] : []),
                         ...(a.status !== 'RETIRED' ? [{ label: 'Retire', icon: Archive, onClick: () => handleRetire(a.id), danger: true }] : []),
                         { label: 'Delete', icon: Trash2, onClick: () => handleDeleteAsset(a), danger: true },
-                      ]} />
+                      ]} />}
                     </td>
                   </tr>
                 ))}
@@ -859,7 +865,7 @@ This can only be done for an asset that was never assigned. An asset with assign
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
                     <td style={tdStyle}>{fmtDate(r.createdAt)}</td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
-                      {r.status === 'APPROVED' && (
+                      {canEditAsset && r.status === 'APPROVED' && (
                         <button type="button" className="nf-act-btn nf-act-btn--primary" onClick={() => setShowFulfillModal(r)}>
                           Fulfill
                         </button>
@@ -876,9 +882,9 @@ This can only be done for an asset that was never assigned. An asset with assign
 
       {/* Categories tab */}
       {activeTab === 'categories' && (<div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+        {canConfigExpenses && <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
           <button onClick={() => setShowCatModal('new')} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}><Plus size={13} /> Add Category</button>
-        </div>
+        </div>}
         <div style={panelStyle}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -893,7 +899,7 @@ This can only be done for an asset that was never assigned. An asset with assign
                     <td style={tdStyle}>{c.dailyLimit ? fmtCurrency(c.dailyLimit) : '–'}</td>
                     <td style={tdStyle}>{c.secondApprovalAbove ? fmtCurrency(c.secondApprovalAbove) : '–'}</td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
-                      <button type="button" className="nf-act-btn" onClick={() => setShowCatModal(c)}>Edit</button>
+                      {canConfigExpenses && <button type="button" className="nf-act-btn" onClick={() => setShowCatModal(c)}>Edit</button>}
                     </td>
                   </tr>
                 ))}
@@ -949,9 +955,11 @@ This can only be done for an asset that was never assigned. An asset with assign
                       )}
                     </td>
                     <td style={{ ...tdStyle, padding: '8px 10px' }}>
-                      <button type="button" className="nf-act-btn nf-act-btn--primary" onClick={() => handleMarkPaid(c.id)}>
-                        Mark as Paid
-                      </button>
+                      {canPayExpenses && (
+                        <button type="button" className="nf-act-btn nf-act-btn--primary" onClick={() => handleMarkPaid(c.id)}>
+                          Mark as Paid
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

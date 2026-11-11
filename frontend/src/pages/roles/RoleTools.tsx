@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { rolesApi, type CatalogueModule, type PermissionHolder, type RoleDetail, type RoleHistoryEntry } from '../../api/roles';
+import { rolesApi, type CatalogueModule, type ConvertedManager, type PermissionHolder, type RoleDetail, type RoleHistoryEntry } from '../../api/roles';
 import type { EmployeeRecord } from '../../api/employees';
 import { ACTION_LABEL, SCOPE_LABEL } from '../../lib/rolePermissions';
 import { compareGrants, describeAuthority, type CompareRow } from '../../lib/roleTools';
@@ -158,6 +158,72 @@ export function PermissionHoldersModal({ token, catalogue, onClose }: { token: s
               </table>
             </div>
           ))}
+      </div>
+    </Shell>
+  );
+}
+
+// ─── Managers converted from automatic to explicit ──────────────────────────────
+/**
+ * Before V269 the MANAGER role was granted automatically when someone got a direct report. Those assignments
+ * were kept (nobody lost access) but are now ordinary explicit ones. This lists them so an administrator can
+ * decide, person by person, whether the role is still wanted: remove it from the role's Users tab, then mark
+ * the person reviewed here. Nothing on this screen changes anyone's access by itself.
+ */
+export function ConvertedManagersModal({ token, canReview, onClose }: { token: string; canReview: boolean; onClose: () => void }) {
+  const [rows, setRows] = useState<ConvertedManager[] | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = () => rolesApi.convertedManagers(token)
+    .then(setRows)
+    .catch((e) => setError(e instanceof Error ? e.message : 'Could not load the list.'));
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [token]);
+
+  async function review(userId: string) {
+    setBusy(userId); setError('');
+    try { await rolesApi.markConvertedManagerReviewed(userId, token); await load(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not mark this person reviewed.'); }
+    finally { setBusy(null); }
+  }
+
+  const pending = rows?.filter((r) => !r.reviewedAt).length ?? 0;
+  return (
+    <Shell title="Converted Manager assignments" onClose={onClose} wide
+      subtitle="People whose Manager role used to be granted automatically from a reporting line. They kept it; review whether they should.">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {error && <Banner tone="error">{error}</Banner>}
+        {rows === null && !error && <div style={{ padding: 20, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>}
+        {rows && rows.length === 0 && <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)' }}>No converted assignments to review.</div>}
+        {rows && rows.length > 0 && (
+          <>
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{pending} awaiting review · {rows.length - pending} reviewed</div>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
+                <thead><tr><th style={thStyle}>Person</th><th style={thStyle}>Manager role now</th><th style={thStyle}>Direct reports</th><th style={thStyle}>Review</th></tr></thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.userId} style={{ opacity: r.reviewedAt ? 0.65 : 1 }}>
+                      <td style={tdStyle}>
+                        <div style={{ color: 'var(--txt)', fontWeight: 600 }}>{r.fullName}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{r.email}{r.employeeCode ? ` · ${r.employeeCode}` : ''}</div>
+                      </td>
+                      <td style={tdStyle}>{r.holdsManagerNow ? 'Still holds it' : 'No longer holds it'}</td>
+                      <td style={tdStyle}>{r.directReportsNow} now <span style={{ color: 'var(--txt-dim)' }}>({r.directReportsAtConversion} at conversion)</span></td>
+                      <td style={tdStyle}>
+                        {r.reviewedAt
+                          ? <span style={{ color: 'var(--ok)', fontWeight: 600 }}>Reviewed</span>
+                          : canReview
+                            ? <button type="button" style={{ ...secondaryBtn, padding: '5px 12px', fontSize: 12 }} disabled={busy === r.userId} onClick={() => review(r.userId)}>{busy === r.userId ? 'Saving…' : 'Mark reviewed'}</button>
+                            : <span style={{ color: 'var(--txt-dim)' }}>Pending</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
     </Shell>
   );

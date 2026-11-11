@@ -1,0 +1,297 @@
+# Central permission catalogue — the authoritative definition of every permission node.
+#
+# Shape:  Module (grouping, no grants)  ->  Submodule (a page or independent capability)
+#         ->  Section (only where a page holds independently controllable functionality).
+# Grants live ONLY on nodes that list `actions` (a "leaf"): the node's `code` is the first segment of
+# every authority string, i.e. `<code>:<ACTION>:<SCOPE>` — unchanged from before this catalogue existed.
+# Parents never hold grants, so there is no inheritance in the engine: access to a module or submodule
+# never implies access to anything beneath it.
+#
+# Per action, `scopes` is the contiguous range of scopes the backend actually evaluates against a
+# record (OWN < TEAM < ALL): "ALL", "TEAM..ALL", "OWN". Anything outside the range is rejected when a
+# role is saved. DEPARTMENT / LOCATION are intentionally absent — no code evaluates them.
+#
+# Keep in step with the Flyway seed: PermissionCatalogueParityTest fails the build if this file and
+# the seeded modules/permissions/hierarchy disagree. To add a node: add it here, add a migration (V278
+# is the template for the hierarchy columns), and the test tells you what you missed.
+version: 1
+modules:
+  - code: mod.people
+    name: People
+    description: Employee records, team assignments and onboarding.
+    children:
+      - code: employees
+        name: Employee Master
+        description: The employee directory and employment records. Create and Edit expose personal and employment data.
+        actions: { VIEW: TEAM..ALL, CREATE: ALL, EDIT: ALL }
+      - code: employee_assignments
+        name: Employee Assignments
+        description: Bulk shift, weekly-off and penalty-policy assignment (including import).
+        actions: { VIEW: TEAM..ALL, CREATE: TEAM..ALL, EDIT: TEAM..ALL }
+      - code: onboarding
+        name: Onboarding
+        description: New-joiner checklists. Approve completes an onboarding flow.
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, APPROVE: ALL }
+
+  - code: mod.attendance
+    name: Attendance
+    description: Attendance records, corrections, requests and attendance policy.
+    children:
+      - code: attendance
+        name: Team & Organization Attendance
+        description: Attendance of other people. Edit covers cancelling penalties.
+        actions: { VIEW: TEAM..ALL, EDIT: TEAM..ALL }
+      - code: sub.attendance_requests
+        name: Attendance Requests
+        description: Requests employees raise about their attendance, and their review.
+        children:
+          - code: regularization
+            name: Regularization
+            description: Attendance correction requests. Export reads the organisation-wide history; Configure lifts submission limits.
+            actions: { VIEW: TEAM..ALL, APPROVE: TEAM..ALL, EXPORT: ALL, CONFIGURE: ALL }
+          - code: attendance_requests
+            name: Work From Home & Partial Day
+            description: WFH and partial-day requests.
+            actions: { VIEW: TEAM..ALL, APPROVE: TEAM..ALL }
+          - code: overtime
+            name: Overtime
+            description: Overtime requests.
+            actions: { VIEW: TEAM..ALL, APPROVE: TEAM..ALL }
+      - code: exceptions
+        name: Exception Dashboard
+        description: Attendance exceptions (late, absent, missing punches) for a team or the organisation.
+        actions: { VIEW: TEAM..ALL }
+      - code: penalization
+        name: Penalization Policy
+        description: Penalty policies and their allocation to employees.
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, DELETE: ALL }
+
+  - code: mod.leave
+    name: Leave & Holidays
+    description: Leave administration and the holiday calendar.
+    children:
+      - code: leave
+        name: Leave Administration
+        description: Team/organisation leave, approvals and leave types.
+        actions: { VIEW: TEAM..ALL, APPROVE: TEAM..ALL, CONFIGURE: ALL }
+      - code: holidays
+        name: Holidays
+        description: The holiday calendar.
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, DELETE: ALL }
+
+  - code: mod.requests
+    name: Requests & Approvals
+    description: HR service desk, help content and approval workflow design.
+    children:
+      - code: helpdesk
+        name: HR Service Requests
+        description: The HR ticket queue (reply, assign, change status).
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL }
+      - code: hr_help_content
+        name: Help Content (FAQs & Guides)
+        description: Authoring and publishing FAQs and guides. Approve decides a submission.
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, DELETE: ALL, APPROVE: TEAM..ALL }
+      - code: approval_rules
+        name: Workflow Studio
+        description: Approval routing rules (who approves an expense or payroll run, by amount).
+        sensitivity: HIGH
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, DELETE: ALL, CONFIGURE: ALL }
+
+  - code: mod.assets_expenses
+    name: Assets & Expenses
+    description: Company assets and expense claims.
+    children:
+      - code: assets
+        name: Assets
+        description: Asset inventory, requests, assignment and return.
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, APPROVE: TEAM..ALL }
+      - code: sub.expenses
+        name: Expenses
+        description: Expense claims and their approval.
+        children:
+          - code: expenses
+            name: Expense Claims
+            description: Claims, categories and payroll-ready claims.
+            actions: { VIEW: TEAM..ALL, APPROVE: TEAM..ALL, CONFIGURE: ALL }
+          - code: expenses_override
+            name: Expense Final-Stage Override
+            description: Decide an expense at the Super Admin stage regardless of the approval chain.
+            sensitivity: HIGH
+            actions: { APPROVE: ALL }
+
+  - code: mod.talent
+    name: Talent & Performance
+    description: Skills, bench, internal opportunities, projects and allocations.
+    children:
+      - code: talent_skills
+        name: Talent Management
+        description: Talent dashboard, search, directory, skill master data and skill requests.
+        actions: { VIEW: ALL, CREATE: ALL, APPROVE: ALL, EXPORT: ALL, CONFIGURE: ALL }
+      - code: skill_ratings
+        name: Skill Ratings
+        description: Viewing and endorsing a team's skill ratings.
+        actions: { VIEW: TEAM..ALL, EDIT: TEAM..ALL }
+      - code: bench
+        name: Bench Management
+        description: People between projects.
+        actions: { VIEW: TEAM..ALL, CREATE: ALL, EDIT: ALL, CONFIGURE: ALL }
+      - code: opportunities
+        name: Internal Opportunities
+        description: Posting and closing internal opportunities.
+        actions: { VIEW: ALL, CREATE: ALL, APPROVE: ALL }
+      - code: sub.projects
+        name: Projects & Allocations
+        description: Project reference data and allocating people to projects.
+        children:
+          - code: projects
+            name: Projects
+            description: Projects and clients.
+            actions: { VIEW: TEAM..ALL, CREATE: ALL, EDIT: ALL }
+          - code: project_allocations
+            name: Project Allocations
+            description: Allocating people to projects and team capacity.
+            actions: { VIEW: TEAM..ALL, CREATE: TEAM..ALL }
+      - code: kudos
+        name: Kudos
+        description: Appreciating anyone in the organisation (relationship-based kudos need no permission).
+        actions: { CREATE: ALL }
+
+  - code: mod.organization
+    name: Organization
+    description: Organisation structure and attendance configuration.
+    children:
+      - code: sub.org_structure
+        name: Organization Structure
+        description: Masters used across the application.
+        children:
+          - code: organization
+            name: Structure Masters
+            description: Business units, departments, designations and locations.
+            actions: { CREATE: ALL, EDIT: ALL, DELETE: ALL }
+          - code: organization_shifts
+            name: Shifts & Weekly Offs
+            description: Shifts, weekly-off policies, attendance rules.
+            actions: { CREATE: ALL, EDIT: ALL, DELETE: ALL, CONFIGURE: ALL }
+
+  - code: mod.documents
+    name: Documents & Compliance
+    description: Employee documents, policies and announcements.
+    children:
+      - code: documents
+        name: Documents & Compliance
+        description: Verifying employee documents and configuring document types. Contains identity documents.
+        sensitivity: HIGH
+        actions: { VIEW: ALL, APPROVE: ALL, EXPORT: ALL, CONFIGURE: ALL }
+      - code: policies
+        name: Policies
+        description: Company policies and acknowledgements.
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, DELETE: ALL }
+      - code: announcements
+        name: Announcements
+        description: Company announcements. Configure lets someone manage announcements they did not create.
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, DELETE: ALL, CONFIGURE: ALL }
+
+  - code: mod.reports_audit
+    name: Reports & Audit
+    description: Reports and audit history.
+    children:
+      - code: reports
+        name: Reports & Analytics
+        description: Attendance-request and workforce reports.
+        actions: { VIEW: TEAM..ALL, EXPORT: TEAM..ALL }
+      - code: audit
+        name: Audit History
+        description: The signed-in user's own audited activity (other scopes are not implemented).
+        actions: { VIEW: OWN, EXPORT: OWN }
+      - code: audit_security
+        name: Audit & Security
+        description: Includes access-control events (user and role administration) in the signed-in user's audit view.
+        sensitivity: HIGH
+        actions: { VIEW: ALL }
+
+  - code: mod.payroll
+    name: Payroll & Compensation
+    description: Payroll processing and compensation bands. Backend only — there is no payroll page yet.
+    children:
+      - code: payroll
+        name: Payroll
+        description: Pay setup, runs, holds, payslips. Not yet configurable on custom roles.
+        sensitivity: HIGH
+        actions: { VIEW: ALL, CONFIGURE: ALL }
+      - code: compensation
+        name: Compensation Bands
+        description: Salary bands and their assignment.
+        sensitivity: HIGH
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL }
+
+  - code: mod.administration
+    name: Administration
+    description: Users, roles and platform administration.
+    children:
+      - code: user_management
+        name: User Management
+        description: Creating, editing, deactivating and deleting user accounts and resetting passwords.
+        sensitivity: HIGH
+        actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, DELETE: ALL }
+      - code: sub.roles
+        name: Roles & Permissions
+        description: Defining roles and assigning them to people.
+        children:
+          - code: roles
+            name: Roles
+            description: Creating roles and editing their permissions. Configure changes what a role can do.
+            sensitivity: HIGH
+            actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, DELETE: ALL, CONFIGURE: ALL }
+          - code: user_roles
+            name: User Role Assignment
+            description: Assigning roles to users.
+            sensitivity: HIGH
+            actions: { VIEW: ALL, EDIT: ALL }
+      - code: ai_assistant
+        name: AI Assistant Administration
+        description: API usage, billing and rate limits of the AI assistant.
+        actions: { VIEW: ALL, CONFIGURE: ALL }
+
+# Pages that need a permission. A signed-in user may open a route when they hold AT LEAST ONE of its
+# `requires` authorities (module:ACTION:SCOPE; a wider scope satisfies a narrower one). Everything not
+# listed is baseline self-service: any signed-in user (no role needed) — My Attendance, My Leave, My
+# Requests, My Documents, Directory, Help, Profile and so on, where the data shown is the caller's own.
+# The frontend reads this through GET /api/me/access-catalogue for the sidebar and route guard; the
+# backend still enforces every endpoint on its own.
+routes:
+  - path: /approvals
+    requires: [regularization:APPROVE:TEAM, attendance_requests:APPROVE:TEAM, overtime:APPROVE:TEAM, leave:APPROVE:TEAM, expenses:APPROVE:TEAM, assets:APPROVE:TEAM, hr_help_content:APPROVE:TEAM]
+  - path: /exceptions
+    requires: [exceptions:VIEW:TEAM]
+  - path: /employees
+    requires: [employees:VIEW:ALL]
+  - path: /onboarding
+    requires: [onboarding:VIEW:ALL]
+  - path: /documents
+    requires: [documents:VIEW:ALL]
+  - path: /policies
+    requires: [policies:VIEW:ALL]
+  - path: /organization
+    requires: [organization:EDIT:ALL]
+  - path: /masters
+    requires: [organization:EDIT:ALL]
+  - path: /talent-performance
+    requires: [talent_skills:VIEW:ALL]
+  - path: /reports
+    requires: [reports:VIEW:TEAM]
+  - path: /audit
+    requires: [audit:VIEW:OWN]
+  - path: /access
+    requires: [user_management:VIEW:ALL]
+  - path: /roles
+    requires: [roles:VIEW:ALL]
+  - path: /bench
+    requires: [bench:VIEW:TEAM]
+  - path: /allocations
+    requires: [project_allocations:CREATE:ALL]
+  - path: /workflows
+    requires: [approval_rules:VIEW:ALL]
+  - path: /api-usage
+    requires: [ai_assistant:VIEW:ALL]
+  - path: /attendance/regularization/all
+    requires: [regularization:EXPORT:ALL]

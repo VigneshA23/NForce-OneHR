@@ -4,6 +4,7 @@ import { TablePagination } from '../../components/TablePagination';
 import { Search, Download, Award } from 'lucide-react';
 import { PersonAvatar } from '../../components/PersonCell';
 import { useAuthStore } from '../../store/authStore';
+import { useCan } from '../../lib/access';
 import { useToast } from '../../context/ToastContext';
 import { talentDirectoryApi, type TalentEmployeeSummary } from '../../api/talentOrg';
 import { DetailModalShell } from '../../components/TeamGrowthModal';
@@ -11,6 +12,7 @@ import { LEVEL_TONE, Pill, EmployeeDetailView } from './EmployeeDetailView';
 import { useEmployeeDetail } from './useEmployeeDetail';
 
 export function DirectoryTab() {
+  const can = useCan();
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const [rows, setRows] = useState<TalentEmployeeSummary[]>([]);
@@ -59,6 +61,7 @@ export function DirectoryTab() {
             {departments.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
         </div>
+        {can('talent_skills', 'EXPORT') && (
         <button onClick={async () => {
           setExporting(true);
           try { await talentDirectoryApi.export(token); }
@@ -67,6 +70,7 @@ export function DirectoryTab() {
         }} disabled={exporting} className="nf-act-btn nf-act-btn--lg">
           <Download size={14} /> {exporting ? 'Exporting…' : 'Export CSV'}
         </button>
+        )}
       </div>
 
       <div><span className="nf-audit-count"><b>{filtered.length}</b> of {rows.length} employees</span></div>

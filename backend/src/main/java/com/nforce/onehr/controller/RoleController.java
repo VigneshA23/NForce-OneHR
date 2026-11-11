@@ -1,6 +1,7 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.roles.RoleDtos.*;
+import com.nforce.onehr.service.ConvertedManagerReviewService;
 import com.nforce.onehr.service.RoleAdminService;
 import com.nforce.onehr.service.UserManagementService;
 import jakarta.validation.Valid;
@@ -25,6 +26,7 @@ public class RoleController {
 
     private final RoleAdminService roleAdminService;
     private final UserManagementService userManagementService;
+    private final ConvertedManagerReviewService convertedManagerReviewService;
 
     @GetMapping("/api/roles")
     @PreAuthorize("hasAuthority('roles:VIEW:ALL')")
@@ -42,6 +44,26 @@ public class RoleController {
     @PreAuthorize("hasAuthority('roles:VIEW:ALL')")
     public List<CatalogueModule> catalogue() {
         return roleAdminService.catalogue();
+    }
+
+    /** Managers whose role was auto-granted before V269 and kept as explicit — for administrative review. */
+    @GetMapping("/api/roles/converted-managers")
+    @PreAuthorize("hasAuthority('roles:VIEW:ALL')")
+    public List<ConvertedManager> convertedManagers() {
+        return convertedManagerReviewService.list();
+    }
+
+    @PostMapping("/api/roles/converted-managers/{userId}/reviewed")
+    @PreAuthorize("hasAuthority('user_roles:EDIT:ALL')")
+    public void markConvertedManagerReviewed(@PathVariable UUID userId, Principal principal) {
+        convertedManagerReviewService.markReviewed(userId, principal.getName());
+    }
+
+    /** The same catalogue as a Module > Submodule > Section tree with per-action scope ranges. */
+    @GetMapping("/api/permissions/catalogue/tree")
+    @PreAuthorize("hasAuthority('roles:VIEW:ALL')")
+    public List<CatalogueNode> catalogueTree() {
+        return roleAdminService.catalogueTree();
     }
 
     @GetMapping("/api/roles/{roleId}/history")

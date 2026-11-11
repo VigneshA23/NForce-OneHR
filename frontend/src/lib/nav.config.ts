@@ -231,11 +231,23 @@ function resolveEntry(entry: HierarchyEntry, itemsByKey: Map<string, NavItem>): 
  */
 export function buildRoleNav(role: Role, isVisible?: (item: NavItem) => boolean, extraItems: NavItem[] = []): ResolvedNavNode[] {
   const all = [...NAV[role], ...extraItems];
-  const candidates = isVisible ? all.filter(isVisible) : all;
-  const itemsByKey = new Map(candidates.map((i) => [i.key, i] as const));
+  return buildNavTree(isVisible ? all.filter(isVisible) : all);
+}
+
+/**
+ * Slots an already-decided list of items into the global hierarchy. The list is the whole access
+ * decision (see lib/access.ts visibleNavItems — permissions, not roles); this only groups it.
+ */
+export function buildNavTree(items: NavItem[]): ResolvedNavNode[] {
+  const itemsByKey = new Map(items.map((i) => [i.key, i] as const));
   return NAV_HIERARCHY
     .map((entry) => resolveEntry(entry, itemsByKey))
     .filter((n): n is ResolvedNavNode => n !== null);
+}
+
+/** True when `pathname` is this item's page or lives under it ('/bench' must not claim '/bench-opportunities'). */
+export function pathBelongsTo(pathname: string, itemPath: string): boolean {
+  return pathname === itemPath || pathname.startsWith(itemPath + '/');
 }
 
 /**

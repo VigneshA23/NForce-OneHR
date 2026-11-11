@@ -45,6 +45,7 @@ import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole, type Role } from '../lib/nav.config';
 import { hasPermission } from '../lib/permissions';
+import { useCan } from '../lib/access';
 import type { MyPermissionsResponse } from '../api/me';
 import { previewRegularizations, previewAttendanceRequests, previewOvertimeRequests, previewRoster, previewRosterEmails } from './attendance-ui-preview/attendancePreviewData';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
@@ -1994,24 +1995,25 @@ const WFH_RANGE_MODE_OPTIONS: { value: WfhRangeMode; label: string }[] = [
 /**
  * Keka's "Notify" field — search and pick a specific colleague to alert about this request.
  * Purely informational (distinct from the Assign To approver above it) — per product rule, only
- * shown to plain employees, not managers/HR/Super Admin.
+ * shown to people without team responsibility, not managers/HR.
  */
 function NotifyEmployeeField({ token, value, onChange }: {
   token: string;
   value: DirectoryEntry | null;
   onChange: (entry: DirectoryEntry | null) => void;
 }) {
-  const role = toShellRole(useAuthStore((s) => s.user?.role));
+  // Shown to people without team responsibility (no attendance:VIEW:TEAM), not to managers/HR.
+  const showNotify = !useCan()('attendance', 'VIEW', 'TEAM');
   const [query, setQuery] = useState('');
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (role !== 'Employee') return;
+    if (!showNotify) return;
     directoryApi.list(token).then(setDirectory).catch(() => setDirectory([]));
-  }, [token, role]);
+  }, [token, showNotify]);
 
-  if (role !== 'Employee') return null;
+  if (!showNotify) return null;
 
   const matches = query.trim()
     ? directory
@@ -4375,7 +4377,7 @@ function TimeFormatToggle() {
 
 // ─── UI Preview mode — mock data ───────────────────────────────────────────────
 // Temporary, review-only: active ONLY when the URL is /attendance?uiPreview=true (see
-// PreviewGuard in App.tsx, and AttendancePageInner's isPreviewMode below). Never touches the
+// AttendancePageInner's isPreviewMode below). Never touches the
 // real attendanceApi/regularizationApi/etc. calls or authentication — every effect that would
 // normally hit the network is short-circuited to one of these canned values instead. Mirrors the
 // same uiPreview convention already used by DashboardPage.tsx / ApprovalsPage.tsx.
@@ -7320,8 +7322,8 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
     searchParams.get('tab') === 'calendar' ? 'CALENDAR' : 'ATTENDANCE_LOG');
   const [requestsSubTab, setRequestsSubTab] = useState<AttendanceRequestsSubTab>('REGULARIZATION');
   const pendingOpenRequest = useRef(false);
-  // /attendance?uiPreview=true — temporary, review-only mock-data mode (see PreviewGuard in
-  // App.tsx, which is what actually allows this route through without a real login). Mirrors
+  // /attendance?uiPreview=true — temporary, review-only mock-data mode (see isPreviewMode
+  // below, which short-circuits the network calls). Mirrors
   // the same convention already used by DashboardPage.tsx / ApprovalsPage.tsx.
   const isPreviewMode = forcePreview || searchParams.get('uiPreview') === 'true';
 

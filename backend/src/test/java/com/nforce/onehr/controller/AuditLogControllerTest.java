@@ -38,7 +38,7 @@ class AuditLogControllerTest {
     @InjectMocks private AuditLogController controller;
 
     private static final Map<String, Map<String, String>> CUSTOM = Map.of(
-            "CUSTOM_ACCESS_AUDITOR", Map.of("user_management:VIEW", "ALL", "audit:VIEW", "OWN"),
+            "CUSTOM_ACCESS_AUDITOR", Map.of("audit_security:VIEW", "ALL", "audit:VIEW", "OWN"),
             "CUSTOM_AUDITOR", Map.of("audit:VIEW", "OWN", "audit:EXPORT", "OWN"));
 
     private Authentication authWithRole(String roleAuthority) {
@@ -85,14 +85,14 @@ class AuditLogControllerTest {
     }
 
     @Test
-    void list_customRoleWithUserManagementView_passesIsSuperAdminTrue() {
+    void list_customRoleWithAuditSecurityView_passesIsSuperAdminTrue() {
         controller.list(null, null, null, null, null, 0, 20, authWithRole("ROLE_CUSTOM_ACCESS_AUDITOR"));
 
         verify(auditQueryService).search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(true), eq("user@test.com"));
     }
 
     @Test
-    void list_customRoleWithoutUserManagementView_passesIsSuperAdminFalse() {
+    void list_customRoleWithoutAuditSecurityView_passesIsSuperAdminFalse() {
         controller.list(null, null, null, null, null, 0, 20, authWithRole("ROLE_CUSTOM_AUDITOR"));
 
         verify(auditQueryService).search(any(), any(), any(), any(), any(), anyInt(), anyInt(), eq(false), eq("user@test.com"));

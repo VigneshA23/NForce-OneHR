@@ -5,6 +5,7 @@ import { Plus, X, ShieldAlert, Workflow, ChevronRight, GitBranch, Pencil, Power,
 import './workflowRuleModal.css';
 import { useAuthStore } from '../store/authStore';
 import { hasPermission } from '../lib/permissions';
+import { useCan } from '../lib/access';
 import { useToast } from '../context/ToastContext';
 import { ActionDock } from '../components/ActionDock';
 import { AccessDenied } from '../components/AccessDenied';
@@ -365,6 +366,7 @@ function RuleFormModal({ initial, metadata, onClose, onSaved }: {
 export default function WorkflowStudioPage() {
   const token = useAuthStore(s => s.token)!;
   const permissions = useAuthStore(s => s.permissions);
+  const can = useCan();
   const { showToast } = useToast();
   const [rules, setRules] = useState<ApprovalRule[]>([]);
   const [metadata, setMetadata] = useState<ApprovalRuleMetadata | null>(null);
@@ -438,7 +440,7 @@ export default function WorkflowStudioPage() {
             Configure data-driven approval rules - the Approval Center routes new requests according to whichever rule is active.
           </p>
         </PageTitleBlock>
-        {metadata && (
+        {metadata && can('approval_rules', 'CREATE') && (
           <button onClick={() => setFormTarget('new')} style={{ ...btnPrimaryStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
             <Plus size={14} /> Create Rule
           </button>
@@ -511,12 +513,12 @@ export default function WorkflowStudioPage() {
                   <td style={{ ...tdS, color: 'var(--txt-mut)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={rule.updatedByName ?? rule.createdByName}>{rule.updatedByName ?? rule.createdByName}</td>
                   <td className="nf-dock-cell" style={tdS}>
                     <ActionDock items={[
-                      { label: 'Edit', icon: Pencil, onClick: () => openEdit(rule) },
+                      ...(can('approval_rules', 'EDIT') ? [{ label: 'Edit', icon: Pencil, onClick: () => openEdit(rule) }] : []),
                       ...(rule.active
-                        ? [{ label: 'Deactivate', icon: PowerOff, onClick: () => setConfirmTarget({ rule, action: 'deactivate' as const }) }]
+                        ? (can('approval_rules', 'EDIT') ? [{ label: 'Deactivate', icon: PowerOff, onClick: () => setConfirmTarget({ rule, action: 'deactivate' as const }) }] : [])
                         : [
-                            { label: 'Activate', icon: Power, onClick: () => setConfirmTarget({ rule, action: 'activate' as const }) },
-                            { label: 'Delete', icon: Trash2, onClick: () => setConfirmTarget({ rule, action: 'delete' as const }), danger: true },
+                            ...(can('approval_rules', 'EDIT') ? [{ label: 'Activate', icon: Power, onClick: () => setConfirmTarget({ rule, action: 'activate' as const }) }] : []),
+                            ...(can('approval_rules', 'DELETE') ? [{ label: 'Delete', icon: Trash2, onClick: () => setConfirmTarget({ rule, action: 'delete' as const }), danger: true }] : []),
                           ]),
                     ]} />
                   </td>

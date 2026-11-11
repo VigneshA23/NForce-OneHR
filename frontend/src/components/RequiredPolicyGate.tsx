@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ShieldAlert } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { myPolicies, type Policy } from '../api/policies';
+import { useCan } from '../lib/access';
 
 const SEEN_KEY_PREFIX = 'onehr.requiredPolicyGate.shown.';
 
@@ -17,24 +18,24 @@ const SEEN_KEY_PREFIX = 'onehr.requiredPolicyGate.shown.';
  * still read as "already seen" after logging back in in the same browser tab. The token is a
  * fresh value every login, so keying on it makes a new login always start unseen without
  * needing sign-out to remember to clean anything up. Dismiss with "Remind Me Later" and it stays
- * quiet for the rest of this login. Excludes HR_ADMIN/SUPER_ADMIN, matching ComplianceBanner's
- * existing exclusion for the same roles. Fails open on a fetch error — the KPI tiles and tab on
+ * quiet for the rest of this login. Excludes anyone holding policies:VIEW at ALL scope, matching
+ * ComplianceBanner's exclusion for document administrators. Fails open on a fetch error — the KPI tiles and tab on
  * the Documents & Policies page remain a fallback surface either way.
  */
 export function RequiredPolicyGate() {
   const token = useAuthStore(s => s.token);
-  const user = useAuthStore(s => s.user);
-  const role = user?.role ?? '';
+  const can = useCan();
   const navigate = useNavigate();
   const location = useLocation();
   const [pending, setPending] = useState<Policy[]>([]);
   const [dismissed, setDismissed] = useState(true);
 
-  const isHR = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  // Whoever administers policies (policies:VIEW at ALL scope) is exempt from the required-policy gate.
+  const administersCompliance = can('policies', 'VIEW');
   const onDocPage = location.pathname === '/my-documents';
 
   useEffect(() => {
-    if (!token || isHR) { setPending([]); return; }
+    if (!token || administersCompliance) { setPending([]); return; }
     let cancelled = false;
     myPolicies(token).then(list => {
       if (cancelled) return;
@@ -44,9 +45,9 @@ export function RequiredPolicyGate() {
       setDismissed(alreadySeen);
     }).catch(() => { /* fails open — see doc comment above */ });
     return () => { cancelled = true; };
-  }, [token, isHR]);
+  }, [token, administersCompliance]);
 
-  if (isHR || onDocPage || dismissed || pending.length === 0) return null;
+  if (administersCompliance || onDocPage || dismissed || pending.length === 0) return null;
 
   function dismissForSession() {
     setDismissed(true);

@@ -18,6 +18,7 @@ import { overlayStyle, modalStyle, inputStyle, labelStyle, primaryBtnStyle, seco
 import { EMAIL_PATTERN } from './user-management/wizardLogic';
 import { CreateEmployeeWizard } from './user-management/CreateEmployeeWizard';
 import { hasPermission } from '../lib/permissions';
+import { useCan } from '../lib/access';
 import { categoriesOf, roleCountsOf, roleOptionsOf } from '../lib/roleCategories';
 import ManageUserRolesModal from '../components/ManageUserRolesModal';
 import './userManagementPolish.css';
@@ -84,7 +85,7 @@ function RowActionsMenu({ items }: {
   onClose?: () => void;
   items: RowActionItem[];
 }) {
-  return <KebabMenu items={items} />;
+  return items.length ? <KebabMenu items={items} /> : null;
 }
 
 // `opts.managers` (the potential-managers list) is fetched once per page load and shared by
@@ -527,6 +528,7 @@ export default function UserManagementPage() {
   const token = useAuthStore(s => s.token)!;
   const currentUserEmail = useAuthStore(s => s.user?.email)?.toLowerCase();
   const permissions = useAuthStore(s => s.permissions);
+  const can = useCan();
   // Manage Roles needs the user's role view (user_roles) and the role list (roles) — see RoleController.
   const canManageRoles = hasPermission(permissions, 'user_roles', 'VIEW', 'ALL') && hasPermission(permissions, 'roles', 'VIEW', 'ALL');
   const [managingRoles, setManagingRoles] = useState<EmployeeRecord | null>(null);
@@ -638,9 +640,11 @@ export default function UserManagementPage() {
           {/* Matches the primary "Add/Create" button used across Organization Masters and Workflow
               Studio (var(--brand) fill, '+' glyph) rather than a one-off gradient + custom icon —
               see hr-ux-audit finding UI-003. */}
+          {can('user_management', 'CREATE') && (
           <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', justifyContent: 'center' }}>
             <Plus size={14} /> Add User
           </button>
+          )}
         </div>
       </div>
 
@@ -747,19 +751,19 @@ export default function UserManagementPage() {
                           onToggle={() => setOpenMenuId(id => id === u.userId ? null : u.userId)}
                           onClose={() => setOpenMenuId(null)}
                           items={[
-                          { label: 'Edit', onClick: () => setEditing(u) },
+                          ...(can('user_management', 'EDIT') ? [{ label: 'Edit', onClick: () => setEditing(u) }] : []),
                           ...(canManageRoles ? [{ label: 'Manage Roles', onClick: () => setManagingRoles(u) }] : []),
-                          { label: 'Reset Password', onClick: () => setResetting(u) },
+                          ...(can('user_management', 'EDIT') ? [{ label: 'Reset Password', onClick: () => setResetting(u) }] : []),
                           // Deactivate is hidden outright for the logged-in Super Admin's own row
                           // and for the last remaining active Super Admin — both are unrecoverable
                           // in-app once a session ends, so there's no "disabled with tooltip"
                           // middle ground here (see setActiveStatus on the backend for the
                           // matching, authoritative check).
-                          ...(u.active && (isSelf || isLastActiveSuperAdmin) ? [] : [
+                          ...(!can('user_management', 'EDIT') || (u.active && (isSelf || isLastActiveSuperAdmin)) ? [] : [
                             { label: u.active ? 'Deactivate' : 'Reactivate', onClick: () => setToggling(u) },
                           ]),
                           // Self-delete carries the exact same lockout risk as self-deactivation.
-                          ...(isSelf ? [] : [
+                          ...(isSelf || !can('user_management', 'DELETE') ? [] : [
                             { label: 'Delete', onClick: () => setDeleting(u), danger: true, dividerBefore: true },
                           ]),
                           ]}

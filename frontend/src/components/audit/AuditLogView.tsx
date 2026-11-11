@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { ChevronLeft, ChevronRight, ScrollText, Shield } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import { useCan } from '../../lib/access';
 import { useToast } from '../../context/ToastContext';
 import { auditApi, type ActionGroup, type AuditLogFilters, type AuditLogStats, type PagedAuditLogs } from '../../api/audit';
 import { AuditStatCards } from './AuditStatCards';
@@ -75,6 +76,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [exporting, setExporting] = useState(false);
+  const canExport = useCan()('audit', 'EXPORT', 'OWN');
 
   const filters: AuditLogFilters = useMemo(() => ({
     targetSearch: targetSearch.trim() || undefined,
@@ -172,7 +174,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
           from={from} onFromChange={withPageReset(setFrom)}
           to={to} onToChange={withPageReset(setTo)}
           onClear={clearFilters}
-          onExport={handleExport}
+          onExport={canExport ? handleExport : undefined}
           exporting={exporting}
         />
       </div>

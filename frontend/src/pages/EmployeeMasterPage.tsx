@@ -4,6 +4,7 @@ import PageTitleBlock from '../components/PageTitleBlock';
 import { X, ChevronDown, ChevronUp, Search, Users, AlertCircle, Contact } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
+import { useCan } from '../lib/access';
 import { employeesApi, type EmployeeRecord, type UpdateEmployeePayload } from '../api/employees';
 import { orgApi } from '../api/org';
 import { inactiveDimStyle, InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
@@ -247,6 +248,7 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function EmployeeMasterPage() {
   const token = useAuthStore(s => s.token)!;
+  const can = useCan();
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   // Set when the real employeesApi.list call fails — drives the error panel + Retry below.
@@ -444,9 +446,9 @@ export default function EmployeeMasterPage() {
                       </td>
                       <td style={tdStyle}><StatusBadge active={emp.active} /></td>
                       <td style={{ ...tdStyle, padding: '8px 12px', width: 44 }}>
-                        <KebabMenu items={[
+                        {can('employees', 'EDIT') && <KebabMenu items={[
                           { label: 'Edit', onClick: () => setEditing(emp) },
-                        ]} />
+                        ]} />}
                       </td>
                     </tr>
                   ))}
