@@ -1037,7 +1037,7 @@ input[type="date"] {
     width: 100%;
     justify-content: center;
   }
-  .nf-leave-filter-bar { width: 100%; }
+  .nf-leave-filter-bar { width: 100% !important; flex-wrap: wrap !important; }
   .nf-leave-filter-bar > * { flex: 1 1 auto; }
 }
 
