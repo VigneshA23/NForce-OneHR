@@ -123,11 +123,11 @@ public class AiInteractionLog {
     @Column(name = "question_chars", nullable = false)
     private int questionChars;
 
-    /** MATCHED, AMBIGUOUS or NO_MATCH; null for technical failures and guard declines. See V272. */
+    /** MATCHED, AMBIGUOUS or NO_MATCH; null for technical failures and guard declines. See V276. */
     @Column(length = 10)
     private String outcome;
 
-    /** Sanitised question, set only when {@link #outcome} is AMBIGUOUS or NO_MATCH. See V272. */
+    /** Sanitised question, set only when {@link #outcome} is AMBIGUOUS or NO_MATCH. See V276. */
     @Column(name = "question_phrase", length = 160)
     private String questionPhrase;
 

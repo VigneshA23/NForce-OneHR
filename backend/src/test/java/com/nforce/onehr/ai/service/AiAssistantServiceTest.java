@@ -466,7 +466,7 @@ class AiAssistantServiceTest {
         assertThat(system).contains("- leave :").doesNotContain("- access :");
     }
 
-    // ── NORA Query Insights: outcome + sanitised phrase (V272) ───────────────────────────────
+    // ── NORA Query Insights: outcome + sanitised phrase (V276) ───────────────────────────────
 
     private AiInteractionLogger.Turn recordedTurn() {
         ArgumentCaptor<AiInteractionLogger.Turn> turn = ArgumentCaptor.forClass(AiInteractionLogger.Turn.class);

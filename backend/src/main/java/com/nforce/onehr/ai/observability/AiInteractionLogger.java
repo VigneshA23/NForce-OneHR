@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  *
  * <p>Second, <em>no raw message text goes in</em>. {@link Turn} carries {@code questionChars}, an int,
  * rather than the question. The one exception is {@code questionPhrase}: a {@link QuestionPhrase}
- * sanitised phrase, kept only for AMBIGUOUS and NO_MATCH turns (see V272) so Super Admins can see
+ * sanitised phrase, kept only for AMBIGUOUS and NO_MATCH turns (see V276) so Super Admins can see
  * what NORA fails to answer. {@code com.nforce.onehr} logs at DEBUG in every environment, so
  * nothing here reaches the application logger either.
  */
