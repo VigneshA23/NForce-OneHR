@@ -6,7 +6,13 @@
 .nf-pr-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .nf-pr-tile-label { padding-top: 2px; font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-mut); }
 .nf-pr-tile-ico { flex-shrink: 0; width: 44px; height: 44px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--mk); background: color-mix(in srgb, var(--mk) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--mk) 28%, transparent); }
-.nf-pr-tile-val { margin-top: auto; padding-top: 6px; font-family: Inter, sans-serif; font-size: 40px; font-weight: 800; line-height: 1; letter-spacing: -.02em; color: var(--txt); }
+.nf-pr-tile-val { margin-top: auto; padding-top: 6px; font-family: Inter, sans-serif; font-size: 28px; font-weight: 800; line-height: 1; letter-spacing: -.02em; color: var(--txt); }
+
+/* Run console's step tab bar: wrap onto a second row instead of the shared .nf-tabs'
+   horizontal-scroll behavior, so every step is visible without scrolling. Scoped here (not in
+   the shared .nf-tabs rule in index.css) since other tab bars in the app intentionally scroll. */
+.nf-pilltabs--wrap { flex-wrap: wrap; overflow-x: visible; }
+.nf-pilltabs--wrap .nf-tab { flex: 0 1 auto; }
 .nf-pr-tile-hint { margin-top: 6px; font-size: 12.5px; line-height: 1.4; color: var(--txt-dim); }
 
 .nf-pr-table { border-radius: 14px; overflow: hidden; }

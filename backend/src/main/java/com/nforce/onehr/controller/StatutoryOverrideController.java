@@ -2,6 +2,7 @@ package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.payroll.CreateStatutoryOverrideRequest;
 import com.nforce.onehr.dto.payroll.StatutoryOverrideResponse;
+import com.nforce.onehr.dto.payroll.StatutoryPreviewResponse;
 import com.nforce.onehr.service.StatutoryOverrideService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -40,5 +41,12 @@ public class StatutoryOverrideController {
     @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
     public List<StatutoryOverrideResponse> listForEmployee(@PathVariable UUID employeeId) {
         return statutoryOverrideService.listForEmployee(employeeId);
+    }
+
+    @GetMapping("/preview")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public StatutoryPreviewResponse previewComputedAmount(@RequestParam UUID employeeId, @RequestParam String ruleType,
+                                                           @RequestParam UUID payGroupId, @RequestParam(required = false) LocalDate referenceDate) {
+        return statutoryOverrideService.previewComputedAmount(employeeId, ruleType, payGroupId, referenceDate);
     }
 }

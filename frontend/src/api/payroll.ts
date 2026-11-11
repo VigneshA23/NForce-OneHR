@@ -298,6 +298,11 @@ export interface StatutoryOverrideResponse {
   overriddenAt: string;
 }
 
+export interface StatutoryPreviewResponse {
+  computedAmount: number | null;
+  note: string | null;
+}
+
 export interface ArrearsResponse {
   id: string;
   employeeId: string;
@@ -476,6 +481,14 @@ export const payrollApi = {
 
   listStatutoryOverridesForEmployee: (employeeId: string, token: string) =>
     fetch(`${BASE}/statutory-overrides/by-employee/${employeeId}`, { headers: bearerOnly(token) }).then(handle<StatutoryOverrideResponse[]>),
+
+  // What the StatutoryRule formula alone would compute right now, ignoring any existing override —
+  // shown on the Override form as a "here's what you'd be overriding" reference.
+  previewStatutoryAmount: (employeeId: string, ruleType: string, payGroupId: string, referenceDate: string | undefined, token: string) => {
+    const params = new URLSearchParams({ employeeId, ruleType, payGroupId });
+    if (referenceDate) params.set('referenceDate', referenceDate);
+    return fetch(`${BASE}/statutory-overrides/preview?${params.toString()}`, { headers: bearerOnly(token) }).then(handle<StatutoryPreviewResponse>);
+  },
 
   // Arrears — read-only, auto-computed (see Arrears' own backend doc comment)
   getArrears: (runId: string, token: string) =>

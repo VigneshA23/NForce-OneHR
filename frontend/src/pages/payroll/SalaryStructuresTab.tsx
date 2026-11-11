@@ -2,8 +2,48 @@ import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
-import { payrollApi, type SalaryStructureResponse, type SalaryComponentRequest, type SalaryComponentCatalogResponse } from '../../api/payroll';
-import { panelStyle, thStyle, tdStyle, EmptyRow, FormRow, labelStyle, inputStyle, BtnPrimary, BtnGhost, SectionHead } from './payrollShared';
+import { payrollApi, type SalaryStructureResponse, type SalaryComponentResponse, type SalaryComponentRequest, type SalaryComponentCatalogResponse } from '../../api/payroll';
+import { panelStyle, thStyle, tdStyle, fmtCurrency, EmptyRow, FormRow, labelStyle, inputStyle, BtnPrimary, BtnGhost, SectionHead, Modal } from './payrollShared';
+
+// Human-readable formula for one structure component, e.g. "50% of Gross", "₹19,200 /yr", "Remainder
+// (Gross minus every other component)". Values on SalaryStructureResponse are always ANNUAL (see
+// the "values are ANNUAL" note on the create form above) — this never re-derives a monthly figure.
+function describeCalc(c: SalaryComponentResponse): string {
+  let base: string;
+  switch (c.calcType) {
+    case 'FIXED': base = `${fmtCurrency(c.value)} /yr`; break;
+    case 'PERCENT_OF_GROSS': base = `${c.value}% of Gross`; break;
+    case 'PERCENT_OF_COMPONENT': base = `${c.value}% of ${c.referenceComponentName ?? '—'}`; break;
+    case 'BALANCING_REMAINDER': base = 'Remainder (Gross minus every other component)'; break;
+    default: base = c.calcType;
+  }
+  if (c.cap != null) base += ` (${c.useLowerOfCap ? 'lower of this or' : 'capped at'} ${fmtCurrency(c.cap)} /yr)`;
+  return base;
+}
+
+function StructureDetailModal({ structure, onClose }: { structure: SalaryStructureResponse; onClose: () => void }) {
+  return (
+    <Modal title={structure.name} subtitle={[structure.grade, structure.financialYear].filter(Boolean).join(' · ') || null} onClose={onClose} wide>
+      <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>{['Component', 'Type', 'Calculation', 'Taxable', 'In CTC', 'On Payslip'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+        </thead>
+        <tbody>
+          {structure.components.map(c => (
+            <tr key={c.id}>
+              <td style={tdStyle}>{c.componentName}</td>
+              <td style={tdStyle}>{c.type}</td>
+              <td style={tdStyle}>{describeCalc(c)}</td>
+              <td style={tdStyle}>{c.taxable ? 'Yes' : 'No'}</td>
+              <td style={tdStyle}>{c.includedInCtc ? 'Yes' : 'No'}</td>
+              <td style={tdStyle}>{c.shownOnPayslip ? 'Yes' : 'No'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Modal>
+  );
+}
 
 type DraftComponent = SalaryComponentRequest;
 
@@ -108,6 +148,8 @@ function CreateStructureForm({ catalog, onCreated }: { catalog: SalaryComponentC
 export function SalaryStructuresTab({ structures, catalog, onCreated }: {
   structures: SalaryStructureResponse[]; catalog: SalaryComponentCatalogResponse[]; onCreated: (s: SalaryStructureResponse) => void;
 }) {
+  const [viewing, setViewing] = useState<SalaryStructureResponse | null>(null);
+
   return (
     <div>
       <CreateStructureForm catalog={catalog} onCreated={onCreated} />
@@ -115,13 +157,14 @@ export function SalaryStructuresTab({ structures, catalog, onCreated }: {
         <SectionHead title="Existing Structures" />
         <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 10 }}>
           A structure can't be edited once created — create a new one instead if its components need to change.
+          Click a row to see the full calculation for each component.
         </div>
         <div style={panelStyle}>
           <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>{['Name', 'Grade', 'Financial Year', 'Components'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
             <tbody>
               {structures.map(s => (
-                <tr key={s.id}>
+                <tr key={s.id} onClick={() => setViewing(s)} style={{ cursor: 'pointer' }}>
                   <td style={tdStyle}>{s.name}</td>
                   <td style={tdStyle}>{s.grade ?? '–'}</td>
                   <td style={tdStyle}>{s.financialYear ?? '–'}</td>
@@ -133,6 +176,7 @@ export function SalaryStructuresTab({ structures, catalog, onCreated }: {
           </table>
         </div>
       </div>
+      {viewing && <StructureDetailModal structure={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }

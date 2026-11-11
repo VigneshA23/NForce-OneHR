@@ -124,11 +124,11 @@ function modalIconFor(title: string): LucideIcon {
   return Wallet;
 }
 
-export function Modal({ title, subtitle, onClose, children }: { title: string; subtitle?: string | null; onClose: () => void; children: ReactNode }) {
+export function Modal({ title, subtitle, onClose, children, wide }: { title: string; subtitle?: string | null; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const Icon = modalIconFor(title);
   return (
     <div style={overlayStyle} className="nf-modal-overlay-in nf-pr-dlg">
-      <div style={modalStyle} className="nf-modal-panel-in nf-pr-card">
+      <div style={wide ? { ...modalStyle, maxWidth: 960 } : modalStyle} className="nf-modal-panel-in nf-pr-card">
         <div className="nf-pr-head">
           <span className="nf-pr-ico"><Icon size={20} /></span>
           <div className="nf-pr-titles">

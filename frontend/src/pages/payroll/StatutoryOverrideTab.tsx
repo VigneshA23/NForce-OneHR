@@ -3,7 +3,7 @@ import { Ban } from 'lucide-react';
 import { ActionDock } from '../../components/ActionDock';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
-import { payrollApi, type StatutoryOverrideResponse } from '../../api/payroll';
+import { payrollApi, type StatutoryOverrideResponse, type StatutoryPreviewResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, FormRow, labelStyle, inputStyle,
   BtnPrimary, SectionHead, useEmployeeDirectory,
@@ -24,6 +24,8 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
   const [overrideReason, setOverrideReason] = useState('');
   const [overrides, setOverrides] = useState<StatutoryOverrideResponse[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [preview, setPreview] = useState<StatutoryPreviewResponse | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   function reload(forEmployeeId: string) {
     if (!forEmployeeId) { setOverrides([]); return; }
@@ -31,6 +33,18 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
   }
 
   useEffect(() => reload(employeeId), [employeeId, token]);
+
+  // "What you'd be overriding FROM" — refetched whenever employee/rule type changes, since the
+  // formula depends on both. Not kept in sync with overrideAmount itself (that's the admin's new
+  // value, this is the system's current one) — see payrollApi.previewStatutoryAmount's own comment.
+  useEffect(() => {
+    if (!employeeId) { setPreview(null); return; }
+    setPreviewLoading(true);
+    payrollApi.previewStatutoryAmount(employeeId, ruleType, payGroupId, cycleStart, token)
+      .then(setPreview)
+      .catch(() => setPreview({ computedAmount: null, note: 'Could not load the computed amount' }))
+      .finally(() => setPreviewLoading(false));
+  }, [employeeId, ruleType, payGroupId, cycleStart, token]);
 
   const valid = !!employeeId && !!ruleType && Number(overrideAmount) >= 0 && overrideAmount !== '' && !!overrideReason.trim();
 
@@ -86,6 +100,15 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
               <input type="number" min={0} value={overrideAmount} onChange={e => setOverrideAmount(e.target.value)} style={inputStyle} />
             </FormRow>
           </div>
+          {employeeId && (
+            <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 14, marginTop: -4 }}>
+              {previewLoading
+                ? 'Checking the currently computed amount…'
+                : preview?.computedAmount != null
+                  ? <>Currently computed (formula): <strong style={{ color: 'var(--txt)' }}>{fmtCurrency(preview.computedAmount)}</strong> — this is what you'd be overriding.</>
+                  : preview?.note ?? null}
+            </div>
+          )}
           <FormRow>
             <label style={labelStyle}>Reason *</label>
             <textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />

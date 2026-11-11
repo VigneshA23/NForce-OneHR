@@ -79,6 +79,26 @@ public class StatutoryDeductionService {
         if (overridden.isPresent()) {
             return component(PF).map(catalog -> new ComputedDeduction(catalog, overridden.get()));
         }
+        return formulaPf(country, cycleEnd, basicAmount);
+    }
+
+    private Optional<ComputedDeduction> computeEsi(UUID employeeId, String country, LocalDate cycleStart, LocalDate cycleEnd, BigDecimal grossPay) {
+        Optional<BigDecimal> overridden = override(employeeId, ESI, cycleStart, cycleEnd);
+        if (overridden.isPresent()) {
+            return component(ESI).map(catalog -> new ComputedDeduction(catalog, overridden.get()));
+        }
+        return formulaEsi(country, cycleEnd, grossPay);
+    }
+
+    private Optional<ComputedDeduction> computeProfessionalTax(UUID employeeId, String country, LocalDate cycleStart, LocalDate cycleEnd) {
+        Optional<BigDecimal> overridden = override(employeeId, PROFESSIONAL_TAX, cycleStart, cycleEnd);
+        if (overridden.isPresent()) {
+            return component("Professional Tax").map(catalog -> new ComputedDeduction(catalog, overridden.get()));
+        }
+        return formulaProfessionalTax(country, cycleEnd);
+    }
+
+    private Optional<ComputedDeduction> formulaPf(String country, LocalDate cycleEnd, BigDecimal basicAmount) {
         return rule(country, PF, cycleEnd).flatMap(rule -> component(PF).map(catalog -> {
             JsonNode slab = parse(rule);
             BigDecimal rate = decimal(slab, "employeeRate");
@@ -88,11 +108,7 @@ public class StatutoryDeductionService {
         })).filter(d -> d.amount().signum() > 0);
     }
 
-    private Optional<ComputedDeduction> computeEsi(UUID employeeId, String country, LocalDate cycleStart, LocalDate cycleEnd, BigDecimal grossPay) {
-        Optional<BigDecimal> overridden = override(employeeId, ESI, cycleStart, cycleEnd);
-        if (overridden.isPresent()) {
-            return component(ESI).map(catalog -> new ComputedDeduction(catalog, overridden.get()));
-        }
+    private Optional<ComputedDeduction> formulaEsi(String country, LocalDate cycleEnd, BigDecimal grossPay) {
         return rule(country, ESI, cycleEnd).flatMap(rule -> component(ESI).flatMap(catalog -> {
             JsonNode slab = parse(rule);
             BigDecimal rate = decimal(slab, "employeeRate");
@@ -104,15 +120,27 @@ public class StatutoryDeductionService {
         })).filter(d -> d.amount().signum() > 0);
     }
 
-    private Optional<ComputedDeduction> computeProfessionalTax(UUID employeeId, String country, LocalDate cycleStart, LocalDate cycleEnd) {
-        Optional<BigDecimal> overridden = override(employeeId, PROFESSIONAL_TAX, cycleStart, cycleEnd);
-        if (overridden.isPresent()) {
-            return component("Professional Tax").map(catalog -> new ComputedDeduction(catalog, overridden.get()));
-        }
+    private Optional<ComputedDeduction> formulaProfessionalTax(String country, LocalDate cycleEnd) {
         return rule(country, PROFESSIONAL_TAX, cycleEnd).flatMap(rule -> component("Professional Tax").map(catalog -> {
             JsonNode slab = parse(rule);
             return new ComputedDeduction(catalog, round(decimal(slab, "amount")));
         })).filter(d -> d.amount().signum() > 0);
+    }
+
+    /** For the Statutory Override form: what the {@link StatutoryRule} formula alone would produce
+     *  for this employee right now, deliberately ignoring any existing override — so an admin can
+     *  see what they're overriding FROM before typing a new value. {@code ruleType} is "PF", "ESI"
+     *  or "PROFESSIONAL_TAX" (same strings {@link StatutoryDeductionOverride} itself uses). Returns
+     *  empty when nothing is configured (no catalog component, no effective rule, or — for ESI —
+     *  gross pay over the eligibility ceiling), same "silent gap" as the real computation. */
+    public Optional<BigDecimal> previewFormulaAmount(String country, String ruleType, BigDecimal basicAmount, BigDecimal grossPay, LocalDate cycleEnd) {
+        Optional<ComputedDeduction> result = switch (ruleType) {
+            case PF -> formulaPf(country, cycleEnd, basicAmount);
+            case ESI -> formulaEsi(country, cycleEnd, grossPay);
+            case PROFESSIONAL_TAX -> formulaProfessionalTax(country, cycleEnd);
+            default -> throw new IllegalArgumentException("Unknown statutory rule type: " + ruleType);
+        };
+        return result.map(ComputedDeduction::amount);
     }
 
     // Keka's "Statutory Override" step — checked FIRST, same precedence rule as
