@@ -14,5 +14,9 @@ ALTER TABLE ai_interaction_log
     ADD COLUMN IF NOT EXISTS outcome         VARCHAR(10),
     ADD COLUMN IF NOT EXISTS question_phrase VARCHAR(160);
 
+-- Safe to run twice: this migration was first merged as V272, so a database that ran that one
+-- already has the constraint, and a bare ADD CONSTRAINT would fail startup with "already exists".
+ALTER TABLE ai_interaction_log DROP CONSTRAINT IF EXISTS chk_ai_log_outcome;
+
 ALTER TABLE ai_interaction_log
     ADD CONSTRAINT chk_ai_log_outcome CHECK (outcome IS NULL OR outcome IN ('MATCHED', 'AMBIGUOUS', 'NO_MATCH'));
