@@ -231,9 +231,13 @@ public class EmailService {
                   <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#F1F5F9;padding:40px 16px;">
                     <tr><td align="center">
                       <table width="560" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;">
-                        <tr><td align="center" style="background:#B11116;padding:34px 36px 30px;">
-                          <div style="font-family:'Space Grotesk',Arial,sans-serif;font-size:24px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;line-height:1.2;">NForce OneHR</div>
-                          <div style="font-family:Inter,Arial,sans-serif;font-size:14px;color:#F3C4C6;margin-top:6px;">Your people. One platform.</div>
+                        <tr><td bgcolor="#0b1118" style="background-color:#0b1118;border-bottom:4px solid #B11116;padding:20px 28px;">
+                          <table cellpadding="0" cellspacing="0" role="presentation"><tr>
+                            <td valign="middle" style="padding-right:20px;border-right:1px solid #2a2f38;">
+                              <img src="{{logo}}" width="64" height="64" alt="NForce" style="display:block;border:0;border-radius:50%;">
+                            </td>
+                            <td valign="middle" style="padding-left:20px;font-family:Arial,Helvetica,sans-serif;font-size:26px;font-weight:700;color:#ffffff;letter-spacing:-0.01em;white-space:nowrap;">NForce <span style="color:#E8242B;">OneHR</span></td>
+                          </tr></table>
                         </td></tr>
                         <tr><td style="padding:40px 40px 32px;">
                           <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:26px;font-weight:700;color:#111827;margin:0 0 10px;letter-spacing:-0.01em;">{{heading}}</h1>
@@ -251,6 +255,7 @@ public class EmailService {
                 </body>
                 </html>
                 """
+                .replace("{{logo}}", baseUrl + "/nforce-logo.png")
                 .replace("{{heading}}", heading)
                 .replace("{{intro}}", intro)
                 .replace("{{content}}", content)
