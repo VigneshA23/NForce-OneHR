@@ -57,6 +57,8 @@ export interface CatalogueNode {
   configurable: boolean;
   actions: CatalogueAction[];
   children: CatalogueNode[];
+  /** Frontend presentation only (never sent by the backend): why a row has nothing to tick, e.g. "Available to every signed-in user". */
+  note?: string;
 }
 
 /** A Manager whose role was auto-granted before V269 and kept as explicit, listed for administrative review. */
