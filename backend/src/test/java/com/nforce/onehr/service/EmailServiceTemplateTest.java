@@ -42,7 +42,7 @@ class EmailServiceTemplateTest {
                 render("buildWorkHoursShortageHtml", "Vignesh", date, null, null),
                 render("buildPenaltyHtml", "Vignesh", date, "Late", BigDecimal.ONE, null, null));
         for (String html : pages) {
-            assertThat(html).contains("NForce OneHR", "Your people. One platform.", "All rights reserved", "#B11116")
+            assertThat(html).contains("NForce OneHR", "nforce-logo.png", "OneHR</span>", "All rights reserved", "#B11116")
                     .doesNotContain("{{", "%s", "%%", "—");
         }
     }
