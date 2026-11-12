@@ -321,6 +321,18 @@ class PayrollRunReviewServiceTest {
                 .sourceType(PayrollReviewItemSourceType.NO_ATTENDANCE).itemDate(cycleStart.plusDays(1)).days(BigDecimal.ONE)
                 .decision(NoAttendanceReviewDecision.PENDING).build();
         when(payrollRunReviewItemRepository.findByIdIn(List.of(item1.getId(), item2.getId()))).thenReturn(List.of(item1, item2));
+        // bulkDecide is the real UPDATE ... WHERE id IN (...) — mutate the same mocked entities in
+        // place so the service's post-update re-fetch (same findByIdIn stub) reflects it.
+        doAnswer(inv -> {
+            for (PayrollRunReviewItem item : List.of(item1, item2)) {
+                item.setDecision(inv.getArgument(1));
+                item.setSelectedLeaveTypeId(inv.getArgument(2));
+                item.setComment(inv.getArgument(3));
+                item.setDecidedBy(inv.getArgument(4));
+                item.setDecidedAt(inv.getArgument(5));
+            }
+            return null;
+        }).when(payrollRunReviewItemRepository).bulkDecide(eq(List.of(item1.getId(), item2.getId())), any(), any(), any(), any(), any());
 
         BulkDecideNoAttendanceRequest req = new BulkDecideNoAttendanceRequest();
         req.setItemIds(List.of(item1.getId(), item2.getId()));
@@ -330,7 +342,10 @@ class PayrollRunReviewServiceTest {
 
         assertEquals(2, result.size());
         assertTrue(result.stream().allMatch(r -> "MARK_LOP".equals(r.getDecision())));
-        verify(auditService, times(2)).log(eq(actorId), eq("PAYROLL_RUN_REVIEW_NO_ATTENDANCE_DECIDED"), any(), any(), any());
+        // One summary audit row for the whole batch, not one per item — see the method's own
+        // Javadoc: a per-item REQUIRES_NEW audit call at real batch sizes (169 items observed)
+        // blew the transaction timeout against Neon.
+        verify(auditService, times(1)).log(eq(actorId), eq("PAYROLL_RUN_REVIEW_NO_ATTENDANCE_DECIDED"), eq(runId), any(), any());
     }
 
     @Test

@@ -132,17 +132,13 @@ public class PayrollRunReviewService {
     @Transactional(readOnly = true)
     public List<PayrollRunReviewItemResponse> listLeaveApplied(UUID runId) {
         requireRun(runId);
-        return payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(runId, PayrollRunReviewStepType.LEAVE_APPLIED).stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+        return toResponses(payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(runId, PayrollRunReviewStepType.LEAVE_APPLIED));
     }
 
     @Transactional(readOnly = true)
     public List<PayrollRunReviewItemResponse> listNoAttendance(UUID runId) {
         requireRun(runId);
-        return payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(runId, PayrollRunReviewStepType.NO_ATTENDANCE).stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
+        return toResponses(payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(runId, PayrollRunReviewStepType.NO_ATTENDANCE));
     }
 
     @Transactional
@@ -236,7 +232,18 @@ public class PayrollRunReviewService {
     /** Bulk version of {@link #decideNoAttendance} — same action applied to every listed item.
      *  All-or-nothing: unlike bulkDecideLeaveApplied, there's no external per-item dependency that
      *  can fail independently, so a missing/foreign/wrong-step-type item fails the whole call
-     *  before anything is saved, same upfront-validation shape as the single-item decide. */
+     *  before anything is saved, same upfront-validation shape as the single-item decide.
+     *
+     *  <p>The actual write is one {@code UPDATE ... WHERE id IN (...)} (see {@link
+     *  PayrollRunReviewItemRepository#bulkDecide}) plus one summary audit row for the whole batch
+     *  — never a per-item {@code save}/{@code auditService.log} loop. Two bugs compound there: (1)
+     *  {@code auditService.log} is {@code REQUIRES_NEW}, so a per-item call opens a brand-new
+     *  transaction (a fresh round trip to Neon) for every item while this method's own transaction
+     *  stays open throughout; (2) even with that fixed, a plain entity-by-entity {@code save()}
+     *  loop is still one UPDATE statement, and therefore one network round trip to Neon, per item.
+     *  At real-world batch sizes (seen: 169 items for one employee's absence run) either one alone
+     *  reliably blew past the 30s transaction timeout. A single bulk UPDATE is one round trip
+     *  regardless of how many ids it covers. */
     @Transactional
     public List<PayrollRunReviewItemResponse> bulkDecideNoAttendance(UUID runId, BulkDecideNoAttendanceRequest req, String actorEmail) {
         requireRun(runId);
@@ -257,20 +264,14 @@ public class PayrollRunReviewService {
         }
 
         User actor = requireActor(actorEmail);
-        List<PayrollRunReviewItemResponse> results = new ArrayList<>();
-        for (PayrollRunReviewItem item : items) {
-            String before = auditSnapshot.toJson(itemSnapshot(item));
-            item.setDecision(req.getAction());
-            item.setSelectedLeaveTypeId(req.getSelectedLeaveTypeId());
-            item.setComment(req.getComment());
-            item.setDecidedBy(actor.getId());
-            item.setDecidedAt(LocalDateTime.now());
-            item = payrollRunReviewItemRepository.save(item);
-            auditService.log(actor.getId(), "PAYROLL_RUN_REVIEW_NO_ATTENDANCE_DECIDED", item.getId(), before,
-                    auditSnapshot.toJson(itemSnapshot(item)));
-            results.add(toResponse(item));
-        }
-        return results;
+        LocalDateTime decidedAt = LocalDateTime.now();
+        payrollRunReviewItemRepository.bulkDecide(req.getItemIds(), req.getAction(), req.getSelectedLeaveTypeId(),
+                req.getComment(), actor.getId(), decidedAt);
+
+        auditService.log(actor.getId(), "PAYROLL_RUN_REVIEW_NO_ATTENDANCE_DECIDED", runId, null,
+                auditSnapshot.toJson(Map.of("action", req.getAction(), "itemIds", req.getItemIds())));
+
+        return toResponses(payrollRunReviewItemRepository.findByIdIn(req.getItemIds()));
     }
 
     private void decide(PayrollRunReviewItem item, String decision, UUID actorId) {
@@ -297,18 +298,53 @@ public class PayrollRunReviewService {
         return snapshot;
     }
 
+    /** Single-item callers only — see {@link #toResponses} for the batch-resolving equivalent
+     *  every list/bulk endpoint uses instead (one {@code findAllById} per distinct id across the
+     *  whole batch, not one {@code findById} per item — the same per-item-round-trip mistake
+     *  {@link #bulkDecideNoAttendance} itself was just fixed for, just one call deeper). */
     private String displayName(UUID userId) {
         if (userId == null) return null;
         return employeeRepository.findById(userId).map(Employee::getFullName)
                 .orElseGet(() -> userRepository.findById(userId).map(User::getEmail).orElse("Unknown"));
     }
 
+    /** Batch display-name resolution for a list of items: one {@code findAllById} across every
+     *  distinct employeeId/decidedBy in the whole list (falling back to {@code userRepository} only
+     *  for whichever ids aren't employees), instead of {@link #displayName} being called per item
+     *  per field — the latter is a real N+1 (seen: ~340 individual lookups for one 169-item bulk
+     *  decide, the dominant cost once the write itself stopped round-tripping per row). */
+    private List<PayrollRunReviewItemResponse> toResponses(List<PayrollRunReviewItem> items) {
+        Set<UUID> ids = new HashSet<>();
+        for (PayrollRunReviewItem i : items) {
+            if (i.getEmployeeId() != null) ids.add(i.getEmployeeId());
+            if (i.getDecidedBy() != null) ids.add(i.getDecidedBy());
+        }
+        Map<UUID, String> namesById = new HashMap<>();
+        if (!ids.isEmpty()) {
+            for (Employee e : employeeRepository.findAllById(ids)) {
+                namesById.put(e.getUserId(), e.getFullName());
+            }
+            Set<UUID> remaining = new HashSet<>(ids);
+            remaining.removeAll(namesById.keySet());
+            if (!remaining.isEmpty()) {
+                for (User u : userRepository.findAllById(remaining)) {
+                    namesById.put(u.getId(), u.getEmail());
+                }
+            }
+        }
+        return items.stream().map(i -> toResponse(i, namesById)).collect(Collectors.toList());
+    }
+
     private PayrollRunReviewItemResponse toResponse(PayrollRunReviewItem i) {
+        return toResponse(i, null);
+    }
+
+    private PayrollRunReviewItemResponse toResponse(PayrollRunReviewItem i, Map<UUID, String> namesById) {
         return PayrollRunReviewItemResponse.builder()
                 .id(i.getId())
                 .payrollRunId(i.getPayrollRun().getId())
                 .employeeId(i.getEmployeeId())
-                .employeeName(displayName(i.getEmployeeId()))
+                .employeeName(namesById != null ? resolveName(namesById, i.getEmployeeId()) : displayName(i.getEmployeeId()))
                 .stepType(i.getStepType())
                 .sourceType(i.getSourceType())
                 .sourceId(i.getSourceId())
@@ -318,8 +354,13 @@ public class PayrollRunReviewService {
                 .decision(i.getDecision())
                 .selectedLeaveTypeId(i.getSelectedLeaveTypeId())
                 .comment(i.getComment())
-                .decidedByName(displayName(i.getDecidedBy()))
+                .decidedByName(namesById != null ? resolveName(namesById, i.getDecidedBy()) : displayName(i.getDecidedBy()))
                 .decidedAt(i.getDecidedAt())
                 .build();
+    }
+
+    private String resolveName(Map<UUID, String> namesById, UUID id) {
+        if (id == null) return null;
+        return namesById.getOrDefault(id, "Unknown");
     }
 }
