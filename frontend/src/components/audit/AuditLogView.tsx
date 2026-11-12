@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { ChevronLeft, ChevronRight, ScrollText, Shield } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import { useCan } from '../../lib/access';
 import { useToast } from '../../context/ToastContext';
 import { auditApi, type ActionGroup, type AuditLogFilters, type AuditLogStats, type PagedAuditLogs } from '../../api/audit';
 import { AuditStatCards } from './AuditStatCards';
@@ -75,6 +76,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [exporting, setExporting] = useState(false);
+  const canExport = useCan()('audit', 'EXPORT', 'OWN');
 
   const filters: AuditLogFilters = useMemo(() => ({
     targetSearch: targetSearch.trim() || undefined,
@@ -172,7 +174,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
           from={from} onFromChange={withPageReset(setFrom)}
           to={to} onToChange={withPageReset(setTo)}
           onClear={clearFilters}
-          onExport={handleExport}
+          onExport={canExport ? handleExport : undefined}
           exporting={exporting}
         />
       </div>
@@ -198,7 +200,7 @@ export function AuditLogView({ config }: { config: AuditLogViewConfig }) {
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>
         ) : loadError ? (
           <div role="alert" style={{ margin: 16, background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 8, padding: '12px 16px', color: 'var(--risk)', fontSize: 13 }}>
-            {loadError} – check that the backend is running.
+            {loadError}, check that the backend is running.
           </div>
         ) : rows.length === 0 ? (
           <div style={{ padding: 48, textAlign: 'center' }}>

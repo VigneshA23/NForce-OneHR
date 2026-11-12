@@ -4,6 +4,7 @@ import com.nforce.onehr.dto.talent.CreateSkillRequestRequest;
 import com.nforce.onehr.dto.talent.SkillRequestResponse;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.ApprovalGuards;
 import com.nforce.onehr.service.AuditService;
 import com.nforce.onehr.service.AuditSnapshotSerializer;
 import com.nforce.onehr.service.NotificationService;
@@ -86,6 +87,8 @@ public class SkillRequestService {
     @Transactional
     public SkillRequestResponse approve(UUID requestId, String actorEmail) {
         SkillRequest request = requirePendingRequest(requestId);
+        assertNotOwnRequest(request, actorEmail);
+        assertNotOwnRequest(request, actorEmail);
         SkillMaster skill = SkillMaster.builder().name(request.getName()).category(request.getCategory()).build();
         skillMasterRepo.save(skill);
         attachSkillToRequester(request, skill);
@@ -95,6 +98,8 @@ public class SkillRequestService {
     @Transactional
     public SkillRequestResponse mapToExisting(UUID requestId, UUID existingSkillId, String actorEmail) {
         SkillRequest request = requirePendingRequest(requestId);
+        assertNotOwnRequest(request, actorEmail);
+        assertNotOwnRequest(request, actorEmail);
         SkillMaster skill = skillMasterRepo.findById(existingSkillId)
                 .orElseThrow(() -> new NoSuchElementException("Skill not found: " + existingSkillId));
         attachSkillToRequester(request, skill);
@@ -104,10 +109,17 @@ public class SkillRequestService {
     @Transactional
     public SkillRequestResponse reject(UUID requestId, String actorEmail) {
         SkillRequest request = requirePendingRequest(requestId);
+        assertNotOwnRequest(request, actorEmail);
+        assertNotOwnRequest(request, actorEmail);
         return resolveRequest(request, "Rejected", null, actorEmail, "SKILL_REQUEST_REJECTED");
     }
 
     // ── Helpers ──
+
+    /** A talent_skills:APPROVE holder must not decide their own skill request. */
+    private void assertNotOwnRequest(SkillRequest request, String actorEmail) {
+        ApprovalGuards.assertNotOwn(requireUser(actorEmail).getId(), request.getRequestedByUserId(), "skill request");
+    }
 
     private void attachSkillToRequester(SkillRequest request, SkillMaster skill) {
         boolean alreadyHasIt = employeeSkillRepo.findByEmployeeUserIdOrderByCreatedAtAsc(request.getRequestedByUserId())

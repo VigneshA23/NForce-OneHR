@@ -12,6 +12,7 @@ import com.nforce.onehr.repository.AttendanceRequestRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.ApprovalGuards;
 import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -414,6 +415,9 @@ public class AttendanceRequestService {
     /** Selected approver (validated as an eligible approver) else the employee's current manager. */
     private UUID resolveAssignedApprover(UUID employeeId, UUID managerUserId) {
         if (managerUserId != null) {
+            if (managerUserId.equals(employeeId)) {
+                throw new IllegalArgumentException("You cannot select yourself as your approver");
+            }
             User candidate = userRepository.findById(managerUserId)
                     .orElseThrow(() -> new IllegalArgumentException("Selected manager not found"));
             // Super Admin's own grant deliberately doesn't count (same as RegularizationService's
@@ -444,13 +448,10 @@ public class AttendanceRequestService {
     }
 
     private void assertCanReview(AttendanceRequest req, User actor) {
-        Set<String> granted = effectivePermissionService.coverage(actor.getRoles());
-        if (granted.contains(APPROVE_ALL)) return;
-        if (actor.getId().equals(req.getAssignedApproverId())) return;
-
-        if (granted.contains(APPROVE_TEAM) && isCurrentManagerOf(actor.getId(), req.getEmployeeUserId())) return;
-
-        throw new AccessDeniedException("You are not authorized to review this request");
+        ApprovalGuards.assertCanDecide(actor, effectivePermissionService.coverage(actor.getRoles()), "attendance_requests",
+                req.getEmployeeUserId(), req.getAssignedApproverId(),
+                () -> isCurrentManagerOf(actor.getId(), req.getEmployeeUserId()),
+                "attendance request", "You are not authorized to review this request");
     }
 
     private boolean isCurrentManagerOf(UUID managerCandidateId, UUID employeeUserId) {

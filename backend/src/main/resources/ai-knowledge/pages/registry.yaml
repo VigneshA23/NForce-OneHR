@@ -220,7 +220,7 @@ pages:
 
   - pageId: approvals
     module: approvals
-    permissions: ["regularization:APPROVE:TEAM", "attendance_requests:APPROVE:TEAM", "overtime:APPROVE:TEAM", "leave:APPROVE:TEAM", "expenses:APPROVE:TEAM"]
+    permissions: ["regularization:APPROVE:TEAM", "attendance_requests:APPROVE:TEAM", "overtime:APPROVE:TEAM", "leave:APPROVE:TEAM", "expenses:APPROVE:TEAM", "assets:APPROVE:TEAM", "hr_help_content:APPROVE:TEAM"]
     variants:
       - roles: [MANAGER, HR_ADMIN, SUPER_ADMIN]
         label: "Approval Center"
@@ -300,7 +300,7 @@ pages:
 
   - pageId: allocations
     module: allocations
-    permissions: ["project_allocations:CREATE:ALL"]
+    permissions: ["project_allocations:CREATE:TEAM"]
     variants:
       - roles: [HR_ADMIN]
         label: "Project Allocations"

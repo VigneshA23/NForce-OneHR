@@ -11,6 +11,7 @@ import './policyAck.css';
 import './policyForms.css';
 import { ActionDock } from '../components/ActionDock';
 import { useAuthStore } from '../store/authStore';
+import { useCan } from '../lib/access';
 import { useToast } from '../context/ToastContext';
 import { TabBar } from '../components/TabBar';
 import {
@@ -457,6 +458,7 @@ function AnnounceModal({ initial, onClose, onSaved }: {
 
 function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): void; onReset(): void }) {
   const token = useAuthStore(s => s.token)!;
+  const can = useCan();
   const { showToast } = useToast();
   const [versions, setVersions] = useState<Policy[]>([policy]);
   const [selected, setSelected] = useState<Policy>(policy);
@@ -572,10 +574,10 @@ function AckDrawer({ policy, onClose, onReset }: { policy: Policy; onClose(): vo
                     </td>
                     <td style={tdS}>{a.acknowledgedAt ? new Date(a.acknowledgedAt).toLocaleDateString() : '-'}</td>
                     <td style={{ ...tdS, width: 48 }}>
-                      <KebabMenu items={[
+                      {can('policies', 'EDIT') && <KebabMenu items={[
                         ...(!a.pending ? [{ label: 'Reset Acknowledgment', onClick: () => doReset(a.employeeUserId) }] : []),
                         { label: actionLoading === a.employeeUserId + '_r' ? 'Sending…' : 'Send Reminder', onClick: () => doRemind(a.employeeUserId) },
-                      ]} />
+                      ]} />}
                     </td>
                   </tr>
                 ))}
@@ -604,6 +606,7 @@ export function PolicyStatTiles({ activePolicies, pendingAck, announcements }: {
 
 export default function PoliciesPage() {
   const token = useAuthStore(s => s.token)!;
+  const can = useCan();
   const { showToast } = useToast();
   const [tab, setTab] = useState<'policies' | 'announcements'>('policies');
   const [policies, setPolicies] = useState<Policy[]>([]);
@@ -747,14 +750,14 @@ export default function PoliciesPage() {
           <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginTop: 4 }}>Publish company policies and broadcast announcements.</p>
         </PageTitleBlock>
         <div className="nf-policy-actions" style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => setShowAnnounce(true)}
+          {can('announcements', 'CREATE') && <button onClick={() => setShowAnnounce(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 10, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
             <Megaphone size={14} /> New Announcement
-          </button>
-          <button onClick={() => setShowPublish(true)}
+          </button>}
+          {can('policies', 'CREATE') && <button onClick={() => setShowPublish(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 30%, transparent)', border: 'none', borderRadius: 10, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
             <Plus size={14} /> New Policy
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -837,10 +840,12 @@ export default function PoliciesPage() {
                       </td>
                       <td className="nf-dock-cell" style={tdS}>
                         <ActionDock items={[
-                          { label: 'Edit', icon: Pencil, onClick: () => setEditPolicyTarget(p) },
-                          { label: 'Publish New Version', icon: CopyPlus, onClick: () => setPublishVersionTarget(p) },
-                          ...(p.active ? [{ label: 'Deactivate', icon: PowerOff, onClick: () => doDeactivatePolicy(p.id) }] : [{ label: 'Reactivate', icon: Power, onClick: () => doReactivatePolicy(p.id) }]),
-                          { label: 'Delete', icon: Trash2, onClick: () => doDeletePolicy(p.id), danger: true },
+                          ...(can('policies', 'EDIT') ? [
+                            { label: 'Edit', icon: Pencil, onClick: () => setEditPolicyTarget(p) },
+                            { label: 'Publish New Version', icon: CopyPlus, onClick: () => setPublishVersionTarget(p) },
+                            ...(p.active ? [{ label: 'Deactivate', icon: PowerOff, onClick: () => doDeactivatePolicy(p.id) }] : [{ label: 'Reactivate', icon: Power, onClick: () => doReactivatePolicy(p.id) }]),
+                          ] : []),
+                          ...(can('policies', 'DELETE') ? [{ label: 'Delete', icon: Trash2, onClick: () => doDeletePolicy(p.id), danger: true }] : []),
                         ]} />
                       </td>
                     </tr>
@@ -908,10 +913,12 @@ export default function PoliciesPage() {
                       </td>
                       <td className="nf-dock-cell" style={tdS}>
                         <ActionDock items={[
-                          ...(!a.published ? [{ label: publishingAnn === a.id ? 'Publishing…' : 'Publish Now', icon: Send, onClick: () => doPublishAnn(a.id) }] : []),
-                          { label: 'Edit', icon: Pencil, onClick: () => setEditAnnouncement(a) },
-                          ...(a.active ? [{ label: 'Deactivate', icon: PowerOff, onClick: () => doDeactivateAnn(a.id) }] : [{ label: 'Reactivate', icon: Power, onClick: () => doReactivateAnn(a.id) }]),
-                          { label: 'Delete', icon: Trash2, onClick: () => doDeleteAnn(a.id), danger: true },
+                          ...(can('announcements', 'EDIT') ? [
+                            ...(!a.published ? [{ label: publishingAnn === a.id ? 'Publishing…' : 'Publish Now', icon: Send, onClick: () => doPublishAnn(a.id) }] : []),
+                            { label: 'Edit', icon: Pencil, onClick: () => setEditAnnouncement(a) },
+                            ...(a.active ? [{ label: 'Deactivate', icon: PowerOff, onClick: () => doDeactivateAnn(a.id) }] : [{ label: 'Reactivate', icon: Power, onClick: () => doReactivateAnn(a.id) }]),
+                          ] : []),
+                          ...(can('announcements', 'DELETE') ? [{ label: 'Delete', icon: Trash2, onClick: () => doDeleteAnn(a.id), danger: true }] : []),
                         ]} />
                       </td>
                     </tr>

@@ -170,29 +170,20 @@ class PageRegistryParityTest {
         }
     }
 
-    private static final Path PERMISSIONS_TS = Path.of("..", "frontend", "src", "lib", "permissions.ts");
-    private static final Pattern REQUIREMENT_ENTRY = Pattern.compile("'?([\\w-]+)'?:\\s*\\[(.*?)\\]", Pattern.DOTALL);
-    private static final Pattern REQUIREMENT = Pattern.compile(
-            "module:\\s*'(\\w+)',\\s*action:\\s*'(\\w+)'(?:,\\s*scope:\\s*'(\\w+)')?");
 
     @Test
     void pagePermissionsMatchTheSidebarRequirements() throws IOException {
         // The registry's per-page `permissions` decide which gated pages a caller's sidebar shows
-        // (PageRegistry#reachable). They mirror permissions.ts NAV_ITEM_REQUIREMENTS; drift would
-        // offer a page the sidebar hides, or hide one it shows.
-        String source = Files.readString(PERMISSIONS_TS);
-        int start = source.indexOf("const NAV_ITEM_REQUIREMENTS");
-        String block = source.substring(start, source.indexOf("};", start));
+        // (PageRegistry#reachable). They mirror the route requirements in permission-catalogue.yml, which the
+        // frontend sidebar and route guard now read (GET /api/me/access-catalogue); drift would offer a page
+        // the sidebar hides, or hide one it shows. Only single-segment routes are sidebar pages.
         Map<String, Set<String>> frontend = new TreeMap<>();
-        Matcher entry = REQUIREMENT_ENTRY.matcher(block.substring(block.indexOf('{') + 1));
-        while (entry.find()) {
-            Set<String> any = new TreeSet<>();
-            Matcher r = REQUIREMENT.matcher(entry.group(2));
-            while (r.find()) any.add(r.group(1) + ":" + r.group(2) + ":" + (r.group(3) == null ? "OWN" : r.group(3)));
-            frontend.put(entry.group(1), any);
+        for (var route : com.nforce.onehr.security.PermissionCatalogue.loaded().routes()) {
+            String key = route.path().substring(1);
+            if (!key.contains("/")) frontend.put(key, new TreeSet<>(route.requires()));
         }
-        assertThat(frontend).as("NAV_ITEM_REQUIREMENTS parse").containsKey("approvals").hasSizeGreaterThan(10);
-        assertThat(frontend.get("approvals")).hasSize(5);
+        assertThat(frontend).as("catalogue routes").containsKey("approvals").hasSizeGreaterThan(10);
+        assertThat(frontend.get("approvals")).hasSize(7);
 
         Map<String, Set<String>> registered = new TreeMap<>();
         for (ShellRole role : ShellRole.values()) {

@@ -1,4 +1,5 @@
 import { API_ORIGIN } from './config';
+import type { EmployeeRecord } from './employees';
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
@@ -106,6 +107,10 @@ export interface EmployeeCapacity {
 }
 
 export const projectAllocationsApi = {
+  /** Employees the caller may allocate (server-scoped: direct reports for Team, everyone for Organization). */
+  employees: (token: string): Promise<EmployeeRecord[]> =>
+    fetch(`${API_ORIGIN}/api/allocations/employees`, { headers: authHeaders(token) }).then(handle<EmployeeRecord[]>),
+
   /** US-B05/B13: Manager sees own direct reports only (server-scoped); HR/Super Admin: everyone. Filters AND together. */
   capacity: (token: string, filters: { departmentId?: string; projectId?: string } = {}): Promise<EmployeeCapacity[]> => {
     const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]).toString();

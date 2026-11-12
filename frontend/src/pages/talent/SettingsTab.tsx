@@ -4,6 +4,7 @@ import { TablePagination } from '../../components/TablePagination';
 import { ActionDock } from '../../components/ActionDock';
 import { Plus, Check, X, Pencil, Power, PowerOff } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import { useCan } from '../../lib/access';
 import { useToast } from '../../context/ToastContext';
 import type { SkillMasterOption } from '../../api/talentMasterData';
 import {
@@ -272,6 +273,8 @@ function CertificateCategoriesSection({ token }: { token: string }) {
 // ── Skill requests queue ─────────────────────────────────────────────────────
 
 function SkillRequestsSection({ token }: { token: string }) {
+  const can = useCan();
+  const canApprove = can('talent_skills', 'APPROVE');
   const { showToast } = useToast();
   const [requests, setRequests] = useState<SkillRequestQueueEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -322,11 +325,13 @@ function SkillRequestsSection({ token }: { token: string }) {
                 </select>
               </td>
               <td style={{ ...tdS, whiteSpace: 'nowrap' }}>
+                {canApprove && (
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                   <button onClick={() => approve(r.id)} className="nf-act-btn"><Check size={11} /> Approve new</button>
                   <button onClick={() => mapToExisting(r.id)} disabled={!mapping[r.id]} className="nf-act-btn" style={{ opacity: mapping[r.id] ? 1 : 0.5 }}>Map</button>
                   <button onClick={() => reject(r.id)} className="nf-act-btn"><X size={11} /> Reject</button>
                 </div>
+                )}
               </td>
             </tr>
           ))}

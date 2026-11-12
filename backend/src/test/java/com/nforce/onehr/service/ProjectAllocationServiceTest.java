@@ -55,6 +55,7 @@ class ProjectAllocationServiceTest {
     @Mock private ProjectRepository projectRepository;
     @Mock private UserRepository userRepository;
     @Mock private DirectReportScopeService directReportScopeService;
+    @Mock private EmployeeService employeeService;
 
     // Real seed matrix (V241: project_allocations:VIEW is MANAGER TEAM, HR_ADMIN/SUPER_ADMIN ALL) plus two custom roles.
     private final EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
@@ -75,7 +76,7 @@ class ProjectAllocationServiceTest {
     @BeforeEach
     void setUp() {
         service = new ProjectAllocationService(allocationRepository, employeeRepository, projectRepository,
-                userRepository, directReportScopeService, effectivePermissionService);
+                userRepository, directReportScopeService, effectivePermissionService, employeeService);
         lenient().when(userRepository.findByEmail(HR_EMAIL)).thenReturn(Optional.of(User.builder()
                 .id(UUID.randomUUID()).email(HR_EMAIL).roles(Set.of(Role.builder().code("HR_ADMIN").build())).build()));
         lenient().when(userRepository.findByEmail(OWNER_EMAIL)).thenReturn(Optional.of(User.builder()
@@ -261,12 +262,59 @@ class ProjectAllocationServiceTest {
     void allocate_managerWhoOwnsProject_isAllowed() {
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(projectOwnedBy(managerId)));
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
+        when(directReportScopeService.directReportIds(OWNER_EMAIL)).thenReturn(Set.of(employeeId));
         when(allocationRepository.sumOverlappingCapacity(employeeId, start, end)).thenReturn(0L);
 
         ProjectAllocationResponse res = service.allocate(OWNER_EMAIL, request(employeeId, 50, start, end));
 
         assertEquals(projectId, res.getProjectId());
         verify(allocationRepository).save(any());
+    }
+
+    @Test
+    void allocate_ownerManager_cannotAllocateSomeoneOutsideTheirTeam() {
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(projectOwnedBy(managerId)));
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(employeeId)));
+        when(directReportScopeService.directReportIds(OWNER_EMAIL)).thenReturn(Set.of(UUID.randomUUID()));
+
+        assertThrows(AccessDeniedException.class,
+                () -> service.allocate(OWNER_EMAIL, request(employeeId, 50, start, end)));
+        verify(allocationRepository, never()).save(any());
+    }
+
+    @Test
+    void bulkAllocate_ownerManager_outOfTeamEmployeeFailsOthersSucceed() {
+        UUID mine = UUID.randomUUID();
+        UUID notMine = UUID.randomUUID();
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(projectOwnedBy(managerId)));
+        when(employeeRepository.findById(mine)).thenReturn(Optional.of(employee(mine)));
+        when(employeeRepository.findById(notMine)).thenReturn(Optional.of(employee(notMine)));
+        when(directReportScopeService.directReportIds(OWNER_EMAIL)).thenReturn(Set.of(mine));
+        when(allocationRepository.sumOverlappingCapacity(mine, start, end)).thenReturn(0L);
+        BulkProjectAllocationRequest req = new BulkProjectAllocationRequest();
+        req.setEmployeeIds(List.of(mine, notMine));
+        req.setProjectId(projectId);
+        req.setCapacityPercent(50);
+        req.setStartDate(start);
+        req.setEndDate(end);
+
+        BulkAllocationResponse res = service.bulkAllocate(OWNER_EMAIL, req);
+
+        assertEquals("SUCCESS", statusFor(res, mine));
+        assertEquals("FAILED", statusFor(res, notMine));
+        verify(allocationRepository, times(1)).save(any());
+    }
+
+    @Test
+    void allocatableEmployees_teamScopeGetsDirectReports_organizationGetsAll() {
+        UUID report = UUID.randomUUID();
+        when(directReportScopeService.directReportIds(OWNER_EMAIL)).thenReturn(Set.of(report));
+        service.allocatableEmployees(OWNER_EMAIL);
+        verify(employeeService).listEmployees(Set.of(report));
+        verify(employeeService, never()).listEmployees();
+
+        service.allocatableEmployees(HR_EMAIL);
+        verify(employeeService).listEmployees();
     }
 
     @Test

@@ -1,5 +1,5 @@
 import { NAV, isNavItemDisabled, toShellRole } from '../nav.config';
-import type { Role } from '../nav.config';
+import type { NavItem, Role } from '../nav.config';
 
 /**
  * Turns a `pageId` from the assistant into a route this user can actually open.
@@ -70,16 +70,24 @@ const NON_NAV_TARGETS: Record<string, PageTarget> = {
 
 /**
  * @param pageId  a nav key, or one of NON_NAV_TARGETS
- * @param dbRole  the raw role on the auth store (`SUPER_ADMIN`, `HR_ADMIN`, …)
+ * @param dbRole  the raw role on the auth store (`SUPER_ADMIN`, `HR_ADMIN`, …) — only the fallback
+ * @param visibleItems  the modules this user may open right now (lib/access.ts visibleNavItems —
+ *        permission-driven, so a custom-role holder can be taken to what their permissions grant and
+ *        never to a page they cannot open). Omitted only before permissions have loaded, in which
+ *        case the persona preset is the (narrower-or-equal) fallback.
  * @returns the target, or null when this user has no way to get there
  */
-export function resolvePageTarget(pageId: string | null | undefined, dbRole: string | undefined): PageTarget | null {
+export function resolvePageTarget(
+  pageId: string | null | undefined,
+  dbRole: string | undefined,
+  visibleItems?: NavItem[] | null,
+): PageTarget | null {
   if (!pageId) return null;
   const key = pageId.trim();
   if (!key) return null;
 
   const role: Role = toShellRole(dbRole);
-  const item = NAV[role].find((n) => n.key === key);
+  const item = (visibleItems ?? NAV[role]).find((n) => n.key === key);
 
   if (item) {
     // A Phase 2 or locked item renders a roadmap placeholder, not the module. Offering to "take
@@ -92,6 +100,6 @@ export function resolvePageTarget(pageId: string | null | undefined, dbRole: str
 }
 
 /** Whether a navigation action can be offered at all, without building the target. */
-export function canNavigateTo(pageId: string | null | undefined, dbRole: string | undefined): boolean {
-  return resolvePageTarget(pageId, dbRole) !== null;
+export function canNavigateTo(pageId: string | null | undefined, dbRole: string | undefined, visibleItems?: NavItem[] | null): boolean {
+  return resolvePageTarget(pageId, dbRole, visibleItems) !== null;
 }

@@ -3,25 +3,26 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { AlertTriangle, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { myCompliance } from '../api/documents';
+import { useCan } from '../lib/access';
 
 export function ComplianceBanner() {
   const token = useAuthStore(s => s.token);
-  const user = useAuthStore(s => s.user);
-  const role = user?.role ?? '';
+  const can = useCan();
   const navigate = useNavigate();
   const location = useLocation();
   const [dismissed, setDismissed] = useState(false);
   const [summary, setSummary] = useState<{ missing: number; rejected: number; pendingPolicies: number } | null>(null);
 
-  const isHR = role === 'HR_ADMIN' || role === 'SUPER_ADMIN';
+  // Whoever administers documents (documents:VIEW at ALL scope) is not nagged about their own compliance.
+  const administersCompliance = can('documents', 'VIEW');
   const onDocPage = location.pathname === '/my-documents' || location.pathname === '/policies';
 
   useEffect(() => {
-    if (!token || isHR || onDocPage) return;
+    if (!token || administersCompliance || onDocPage) return;
     myCompliance(token).then(s => setSummary({ missing: s.missing, rejected: s.rejected, pendingPolicies: s.pendingPolicies })).catch(() => {});
-  }, [token, isHR, onDocPage]);
+  }, [token, administersCompliance, onDocPage]);
 
-  if (!summary || dismissed || onDocPage || isHR) return null;
+  if (!summary || dismissed || onDocPage || administersCompliance) return null;
 
   const total = summary.missing + summary.rejected + summary.pendingPolicies;
   if (total === 0) return null;

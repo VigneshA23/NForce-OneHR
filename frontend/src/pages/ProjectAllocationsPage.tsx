@@ -4,7 +4,8 @@ import { Search, Users, FolderKanban, CheckCircle2, XCircle, AlertTriangle, List
 import { TabBar } from '../components/TabBar';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { useAuthStore } from '../store/authStore';
-import { employeesApi, type EmployeeRecord } from '../api/employees';
+import { useCan } from '../lib/access';
+import type { EmployeeRecord } from '../api/employees';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import { projectsApi, projectAllocationsApi, type ProjectRecord, type AllocationResult, type BulkAllocationPayload } from '../api/projectAllocations';
@@ -20,6 +21,7 @@ const STATUS_PILL: Record<AllocationResult['status'], { cls: string; label: stri
 function ResultsTable({ results, employees, onConfirm, confirming }: {
   results: AllocationResult[]; employees: EmployeeRecord[]; onConfirm: () => void; confirming: boolean;
 }) {
+  const can = useCan();
   const nameFor = (id: string) => employees.find(e => e.userId === id)?.fullName ?? id;
   const successCount = results.filter(r => r.status === 'SUCCESS').length;
   const warningCount = results.filter(r => r.status === 'WARNING').length;
@@ -44,9 +46,11 @@ function ResultsTable({ results, employees, onConfirm, confirming }: {
           <span>
             {warningCount} employee{warningCount === 1 ? ' would' : 's would'} go over 100% capacity and {warningCount === 1 ? 'was' : 'were'} not allocated.
           </span>
+          {can('project_allocations', 'CREATE') && (
           <button type="button" onClick={onConfirm} disabled={confirming} className="nf-pa-primary is-sm">
             {confirming ? 'Allocating…' : 'Allocate anyway'}
           </button>
+          )}
         </div>
       )}
       <div style={{ overflowX: 'auto' }}>
@@ -75,6 +79,7 @@ function ResultsTable({ results, employees, onConfirm, confirming }: {
 }
 
 export default function ProjectAllocationsPage() {
+  const can = useCan();
   const token = useAuthStore(s => s.token) ?? '';
 
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
@@ -100,12 +105,7 @@ export default function ProjectAllocationsPage() {
     setLoading(true);
     setLoadError('');
     // Independent loads: one failing (e.g. employee list) must not lock the whole page.
-    // Managers lack employees:VIEW:ALL (403), so fall back to their server-scoped team list.
-    const teamAsEmployees = () => projectAllocationsApi.capacity(token).then(rows => rows.map(r => ({
-      userId: r.employeeId, fullName: r.employeeName, employeeCode: '', active: true,
-      departmentName: r.departmentName,
-    }) as unknown as EmployeeRecord));
-    Promise.allSettled([employeesApi.list(token).catch(teamAsEmployees), projectsApi.list(token)])
+    Promise.allSettled([projectAllocationsApi.employees(token), projectsApi.list(token)])
       .then(([emps, projs]) => {
         if (emps.status === 'fulfilled') setEmployees(emps.value.filter(e => e.active));
         if (projs.status === 'fulfilled') setProjects(projs.value);
@@ -302,9 +302,11 @@ export default function ProjectAllocationsPage() {
               <div role="alert" className="nf-pa-alert"><AlertTriangle size={14} />{formError}</div>
             )}
 
+            {can('project_allocations', 'CREATE') && (
             <button type="button" onClick={handleSubmit} disabled={submitting} className="nf-pa-primary">
               {submitting ? 'Allocating…' : `Allocate ${selected.size || ''} Employee${selected.size === 1 ? '' : 's'}`}
             </button>
+            )}
           </div>
         </div>
       </div>

@@ -11,7 +11,8 @@ interface Props {
   to: string;
   onToChange: (v: string) => void;
   onClear: () => void;
-  onExport: () => void;
+  /** Omit to hide the Export button (caller lacks audit:EXPORT). */
+  onExport?: () => void;
   exporting: boolean;
 }
 
@@ -40,7 +41,7 @@ export function AuditFilterBar({
         <button onClick={onClear} style={{ ...inputStyle, color: 'var(--txt-mut)', cursor: 'pointer' }}>Clear</button>
       )}
       <div style={{ flex: 1 }} />
-      <button
+      {onExport && <button
         onClick={onExport}
         disabled={exporting}
         style={{
@@ -52,7 +53,7 @@ export function AuditFilterBar({
       >
         <Download size={13} />
         {exporting ? 'Exporting…' : 'Export to Excel'}
-      </button>
+      </button>}
     </div>
   );
 }

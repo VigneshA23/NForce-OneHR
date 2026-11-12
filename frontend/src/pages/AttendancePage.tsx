@@ -45,6 +45,7 @@ import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { toShellRole, type Role } from '../lib/nav.config';
 import { hasPermission } from '../lib/permissions';
+import { useCan } from '../lib/access';
 import type { MyPermissionsResponse } from '../api/me';
 import { previewRegularizations, previewAttendanceRequests, previewOvertimeRequests, previewRoster, previewRosterEmails } from './attendance-ui-preview/attendancePreviewData';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
@@ -1994,24 +1995,25 @@ const WFH_RANGE_MODE_OPTIONS: { value: WfhRangeMode; label: string }[] = [
 /**
  * Keka's "Notify" field — search and pick a specific colleague to alert about this request.
  * Purely informational (distinct from the Assign To approver above it) — per product rule, only
- * shown to plain employees, not managers/HR/Super Admin.
+ * shown to people without team responsibility, not managers/HR.
  */
 function NotifyEmployeeField({ token, value, onChange }: {
   token: string;
   value: DirectoryEntry | null;
   onChange: (entry: DirectoryEntry | null) => void;
 }) {
-  const role = toShellRole(useAuthStore((s) => s.user?.role));
+  // Shown to people without team responsibility (no attendance:VIEW:TEAM), not to managers/HR.
+  const showNotify = !useCan()('attendance', 'VIEW', 'TEAM');
   const [query, setQuery] = useState('');
   const [directory, setDirectory] = useState<DirectoryEntry[]>([]);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (role !== 'Employee') return;
+    if (!showNotify) return;
     directoryApi.list(token).then(setDirectory).catch(() => setDirectory([]));
-  }, [token, role]);
+  }, [token, showNotify]);
 
-  if (role !== 'Employee') return null;
+  if (!showNotify) return null;
 
   const matches = query.trim()
     ? directory
@@ -4375,7 +4377,7 @@ function TimeFormatToggle() {
 
 // ─── UI Preview mode — mock data ───────────────────────────────────────────────
 // Temporary, review-only: active ONLY when the URL is /attendance?uiPreview=true (see
-// PreviewGuard in App.tsx, and AttendancePageInner's isPreviewMode below). Never touches the
+// AttendancePageInner's isPreviewMode below). Never touches the
 // real attendanceApi/regularizationApi/etc. calls or authentication — every effect that would
 // normally hit the network is short-circuited to one of these canned values instead. Mirrors the
 // same uiPreview convention already used by DashboardPage.tsx / ApprovalsPage.tsx.
@@ -7180,46 +7182,49 @@ function DayRoster({ scope, isPreview = false }: { scope: 'team' | 'all'; isPrev
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <PageTitleBlock compact icon={scope === 'team' ? UsersRound : Building2} style={{ marginBottom: 12 }}>
-          <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 14, fontWeight: 700, color: 'var(--txt)', margin: 0 }}>
+      {/* Themed header card (same look as the page header above): icon, title, subtitle, and the date picker on the right. */}
+      <div className="nf-page-hdr" style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 14, marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <PageTitleBlock icon={scope === 'team' ? UsersRound : Building2}>
+          <h2 style={{ fontFamily: '"Space Grotesk", sans-serif', fontSize: 18, fontWeight: 700, color: 'var(--txt)', margin: 0, letterSpacing: '-.01em' }}>
             {scope === 'team' ? 'Team attendance' : 'Organization attendance'}
           </h2>
-          <p style={{ fontSize: 11.5, color: 'var(--txt-dim)', margin: '2px 0 0' }}>
+          <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '4px 0 0' }}>
             {scope === 'team'
               ? 'Your current direct reports for the selected day.'
               : 'All active employees for the selected day.'}
           </p>
         </PageTitleBlock>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--txt-dim)', marginBottom: 12 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--txt-mut)' }}>
           Date
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={dateInputStyle} />
         </label>
-      </div>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 200, maxWidth: 420 }}>
-          <Search size={14} aria-hidden="true" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
-          <input
-            type="search" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, email or employee ID…" aria-label="Search employees"
-            style={{ width: '100%', boxSizing: 'border-box', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '8px 12px 8px 32px', color: 'var(--txt)', fontSize: 12.5, outline: 'none' }}
-          />
         </div>
-        <select
-          value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} aria-label="Filter by status"
-          style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '8px 12px', color: 'var(--txt)', fontSize: 12.5, cursor: 'pointer', outline: 'none' }}
-        >
-          <option value="ALL">Status</option>
-          {(['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'MISSING_CHECKOUT', 'ON_LEAVE'] as AttendanceStatus[]).map((st) => (
-            <option key={st} value={st}>{STATUS_LABELS[st] ?? st} ({statusCounts.get(st) ?? 0})</option>
-          ))}
-          {(statusCounts.get('NONE') ?? 0) > 0 && <option value="NONE">Not marked ({statusCounts.get('NONE')})</option>}
-        </select>
-        {statusFilter !== 'ALL' && (
-          <button type="button" className="nf-row-view" onClick={() => setStatusFilter('ALL')} aria-label="Clear status filter" title="Clear status filter">
-            <X size={13} /> Clear
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 0 }}>
+          <div style={{ position: 'relative', flex: '1 1 260px', minWidth: 200, maxWidth: 420 }}>
+            <Search size={14} aria-hidden="true" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} />
+            <input
+              type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name, email or employee ID…" aria-label="Search employees"
+              style={{ width: '100%', boxSizing: 'border-box', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '8px 12px 8px 32px', color: 'var(--txt)', fontSize: 12.5, outline: 'none' }}
+            />
+          </div>
+          <select
+            value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)} aria-label="Filter by status"
+            style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '8px 12px', color: 'var(--txt)', fontSize: 12.5, cursor: 'pointer', outline: 'none' }}
+          >
+            <option value="ALL">Status</option>
+            {(['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'MISSING_CHECKOUT', 'ON_LEAVE'] as AttendanceStatus[]).map((st) => (
+              <option key={st} value={st}>{STATUS_LABELS[st] ?? st} ({statusCounts.get(st) ?? 0})</option>
+            ))}
+            {(statusCounts.get('NONE') ?? 0) > 0 && <option value="NONE">Not marked ({statusCounts.get('NONE')})</option>}
+          </select>
+          {statusFilter !== 'ALL' && (
+            <button type="button" className="nf-row-view" onClick={() => setStatusFilter('ALL')} aria-label="Clear status filter" title="Clear status filter">
+              <X size={13} /> Clear
+            </button>
+          )}
+        </div>
       </div>
       <RosterTable
         rows={visibleRows}
@@ -7320,8 +7325,8 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
     searchParams.get('tab') === 'calendar' ? 'CALENDAR' : 'ATTENDANCE_LOG');
   const [requestsSubTab, setRequestsSubTab] = useState<AttendanceRequestsSubTab>('REGULARIZATION');
   const pendingOpenRequest = useRef(false);
-  // /attendance?uiPreview=true — temporary, review-only mock-data mode (see PreviewGuard in
-  // App.tsx, which is what actually allows this route through without a real login). Mirrors
+  // /attendance?uiPreview=true — temporary, review-only mock-data mode (see isPreviewMode
+  // below, which short-circuits the network calls). Mirrors
   // the same convention already used by DashboardPage.tsx / ApprovalsPage.tsx.
   const isPreviewMode = forcePreview || searchParams.get('uiPreview') === 'true';
 

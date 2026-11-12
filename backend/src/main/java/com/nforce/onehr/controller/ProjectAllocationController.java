@@ -38,6 +38,13 @@ public class ProjectAllocationController {
         return ResponseEntity.status(res.getId() != null ? HttpStatus.CREATED : HttpStatus.OK).body(res);
     }
 
+    /** Employee picker for the allocation page, scoped like allocate itself (direct reports for TEAM, everyone for ALL). */
+    @GetMapping("/employees")
+    @PreAuthorize("hasAuthority('project_allocations:CREATE:TEAM')")
+    public List<com.nforce.onehr.dto.EmployeeResponse> employees(Principal principal) {
+        return service.allocatableEmployees(principal.getName());
+    }
+
     /** US-B03: edit or release an allocation; the service only lets the project's owner or HR through. */
     @PatchMapping("/{id}")
     @PreAuthorize("hasAuthority('project_allocations:CREATE:TEAM')")

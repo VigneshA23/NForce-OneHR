@@ -1322,6 +1322,21 @@ class RegularizationServiceTest {
     }
 
     @Test
+    void approve_andReject_ownRequestIsRefused_evenWithTheOrgWideOverride() {
+        LocalDate date = LocalDate.now();
+        RegularizationRequest own = RegularizationRequest.builder().id(UUID.randomUUID())
+                .employeeUserId(hrId).assignedApproverId(managerId).attendanceDate(date)
+                .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
+                .reason("Missed punch").status("PENDING").build();
+        when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
+        when(regularizationRepository.findById(own.getId())).thenReturn(Optional.of(own));
+
+        assertThrows(AccessDeniedException.class, () -> regularizationService.approve(own.getId(), null, hrEmail));
+        assertThrows(AccessDeniedException.class, () -> regularizationService.reject(own.getId(), "No", hrEmail));
+        assertEquals("PENDING", own.getStatus());
+    }
+
+    @Test
     void approve_byHrAdmin_bypassesFromPending_directlyToApproved() {
         // ONEHR-140 follow-up: HR_ADMIN now has the same PENDING-stage bypass SUPER_ADMIN
         // already had — need not be the employee's manager, and may act before the manager does.

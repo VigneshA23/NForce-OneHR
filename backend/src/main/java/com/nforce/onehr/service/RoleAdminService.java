@@ -19,6 +19,7 @@ import com.nforce.onehr.repository.RoleRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.security.ForceLogoutBroadcaster;
+import com.nforce.onehr.security.PermissionCatalogue;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -56,8 +57,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RoleAdminService {
 
-    static final Set<String> SCOPES = Set.of(RolePermission.OWN, RolePermission.TEAM,
-            RolePermission.DEPARTMENT, RolePermission.LOCATION, RolePermission.ALL);
     private static final String CONFIGURE_AUTHORITY = "roles:CONFIGURE:ALL";
 
     private final RoleRepository roleRepository;
@@ -72,6 +71,7 @@ public class RoleAdminService {
     private final ForceLogoutBroadcaster forceLogoutBroadcaster;
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
+    private final PermissionCatalogue permissionCatalogue;
 
     // ─── Reads ──────────────────────────────────────────────────────────────────
 
@@ -121,6 +121,33 @@ public class RoleAdminService {
                         ps.get(0).getModule().isCustomRoleReady(),
                         ps.stream().map(Permission::getAction).sorted(Comparator.comparingInt(ACTION_ORDER::indexOf)).toList()))
                 .toList();
+    }
+
+    /**
+     * The catalogue as a Module > Submodule > Section tree. The hierarchy, labels, sensitivity and per-action
+     * scope ranges come from permission-catalogue.yml; {@code configurable} and which actions are really
+     * registered come from the database, so a node that is in the file but not yet migrated shows read-only
+     * with no actions rather than offering grants that would be refused.
+     */
+    @Transactional(readOnly = true)
+    public List<CatalogueNode> catalogueTree() {
+        Set<String> registered = new HashSet<>();
+        Map<String, Boolean> ready = new HashMap<>();
+        for (Permission p : permissionRepository.findAllWithModule()) {
+            registered.add(key(p.getModule().getCode(), p.getAction()));
+            ready.put(p.getModule().getCode(), p.getModule().isCustomRoleReady());
+        }
+        return permissionCatalogue.modules().stream().map(n -> toTreeNode(n, registered, ready)).toList();
+    }
+
+    private CatalogueNode toTreeNode(PermissionCatalogue.Node n, Set<String> registered, Map<String, Boolean> ready) {
+        List<CatalogueAction> actions = n.actions().entrySet().stream()
+                .filter(e -> registered.contains(key(n.code(), e.getKey())))
+                .map(e -> new CatalogueAction(e.getKey(), e.getValue().min(), e.getValue().max()))
+                .toList();
+        return new CatalogueNode(n.code(), n.name(), n.type(), n.description(), n.high(),
+                n.isLeaf() && !actions.isEmpty() && ready.getOrDefault(n.code(), false), actions,
+                n.children().stream().map(c -> toTreeNode(c, registered, ready)).toList());
     }
 
     // ─── History & reverse lookup ───────────────────────────────────────────────
@@ -332,9 +359,19 @@ public class RoleAdminService {
             role.setUpdatedAt(LocalDateTime.now());
             roleRepository.save(role);
             notifyHoldersAfterCommit(roleId);
+            // Authorities added or removed on a HIGH-sensitivity node (roles, user management, payroll, ...)
+            // are called out so the history and any alerting can single them out.
+            Set<String> changed = new TreeSet<>(after);
+            changed.addAll(before);
+            Set<String> unchanged = new HashSet<>(after);
+            unchanged.retainAll(before);
+            changed.removeAll(unchanged);
+            List<String> highImpact = changed.stream().filter(this::isHighImpact).toList();
             auditService.log(actor.getId(), "ROLE_PERMISSIONS_UPDATED", null,
                     auditSnapshot.toJson(Map.of("role", role.getCode(), "permissions", before)),
-                    auditSnapshot.toJson(Map.of("role", role.getCode(), "permissions", after)));
+                    auditSnapshot.toJson(highImpact.isEmpty()
+                            ? Map.of("role", role.getCode(), "permissions", after)
+                            : Map.of("role", role.getCode(), "permissions", after, "highImpact", highImpact)));
         }
         return get(roleId);
     }
@@ -361,7 +398,10 @@ public class RoleAdminService {
             String k = key(g.module(), g.action());
             Permission p = registered.get(k);
             if (p == null) throw new IllegalArgumentException("Unknown permission: " + k);
-            if (!SCOPES.contains(g.scope())) throw new IllegalArgumentException("Invalid scope '" + g.scope() + "' for " + k);
+            // Only scopes the backend really evaluates for this permission (no DEPARTMENT/LOCATION, no TEAM
+            // on an organisation-only function): a grant outside the catalogue range would silently do nothing.
+            String problem = permissionCatalogue.problemWith(g.module(), g.action(), g.scope());
+            if (problem != null) throw new IllegalArgumentException(problem);
             if (!p.getModule().isCustomRoleReady())
                 throw new IllegalArgumentException(p.getModule().getDisplayName() + " permissions can't be configured yet.");
             if (wanted.put(k, g.scope()) != null) throw new IllegalArgumentException("Duplicate permission: " + k);
@@ -398,6 +438,12 @@ public class RoleAdminService {
                 "You can only grant or remove permissions you hold yourself, at the same scope or wider.");
         rolePermissionRepository.deleteAll(toDelete);
         rolePermissionRepository.saveAll(toSave);
+    }
+
+    /** An authority string ("module:ACTION:SCOPE") on a node the catalogue marks HIGH sensitivity. */
+    private boolean isHighImpact(String authority) {
+        String module = authority.substring(0, authority.indexOf(':'));
+        return permissionCatalogue.leaf(module).map(PermissionCatalogue.Node::high).orElse(false);
     }
 
     // ─── Membership ─────────────────────────────────────────────────────────────

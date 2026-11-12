@@ -160,6 +160,19 @@ class OvertimeRequestServiceTest {
     }
 
     @Test
+    void approve_andReject_ownRequestIsRefused_evenForTheOrgWideHolder() {
+        OvertimeRequest own = pendingRequest();
+        own.setEmployeeUserId(hrAdminId);
+        when(requestRepository.findById(own.getId())).thenReturn(Optional.of(own));
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.approve(own.getId(), "ok", hrAdminEmail));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.reject(own.getId(), "no", hrAdminEmail));
+        assertEquals("PENDING", own.getStatus());
+    }
+
+    @Test
     void approve_calledTwice_sendsNotificationOnlyOnce() {
         OvertimeRequest req = pendingRequest();
         when(requestRepository.findById(req.getId())).thenReturn(Optional.of(req));
