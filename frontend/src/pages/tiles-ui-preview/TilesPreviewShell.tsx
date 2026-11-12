@@ -1252,11 +1252,11 @@ function HelpMock() {
       if (url.includes('/api/helpdesk')) return json([]);
       return prevFetch(input, init);
     }) as typeof window.fetch;
-    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { permissions: { hr_help_content: { VIEW: ['ALL'], CREATE: ['ALL'], EDIT: ['ALL'], DELETE: ['ALL'] } } } as never });
     setReady(true);
     return () => {
       window.fetch = prevFetch;
-      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions });
     };
   }, []);
   return ready ? <HelpDeskPage /> : null;
