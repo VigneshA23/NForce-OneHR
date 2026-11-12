@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.allocation.BulkProjectAllocationRequest;
 import com.nforce.onehr.dto.allocation.EmployeeCapacityResponse;
 import com.nforce.onehr.dto.allocation.ProjectAllocationRequest;
 import com.nforce.onehr.dto.allocation.ProjectAllocationResponse;
+import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Project;
 import com.nforce.onehr.entity.ProjectAllocation;
@@ -59,12 +60,15 @@ public class ProjectAllocationService {
     private final UserRepository userRepository;
     private final DirectReportScopeService directReportScopeService;
     private final EffectivePermissionService effectivePermissionService;
+    private final EmployeeService employeeService;
 
     @Transactional
     public ProjectAllocationResponse allocate(String actorEmail, ProjectAllocationRequest req) {
         Project project = findProject(req.getProjectId());
-        requireCanAllocate(resolveUser(actorEmail), project);
+        User actor = resolveUser(actorEmail);
+        requireCanAllocate(actor, project);
         Employee employee = findEmployee(req.getEmployeeId());
+        requireInScope(actor, employee.getUserId());
         validate(project, req.getStartDate(), req.getEndDate());
         int projected = allocatedCapacity(employee.getUserId(), req.getStartDate(), req.getEndDate()) + req.getCapacityPercent();
         String warning = overAllocationWarning(projected);
@@ -121,11 +125,14 @@ public class ProjectAllocationService {
     public BulkAllocationResponse bulkAllocate(String actorEmail, BulkProjectAllocationRequest req) {
         Project project = findProject(req.getProjectId());
         // Whole-request gate, not a per-employee failure: the caller either owns the project or doesn't.
-        requireCanAllocate(resolveUser(actorEmail), project);
+        User actor = resolveUser(actorEmail);
+        requireCanAllocate(actor, project);
+        Set<UUID> scope = allocatableIds(actor);
         List<AllocationResult> results = new ArrayList<>();
         for (UUID employeeId : req.getEmployeeIds()) {
             try {
                 Employee employee = findEmployee(employeeId);
+                if (scope != null && !scope.contains(employee.getUserId())) throw OUT_OF_SCOPE.get();
                 validate(project, req.getStartDate(), req.getEndDate());
                 String warning = overAllocationWarning(
                         allocatedCapacity(employee.getUserId(), req.getStartDate(), req.getEndDate()) + req.getCapacityPercent());
@@ -154,6 +161,27 @@ public class ProjectAllocationService {
             throw new AccessDeniedException(
                     "Only the project owner or HR can allocate resources to \"" + project.getName() + "\"");
         }
+    }
+
+    private static final java.util.function.Supplier<AccessDeniedException> OUT_OF_SCOPE =
+            () -> new AccessDeniedException("You can only allocate employees within your permitted scope");
+
+    /** null = every employee (project_allocations:CREATE:ALL); otherwise the actor's current direct reports (TEAM). */
+    private Set<UUID> allocatableIds(User actor) {
+        return effectivePermissionService.hasAuthority(actor, "project_allocations:CREATE:ALL")
+                ? null : directReportScopeService.directReportIds(actor.getEmail());
+    }
+
+    private void requireInScope(User actor, UUID employeeUserId) {
+        Set<UUID> ids = allocatableIds(actor);
+        if (ids != null && !ids.contains(employeeUserId)) throw OUT_OF_SCOPE.get();
+    }
+
+    /** Employees the actor may pick on the allocation page: everyone for CREATE:ALL, direct reports for CREATE:TEAM. */
+    @Transactional(readOnly = true)
+    public List<EmployeeResponse> allocatableEmployees(String actorEmail) {
+        Set<UUID> ids = allocatableIds(resolveUser(actorEmail));
+        return ids == null ? employeeService.listEmployees() : employeeService.listEmployees(ids);
     }
 
     /** Hard rules (4xx). Over-allocation is deliberately NOT here — it's a soft warning (US-B06). */

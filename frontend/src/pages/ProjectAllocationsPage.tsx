@@ -5,7 +5,7 @@ import { TabBar } from '../components/TabBar';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { useAuthStore } from '../store/authStore';
 import { useCan } from '../lib/access';
-import { employeesApi, type EmployeeRecord } from '../api/employees';
+import type { EmployeeRecord } from '../api/employees';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import { projectsApi, projectAllocationsApi, type ProjectRecord, type AllocationResult, type BulkAllocationPayload } from '../api/projectAllocations';
@@ -105,7 +105,7 @@ export default function ProjectAllocationsPage() {
     setLoading(true);
     setLoadError('');
     // Independent loads: one failing (e.g. employee list) must not lock the whole page.
-    Promise.allSettled([employeesApi.list(token), projectsApi.list(token)])
+    Promise.allSettled([projectAllocationsApi.employees(token), projectsApi.list(token)])
       .then(([emps, projs]) => {
         if (emps.status === 'fulfilled') setEmployees(emps.value.filter(e => e.active));
         if (projs.status === 'fulfilled') setProjects(projs.value);
