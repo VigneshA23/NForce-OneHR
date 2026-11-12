@@ -76,6 +76,8 @@ import DirectoryPage from '../DirectoryPage';
 import UserManagementPage from '../UserManagementPage';
 import OrgSetupPage from '../OrgSetupPage';
 import HolidaysPage, { HolidayMonthCalendar } from '../HolidaysPage';
+import { EditModal as EmployeeEditModal } from '../EmployeeMasterPage';
+import type { EmployeeRecord } from '../../api/employees';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
   { key: 'menu', label: 'Left menu', title: 'Left menu by role', subtitle: 'The real sidebar for each role, with the disabled "P2" placeholder modules removed.' },
@@ -108,6 +110,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'allocations-page', label: 'Project Allocations (full page)', title: 'Project Allocations', subtitle: 'Allocate and Projects tabs with sample data. Allocating and saving only change this preview.' },
   { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
+  { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
   { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
   { key: 'create-employee-steps', label: 'Create Employee (all 4 steps)', title: 'Create Employee: all four steps', subtitle: 'Pick any step, and the result screen, to see the layout with sample values. Nothing is saved, and the real wizard still checks each step before moving on.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
@@ -1036,6 +1039,49 @@ function CreateEmployeeStepsPreview() {
   );
 }
 
+function EmployeeEditMock() {
+  const [open, setOpen] = useState<EmployeeRecord | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const base = { businessUnitId: 'b1', businessUnitName: 'Technology', departmentId: 'd1', departmentName: 'Finance', designationId: 'g1', designationName: 'Backend Developer', locationId: 'l2', locationName: 'Vishakhapatnam', shiftId: null, shiftName: null, employmentType: 'FULL_TIME', workMode: 'ONSITE', joiningDate: '2026-04-12', currentManager: null } as const;
+  const people: EmployeeRecord[] = [
+    { ...base, userId: 'u1', employeeCode: 'NF-20261004', fullName: 'Abuzar Siddiqui', email: 'abuzar.siddiqui@nforceone.com', role: 'EMPLOYEE', active: true },
+    { ...base, userId: 'u2', employeeCode: 'NF-20261018', fullName: 'Meera Iyer', email: 'meera.iyer@nforceone.com', role: 'EMPLOYEE', active: false, workMode: 'HYBRID', departmentId: 'd2', departmentName: 'Engineering' },
+  ] as EmployeeRecord[];
+  useEffect(() => {
+    // Mock only: sample org lists and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/business-units')) return json([{ id: 'b1', name: 'Technology', active: true }, { id: 'b2', name: 'Operations', active: true }]);
+      if (url.endsWith('/departments')) return json([{ id: 'd1', name: 'Finance', active: true }, { id: 'd2', name: 'Engineering', active: true }, { id: 'd3', name: 'Sales', active: true }]);
+      if (url.endsWith('/designations')) return json([{ id: 'g1', title: 'Backend Developer', active: true }, { id: 'g2', title: 'Analyst', active: true }, { id: 'g3', title: 'Sales Executive', active: true }]);
+      if (url.endsWith('/locations')) return json([{ id: 'l1', name: 'Hyderabad', active: true }, { id: 'l2', name: 'Vishakhapatnam', active: true }, { id: 'l3', name: 'Bangalore', active: true }]);
+      if (url.includes('/employees/') && init?.method === 'PATCH') return json({ ...people[0], ...JSON.parse(String(init.body ?? '{}')) });
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {people.map(pe => (
+          <button key={pe.userId} type="button" onClick={() => { setSaved(null); setOpen(pe); }} style={{ padding: '9px 16px', borderRadius: 999, cursor: 'pointer', fontWeight: 700, fontSize: 13, border: '1px solid var(--line2)', color: '#fff', background: 'var(--brand)' }}>
+            {pe.active ? 'Edit an active employee' : 'Edit an inactive employee'}
+          </button>
+        ))}
+      </div>
+      {saved && <div style={{ fontSize: 13, color: 'var(--ok)', fontWeight: 600 }}>Saved {saved} (preview only).</div>}
+      {open && <EmployeeEditModal emp={open} token="mock-token" onClose={() => setOpen(null)} onUpdated={u => setSaved(u.fullName)} />}
+    </div>
+  );
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -1780,6 +1826,8 @@ function Tiles({ page }: { page: string }) {
       return <DocsComplianceMock />;
     case 'roles-page':
       return <RolesMock />;
+    case 'employee-edit':
+      return <EmployeeEditMock />;
     case 'create-employee-steps':
       return <CreateEmployeeStepsPreview />;
     case 'policies-page':
