@@ -46,7 +46,7 @@ function ResultsTable({ results, employees, onConfirm, confirming }: {
           <span>
             {warningCount} employee{warningCount === 1 ? ' would' : 's would'} go over 100% capacity and {warningCount === 1 ? 'was' : 'were'} not allocated.
           </span>
-          {can('project_allocations', 'CREATE') && (
+          {can('project_allocations', 'CREATE', 'TEAM') && (
           <button type="button" onClick={onConfirm} disabled={confirming} className="nf-pa-primary is-sm">
             {confirming ? 'Allocating…' : 'Allocate anyway'}
           </button>
@@ -302,7 +302,7 @@ export default function ProjectAllocationsPage() {
               <div role="alert" className="nf-pa-alert"><AlertTriangle size={14} />{formError}</div>
             )}
 
-            {can('project_allocations', 'CREATE') && (
+            {can('project_allocations', 'CREATE', 'TEAM') && (
             <button type="button" onClick={handleSubmit} disabled={submitting} className="nf-pa-primary">
               {submitting ? 'Allocating…' : `Allocate ${selected.size || ''} Employee${selected.size === 1 ? '' : 's'}`}
             </button>
