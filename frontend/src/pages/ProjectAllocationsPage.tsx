@@ -100,7 +100,12 @@ export default function ProjectAllocationsPage() {
     setLoading(true);
     setLoadError('');
     // Independent loads: one failing (e.g. employee list) must not lock the whole page.
-    Promise.allSettled([employeesApi.list(token), projectsApi.list(token)])
+    // Managers lack employees:VIEW:ALL (403), so fall back to their server-scoped team list.
+    const teamAsEmployees = () => projectAllocationsApi.capacity(token).then(rows => rows.map(r => ({
+      userId: r.employeeId, fullName: r.employeeName, employeeCode: '', active: true,
+      departmentName: r.departmentName,
+    }) as unknown as EmployeeRecord));
+    Promise.allSettled([employeesApi.list(token).catch(teamAsEmployees), projectsApi.list(token)])
       .then(([emps, projs]) => {
         if (emps.status === 'fulfilled') setEmployees(emps.value.filter(e => e.active));
         if (projs.status === 'fulfilled') setProjects(projs.value);
