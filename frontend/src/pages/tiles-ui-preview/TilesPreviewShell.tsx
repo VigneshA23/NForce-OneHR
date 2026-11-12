@@ -1197,6 +1197,11 @@ function DocumentsMock() {
       if (url.endsWith('/api/documents/my')) {
         return json([doc('d1', 1, 'Employment Contract', 'PENDING_VERIFICATION', null, null), doc('d2', 2, 'Identity Document', 'PENDING_VERIFICATION', '2028-05-31', null), doc('d3', 3, 'Address Proof', 'VERIFIED', null, null), doc('d5', 5, 'Degree Certificate', 'REJECTED', null, 'Image is blurry, please re-upload')]);
       }
+      // Mock only: "View" opens a small sample PDF instead of calling a backend that isn't there.
+      if (/\/api\/documents\/[^/]+\/file$/.test(url) || /\/api\/policies\/[^/]+\/attachment$/.test(url)) {
+        const pdf = ['%PDF-1.1', '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj', '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj', '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 120]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj', '4 0 obj<</Length 58>>stream', 'BT /F1 16 Tf 20 60 Td (Sample document for preview) Tj ET', 'endstream', 'endobj', '5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj', 'trailer<</Root 1 0 R/Size 6>>', '%%EOF'].join(String.fromCharCode(10));
+        return Promise.resolve(new Response(new Blob([pdf], { type: 'application/pdf' }), { status: 200, headers: { 'Content-Type': 'application/pdf' } }));
+      }
       if (url.endsWith('/api/policies/my')) {
         return json([pol(1, 'Code of Conduct', '2.0', true, false, 'How we work together and what we expect of each other.'), pol(2, 'Leave Policy', '1.0', true, true, 'Entitlements, approvals and carry-forward rules.'), pol(3, 'Travel Guidelines', '1.0', false, null, 'Booking, limits and reimbursement.')]);
       }
