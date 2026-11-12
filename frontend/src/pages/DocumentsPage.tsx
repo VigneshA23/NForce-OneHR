@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle, AlertTriangle, Search, Eye, Paperclip, FileText, ShieldCheck, Hourglass, XCircle, FileX2, Megaphone, ScrollText } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Search, Eye, Paperclip, FileText, ShieldCheck, Hourglass, XCircle, FileX2, Megaphone, ScrollText, ExternalLink } from 'lucide-react';
 import DashTile from '../components/DashTile';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
@@ -10,6 +10,7 @@ import { card, bucketRequiredDocuments } from './documents/shared';
 import { useMyDocumentsData } from './documents/useMyDocumentsData';
 import { MyDocumentsSection } from './documents/MyDocumentsSection';
 import { TabBar } from '../components/TabBar';
+import { DocPopup } from './documents/DocPopup';
 
 // ── Policy Read-First Modal ───────────────────────────────
 
@@ -44,42 +45,47 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 520, maxWidth: '94vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
-        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{policy.title}</h3>
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--txt-dim)' }}>Version {policy.version} · Audience: {policy.audience} · Published {new Date(policy.publishedAt).toLocaleDateString()}</p>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '14px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 18, fontSize: 13, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-          {policy.description}
-        </div>
-        {policy.hasAttachment && (
-          <button onClick={openAttachment} disabled={attachmentLoading}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', padding: '6px 12px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 12, marginBottom: 18 }}>
-            <Paperclip size={12} /> {attachmentLoading ? 'Opening…' : (policy.attachmentFileName ?? 'View Attachment')}
-          </button>
-        )}
-        {onConfirm && (
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 20 }}>
-            <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}
-              style={{ width: 16, height: 16, marginTop: 2, flexShrink: 0, cursor: 'pointer' }} />
-            <span style={{ fontSize: 13, color: 'var(--txt)', lineHeight: 1.5 }}>
-              I have read and understood this policy and agree to comply with its terms.
-            </span>
-          </label>
-        )}
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} disabled={loading}
-            style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
-            {onConfirm ? 'Cancel' : 'Close'}
-          </button>
+    <DocPopup
+      icon={ScrollText}
+      size="lg"
+      title={policy.title}
+      sub={onConfirm ? 'Read the policy, then confirm your acknowledgment.' : 'Policy details'}
+      onClose={onClose}
+      footer={(
+        <>
+          <button type="button" className="nf-dp-cancel" onClick={onClose} disabled={loading}>{onConfirm ? 'Cancel' : 'Close'}</button>
           {onConfirm && (
-            <button onClick={submit} disabled={!checked || loading}
-              style={{ padding: '8px 20px', background: checked ? '#A01418' : 'var(--shell)', border: checked ? 'none' : '1px solid var(--line)', borderRadius: 6, color: checked ? '#fff' : 'var(--txt-dim)', cursor: checked ? 'pointer' : 'not-allowed', fontSize: 13, fontWeight: 600, transition: 'all .15s' }}>
-              {loading ? 'Saving…' : 'Confirm Acknowledgment'}
+            <button type="button" className="nf-dp-go" onClick={submit} disabled={!checked || loading}>
+              <CheckCircle size={15} /> {loading ? 'Saving…' : 'Confirm Acknowledgment'}
             </button>
           )}
-        </div>
+        </>
+      )}
+    >
+      <div className="nf-dp-chips">
+        <span className="nf-dp-chip is-brand">Version {policy.version}</span>
+        {policy.required && <span className="nf-dp-chip is-risk">Required</span>}
+        <span className="nf-dp-chip">Audience: {policy.audience}</span>
+        <span className="nf-dp-chip">Published {new Date(policy.publishedAt).toLocaleDateString()}</span>
       </div>
-    </div>
+      <div className="nf-dp-read">{policy.description}</div>
+      {policy.hasAttachment && (
+        <button type="button" className="nf-dp-attach" onClick={openAttachment} disabled={attachmentLoading}>
+          <span className="nf-dp-attach-ico"><Paperclip size={16} /></span>
+          <span className="nf-dp-attach-txt">
+            {attachmentLoading ? 'Opening…' : (policy.attachmentFileName ?? 'View Attachment')}
+            <small>Opens in a new tab</small>
+          </span>
+          <ExternalLink size={15} color="var(--txt-mut)" />
+        </button>
+      )}
+      {onConfirm && (
+        <label className={`nf-dp-agree${checked ? ' is-on' : ''}`}>
+          <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} />
+          <span>I have read and understood this policy and agree to comply with its terms.</span>
+        </label>
+      )}
+    </DocPopup>
   );
 }
 
@@ -87,23 +93,21 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
 
 function AnnouncementModal({ announcement, onClose }: { announcement: Announcement; onClose(): void }) {
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 520, maxWidth: '94vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
-        <h3 style={{ margin: '0 0 6px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{announcement.title}</h3>
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--txt-dim)' }}>
-          {announcement.publishedAt && `Published ${new Date(announcement.publishedAt).toLocaleDateString()} · `}Audience: {announcement.audience}
-        </p>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '14px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 8, marginBottom: 18, fontSize: 13, color: 'var(--txt)', lineHeight: 1.7, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-          {announcement.body}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button onClick={onClose}
-            style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
-            Close
-          </button>
-        </div>
+    <DocPopup
+      icon={Megaphone}
+      size="lg"
+      title={announcement.title}
+      sub="Announcement"
+      onClose={onClose}
+      closeOnBackdrop
+      footer={<button type="button" className="nf-dp-cancel" onClick={onClose}>Close</button>}
+    >
+      <div className="nf-dp-chips">
+        {announcement.publishedAt && <span className="nf-dp-chip">Published {new Date(announcement.publishedAt).toLocaleDateString()}</span>}
+        <span className="nf-dp-chip">Audience: {announcement.audience}</span>
       </div>
-    </div>
+      <div className="nf-dp-read">{announcement.body}</div>
+    </DocPopup>
   );
 }
 

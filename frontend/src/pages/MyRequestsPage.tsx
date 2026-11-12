@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle, CheckCircle2, CalendarDays, ClipboardList, ClockAlert, Eye, House, Hourglass, Inbox, Layers, Timer, X,
-  Plus, ChevronDown, Search, ArrowRight, Send, Smile, type LucideIcon,
+  Plus, ChevronDown, Search, ArrowRight, Send, Smile, Clock, XCircle, UserCheck, Sun, type LucideIcon,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { myRequestsApi, type MyRequestItem, type RequestType } from '../api/myRequests';
@@ -68,11 +68,11 @@ function typeSubLabel(item: MyRequestItem): string {
 // page; WFH/Partial Day/Overtime are all submitted from the Attendance page's own insight-tile
 // buttons (no deep-link query param exists for those yet, so this lands the employee on the page
 // rather than auto-opening the modal).
-const NEW_REQUEST_LINKS: { type: RequestType; label: string; path: string }[] = [
-  { type: 'LEAVE', label: 'Apply Leave', path: '/leave' },
-  { type: 'WFH', label: 'WFH Request', path: '/attendance' },
-  { type: 'PARTIAL_DAY', label: 'Partial Day', path: '/attendance' },
-  { type: 'OVERTIME', label: 'Overtime', path: '/attendance' },
+const NEW_REQUEST_LINKS: { type: RequestType; label: string; path: string; hint: string }[] = [
+  { type: 'LEAVE', label: 'Apply Leave', path: '/leave', hint: 'Time off for one or more days' },
+  { type: 'WFH', label: 'WFH Request', path: '/attendance', hint: 'Work from home for a day' },
+  { type: 'PARTIAL_DAY', label: 'Partial Day', path: '/attendance', hint: 'A few hours, not a full day' },
+  { type: 'OVERTIME', label: 'Overtime', path: '/attendance', hint: 'Claim extra hours worked' },
 ];
 
 function TypeIcon({ type, size = 17 }: { type: RequestType; size?: number }) {
@@ -114,7 +114,7 @@ function StatusBadge({ status }: { status: string }) {
 // rolls it back a day. Parsing its Y/M/D into a *local* Date avoids that; a real timestamp already
 // carries its own offset/Z, so it's left to parse normally.
 function fmtDate(s?: string | null) {
-  if (!s) return '–';
+  if (!s) return '-';
   const d = s.includes('T')
     ? new Date(s)
     : (([y, m, day]) => new Date(y, m - 1, day))(s.split('-').map(Number));
@@ -122,16 +122,16 @@ function fmtDate(s?: string | null) {
 }
 
 function fmtTime(s?: string | null) {
-  if (!s) return '–';
+  if (!s) return '-';
   return new Date(s).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
 /** Overtime's requested duration ("Overtime Hours") — derived from requestedCheckIn/Out rather
  * than shown as raw clock times, since the employee-facing concept is hours claimed, not when. */
 function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
-  if (!startIso || !endIso) return '–';
+  if (!startIso || !endIso) return '-';
   const minutes = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000);
-  if (minutes <= 0) return '–';
+  if (minutes <= 0) return '-';
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -160,7 +160,7 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
       <div className="nf-rq-summary">
         <div className="nf-rq-strong">{item.leaveTypeName}</div>
         <SummaryLine>
-          {item.leaveStartDate}{item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}
+          {item.leaveStartDate}{item.leaveStartDate !== item.leaveEndDate ? ` to ${item.leaveEndDate}` : ''}
           {' '}({item.leaveTotalDays} day{item.leaveTotalDays !== 1 ? 's' : ''}{item.leaveHalfDay ? ', half' : ''})
         </SummaryLine>
       </div>
@@ -192,7 +192,7 @@ function ItemDetail({ item }: { item: MyRequestItem }) {
       <div className="nf-rq-summary">
         <div className="nf-rq-strong">Overtime</div>
         <SummaryLine>
-          {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '–'} → {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '–'}
+          {item.attendanceDate} · {item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : '-'} to {item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : '-'}
         </SummaryLine>
       </div>
     );
@@ -384,16 +384,19 @@ function NewRequestMenu() {
           ref={menuRef}
           className="nf-rq-new-request-menu"
           role="menu"
-          style={{ position: 'fixed', top: anchorRect.bottom + 6, left: anchorRect.right - 190 }}
+          style={{ position: 'fixed', top: anchorRect.bottom + 8, left: Math.max(8, anchorRect.right - 290) }}
         >
-          {NEW_REQUEST_LINKS.map(l => {
-            const Icon = TYPE_ICONS[l.type];
-            return (
-              <Link key={l.type} to={l.path} role="menuitem" className="nf-rq-new-request-item" onClick={() => setOpen(false)}>
-                <Icon size={15} /> {l.label}
-              </Link>
-            );
-          })}
+          <div className="nf-rq-new-request-head">Raise a new request</div>
+          {NEW_REQUEST_LINKS.map(l => (
+            <Link key={l.type} to={l.path} role="menuitem" className={`nf-rq-new-request-item ${TYPE_TONES[l.type]}`} onClick={() => setOpen(false)}>
+              <TypeIcon type={l.type} size={17} />
+              <span className="nf-rq-new-request-txt">
+                <span className="nf-rq-new-request-label">{l.label}</span>
+                <span className="nf-rq-new-request-hint">{l.hint}</span>
+              </span>
+              <ArrowRight size={14} className="nf-rq-new-request-go" aria-hidden="true" />
+            </Link>
+          ))}
         </div>,
         document.body
       )}
@@ -452,75 +455,110 @@ function NeedHelpPanel() {
 
 // ── Detail modal (read-only) ───────────────────────────────
 
-function Row({ label, value, wide }: { label: string; value?: string | null; wide?: boolean }) {
-  return (
-    <div style={wide ? { gridColumn: '1 / -1' } : undefined}>
-      <div className="nf-rq-field-label">{label}</div>
-      <div className="nf-rq-field-value">{value ?? '–'}</div>
-    </div>
-  );
+type Fact = { icon: LucideIcon; label: string; value: string; wide?: boolean };
+
+function requestFacts(item: MyRequestItem): Fact[] {
+  if (item.requestType === 'LEAVE') {
+    const range = `${fmtDate(item.leaveStartDate)}${item.leaveStartDate !== item.leaveEndDate ? ` to ${fmtDate(item.leaveEndDate)}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`;
+    return [
+      { icon: Layers, label: 'Leave type', value: item.leaveTypeName ?? '-' },
+      { icon: Sun, label: 'Days', value: String(item.leaveTotalDays ?? '-') },
+      { icon: CalendarDays, label: 'Dates', value: range, wide: true },
+    ];
+  }
+  if (item.requestType === 'REGULARIZATION') {
+    return [
+      { icon: CalendarDays, label: 'Attendance date', value: fmtDate(item.attendanceDate), wide: true },
+      { icon: Clock, label: 'Requested check-in', value: item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided' },
+      { icon: Clock, label: 'Requested check-out', value: item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided' },
+    ];
+  }
+  if (item.requestType === 'OVERTIME') {
+    return [
+      { icon: CalendarDays, label: 'Date', value: fmtDate(item.attendanceDate) },
+      { icon: Timer, label: 'Overtime hours', value: fmtOvertimeHours(item.requestedCheckIn, item.requestedCheckOut) },
+    ];
+  }
+  const facts: Fact[] = [{ icon: CalendarDays, label: 'Date', value: fmtDate(item.attendanceDate) }];
+  if (item.requestType === 'PARTIAL_DAY') {
+    facts.push({ icon: Timer, label: 'Duration', value: item.partialDayHours != null ? (formatDurationMinutes(Math.round(item.partialDayHours * 60)) ?? '-') : '-' });
+  }
+  return facts;
 }
 
 function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: () => void }) {
   // Same per-type field set as before; Reason is pulled out into its own quoted block below.
   const reason = item.requestType === 'LEAVE' ? item.leaveReason : item.regularizationReason;
-  return (
+  const facts = requestFacts(item);
+  const decided = item.status === 'APPROVED' || item.status === 'REJECTED';
+  const tone = STATUS_TONES[item.status] ?? 'tone-mute';
+  const StepIcon = item.status === 'APPROVED' ? CheckCircle2 : item.status === 'REJECTED' ? XCircle : Hourglass;
+  const stepTitle = item.status === 'APPROVED' ? 'Approved'
+    : item.status === 'REJECTED' ? 'Rejected'
+    : item.status === 'PARTIALLY_APPROVED' ? 'Manager approved, awaiting final approval'
+    : 'Awaiting decision';
+
+  return createPortal(
     <div className="nf-rq-overlay">
       <div className="nf-rq-modal" role="dialog" aria-modal="true" aria-labelledby="nf-rq-modal-title">
-        <div className="nf-rq-modal-head">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-            <TypeIcon type={item.requestType} size={19} />
+        <div className="nf-rq-modal-head nf-rq-md-head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, flex: 1 }}>
+            <TypeIcon type={item.requestType} size={20} />
             <div style={{ minWidth: 0 }}>
-              <h2 id="nf-rq-modal-title" className="nf-rq-modal-title">Request Details</h2>
-              <div className="nf-rq-modal-sub">{TYPE_LABELS[item.requestType]}</div>
+              <h2 id="nf-rq-modal-title" className="nf-rq-modal-title">{TYPE_LABELS[item.requestType]} request</h2>
+              <div className="nf-rq-modal-sub">Submitted on {fmtDate(item.createdAt)}</div>
             </div>
           </div>
+          <StatusBadge status={item.status} />
           <button onClick={onClose} className="nf-rq-close" aria-label="Close"><X size={16} /></button>
         </div>
 
-        <div className="nf-rq-modal-body">
-          <div className="nf-rq-fields">
-            {item.requestType === 'LEAVE' && (
-              <>
-                <Row label="Type" value={item.leaveTypeName} />
-                <Row label="Days" value={String(item.leaveTotalDays)} />
-                <Row label="Dates" wide value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} />
-              </>
-            )}
-
-            {item.requestType === 'REGULARIZATION' && (
-              <>
-                <Row label="Attendance Date" wide value={item.attendanceDate} />
-                <Row label="Requested Check-in" value={item.requestedCheckIn ? fmtTime(item.requestedCheckIn) : 'Not provided'} />
-                <Row label="Requested Check-out" value={item.requestedCheckOut ? fmtTime(item.requestedCheckOut) : 'Not provided'} />
-              </>
-            )}
-
-            {(item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') && (
-              <>
-                <Row label="Date" value={item.attendanceDate} />
-                {item.requestType === 'PARTIAL_DAY' && <Row label="Duration" value={item.partialDayHours != null ? (formatDurationMinutes(Math.round(item.partialDayHours * 60)) ?? undefined) : undefined} />}
-              </>
-            )}
-
-            {item.requestType === 'OVERTIME' && (
-              <>
-                <Row label="Date" value={item.attendanceDate} />
-                <Row label="Overtime Hours" value={fmtOvertimeHours(item.requestedCheckIn, item.requestedCheckOut)} />
-              </>
-            )}
+        <div className="nf-rq-modal-body nf-rq-md-body">
+          <div className="nf-rq-md-facts">
+            {facts.map((f) => (
+              <div key={f.label} className={`nf-rq-md-fact${f.wide ? ' wide' : ''}`}>
+                <span className="nf-rq-md-fact-ico"><f.icon size={16} /></span>
+                <div className="nf-rq-md-fact-txt">
+                  <div className="nf-rq-field-label">{f.label}</div>
+                  <div className="nf-rq-field-value">{f.value}</div>
+                </div>
+              </div>
+            ))}
           </div>
 
-          <div className="nf-rq-section-label">Reason</div>
-          <div className="nf-rq-quote">{reason ?? '–'}</div>
+          <div>
+            <div className="nf-rq-section-label">Reason</div>
+            <div className="nf-rq-quote">{reason ?? '-'}</div>
+          </div>
 
-          <div className="nf-rq-decision">
-            <div>
-              <div className="nf-rq-field-label">Status</div>
-              <StatusBadge status={item.status} />
-            </div>
-            {item.decisionReason && <Row label="Decision Reason" value={item.decisionReason} />}
-            {item.decidedByName && <Row label="Decided By" value={`${item.decidedByName}${item.decidedAt ? ` on ${fmtDate(item.decidedAt)}` : ''}`} />}
+          <div>
+            <div className="nf-rq-section-label">Progress</div>
+            <ol className="nf-rq-md-steps">
+              <li className="nf-rq-md-step is-done">
+                <span className="nf-rq-md-dot tone-ok"><Send size={13} /></span>
+                <div>
+                  <div className="nf-rq-md-step-t">Submitted</div>
+                  <div className="nf-rq-md-step-s">{fmtDate(item.createdAt)}</div>
+                </div>
+              </li>
+              <li className={`nf-rq-md-step ${decided ? 'is-done' : 'is-now'}`}>
+                <span className={`nf-rq-md-dot ${tone}`}><StepIcon size={13} /></span>
+                <div className="nf-rq-md-step-main">
+                  <div className="nf-rq-md-step-t">{stepTitle}</div>
+                  {decided && (item.decidedByName || item.decidedAt) && (
+                    <div className="nf-rq-md-step-s">
+                      <UserCheck size={12} /> {item.decidedByName ?? 'System'}{item.decidedAt ? ` on ${fmtDate(item.decidedAt)}` : ''}
+                    </div>
+                  )}
+                  {item.decisionReason && (
+                    <div className={`nf-rq-md-decision ${tone}`}>
+                      <div className="nf-rq-field-label">Decision reason</div>
+                      <div className="nf-rq-field-value">{item.decisionReason}</div>
+                    </div>
+                  )}
+                </div>
+              </li>
+            </ol>
           </div>
         </div>
 
@@ -528,7 +566,8 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
           <button onClick={onClose} className="nf-rq-btn nf-rq-btn--ghost">Close</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

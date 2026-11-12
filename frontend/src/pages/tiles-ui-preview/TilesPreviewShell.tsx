@@ -30,7 +30,7 @@ import { KpiCard } from '../talent/DashboardTab';
 import { KpiTile } from '../LeavePage';
 import { AccessStatTiles } from '../UserManagementPage';
 import { Kpi } from '../HelpDeskAdminPage';
-import { StatRing } from '../MyRequestsPage';
+import MyRequestsPage, { StatRing } from '../MyRequestsPage';
 import { Tile } from '../assets/shared';
 import { PolicyStatTiles } from '../PoliciesPage';
 import { DocumentStatTiles } from '../DocumentsPage';
@@ -73,9 +73,11 @@ import LeavePage from '../LeavePage';
 import ApprovalsPage from '../ApprovalsPage';
 import DashboardPage from '../DashboardPage';
 import DirectoryPage from '../DirectoryPage';
-import UserManagementPage from '../UserManagementPage';
+import UserManagementPage, { EditModal as UserEditModal } from '../UserManagementPage';
 import OrgSetupPage from '../OrgSetupPage';
 import HolidaysPage, { HolidayMonthCalendar } from '../HolidaysPage';
+import { EditModal as EmployeeEditModal } from '../EmployeeMasterPage';
+import type { EmployeeRecord } from '../../api/employees';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
   { key: 'menu', label: 'Left menu', title: 'Left menu by role', subtitle: 'The real sidebar for each role, with the disabled "P2" placeholder modules removed.' },
@@ -108,10 +110,13 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'allocations-page', label: 'Project Allocations (full page)', title: 'Project Allocations', subtitle: 'Allocate and Projects tabs with sample data. Allocating and saving only change this preview.' },
   { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
+  { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
+  { key: 'user-edit', label: 'Edit User popup (Access)', title: 'User Management: Edit popup', subtitle: 'Open the popup for an active or an inactive user. Saving only changes this preview.' },
   { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
   { key: 'create-employee-steps', label: 'Create Employee (all 4 steps)', title: 'Create Employee: all four steps', subtitle: 'Pick any step, and the result screen, to see the layout with sample values. Nothing is saved, and the real wizard still checks each step before moving on.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
+  { key: 'my-requests-page', label: 'My Requests (full page)', title: 'My Requests', subtitle: 'Employee view with sample requests. Click View Details on any row to see the redesigned popup (leave, regularization, WFH, partial day, overtime; pending, approved, rejected).' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
   { key: 'workflows-page', label: 'Workflow Studio (full page)', title: 'Workflow Studio', subtitle: 'Sample rules: themed table, stage flow pills, condition chips and the action dock.' },
   { key: 'talent-page', label: 'Performance tabs (full page)', title: 'Performance', subtitle: 'Sample data. Add &tab=search, &tab=directory or &tab=settings to the URL to open that tab.' },
@@ -1036,6 +1041,92 @@ function CreateEmployeeStepsPreview() {
   );
 }
 
+function UserEditMock() {
+  const [open, setOpen] = useState<EmployeeRecord | null>(null);
+  const [opts, setOpts] = useState<OrgOptions>({
+    businessUnits: [{ id: 'b1', name: 'Technology', active: true }],
+    departments: [{ id: 'd1', name: 'Finance', active: true }, { id: 'd2', name: 'Engineering', active: true }],
+    designations: [{ id: 'g1', title: 'Backend Developer', departmentId: 'd1', active: true }, { id: 'g2', title: 'Analyst', departmentId: 'd1', active: true }, { id: 'g3', title: 'Software Engineer', departmentId: 'd2', active: true }],
+    locations: [{ id: 'l1', name: 'Hyderabad', active: true }, { id: 'l2', name: 'Vishakhapatnam', active: true }],
+    managers: [{ userId: 'm1', fullName: 'Priya Nair', email: 'priya@nforceone.com', role: 'MANAGER', active: true }, { userId: 'm2', fullName: 'Harvey Specter', email: 'harvey@nforceone.com', role: 'HR_ADMIN', active: true }] as never,
+    shifts: [{ id: 'sh1', name: 'General', startTime: '09:00:00', endTime: '18:00:00', active: true }, { id: 'sh2', name: 'Night', startTime: '21:00:00', endTime: '06:00:00', active: true }] as never,
+  });
+  const base = { businessUnitId: 'b1', businessUnitName: 'Technology', departmentId: 'd1', departmentName: 'Finance', designationId: 'g1', designationName: 'Backend Developer', locationId: 'l2', locationName: 'Vishakhapatnam', shiftId: 'sh1', shiftName: 'General', employmentType: 'FULL_TIME', workMode: 'ONSITE', joiningDate: '2026-04-12', currentManager: { userId: 'm1', fullName: 'Priya Nair' } } as const;
+  const people = [
+    { ...base, userId: 'u1', employeeCode: 'NF-20261004', fullName: 'Abuzar Siddiqui', email: 'abuzar.siddiqui@nforceone.com', role: 'EMPLOYEE', active: true },
+    { ...base, userId: 'u2', employeeCode: 'NF-20261018', fullName: 'Meera Iyer', email: 'meera.iyer@nforceone.com', role: 'MANAGER', active: false },
+  ] as unknown as EmployeeRecord[];
+  useEffect(() => {
+    // Mock only: a Super Admin session and stubbed saves; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PATCH' || init?.method === 'PUT') return Promise.resolve(new Response(JSON.stringify(people[0]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {people.map(pe => (
+          <button key={pe.userId} type="button" onClick={() => setOpen(pe)} style={{ padding: '9px 16px', borderRadius: 999, cursor: 'pointer', fontWeight: 700, fontSize: 13, border: '1px solid var(--line2)', color: '#fff', background: 'var(--brand)' }}>
+            {pe.active ? 'Edit an active user' : 'Edit an inactive user'}
+          </button>
+        ))}
+      </div>
+      {open && <UserEditModal user={open} token="mock-token" opts={opts} setOpts={setOpts} onClose={() => setOpen(null)} onUpdated={() => {}} />}
+    </div>
+  );
+}
+
+function EmployeeEditMock() {
+  const [open, setOpen] = useState<EmployeeRecord | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const base = { businessUnitId: 'b1', businessUnitName: 'Technology', departmentId: 'd1', departmentName: 'Finance', designationId: 'g1', designationName: 'Backend Developer', locationId: 'l2', locationName: 'Vishakhapatnam', shiftId: null, shiftName: null, employmentType: 'FULL_TIME', workMode: 'ONSITE', joiningDate: '2026-04-12', currentManager: null } as const;
+  const people: EmployeeRecord[] = [
+    { ...base, userId: 'u1', employeeCode: 'NF-20261004', fullName: 'Abuzar Siddiqui', email: 'abuzar.siddiqui@nforceone.com', role: 'EMPLOYEE', active: true },
+    { ...base, userId: 'u2', employeeCode: 'NF-20261018', fullName: 'Meera Iyer', email: 'meera.iyer@nforceone.com', role: 'EMPLOYEE', active: false, workMode: 'HYBRID', departmentId: 'd2', departmentName: 'Engineering' },
+  ] as EmployeeRecord[];
+  useEffect(() => {
+    // Mock only: sample org lists and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/business-units')) return json([{ id: 'b1', name: 'Technology', active: true }, { id: 'b2', name: 'Operations', active: true }]);
+      if (url.endsWith('/departments')) return json([{ id: 'd1', name: 'Finance', active: true }, { id: 'd2', name: 'Engineering', active: true }, { id: 'd3', name: 'Sales', active: true }]);
+      if (url.endsWith('/designations')) return json([{ id: 'g1', title: 'Backend Developer', active: true }, { id: 'g2', title: 'Analyst', active: true }, { id: 'g3', title: 'Sales Executive', active: true }]);
+      if (url.endsWith('/locations')) return json([{ id: 'l1', name: 'Hyderabad', active: true }, { id: 'l2', name: 'Vishakhapatnam', active: true }, { id: 'l3', name: 'Bangalore', active: true }]);
+      if (url.includes('/employees/') && init?.method === 'PATCH') return json({ ...people[0], ...JSON.parse(String(init.body ?? '{}')) });
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {people.map(pe => (
+          <button key={pe.userId} type="button" onClick={() => { setSaved(null); setOpen(pe); }} style={{ padding: '9px 16px', borderRadius: 999, cursor: 'pointer', fontWeight: 700, fontSize: 13, border: '1px solid var(--line2)', color: '#fff', background: 'var(--brand)' }}>
+            {pe.active ? 'Edit an active employee' : 'Edit an inactive employee'}
+          </button>
+        ))}
+      </div>
+      {saved && <div style={{ fontSize: 13, color: 'var(--ok)', fontWeight: 600 }}>Saved {saved} (preview only).</div>}
+      {open && <EmployeeEditModal emp={open} token="mock-token" onClose={() => setOpen(null)} onUpdated={u => setSaved(u.fullName)} />}
+    </div>
+  );
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -1107,6 +1198,11 @@ function DocumentsMock() {
       if (url.endsWith('/api/documents/my')) {
         return json([doc('d1', 1, 'Employment Contract', 'PENDING_VERIFICATION', null, null), doc('d2', 2, 'Identity Document', 'PENDING_VERIFICATION', '2028-05-31', null), doc('d3', 3, 'Address Proof', 'VERIFIED', null, null), doc('d5', 5, 'Degree Certificate', 'REJECTED', null, 'Image is blurry, please re-upload')]);
       }
+      // Mock only: "View" opens a small sample PDF instead of calling a backend that isn't there.
+      if (/\/api\/documents\/[^/]+\/file$/.test(url) || /\/api\/policies\/[^/]+\/attachment$/.test(url)) {
+        const pdf = ['%PDF-1.1', '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj', '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj', '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 120]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj', '4 0 obj<</Length 58>>stream', 'BT /F1 16 Tf 20 60 Td (Sample document for preview) Tj ET', 'endstream', 'endobj', '5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj', 'trailer<</Root 1 0 R/Size 6>>', '%%EOF'].join(String.fromCharCode(10));
+        return Promise.resolve(new Response(new Blob([pdf], { type: 'application/pdf' }), { status: 200, headers: { 'Content-Type': 'application/pdf' } }));
+      }
       if (url.endsWith('/api/policies/my')) {
         return json([pol(1, 'Code of Conduct', '2.0', true, false, 'How we work together and what we expect of each other.'), pol(2, 'Leave Policy', '1.0', true, true, 'Entitlements, approvals and carry-forward rules.'), pol(3, 'Travel Guidelines', '1.0', false, null, 'Booking, limits and reimbursement.')]);
       }
@@ -1123,6 +1219,38 @@ function DocumentsMock() {
     };
   }, []);
   return ready ? <DocumentsPage /> : null;
+}
+
+function MyRequestsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample requests for an Employee session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const base = { employeeUserId: 'me', employeeName: 'Me' };
+    const items = [
+      { ...base, id: 'r1', requestType: 'LEAVE', createdAt: '2026-10-12T09:00:00Z', status: 'APPROVED', decisionReason: 'Deducted automatically by attendance penalty', decidedByName: 'System', decidedAt: '2026-10-13T08:00:00Z', leaveTypeName: 'Annual Leave', leaveStartDate: '2026-10-12', leaveEndDate: '2026-10-12', leaveTotalDays: 1, leaveHalfDay: false, leaveReason: 'Attendance penalty: Work hours shortage' },
+      { ...base, id: 'r2', requestType: 'LEAVE', createdAt: '2026-11-02T09:00:00Z', status: 'PENDING', leaveTypeName: 'Casual Leave', leaveStartDate: '2026-11-16', leaveEndDate: '2026-11-18', leaveTotalDays: 3, leaveHalfDay: false, leaveReason: 'Family function out of town.' },
+      { ...base, id: 'r3', requestType: 'REGULARIZATION', createdAt: '2026-11-05T09:00:00Z', status: 'REJECTED', decisionReason: 'No supporting log found for that day.', decidedByName: 'Priya Nair', decidedAt: '2026-11-06T10:00:00Z', attendanceDate: '2026-11-04', requestedCheckIn: '2026-11-04T09:10:00Z', requestedCheckOut: '2026-11-04T18:05:00Z', regularizationReason: 'Forgot to check in, was in a client meeting.' },
+      { ...base, id: 'r4', requestType: 'REGULARIZATION', createdAt: '2026-11-07T09:00:00Z', status: 'PARTIALLY_APPROVED', attendanceDate: '2026-11-06', requestedCheckIn: '2026-11-06T09:00:00Z', requestedCheckOut: '2026-11-06T18:00:00Z', regularizationReason: 'Biometric was down.' },
+      { ...base, id: 'r5', requestType: 'WFH', createdAt: '2026-11-08T09:00:00Z', status: 'APPROVED', decidedByName: 'Priya Nair', decidedAt: '2026-11-08T12:00:00Z', attendanceDate: '2026-11-10', regularizationReason: 'Internet installation at home.' },
+      { ...base, id: 'r6', requestType: 'PARTIAL_DAY', createdAt: '2026-11-09T09:00:00Z', status: 'PENDING', attendanceDate: '2026-11-12', partialDayHours: 3.5, regularizationReason: 'Doctor appointment.' },
+      { ...base, id: 'r7', requestType: 'OVERTIME', createdAt: '2026-11-10T09:00:00Z', status: 'APPROVED', decidedByName: 'Priya Nair', decidedAt: '2026-11-11T09:00:00Z', attendanceDate: '2026-11-09', requestedCheckIn: '2026-11-09T18:00:00Z', requestedCheckOut: '2026-11-09T20:30:00Z', regularizationReason: 'Release deployment support.' },
+    ];
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/my-requests')) return json(items);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'employee@example.com', mustChangePassword: false, role: 'EMPLOYEE' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <MyRequestsPage /> : null;
 }
 
 function HelpMock() {
@@ -1157,11 +1285,11 @@ function HelpMock() {
       if (url.includes('/api/helpdesk')) return json([]);
       return prevFetch(input, init);
     }) as typeof window.fetch;
-    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { permissions: { hr_help_content: { VIEW: ['ALL'], CREATE: ['ALL'], EDIT: ['ALL'], DELETE: ['ALL'] } } } as never });
     setReady(true);
     return () => {
       window.fetch = prevFetch;
-      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions });
     };
   }, []);
   return ready ? <HelpDeskPage /> : null;
@@ -1780,6 +1908,10 @@ function Tiles({ page }: { page: string }) {
       return <DocsComplianceMock />;
     case 'roles-page':
       return <RolesMock />;
+    case 'employee-edit':
+      return <EmployeeEditMock />;
+    case 'user-edit':
+      return <UserEditMock />;
     case 'create-employee-steps':
       return <CreateEmployeeStepsPreview />;
     case 'policies-page':
@@ -1806,6 +1938,8 @@ function Tiles({ page }: { page: string }) {
       return <DocumentsMock />;
     case 'help-page':
       return <HelpMock />;
+    case 'my-requests-page':
+      return <MyRequestsMock />;
     case 'workflows-page':
       return <WorkflowMock />;
     case 'talent-page':
