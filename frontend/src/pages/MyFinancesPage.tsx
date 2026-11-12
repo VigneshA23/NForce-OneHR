@@ -14,8 +14,9 @@ function formatPeriod(period: string) {
   return new Date(Number(year), Number(month) - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
 
-/** Employee self-service — mirrors MyRequestsPage.tsx's unlisted, direct-route convention (no
- * nav.config.ts entry, no permission gate: reached via a dashboard link, same as that page). */
+/** Employee self-service — listed in nav.config.ts under Employee Services for every role, same
+ * as MyRequestsPage.tsx: no permission gate, everyone sees only their own data (resolved from the
+ * JWT principal server-side, never from a path/query employeeId). */
 export default function MyFinancesPage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();

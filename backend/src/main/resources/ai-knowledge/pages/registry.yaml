@@ -94,6 +94,14 @@ pages:
         route: /assets
         description: "Your own assets and expense claims, plus your direct reports' asset requests and expense claims awaiting your approval."
 
+  - pageId: my-finances
+    module: payroll
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "My Finances"
+        route: /my-finances
+        description: "Your own compensation (current CTC and revision history), payslip downloads, and your bank/statutory details (PAN, UAN, ESI Number) carried over read-only from your Profile."
+
   - pageId: payroll-runs
     module: payroll
     permissions: ["payroll:VIEW:ALL"]
