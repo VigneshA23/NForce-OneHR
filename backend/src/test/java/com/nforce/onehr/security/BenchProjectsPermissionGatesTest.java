@@ -61,6 +61,7 @@ class BenchProjectsPermissionGatesTest {
                 Arguments.of(ProjectAllocationController.class, "allocate", "project_allocations:CREATE:TEAM", MGR_HR),
                 Arguments.of(ProjectAllocationController.class, "bulkAllocate", "project_allocations:CREATE:TEAM", MGR_HR),
                 Arguments.of(ProjectAllocationController.class, "update", "project_allocations:CREATE:TEAM", MGR_HR),
+                Arguments.of(ProjectAllocationController.class, "employees", "project_allocations:CREATE:TEAM", MGR_HR),
                 Arguments.of(ProjectAllocationController.class, "capacity", "project_allocations:VIEW:TEAM", MGR_HR),
                 Arguments.of(SkillController.class, "addSkill", "talent_skills:CONFIGURE:ALL", HR),
                 Arguments.of(SkillController.class, "team", "skill_ratings:VIEW:TEAM", MGR_HR),

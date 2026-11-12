@@ -288,7 +288,7 @@ routes:
   - path: /bench
     requires: [bench:VIEW:TEAM]
   - path: /allocations
-    requires: [project_allocations:CREATE:ALL]
+    requires: [project_allocations:CREATE:TEAM]
   - path: /workflows
     requires: [approval_rules:VIEW:ALL]
   - path: /api-usage
