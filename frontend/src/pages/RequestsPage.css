@@ -198,13 +198,18 @@
 }
 .nf-rq-help-decor {
   position: absolute;
-  top: -8px;
-  right: -8px;
+  top: 14px;
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  z-index: 0;
+  pointer-events: none;
   color: color-mix(in srgb, var(--brand) 32%, transparent);
   transform: rotate(18deg);
 }
-.nf-rq-help-title { position: relative; font-size: 15px; font-weight: 700; color: var(--txt); margin-bottom: 5px; }
-.nf-rq-help-text { position: relative; font-size: 12.5px; color: var(--txt-mut); line-height: 1.5; margin-bottom: 14px; }
+/* Text keeps clear of the decorative plane in the top-right corner, so the two never overlap. */
+.nf-rq-help-title { position: relative; z-index: 1; font-size: 15px; font-weight: 700; color: var(--txt); margin-bottom: 5px; padding-right: 60px; }
+.nf-rq-help-text { position: relative; z-index: 1; font-size: 12.5px; color: var(--txt-mut); line-height: 1.5; margin-bottom: 14px; padding-right: 56px; }
 
 .nf-rq-encourage { background: color-mix(in srgb, var(--brand) 7%, var(--panel)); }
 .nf-rq-encourage-body { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -889,3 +894,31 @@
   .nf-rq-modal-foot { padding-left: 16px; padding-right: 16px; }
 }
 .nf-rq-view-btn-short { display: none; }
+
+/* ── Request details popup (redesign). Presentation only. ── */
+.nf-rq-modal { max-width: 600px; display: flex; flex-direction: column; }
+.nf-rq-md-head { align-items: center; background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 9%, var(--panel)), var(--panel)); }
+.nf-rq-md-body { display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
+.nf-rq-md-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.nf-rq-md-fact { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--raised); min-width: 0; }
+.nf-rq-md-fact.wide { grid-column: 1 / -1; }
+.nf-rq-md-fact-ico { width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center; border-radius: 10px; color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, var(--panel)); }
+.nf-rq-md-fact-txt { min-width: 0; }
+.nf-rq-md-steps { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; }
+.nf-rq-md-step { position: relative; display: flex; gap: 12px; padding-bottom: 16px; }
+.nf-rq-md-step:last-child { padding-bottom: 0; }
+.nf-rq-md-step:not(:last-child)::before { content: ''; position: absolute; left: 13px; top: 28px; bottom: 2px; width: 2px; background: var(--line2); }
+.nf-rq-md-dot { width: 28px; height: 28px; flex-shrink: 0; display: grid; place-items: center; border-radius: 999px; color: var(--txt-mut); background: var(--raised2); border: 1px solid var(--line2); }
+.nf-rq-md-dot.tone-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--panel)); border-color: color-mix(in srgb, var(--ok) 30%, var(--line)); }
+.nf-rq-md-dot.tone-risk { color: var(--risk); background: color-mix(in srgb, var(--risk) 14%, var(--panel)); border-color: color-mix(in srgb, var(--risk) 30%, var(--line)); }
+.nf-rq-md-dot.tone-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 32%, var(--line)); }
+.nf-rq-md-dot.tone-info { color: var(--info); background: color-mix(in srgb, var(--info) 14%, var(--panel)); border-color: color-mix(in srgb, var(--info) 30%, var(--line)); }
+.nf-rq-md-step-main { min-width: 0; flex: 1; }
+.nf-rq-md-step-t { font-size: 13.5px; font-weight: 700; color: var(--txt); padding-top: 4px; }
+.nf-rq-md-step-s { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--txt-mut); margin-top: 2px; }
+.nf-rq-md-decision { margin-top: 10px; padding: 11px 14px; border-radius: 12px; border: 1px solid var(--line); border-left-width: 4px; background: var(--raised); overflow-wrap: anywhere; }
+.nf-rq-md-decision.tone-ok { border-left-color: var(--ok); }
+.nf-rq-md-decision.tone-risk { border-left-color: var(--risk); }
+.nf-rq-md-decision.tone-warn { border-left-color: var(--warn); }
+.nf-rq-md-decision.tone-info { border-left-color: var(--info); }
+@media (max-width: 560px) { .nf-rq-md-facts { grid-template-columns: 1fr; } }

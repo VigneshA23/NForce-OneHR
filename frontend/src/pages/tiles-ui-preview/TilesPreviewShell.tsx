@@ -30,7 +30,7 @@ import { KpiCard } from '../talent/DashboardTab';
 import { KpiTile } from '../LeavePage';
 import { AccessStatTiles } from '../UserManagementPage';
 import { Kpi } from '../HelpDeskAdminPage';
-import { StatRing } from '../MyRequestsPage';
+import MyRequestsPage, { StatRing } from '../MyRequestsPage';
 import { Tile } from '../assets/shared';
 import { PolicyStatTiles } from '../PoliciesPage';
 import { DocumentStatTiles } from '../DocumentsPage';
@@ -116,6 +116,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'create-employee-steps', label: 'Create Employee (all 4 steps)', title: 'Create Employee: all four steps', subtitle: 'Pick any step, and the result screen, to see the layout with sample values. Nothing is saved, and the real wizard still checks each step before moving on.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
+  { key: 'my-requests-page', label: 'My Requests (full page)', title: 'My Requests', subtitle: 'Employee view with sample requests. Click View Details on any row to see the redesigned popup (leave, regularization, WFH, partial day, overtime; pending, approved, rejected).' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
   { key: 'workflows-page', label: 'Workflow Studio (full page)', title: 'Workflow Studio', subtitle: 'Sample rules: themed table, stage flow pills, condition chips and the action dock.' },
   { key: 'talent-page', label: 'Performance tabs (full page)', title: 'Performance', subtitle: 'Sample data. Add &tab=search, &tab=directory or &tab=settings to the URL to open that tab.' },
@@ -1220,6 +1221,38 @@ function DocumentsMock() {
   return ready ? <DocumentsPage /> : null;
 }
 
+function MyRequestsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample requests for an Employee session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const base = { employeeUserId: 'me', employeeName: 'Me' };
+    const items = [
+      { ...base, id: 'r1', requestType: 'LEAVE', createdAt: '2026-10-12T09:00:00Z', status: 'APPROVED', decisionReason: 'Deducted automatically by attendance penalty', decidedByName: 'System', decidedAt: '2026-10-13T08:00:00Z', leaveTypeName: 'Annual Leave', leaveStartDate: '2026-10-12', leaveEndDate: '2026-10-12', leaveTotalDays: 1, leaveHalfDay: false, leaveReason: 'Attendance penalty: Work hours shortage' },
+      { ...base, id: 'r2', requestType: 'LEAVE', createdAt: '2026-11-02T09:00:00Z', status: 'PENDING', leaveTypeName: 'Casual Leave', leaveStartDate: '2026-11-16', leaveEndDate: '2026-11-18', leaveTotalDays: 3, leaveHalfDay: false, leaveReason: 'Family function out of town.' },
+      { ...base, id: 'r3', requestType: 'REGULARIZATION', createdAt: '2026-11-05T09:00:00Z', status: 'REJECTED', decisionReason: 'No supporting log found for that day.', decidedByName: 'Priya Nair', decidedAt: '2026-11-06T10:00:00Z', attendanceDate: '2026-11-04', requestedCheckIn: '2026-11-04T09:10:00Z', requestedCheckOut: '2026-11-04T18:05:00Z', regularizationReason: 'Forgot to check in, was in a client meeting.' },
+      { ...base, id: 'r4', requestType: 'REGULARIZATION', createdAt: '2026-11-07T09:00:00Z', status: 'PARTIALLY_APPROVED', attendanceDate: '2026-11-06', requestedCheckIn: '2026-11-06T09:00:00Z', requestedCheckOut: '2026-11-06T18:00:00Z', regularizationReason: 'Biometric was down.' },
+      { ...base, id: 'r5', requestType: 'WFH', createdAt: '2026-11-08T09:00:00Z', status: 'APPROVED', decidedByName: 'Priya Nair', decidedAt: '2026-11-08T12:00:00Z', attendanceDate: '2026-11-10', regularizationReason: 'Internet installation at home.' },
+      { ...base, id: 'r6', requestType: 'PARTIAL_DAY', createdAt: '2026-11-09T09:00:00Z', status: 'PENDING', attendanceDate: '2026-11-12', partialDayHours: 3.5, regularizationReason: 'Doctor appointment.' },
+      { ...base, id: 'r7', requestType: 'OVERTIME', createdAt: '2026-11-10T09:00:00Z', status: 'APPROVED', decidedByName: 'Priya Nair', decidedAt: '2026-11-11T09:00:00Z', attendanceDate: '2026-11-09', requestedCheckIn: '2026-11-09T18:00:00Z', requestedCheckOut: '2026-11-09T20:30:00Z', regularizationReason: 'Release deployment support.' },
+    ];
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/api/my-requests')) return json(items);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'employee@example.com', mustChangePassword: false, role: 'EMPLOYEE' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <MyRequestsPage /> : null;
+}
+
 function HelpMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -1905,6 +1938,8 @@ function Tiles({ page }: { page: string }) {
       return <DocumentsMock />;
     case 'help-page':
       return <HelpMock />;
+    case 'my-requests-page':
+      return <MyRequestsMock />;
     case 'workflows-page':
       return <WorkflowMock />;
     case 'talent-page':
