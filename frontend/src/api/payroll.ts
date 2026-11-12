@@ -124,6 +124,19 @@ export interface BulkAdHocPaymentResult {
   skippedCount: number;
 }
 
+export interface RecurringAdHocPaymentRuleResponse {
+  id: string;
+  payGroupId: string | null;
+  payGroupName: string;
+  componentName: string;
+  componentType: string;
+  amount: number;
+  reason: string;
+  active: boolean;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface AdHocPaymentResponse {
   id: string;
   payrollRunId: string;
@@ -447,6 +460,16 @@ export const payrollApi = {
 
   removeAdHocPayment: (runId: string, paymentId: string, token: string) =>
     fetch(`${BASE}/runs/${runId}/ad-hoc-payments/${paymentId}`, { method: 'DELETE', headers: authHeaders(token) }).then(handle<void>),
+
+  // US-C24 follow-up — recurring ad-hoc payment rules (Payroll Setup, not run-scoped)
+  listRecurringAdHocPaymentRules: (token: string) =>
+    fetch(`${BASE}/recurring-ad-hoc-payment-rules`, { headers: bearerOnly(token) }).then(handle<RecurringAdHocPaymentRuleResponse[]>),
+
+  createRecurringAdHocPaymentRule: (payload: { payGroupId?: string | null; componentName: string; amount: number; reason: string }, token: string) =>
+    fetch(`${BASE}/recurring-ad-hoc-payment-rules`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<RecurringAdHocPaymentRuleResponse>),
+
+  setRecurringAdHocPaymentRuleActive: (id: string, active: boolean, token: string) =>
+    fetch(`${BASE}/recurring-ad-hoc-payment-rules/${id}/active`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ active }) }).then(handle<RecurringAdHocPaymentRuleResponse>),
 
   // US-C25 — Ad-hoc deductions (employee-scoped, not run-scoped)
   listAdHocDeductionsByEmployee: (employeeId: string, token: string) =>

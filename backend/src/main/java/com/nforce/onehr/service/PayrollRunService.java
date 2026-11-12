@@ -169,6 +169,7 @@ public class PayrollRunService {
     private final PayrollProrationService payrollProrationService;
     private final ApprovalRuleEvaluationService approvalRuleEvaluationService;
     private final AdHocPaymentRepository adHocPaymentRepository;
+    private final RecurringAdHocPaymentRuleRepository recurringAdHocPaymentRuleRepository;
     private final AdHocDeductionRepository adHocDeductionRepository;
     private final AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     private final SalaryHoldRepository salaryHoldRepository;
@@ -249,6 +250,15 @@ public class PayrollRunService {
             payrollRunReviewService.deleteItemsForEmployee(run.getId(), heldEmployeeId);
         }
 
+        // Recurring ad-hoc payment rules (e.g. a standing monthly Food Allowance) — applied BEFORE
+        // the buildPayslip loop below, which is what actually turns an AdHocPayment row into a
+        // payslip line item by reading adHocPaymentRepository.findByPayrollRunIdAndEmployeeId per
+        // employee. Safe on a regenerate: skips employees who already have this exact component in
+        // this run (AdHocPayment rows aren't wiped on regenerate — see that class's own Javadoc),
+        // so it can never double an employee up across repeated regenerates of the same run.
+        applyActiveRecurringAdHocPaymentRules(run, payGroup.getId(),
+                included.stream().map(EmployeeCompensation::getEmployeeId).collect(Collectors.toList()));
+
         BigDecimal totalGross = BigDecimal.ZERO;
         BigDecimal totalDeductions = BigDecimal.ZERO;
         for (EmployeeCompensation comp : included) {
@@ -267,6 +277,39 @@ public class PayrollRunService {
         auditService.log(actor.getId(), "PAYROLL_RUN_DRAFT_GENERATED", run.getId(), null, auditSnapshot.toJson(runSnapshot(run)));
 
         return toRunResponse(run);
+    }
+
+    /** One {@code findEmployeeIdsByPayrollRunIdAndComponentName} and one {@code saveAll} per
+     *  active rule — not a per-employee round trip — same batching discipline as {@code
+     *  AdHocPaymentService#bulkAdd}, which this mirrors (that one is actor-triggered from the Run
+     *  console; this one is system-triggered from every generateDraft call). */
+    private void applyActiveRecurringAdHocPaymentRules(PayrollRun run, UUID payGroupId, List<UUID> employeeIds) {
+        List<RecurringAdHocPaymentRule> rules = recurringAdHocPaymentRuleRepository.findActiveForPayGroup(payGroupId);
+        if (rules.isEmpty() || employeeIds.isEmpty()) return;
+
+        LocalDateTime addedAt = LocalDateTime.now();
+        List<AdHocPayment> toCreate = new ArrayList<>();
+        for (RecurringAdHocPaymentRule rule : rules) {
+            Set<UUID> alreadyCovered = new HashSet<>(
+                    adHocPaymentRepository.findEmployeeIdsByPayrollRunIdAndComponentName(run.getId(), rule.getComponentName()));
+            for (UUID employeeId : employeeIds) {
+                if (alreadyCovered.contains(employeeId)) continue;
+                toCreate.add(AdHocPayment.builder()
+                        .payrollRun(run)
+                        .employeeId(employeeId)
+                        .componentId(rule.getComponentId())
+                        .componentName(rule.getComponentName())
+                        .componentType(rule.getComponentType())
+                        .amount(rule.getAmount())
+                        .reason(rule.getReason())
+                        .addedBy(rule.getCreatedBy())
+                        .addedAt(addedAt)
+                        .build());
+            }
+        }
+        if (!toCreate.isEmpty()) {
+            adHocPaymentRepository.saveAll(toCreate);
+        }
     }
 
     @Transactional

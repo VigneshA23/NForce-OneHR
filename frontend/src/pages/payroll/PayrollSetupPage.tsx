@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Receipt, FileStack, Wallet as WalletIcon, UserCog } from 'lucide-react';
+import { Settings, Receipt, FileStack, Wallet as WalletIcon, UserCog, Repeat } from 'lucide-react';
 import PageTitleBlock from '../../components/PageTitleBlock';
 import { TabBar, type TabDef } from '../../components/TabBar';
 import { useAuthStore } from '../../store/authStore';
@@ -12,15 +12,17 @@ import { SalaryComponentsTab } from './SalaryComponentsTab';
 import { SalaryStructuresTab } from './SalaryStructuresTab';
 import { PayGroupsTab } from './PayGroupsTab';
 import { EmployeeCompensationTab } from './EmployeeCompensationTab';
+import { RecurringAdHocPaymentRulesTab } from './RecurringAdHocPaymentRulesTab';
 import './payroll.css';
 
-type SetupSection = 'components' | 'structures' | 'pay-groups' | 'compensation';
+type SetupSection = 'components' | 'structures' | 'pay-groups' | 'compensation' | 'recurring-payments';
 
 const SECTIONS: TabDef<SetupSection>[] = [
   { key: 'components', label: 'Salary Components', icon: <Receipt size={15} /> },
   { key: 'structures', label: 'Salary Structures', icon: <FileStack size={15} /> },
   { key: 'pay-groups', label: 'Pay Groups', icon: <WalletIcon size={15} /> },
   { key: 'compensation', label: 'Employee Compensation', icon: <UserCog size={15} /> },
+  { key: 'recurring-payments', label: 'Recurring Payments', icon: <Repeat size={15} /> },
 ];
 
 /**
@@ -110,6 +112,7 @@ export default function PayrollSetupPage() {
       )}
       {section === 'pay-groups' && <PayGroupsTab payGroups={payGroups} onChanged={reloadPayGroups} />}
       {section === 'compensation' && <EmployeeCompensationTab structures={structures} payGroups={payGroups} />}
+      {section === 'recurring-payments' && <RecurringAdHocPaymentRulesTab catalog={catalog} payGroups={payGroups} canConfigure={canConfigure} />}
     </div>
   );
 }

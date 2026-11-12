@@ -38,6 +38,7 @@ class PayrollRunServiceTest {
     @Mock private PayrollProrationService payrollProrationService;
     @Mock private ApprovalRuleEvaluationService approvalRuleEvaluationService;
     @Mock private AdHocPaymentRepository adHocPaymentRepository;
+    @Mock private RecurringAdHocPaymentRuleRepository recurringAdHocPaymentRuleRepository;
     @Mock private AdHocDeductionRepository adHocDeductionRepository;
     @Mock private AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     @Mock private SalaryHoldRepository salaryHoldRepository;
@@ -70,10 +71,12 @@ class PayrollRunServiceTest {
         service = new PayrollRunService(payrollRunRepository, payslipRepository, payslipLineItemRepository,
                 payGroupRepository, employeeCompensationRepository, salaryStructureComponentRepository,
                 payrollLopCalculationService, payrollProrationService, approvalRuleEvaluationService,
-                adHocPaymentRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
+                adHocPaymentRepository, recurringAdHocPaymentRuleRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
                 salaryHoldRepository, payrollRunReviewService, new SalaryStructureResolutionService(),
                 statutoryDeductionService, arrearsService, salaryComponentRepository, employeeRepository,
                 userRepository, auditService, auditSnapshot);
+
+        lenient().when(recurringAdHocPaymentRuleRepository.findActiveForPayGroup(any())).thenReturn(List.of());
 
         // US-C13 Phase 3 default: no statutory deductions, no Location — every existing test in
         // this class predates the statutory engine and asserts totals/line-items without it: it
@@ -397,6 +400,52 @@ class PayrollRunServiceTest {
         assertEquals(0, new BigDecimal("5000.00").compareTo(bonusItem.getAmount()));
         // Basic: 28,000 * (26/28 rounded) = 26,000.80 (prorated); + 5,000.00 ad-hoc (not prorated).
         assertEquals(0, new BigDecimal("31000.80").compareTo(resp.getTotalGross()));
+    }
+
+    @Test
+    void generateDraft_activeRecurringRule_createsAdHocPaymentForIncludedEmployee() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.FIXED, new BigDecimal("336000"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        UUID ruleComponentId = UUID.randomUUID();
+        RecurringAdHocPaymentRule rule = RecurringAdHocPaymentRule.builder().id(UUID.randomUUID())
+                .componentId(ruleComponentId).componentName("Food Allowance").componentType(SalaryComponentType.AD_HOC_EARNING)
+                .amount(new BigDecimal("1100.00")).reason("Monthly food allowance").active(true).createdBy(actorId).build();
+        when(recurringAdHocPaymentRuleRepository.findActiveForPayGroup(payGroupId)).thenReturn(List.of(rule));
+        when(adHocPaymentRepository.findEmployeeIdsByPayrollRunIdAndComponentName(any(), eq("Food Allowance"))).thenReturn(List.of());
+
+        service.generateDraft(generateReq(), actorEmail);
+
+        org.mockito.ArgumentCaptor<List<AdHocPayment>> captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(adHocPaymentRepository).saveAll(captor.capture());
+        List<AdHocPayment> created = captor.getValue();
+        assertEquals(1, created.size());
+        assertEquals(employeeId, created.get(0).getEmployeeId());
+        assertEquals("Food Allowance", created.get(0).getComponentName());
+        assertEquals(0, new BigDecimal("1100.00").compareTo(created.get(0).getAmount()));
+    }
+
+    @Test
+    void generateDraft_recurringRule_skipsEmployeeAlreadyCoveredInThisRun() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.FIXED, new BigDecimal("336000"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        RecurringAdHocPaymentRule rule = RecurringAdHocPaymentRule.builder().id(UUID.randomUUID())
+                .componentId(UUID.randomUUID()).componentName("Food Allowance").componentType(SalaryComponentType.AD_HOC_EARNING)
+                .amount(new BigDecimal("1100.00")).reason("Monthly food allowance").active(true).createdBy(actorId).build();
+        when(recurringAdHocPaymentRuleRepository.findActiveForPayGroup(payGroupId)).thenReturn(List.of(rule));
+        // Already has this exact component in this run — e.g. HR manually added it first.
+        when(adHocPaymentRepository.findEmployeeIdsByPayrollRunIdAndComponentName(any(), eq("Food Allowance"))).thenReturn(List.of(employeeId));
+
+        service.generateDraft(generateReq(), actorEmail);
+
+        verify(adHocPaymentRepository, never()).saveAll(any());
     }
 
     @Test
