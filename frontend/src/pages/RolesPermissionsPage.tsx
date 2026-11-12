@@ -23,7 +23,7 @@ import {
   setGrant, summarizeGrants, toGrantMap, toGrants, type GrantMap,
 } from '../lib/rolePermissions';
 import {
-  allNodeCodes, filterTree, flattenCatalogue, hasToggleable, nodeCounts, nodeState, pruneToGranted, scopeChoices,
+  allNodeCodes, filterTree, flattenCatalogue, hasToggleable, nodeCounts, nodeState, scopeChoices,
   sensitiveDiff, sensitiveSkipped, setNode,
 } from '../lib/roleTree';
 
@@ -505,7 +505,6 @@ function RoleDetailsDrawer({ token, roleId, catalogue, tree, onClose, onEdit, on
   const role = detail?.role;
   const memberIds = new Set(detail?.members.map(m => m.userId));
   const candidates = (users ?? []).filter(u => !memberIds.has(u.userId) && u.active && u.email.toLowerCase() !== myEmail);
-  const grantedTree = useMemo(() => pruneToGranted(tree, toGrantMap(detail?.grants ?? [])), [tree, detail]);
 
   return createPortal(
     <div style={{ ...overlayStyle, justifyContent: 'flex-end', padding: 0 }} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -564,9 +563,14 @@ function RoleDetailsDrawer({ token, roleId, catalogue, tree, onClose, onEdit, on
             </div>
             <div style={{ padding: '14px 22px 22px', overflowY: 'auto', flex: 1 }}>
               {tab === 'permissions' && (
-                grantedTree.length === 0
-                  ? <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>{role.code === 'EMPLOYEE' ? 'The default category holds no permissions. Baseline self-service (attendance, leave, requests…) is available to every signed-in user; anything extra comes from an explicitly assigned role.' : 'This role grants no permissions yet.'}</div>
-                  : <PermissionMatrix tree={grantedTree} map={toGrantMap(detail.grants)} readOnly />
+                // Every permission is listed for every role (ticked where the role holds it), so what a role
+                // lacks is as visible as what it has.
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {detail.grants.length === 0 && (
+                    <Banner tone="info">{role.code === 'EMPLOYEE' ? 'The default category holds no permissions. Baseline self-service (attendance, leave, requests…) is available to every signed-in user; anything extra comes from an explicitly assigned role.' : 'This role grants no permissions yet.'}</Banner>
+                  )}
+                  <PermissionMatrix tree={tree} map={toGrantMap(detail.grants)} readOnly />
+                </div>
               )}
               {tab === 'history' && <RoleHistory token={token} roleId={role.id} catalogue={catalogue} />}
               {tab === 'members' && (
