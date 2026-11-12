@@ -53,3 +53,6 @@ select.nf-ee-in { cursor: pointer; }
   .nf-ee-grid { grid-template-columns: 1fr; }
   .nf-ee-overlay { padding: 8px; }
 }
+
+textarea.nf-ee-in { height: auto; min-height: 76px; padding: 10px 12px; resize: vertical; font-family: inherit; }
+.nf-ee-hint.warn { color: var(--warn); }

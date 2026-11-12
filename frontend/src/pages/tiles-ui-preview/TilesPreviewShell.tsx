@@ -73,7 +73,7 @@ import LeavePage from '../LeavePage';
 import ApprovalsPage from '../ApprovalsPage';
 import DashboardPage from '../DashboardPage';
 import DirectoryPage from '../DirectoryPage';
-import UserManagementPage from '../UserManagementPage';
+import UserManagementPage, { EditModal as UserEditModal } from '../UserManagementPage';
 import OrgSetupPage from '../OrgSetupPage';
 import HolidaysPage, { HolidayMonthCalendar } from '../HolidaysPage';
 import { EditModal as EmployeeEditModal } from '../EmployeeMasterPage';
@@ -111,6 +111,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
+  { key: 'user-edit', label: 'Edit User popup (Access)', title: 'User Management: Edit popup', subtitle: 'Open the popup for an active or an inactive user. Saving only changes this preview.' },
   { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
   { key: 'create-employee-steps', label: 'Create Employee (all 4 steps)', title: 'Create Employee: all four steps', subtitle: 'Pick any step, and the result screen, to see the layout with sample values. Nothing is saved, and the real wizard still checks each step before moving on.' },
   { key: 'policies-page', label: 'Policies (full page)', title: 'Policies & Announcements', subtitle: 'HR view with sample data: pill tabs, filters, table and the slide-out action dock.' },
@@ -1039,6 +1040,49 @@ function CreateEmployeeStepsPreview() {
   );
 }
 
+function UserEditMock() {
+  const [open, setOpen] = useState<EmployeeRecord | null>(null);
+  const [opts, setOpts] = useState<OrgOptions>({
+    businessUnits: [{ id: 'b1', name: 'Technology', active: true }],
+    departments: [{ id: 'd1', name: 'Finance', active: true }, { id: 'd2', name: 'Engineering', active: true }],
+    designations: [{ id: 'g1', title: 'Backend Developer', departmentId: 'd1', active: true }, { id: 'g2', title: 'Analyst', departmentId: 'd1', active: true }, { id: 'g3', title: 'Software Engineer', departmentId: 'd2', active: true }],
+    locations: [{ id: 'l1', name: 'Hyderabad', active: true }, { id: 'l2', name: 'Vishakhapatnam', active: true }],
+    managers: [{ userId: 'm1', fullName: 'Priya Nair', email: 'priya@nforceone.com', role: 'MANAGER', active: true }, { userId: 'm2', fullName: 'Harvey Specter', email: 'harvey@nforceone.com', role: 'HR_ADMIN', active: true }] as never,
+    shifts: [{ id: 'sh1', name: 'General', startTime: '09:00:00', endTime: '18:00:00', active: true }, { id: 'sh2', name: 'Night', startTime: '21:00:00', endTime: '06:00:00', active: true }] as never,
+  });
+  const base = { businessUnitId: 'b1', businessUnitName: 'Technology', departmentId: 'd1', departmentName: 'Finance', designationId: 'g1', designationName: 'Backend Developer', locationId: 'l2', locationName: 'Vishakhapatnam', shiftId: 'sh1', shiftName: 'General', employmentType: 'FULL_TIME', workMode: 'ONSITE', joiningDate: '2026-04-12', currentManager: { userId: 'm1', fullName: 'Priya Nair' } } as const;
+  const people = [
+    { ...base, userId: 'u1', employeeCode: 'NF-20261004', fullName: 'Abuzar Siddiqui', email: 'abuzar.siddiqui@nforceone.com', role: 'EMPLOYEE', active: true },
+    { ...base, userId: 'u2', employeeCode: 'NF-20261018', fullName: 'Meera Iyer', email: 'meera.iyer@nforceone.com', role: 'MANAGER', active: false },
+  ] as unknown as EmployeeRecord[];
+  useEffect(() => {
+    // Mock only: a Super Admin session and stubbed saves; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'PATCH' || init?.method === 'PUT') return Promise.resolve(new Response(JSON.stringify(people[0]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {people.map(pe => (
+          <button key={pe.userId} type="button" onClick={() => setOpen(pe)} style={{ padding: '9px 16px', borderRadius: 999, cursor: 'pointer', fontWeight: 700, fontSize: 13, border: '1px solid var(--line2)', color: '#fff', background: 'var(--brand)' }}>
+            {pe.active ? 'Edit an active user' : 'Edit an inactive user'}
+          </button>
+        ))}
+      </div>
+      {open && <UserEditModal user={open} token="mock-token" opts={opts} setOpts={setOpts} onClose={() => setOpen(null)} onUpdated={() => {}} />}
+    </div>
+  );
+}
+
 function EmployeeEditMock() {
   const [open, setOpen] = useState<EmployeeRecord | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -1828,6 +1872,8 @@ function Tiles({ page }: { page: string }) {
       return <RolesMock />;
     case 'employee-edit':
       return <EmployeeEditMock />;
+    case 'user-edit':
+      return <UserEditMock />;
     case 'create-employee-steps':
       return <CreateEmployeeStepsPreview />;
     case 'policies-page':
