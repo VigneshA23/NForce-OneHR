@@ -2,6 +2,8 @@ package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.payroll.AddAdHocPaymentRequest;
 import com.nforce.onehr.dto.payroll.AdHocPaymentResponse;
+import com.nforce.onehr.dto.payroll.BulkAdHocPaymentResult;
+import com.nforce.onehr.dto.payroll.BulkAddAdHocPaymentRequest;
 import com.nforce.onehr.service.AdHocPaymentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,12 @@ public class AdHocPaymentController {
     @PreAuthorize("hasAuthority('payroll:CONFIGURE:ALL')")
     public AdHocPaymentResponse add(@PathVariable UUID runId, @Valid @RequestBody AddAdHocPaymentRequest req, Principal principal) {
         return adHocPaymentService.add(runId, req, principal.getName());
+    }
+
+    @PostMapping("/bulk")
+    @PreAuthorize("hasAuthority('payroll:CONFIGURE:ALL')")
+    public BulkAdHocPaymentResult bulkAdd(@PathVariable UUID runId, @Valid @RequestBody BulkAddAdHocPaymentRequest req, Principal principal) {
+        return adHocPaymentService.bulkAdd(runId, req, principal.getName());
     }
 
     @DeleteMapping("/{paymentId}")

@@ -119,6 +119,11 @@ export interface BulkDecideLeaveReviewResult {
   failed: { itemId: string; reason: string }[];
 }
 
+export interface BulkAdHocPaymentResult {
+  added: AdHocPaymentResponse[];
+  skippedCount: number;
+}
+
 export interface AdHocPaymentResponse {
   id: string;
   payrollRunId: string;
@@ -436,6 +441,9 @@ export const payrollApi = {
 
   addAdHocPayment: (runId: string, payload: { employeeId: string; componentName: string; amount: number; reason: string }, token: string) =>
     fetch(`${BASE}/runs/${runId}/ad-hoc-payments`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<AdHocPaymentResponse>),
+
+  bulkAddAdHocPayment: (runId: string, payload: { componentName: string; amount: number; reason: string }, token: string) =>
+    fetch(`${BASE}/runs/${runId}/ad-hoc-payments/bulk`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<BulkAdHocPaymentResult>),
 
   removeAdHocPayment: (runId: string, paymentId: string, token: string) =>
     fetch(`${BASE}/runs/${runId}/ad-hoc-payments/${paymentId}`, { method: 'DELETE', headers: authHeaders(token) }).then(handle<void>),

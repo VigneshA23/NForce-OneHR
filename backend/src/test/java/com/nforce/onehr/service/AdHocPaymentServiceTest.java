@@ -2,6 +2,8 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.payroll.AddAdHocPaymentRequest;
 import com.nforce.onehr.dto.payroll.AdHocPaymentResponse;
+import com.nforce.onehr.dto.payroll.BulkAdHocPaymentResult;
+import com.nforce.onehr.dto.payroll.BulkAddAdHocPaymentRequest;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.repository.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +58,13 @@ class AdHocPaymentServiceTest {
             if (p.getId() == null) p.setId(UUID.randomUUID());
             return p;
         });
+        lenient().when(adHocPaymentRepository.saveAll(any())).thenAnswer(inv -> {
+            List<AdHocPayment> payments = inv.getArgument(0);
+            payments.forEach(p -> { if (p.getId() == null) p.setId(UUID.randomUUID()); });
+            return payments;
+        });
+        lenient().when(employeeRepository.findAllById(any())).thenReturn(List.of());
+        lenient().when(userRepository.findAllById(any())).thenReturn(List.of());
     }
 
     private PayrollRun draftRun() {
@@ -138,6 +147,58 @@ class AdHocPaymentServiceTest {
         when(salaryComponentRepository.findByNameIgnoreCase("Basic")).thenReturn(Optional.of(recurring));
 
         assertThrows(IllegalArgumentException.class, () -> service.add(runId, req("Basic", BigDecimal.TEN), actorEmail));
+    }
+
+    @Test
+    void bulkAdd_appliesToEveryEmployeeWithAPayslipInRun_skippingAlreadyCovered() {
+        UUID alreadyCoveredEmployeeId = UUID.randomUUID();
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(draftRun()));
+        when(salaryComponentRepository.findByNameIgnoreCase("Food Allowance")).thenReturn(Optional.of(
+                SalaryComponent.builder().id(UUID.randomUUID()).name("Food Allowance")
+                        .type(SalaryComponentType.AD_HOC_EARNING).active(true).build()));
+        when(payslipRepository.findByPayrollRunId(runId)).thenReturn(List.of(
+                Payslip.builder().employeeId(employeeId).build(),
+                Payslip.builder().employeeId(alreadyCoveredEmployeeId).build()));
+        when(adHocPaymentRepository.findEmployeeIdsByPayrollRunIdAndComponentName(runId, "Food Allowance"))
+                .thenReturn(List.of(alreadyCoveredEmployeeId));
+
+        BulkAddAdHocPaymentRequest req = new BulkAddAdHocPaymentRequest();
+        req.setComponentName("Food Allowance");
+        req.setAmount(new BigDecimal("1100.00"));
+        req.setReason("Monthly food allowance");
+
+        BulkAdHocPaymentResult result = service.bulkAdd(runId, req, actorEmail);
+
+        assertEquals(1, result.getAdded().size());
+        assertEquals(employeeId, result.getAdded().get(0).getEmployeeId());
+        assertEquals(1, result.getSkippedCount());
+        verify(auditService).log(eq(actorId), eq("PAYROLL_ADHOC_PAYMENT_BULK_ADDED"), eq(runId), isNull(), any());
+    }
+
+    @Test
+    void bulkAdd_runNotDraft_rejected() {
+        PayrollRun submitted = PayrollRun.builder().id(runId).status(PayrollRunStatus.SUBMITTED).build();
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(submitted));
+
+        BulkAddAdHocPaymentRequest req = new BulkAddAdHocPaymentRequest();
+        req.setComponentName("Food Allowance");
+        req.setAmount(BigDecimal.TEN);
+        req.setReason("x");
+
+        assertThrows(IllegalStateException.class, () -> service.bulkAdd(runId, req, actorEmail));
+    }
+
+    @Test
+    void bulkAdd_unknownComponent_rejected() {
+        when(payrollRunRepository.findById(runId)).thenReturn(Optional.of(draftRun()));
+        when(salaryComponentRepository.findByNameIgnoreCase("Nonexistent")).thenReturn(Optional.empty());
+
+        BulkAddAdHocPaymentRequest req = new BulkAddAdHocPaymentRequest();
+        req.setComponentName("Nonexistent");
+        req.setAmount(BigDecimal.TEN);
+        req.setReason("x");
+
+        assertThrows(NoSuchElementException.class, () -> service.bulkAdd(runId, req, actorEmail));
     }
 
     @Test

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Users } from 'lucide-react';
 import { PersonCellById } from '../../components/PersonCell';
 import { ActionDock } from '../../components/ActionDock';
 import { useAuthStore } from '../../store/authStore';
@@ -9,6 +9,62 @@ import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDateTime, EmptyRow, Modal, FormRow, labelStyle,
   inputStyle, BtnPrimary, BtnGhost, SectionHead, NoPermissionNote, ConfirmDialog, EmployeePicker, useEmployeeDirectory,
 } from './payrollShared';
+
+function BulkAddModal({ runId, components, employeeCount, onClose, onDone }: {
+  runId: string;
+  components: SalaryComponentCatalogResponse[];
+  employeeCount: number;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}) {
+  const token = useAuthStore(s => s.token)!;
+  const { showToast } = useToast();
+  const [componentName, setComponentName] = useState(components[0]?.name ?? '');
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const valid = !!componentName && Number(amount) > 0 && !!reason.trim();
+
+  async function submit() {
+    if (!valid) return;
+    setSubmitting(true);
+    try {
+      const result = await payrollApi.bulkAddAdHocPayment(runId, { componentName, amount: Number(amount), reason: reason.trim() }, token);
+      onClose();
+      onDone(result.skippedCount > 0
+        ? `Added to ${result.added.length} employee(s) — skipped ${result.skippedCount} who already had ${componentName} this cycle`
+        : `Added to ${result.added.length} employee(s)`);
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to add payment');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal title="Add to All Employees" subtitle={`Same amount and reason, applied once to every one of the ${employeeCount} employee(s) in this run. Anyone who already has this component added in this run is skipped — safe to re-run.`} onClose={onClose}>
+      <FormRow>
+        <label style={labelStyle}>Component *</label>
+        <select value={componentName} onChange={e => setComponentName(e.target.value)} style={inputStyle}>
+          {components.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+        </select>
+      </FormRow>
+      <FormRow>
+        <label style={labelStyle}>Amount (per employee) *</label>
+        <input type="number" min={0} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} />
+      </FormRow>
+      <FormRow>
+        <label style={labelStyle}>Reason *</label>
+        <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
+      </FormRow>
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+        <BtnGhost onClick={onClose}>Cancel</BtnGhost>
+        <BtnPrimary onClick={submit} disabled={!valid || submitting}>{submitting ? 'Adding…' : `Add to ${employeeCount} Employees`}</BtnPrimary>
+      </div>
+    </Modal>
+  );
+}
 
 function AddPaymentModal({ runId, components, onClose, onCreated }: {
   runId: string;
@@ -76,7 +132,9 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
   const { nameFor } = useEmployeeDirectory();
   const [payments, setPayments] = useState<AdHocPaymentResponse[]>([]);
   const [components, setComponents] = useState<SalaryComponentCatalogResponse[]>([]);
+  const [employeeCount, setEmployeeCount] = useState(0);
   const [showAdd, setShowAdd] = useState(false);
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [removing, setRemoving] = useState<AdHocPaymentResponse | null>(null);
 
   function reload() {
@@ -89,6 +147,9 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
       .then(all => setComponents(all.filter(c => c.type === 'AD_HOC_EARNING' && c.active)))
       .catch(() => {});
   }, [token]);
+  useEffect(() => {
+    payrollApi.listPayslips(runId, token).then(slips => setEmployeeCount(slips.length)).catch(() => {});
+  }, [runId, token]);
 
   async function remove(paymentId: string) {
     try {
@@ -110,7 +171,10 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
               <span style={{ fontSize: 13, color: 'var(--txt-mut)' }}>{fmtCurrency(payments.reduce((sum, p) => sum + p.amount, 0))} this cycle</span>
             )}
             {canConfigure ? (
-              <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Payment</BtnPrimary>
+              <>
+                <BtnGhost onClick={() => setShowBulkAdd(true)}><Users size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add to All</BtnGhost>
+                <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Payment</BtnPrimary>
+              </>
             ) : <NoPermissionNote action="add ad-hoc payments" />}
           </div>
         }
@@ -144,6 +208,15 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
           components={components}
           onClose={() => setShowAdd(false)}
           onCreated={p => setPayments(prev => [p, ...prev])}
+        />
+      )}
+      {showBulkAdd && (
+        <BulkAddModal
+          runId={runId}
+          components={components}
+          employeeCount={employeeCount}
+          onClose={() => setShowBulkAdd(false)}
+          onDone={message => { showToast('success', message); reload(); }}
         />
       )}
       {removing && (
