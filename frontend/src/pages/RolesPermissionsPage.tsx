@@ -9,6 +9,7 @@ import { ChipGroup } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
 import { hasPermission } from '../lib/permissions';
+import { arrangeBySidebar } from '../lib/sidebarHierarchy';
 import { rolesApi, type BulkMemberResult, type CatalogueModule, type CatalogueNode, type RoleDetail, type RoleSummary } from '../api/roles';
 import { usersApi, type EmployeeRecord } from '../api/employees';
 import { useBackToClose } from '../lib/backToClose';
@@ -123,6 +124,18 @@ function PermissionMatrix({ tree, map, onChange, readOnly, lockedReason }: {
 
   function renderNode(node: CatalogueNode, depth: number, first: boolean) {
     const isLeaf = node.actions.length > 0;
+    // A sidebar page with no permission of its own (open to everyone, or not built yet): listed so the tree
+    // matches the menu, but there is nothing to tick.
+    if (!isLeaf && node.children.length === 0) {
+      return (
+        <div key={node.code} style={{ borderTop: first ? 'none' : '1px solid var(--line)' }}>
+          <div className="nf-rl-mod" style={{ paddingLeft: 14 + depth * 18 + 23, cursor: 'default' }} title={node.note ?? node.description}>
+            <span className="nf-rl-mod-name" style={{ fontWeight: 500, color: 'var(--txt-mut)' }}>{node.name}</span>
+            <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{node.note}</span>
+          </div>
+        </div>
+      );
+    }
     const editable = !readOnly && (isLeaf ? node.configurable : true);
     const state = nodeState(map, node, mine);
     const toggleable = editable && hasToggleable(node, mine);
@@ -667,7 +680,7 @@ export default function RolesPermissionsPage() {
   const reload = useCallback(() => {
     setLoadError('');
     return Promise.all([rolesApi.list(token), rolesApi.catalogueTree(token)])
-      .then(([r, t]) => { setRoles(r); setTree(t); })
+      .then(([r, t]) => { setRoles(r); setTree(arrangeBySidebar(t)); })
       .catch(e => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, [token]);
