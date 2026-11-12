@@ -68,11 +68,11 @@ function typeSubLabel(item: MyRequestItem): string {
 // page; WFH/Partial Day/Overtime are all submitted from the Attendance page's own insight-tile
 // buttons (no deep-link query param exists for those yet, so this lands the employee on the page
 // rather than auto-opening the modal).
-const NEW_REQUEST_LINKS: { type: RequestType; label: string; path: string }[] = [
-  { type: 'LEAVE', label: 'Apply Leave', path: '/leave' },
-  { type: 'WFH', label: 'WFH Request', path: '/attendance' },
-  { type: 'PARTIAL_DAY', label: 'Partial Day', path: '/attendance' },
-  { type: 'OVERTIME', label: 'Overtime', path: '/attendance' },
+const NEW_REQUEST_LINKS: { type: RequestType; label: string; path: string; hint: string }[] = [
+  { type: 'LEAVE', label: 'Apply Leave', path: '/leave', hint: 'Time off for one or more days' },
+  { type: 'WFH', label: 'WFH Request', path: '/attendance', hint: 'Work from home for a day' },
+  { type: 'PARTIAL_DAY', label: 'Partial Day', path: '/attendance', hint: 'A few hours, not a full day' },
+  { type: 'OVERTIME', label: 'Overtime', path: '/attendance', hint: 'Claim extra hours worked' },
 ];
 
 function TypeIcon({ type, size = 17 }: { type: RequestType; size?: number }) {
@@ -384,16 +384,19 @@ function NewRequestMenu() {
           ref={menuRef}
           className="nf-rq-new-request-menu"
           role="menu"
-          style={{ position: 'fixed', top: anchorRect.bottom + 6, left: anchorRect.right - 190 }}
+          style={{ position: 'fixed', top: anchorRect.bottom + 8, left: Math.max(8, anchorRect.right - 290) }}
         >
-          {NEW_REQUEST_LINKS.map(l => {
-            const Icon = TYPE_ICONS[l.type];
-            return (
-              <Link key={l.type} to={l.path} role="menuitem" className="nf-rq-new-request-item" onClick={() => setOpen(false)}>
-                <Icon size={15} /> {l.label}
-              </Link>
-            );
-          })}
+          <div className="nf-rq-new-request-head">Raise a new request</div>
+          {NEW_REQUEST_LINKS.map(l => (
+            <Link key={l.type} to={l.path} role="menuitem" className={`nf-rq-new-request-item ${TYPE_TONES[l.type]}`} onClick={() => setOpen(false)}>
+              <TypeIcon type={l.type} size={17} />
+              <span className="nf-rq-new-request-txt">
+                <span className="nf-rq-new-request-label">{l.label}</span>
+                <span className="nf-rq-new-request-hint">{l.hint}</span>
+              </span>
+              <ArrowRight size={14} className="nf-rq-new-request-go" aria-hidden="true" />
+            </Link>
+          ))}
         </div>,
         document.body
       )}
