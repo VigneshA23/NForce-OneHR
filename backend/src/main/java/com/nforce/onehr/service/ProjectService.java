@@ -152,12 +152,14 @@ public class ProjectService {
 
     public record OwnerOption(java.util.UUID userId, String fullName) {}
 
-    /** Project Owner dropdown: exactly the people {@link #requireEligibleOwner} would accept. */
+    /** Project Owner dropdown: people with the Manager role who also pass {@link #requireEligibleOwner}. */
     @Transactional(readOnly = true)
     public List<OwnerOption> eligibleOwners() {
         return employeeRepository.findAllWithDetails().stream()
                 .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null
-                        && effectivePermissionService.hasAuthority(e.getUser(), OWNER_AUTHORITY))
+                        && effectivePermissionService.hasAuthority(e.getUser(), OWNER_AUTHORITY)
+                        // HR Admin / Super Admin pass the permission check via VIEW:ALL; the dropdown is Managers only.
+                        && e.getUser().getRoles().stream().anyMatch(r -> "MANAGER".equals(r.getCode())))
                 .map(e -> new OwnerOption(e.getUserId(), e.getFullName()))
                 .sorted(java.util.Comparator.comparing(OwnerOption::fullName, String.CASE_INSENSITIVE_ORDER))
                 .toList();
