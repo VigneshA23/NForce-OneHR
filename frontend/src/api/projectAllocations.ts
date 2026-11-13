@@ -88,6 +88,10 @@ export const projectsApi = {
     fetch(`${API_ORIGIN}/api/projects/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(handle<ProjectRecord>),
 
+  /** Only people the server accepts as project owner (hold projects:VIEW:TEAM). */
+  eligibleOwners: (token: string): Promise<{ userId: string; fullName: string }[]> =>
+    fetch(`${API_ORIGIN}/api/projects/eligible-owners`, { headers: authHeaders(token) }).then(handle<{ userId: string; fullName: string }[]>),
+
   listClients: (token: string): Promise<ClientRecord[]> =>
     fetch(`${API_ORIGIN}/api/projects/clients`, { headers: authHeaders(token) }).then(handle<ClientRecord[]>),
 

@@ -49,7 +49,8 @@ export default function ProjectsPanel({ token, projects, employees, onSaved }: P
 
   // Owner eligibility is decided by the server (ProjectService.requireEligibleOwner: the owner must hold
   // projects:VIEW:TEAM), not by a role name here; a rejected pick is shown through the form's error banner.
-  const owners = employees;
+  const [owners, setOwners] = useState<{ userId: string; fullName: string }[]>([]);
+  useEffect(() => { projectsApi.eligibleOwners(token).then(setOwners).catch(() => setOwners([])); }, [token]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

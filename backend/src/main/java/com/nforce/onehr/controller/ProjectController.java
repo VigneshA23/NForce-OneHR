@@ -46,6 +46,12 @@ public class ProjectController {
         return service.update(id, req);
     }
 
+    @GetMapping("/eligible-owners")
+    @PreAuthorize("hasAuthority('projects:CREATE:ALL')")
+    public List<ProjectService.OwnerOption> eligibleOwners() {
+        return service.eligibleOwners();
+    }
+
     @GetMapping("/clients")
     @PreAuthorize("hasAuthority('projects:VIEW:TEAM')")
     public List<ClientResponse> clients() {

@@ -150,6 +150,19 @@ public class ProjectService {
         if (req.getStatus() != null) project.setStatus(req.getStatus());
     }
 
+    public record OwnerOption(java.util.UUID userId, String fullName) {}
+
+    /** Project Owner dropdown: exactly the people {@link #requireEligibleOwner} would accept. */
+    @Transactional(readOnly = true)
+    public List<OwnerOption> eligibleOwners() {
+        return employeeRepository.findAllWithDetails().stream()
+                .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null
+                        && effectivePermissionService.hasAuthority(e.getUser(), OWNER_AUTHORITY))
+                .map(e -> new OwnerOption(e.getUserId(), e.getFullName()))
+                .sorted(java.util.Comparator.comparing(OwnerOption::fullName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+    }
+
     /** US-B03: the owner is the person who allocates on the project, so it must be someone with project responsibility. */
     private void requireEligibleOwner(UUID ownerEmployeeId) {
         Employee owner = employeeRepository.findById(ownerEmployeeId)
