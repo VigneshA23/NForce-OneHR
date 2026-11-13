@@ -23,7 +23,7 @@ import {
   setGrant, summarizeGrants, toGrantMap, toGrants, type GrantMap,
 } from '../lib/rolePermissions';
 import {
-  allNodeCodes, filterTree, flattenCatalogue, hasToggleable, nodeCounts, nodeState, scopeChoices,
+  allNodeCodes, applyAction, filterTree, flattenCatalogue, hasToggleable, nodeCounts, nodeState, scopeChoices,
   sensitiveDiff, sensitiveSkipped, setNode,
 } from '../lib/roleTree';
 
@@ -79,6 +79,7 @@ function PermissionMatrix({ tree, map, onChange, readOnly, lockedReason }: {
 }) {
   const mine = useAuthStore(s => s.permissions);
   const [query, setQuery] = useState('');
+  const [notice, setNotice] = useState('');
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const visible = filterTree(tree, query);
   const searching = !!query.trim();
@@ -104,7 +105,11 @@ function PermissionMatrix({ tree, map, onChange, readOnly, lockedReason }: {
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: scope ? 'var(--txt)' : 'var(--txt-mut)', cursor: canToggle ? 'pointer' : 'default', flex: 1, minWidth: 0 }}
                 title={editable && !canToggle ? "You can't grant a permission you don't hold yourself." : unsupportedNote}>
                 <input type="checkbox" checked={!!scope} disabled={!canToggle}
-                  onChange={e => onChange?.(setGrant(map, node.code, a.action, e.target.checked ? scopeChoices(a, grantable)[0] : null))}
+                  onChange={e => {
+                    const r = applyAction(map, node, a, e.target.checked ? scopeChoices(a, grantable)[0] : null, mine);
+                    setNotice(r.notice ?? '');
+                    onChange?.(r.map);
+                  }}
                   style={{ width: 15, height: 15, accentColor: 'var(--brand)', cursor: canToggle ? 'pointer' : 'not-allowed' }} />
                 {ACTION_LABEL[a.action] ?? a.action}
               </label>
@@ -150,7 +155,7 @@ function PermissionMatrix({ tree, map, onChange, readOnly, lockedReason }: {
           {isOpen(node.code) ? <ChevronDown size={15} color="var(--txt-dim)" /> : <ChevronRight size={15} color="var(--txt-dim)" />}
           {editable && (
             <TriCheckbox state={state} disabled={!toggleable} label={`Select all ${node.name}`}
-              onChange={on => onChange?.(setNode(map, node, on, mine))} />
+              onChange={on => { setNotice(''); onChange?.(setNode(map, node, on, mine)); }} />
           )}
           <span className="nf-rl-mod-name" style={depth === 0 ? undefined : { fontWeight: 600 }}>{node.name}</span>
           {node.sensitive && <span title="High-impact: changes who can administer people, roles, money or sensitive records. Not included when you tick a whole group." className="nf-rl-pill" style={{ ['--pc' as string]: 'var(--warn, #D97706)' }}>HIGH IMPACT</span>}
@@ -185,6 +190,7 @@ function PermissionMatrix({ tree, map, onChange, readOnly, lockedReason }: {
         <button type="button" style={{ ...secondaryBtn, padding: '7px 12px', fontSize: 12 }} onClick={() => setOpen(new Set())}>Collapse all</button>
       </div>
       {lockedReason && <Banner tone="info"><Lock size={12} style={{ verticalAlign: -1, marginRight: 6 }} />{lockedReason}</Banner>}
+      {notice && <Banner tone="warn">{notice}</Banner>}
       <div className="nf-rl-matrix">
         {visible.length === 0 && <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: 'var(--txt-dim)' }}>No permissions match “{query}”.</div>}
         {visible.map((n, i) => renderNode(n, 0, i === 0))}
