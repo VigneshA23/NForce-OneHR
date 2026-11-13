@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MyPermissionsResponse } from '../api/me';
 import type { CatalogueAction, CatalogueNode } from '../api/roles';
 import {
-  allNodeCodes, bulkScope, filterTree, flattenCatalogue, leavesOf, nodeCounts, nodeState, pruneToGranted, scopeChoices,
+  allNodeCodes, applyAction, bulkScope, filterTree, flattenCatalogue, leavesOf, nodeCounts, nodeState, pruneToGranted, scopeChoices,
   sensitiveDiff, sensitiveSkipped, setNode,
 } from './roleTree';
 
@@ -146,5 +146,37 @@ describe('tree utilities', () => {
   it('reports added and removed high-impact permissions only', () => {
     const diff = sensitiveDiff({ 'attendance:VIEW': 'TEAM', 'roles:VIEW': 'ALL' }, { 'attendance:EDIT': 'TEAM', 'roles:CONFIGURE': 'ALL' }, tree);
     expect(diff).toEqual({ added: ['Roles: Configure'], removed: ['Roles: View'] });
+  });
+});
+
+describe('applyAction (View is the prerequisite of the other actions)', () => {
+  const att = leaf('attendance', 'Team Attendance', [act('VIEW', 'TEAM'), act('EDIT', 'TEAM')]);
+  const viewA = att.actions[0], editA = att.actions[1];
+  const holds = mine({ attendance: { VIEW: ['TEAM'], EDIT: ['TEAM'] } });
+
+  it('clearing View also clears the other actions and says so', () => {
+    const r = applyAction({ 'attendance:VIEW': 'TEAM', 'attendance:EDIT': 'TEAM' }, att, viewA, null, holds);
+    expect(r.map).toEqual({});
+    expect(r.notice).toMatch(/View was removed.*Edit was also removed/);
+  });
+  it('clearing View with nothing dependent is silent', () => {
+    const r = applyAction({ 'attendance:VIEW': 'TEAM' }, att, viewA, null, holds);
+    expect(r.map).toEqual({});
+    expect(r.notice).toBeUndefined();
+  });
+  it('ticking Edit without View adds View at the narrowest scope and says so', () => {
+    const r = applyAction({}, att, editA, 'TEAM', holds);
+    expect(r.map).toEqual({ 'attendance:VIEW': 'TEAM', 'attendance:EDIT': 'TEAM' });
+    expect(r.notice).toMatch(/View was added/);
+  });
+  it('refuses Edit without View when the admin cannot grant View', () => {
+    const r = applyAction({}, att, editA, 'TEAM', mine({ attendance: { EDIT: ['TEAM'] } }));
+    expect(r.map).toEqual({});
+    expect(r.notice).toMatch(/needs View access/);
+  });
+  it('leaves pages without a View action alone', () => {
+    const k = leaf('kudos', 'Kudos', [act('CREATE', 'ALL', 'ALL')]);
+    const r = applyAction({}, k, k.actions[0], 'ALL', mine({ kudos: { CREATE: ['ALL'] } }));
+    expect(r.map).toEqual({ 'kudos:CREATE': 'ALL' });
   });
 });
