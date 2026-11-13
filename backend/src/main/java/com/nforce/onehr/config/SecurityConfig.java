@@ -37,7 +37,8 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final CustomUserDetailsService userDetailsService;
 
-    @Value("${CORS_ALLOWED_ORIGINS:http://localhost:5173}")
+    /** Same property EmailService reads; application.yml defaults it (5180/5173/3000) and still honours the CORS_ALLOWED_ORIGINS env var. */
+    @Value("${app.cors.allowed-origins}")
     private String allowedOrigins;
 
     @Bean
