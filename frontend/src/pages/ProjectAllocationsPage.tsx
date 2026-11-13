@@ -215,7 +215,7 @@ export default function ProjectAllocationsPage() {
       />
 
       {tab === 'projects' && (
-        <ProjectsPanel token={token} projects={projects} employees={employees} onSaved={handleProjectSaved} />
+        <ProjectsPanel token={token} projects={projects} onSaved={handleProjectSaved} />
       )}
 
       {tab === 'allocate' && (<>
