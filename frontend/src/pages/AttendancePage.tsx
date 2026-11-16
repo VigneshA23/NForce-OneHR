@@ -5801,6 +5801,8 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
   useEffect(() => { setApprovalsPage(0); }, [datedFilteredPending]);
   const approvalsTotalPages = Math.ceil(datedFilteredPending.length / APPROVALS_PAGE_SIZE);
   const approvalsPaged = datedFilteredPending.slice(approvalsPage * APPROVALS_PAGE_SIZE, (approvalsPage + 1) * APPROVALS_PAGE_SIZE);
+  // Same rule as Leave history: the Actions column only exists when a row on this page can be acted on.
+  const approvalsHaveActions = approvalsPaged.some(r => isActionableRequest(r, isManager));
 
   // Exposed to the page header's "Request Regularization" button — opens the exact same
   // create-mode modal the section's own flow uses.
@@ -5954,7 +5956,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                           />
                         )}
                       </th>
-                      {['Employee', 'Date', 'Requested In / Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', 'Actions'].map(h => <th key={h} style={reqThStyle}>{h}</th>)}
+                      {['Employee', 'Date', 'Requested In / Out', 'Total Hours', 'Reason', 'Status', 'Reviewer', ...(approvalsHaveActions ? ['Actions'] : [])].map(h => <th key={h} style={reqThStyle}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -5985,14 +5987,14 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
                         <td data-label="Reason" style={reqTdStyle}><TruncatedText text={r.reason} /></td>
                         <td data-label="Status" style={reqTdStyle}><RegularizationStatusPill status={r.status} /></td>
                         <td data-label="Reviewer" style={reqTdStyle}><ReviewerCell r={r} /></td>
-                        <td data-label="Actions" style={reqTdStyle}>
+                        {approvalsHaveActions && <td data-label="Actions" style={reqTdStyle}>
                           {isActionableRequest(r, isManager) ? (
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} onClick={e => e.stopPropagation()}>
                               <button onClick={() => setApproving(r)} style={{ background: 'rgba(47,182,124,.1)', border: '1px solid rgba(47,182,124,.25)', borderRadius: 5, padding: '4px 0', width: 76, textAlign: 'center', fontSize: 10.5, color: '#2FB67C', cursor: 'pointer' }}>Approve</button>
                               <button onClick={() => setRejecting(r)} style={{ background: 'rgba(228,55,61,.1)', border: '1px solid rgba(228,55,61,.25)', borderRadius: 5, padding: '4px 0', width: 76, textAlign: 'center', fontSize: 10.5, color: '#E4373D', cursor: 'pointer' }}>Reject</button>
                             </div>
                           ) : dash}
-                        </td>
+                        </td>}
                       </tr>
                     ))}
                   </tbody>
@@ -6002,7 +6004,7 @@ const RegularizationSection = forwardRef<RegularizationSectionHandle, { token: s
               {approvalsTotalPages > 1 && (
                 <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
-                    Showing {approvalsPage * APPROVALS_PAGE_SIZE + 1}–{Math.min((approvalsPage + 1) * APPROVALS_PAGE_SIZE, sortedPending.length)} of {sortedPending.length}
+                    Showing {approvalsPage * APPROVALS_PAGE_SIZE + 1} to {Math.min((approvalsPage + 1) * APPROVALS_PAGE_SIZE, sortedPending.length)} of {sortedPending.length}
                   </span>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button
