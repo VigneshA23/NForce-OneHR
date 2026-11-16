@@ -106,7 +106,7 @@ export default function ExceptionDashboardPage() {
   const currentPage = clampPage(page, visibleExceptions.length, pageSize);
   const pageRows = paginate(visibleExceptions, currentPage, pageSize);
 
-  const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+  const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', whiteSpace: 'nowrap', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
   const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
   const timeThStyle: React.CSSProperties = { ...thStyle, width: 88, textAlign: 'center' };
   const timeTdStyle: React.CSSProperties = { ...tdStyle, width: 88, textAlign: 'center' };

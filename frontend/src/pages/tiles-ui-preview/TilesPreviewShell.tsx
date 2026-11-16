@@ -80,7 +80,7 @@ import DirectoryPage from '../DirectoryPage';
 import UserManagementPage, { EditModal as UserEditModal } from '../UserManagementPage';
 import OrgSetupPage from '../OrgSetupPage';
 import HolidaysPage, { HolidayMonthCalendar } from '../HolidaysPage';
-import { EditModal as EmployeeEditModal } from '../EmployeeMasterPage';
+import EmployeeMasterPage, { EditModal as EmployeeEditModal } from '../EmployeeMasterPage';
 import type { EmployeeRecord } from '../../api/employees';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -123,6 +123,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
+  { key: 'employee-master-page', label: 'Employee Master (full page)', title: 'Employee Master', subtitle: 'The real page with sample employees and the themed table header.' },
   { key: 'user-edit', label: 'Edit User popup (Access)', title: 'User Management: Edit popup', subtitle: 'Open the popup for an active or an inactive user. Saving only changes this preview.' },
   { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
   { key: 'create-employee-steps', label: 'Create Employee (all 4 steps)', title: 'Create Employee: all four steps', subtitle: 'Pick any step, and the result screen, to see the layout with sample values. Nothing is saved, and the real wizard still checks each step before moving on.' },
@@ -1259,6 +1260,37 @@ function EmployeeEditMock() {
   );
 }
 
+function EmployeeMasterMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample employee list and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const names = ['Aanuj Reddy K', 'Abbas DarubaiGari', 'Abuzar Siddiqui', 'Anil Kumar Ramtenki', 'Meera Iyer', 'Rohith Reddy', 'Sneha Priya', 'Vikram Singh', 'Ananya Das', 'Karthik V', 'Priya Sharma', 'Sumanth G'];
+    const depts = ['Engineering', 'Engineering', 'Finance', 'Engineering', 'Design', 'Sales'];
+    const list = names.map((n, i) => ({
+      userId: 'u' + i, employeeCode: 'NF-2026' + (1030 - i), fullName: n, email: n.toLowerCase().replace(/[^a-z]/g, '.') + '@nforceone.com', role: 'EMPLOYEE', active: i !== 7,
+      businessUnitId: 'b1', businessUnitName: 'Technology', departmentId: 'd' + (i % 6), departmentName: depts[i % 6], designationId: i === 1 ? null : 'g1', designationName: i === 1 ? null : ['Junior Sales Engineer', 'Software Engineer', 'Backend Developer', 'QA Engineer'][i % 4],
+      locationId: 'l1', locationName: ['Hyderabad', 'Bangalore', 'Vishakhapatnam'][i % 3], shiftId: null, shiftName: null, employmentType: 'FULL_TIME', workMode: ['ONSITE', 'HYBRID', 'ONSITE'][i % 3], joiningDate: '2026-04-12',
+      currentManager: i % 4 === 0 ? null : { userId: 'm1', fullName: ['Vignesh Appani', 'Narendra Reddy', 'Rohit Shivramwar'][i % 3] },
+    }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/employees') && (!init?.method || init.method === 'GET')) return json(list);
+      if (/\/(business-units|departments|designations|locations)$/.test(url)) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <EmployeeMasterPage /> : null;
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -2064,6 +2096,8 @@ function Tiles({ page }: { page: string }) {
       return <TeamTodayMock />;
     case 'team-member-cards':
       return <TeamMemberCardsMock />;
+    case 'employee-master-page':
+      return <EmployeeMasterMock />;
     case 'team-tabs':
       return <TeamTabsMock />;
     case 'login-diwali':

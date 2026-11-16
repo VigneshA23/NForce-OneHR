@@ -50,7 +50,7 @@ interface Location { id: string; name: string; active?: boolean; }
 // Picks from existing, already-created Locations only — a new Location needs a Timezone
 // (required, and constrained to a fixed supported set — see OrgService.SUPPORTED_TIMEZONES on
 // the backend), which doesn't fit this inline assignment picker, so location CREATION happens
-// exclusively via Organization Masters → Locations (see OrgSetupPage). `token` is accepted for
+// exclusively via Organization Masters, Locations (see OrgSetupPage). `token` is accepted for
 // signature compatibility with call sites, even though this component no longer calls the API.
 function CreatableLocationSelect({
   locations, value, onChange, disabled,
@@ -117,7 +117,8 @@ function CreatableLocationSelect({
             onMouseDown={() => { onChange(undefined); setQuery(''); setOpen(false); }}
             style={{ padding: '9px 14px', fontSize: 12, color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', cursor: 'pointer' }}
           >
-            – Clear - </div>
+            Clear
+          </div>
         </div>
       )}
     </div>
@@ -353,7 +354,7 @@ export default function EmployeeMasterPage() {
 
   useEffect(() => { setPage(1); }, [search, deptFilter, modeFilter, statusFilter]);
 
-  const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.07em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+  const thStyle: React.CSSProperties = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', whiteSpace: 'nowrap', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
   const sortableThStyle: React.CSSProperties = { ...thStyle, cursor: 'pointer', userSelect: 'none' };
   const tdStyle: React.CSSProperties = { padding: '12px 14px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
   const filterSelect: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '7px 10px', color: 'var(--txt-mut)', fontSize: 12, cursor: 'pointer', outline: 'none' };
@@ -368,7 +369,7 @@ export default function EmployeeMasterPage() {
               ? 'Loading employees…'
               : loadError
                 ? "Couldn't load employees"
-                : `${employees.length} employee${employees.length !== 1 ? 's' : ''}`} · New hires, role and access are added from Super Admin → User Management.
+                : `${employees.length} employee${employees.length !== 1 ? 's' : ''}`} · New hires, role and access are added from Super Admin, User Management.
           </p>
         </PageTitleBlock>
       </div>
@@ -422,7 +423,7 @@ export default function EmployeeMasterPage() {
             <Users size={28} style={{ color: 'var(--txt-dim)', marginBottom: 10 }} />
             <div style={{ fontSize: 15, color: 'var(--txt-mut)', marginBottom: 8 }}>{employees.length === 0 ? 'No employees yet' : 'No results'}</div>
             <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>
-              {employees.length === 0 ? 'New hires are added from Super Admin → User Management.' : 'Try adjusting search or filters.'}
+              {employees.length === 0 ? 'New hires are added from Super Admin, User Management.' : 'Try adjusting search or filters.'}
             </div>
           </div>
         ) : (
@@ -465,15 +466,15 @@ export default function EmployeeMasterPage() {
                   ) : paginated.map(emp => (
                     <tr key={emp.userId}
                       style={inactiveDimStyle(emp.active)}
-                      onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'var(--raised)'}
+                      onMouseEnter={e => (e.currentTarget as HTMLTableRowElement).style.background = 'color-mix(in srgb, var(--brand) 5%, var(--panel))'}
                       onMouseLeave={e => (e.currentTarget as HTMLTableRowElement).style.background = 'transparent'}>
                       <td style={tdStyle}>
                         <PersonCell userId={emp.userId} name={emp.fullName} code={emp.employeeCode} extra={emp.email} />
                       </td>
-                      <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
-                      <td style={tdStyle}>{emp.designationName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
-                      <td style={tdStyle}>{emp.currentManager ? emp.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
-                      <td style={tdStyle}>{emp.locationName ?? <span style={{ color: 'var(--txt-dim)' }}>–</span>}</td>
+                      <td style={tdStyle}>{emp.departmentName ?? <span style={{ color: 'var(--txt-dim)' }}>-</span>}</td>
+                      <td style={tdStyle}>{emp.designationName ?? <span style={{ color: 'var(--txt-dim)' }}>-</span>}</td>
+                      <td style={tdStyle}>{emp.currentManager ? emp.currentManager.fullName : <span style={{ color: 'var(--txt-dim)' }}>-</span>}</td>
+                      <td style={tdStyle}>{emp.locationName ?? <span style={{ color: 'var(--txt-dim)' }}>-</span>}</td>
                       <td style={tdStyle}>
                         <span style={{ fontSize: 11, fontWeight: 600, color: emp.workMode === 'REMOTE' ? '#4C8DD6' : emp.workMode === 'HYBRID' ? '#E0A93B' : '#9BA1AC', background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 7px' }}>
                           {emp.workMode ?? 'ONSITE'}
@@ -499,7 +500,7 @@ export default function EmployeeMasterPage() {
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
                     style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 12px', fontSize: 12, color: page === 1 ? 'var(--txt-dim)' : 'var(--txt-mut)', cursor: page === 1 ? 'not-allowed' : 'pointer' }}>
-                    ← Prev
+                    Prev
                   </button>
                   {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                     const start = Math.max(1, Math.min(page - 2, totalPages - 4));
@@ -513,7 +514,7 @@ export default function EmployeeMasterPage() {
                   })}
                   <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
                     style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 5, padding: '5px 12px', fontSize: 12, color: page === totalPages ? 'var(--txt-dim)' : 'var(--txt-mut)', cursor: page === totalPages ? 'not-allowed' : 'pointer' }}>
-                    Next →
+                    Next
                   </button>
                 </div>
               </div>
