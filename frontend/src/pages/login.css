@@ -111,9 +111,21 @@
 .nf-lg-card form > :nth-child(4) { animation-delay: .36s; }
 @media (prefers-reduced-motion: reduce) { .nf-lg-card > *, .nf-lg-card form > * { animation: none; } }
 
-/* signed in: the button turns green and draws a tick */
-.nf-lg-submit.is-done { opacity: 1 !important; cursor: default; transform: none; background: linear-gradient(180deg, #22b35e 0%, #15803d 100%); box-shadow: 0 8px 20px rgba(21, 128, 61, .35); animation: nf-lg-pop .35s ease; }
+/* signed in: Diwali celebration. The button turns festive gold and fireworks burst across the screen. */
+.nf-lg-submit.is-done { opacity: 1 !important; cursor: default; transform: none; color: #5a1f00; background: linear-gradient(180deg, #ffd166 0%, #fb8500 100%); box-shadow: 0 8px 24px rgba(251, 133, 0, .5), 0 0 0 4px rgba(255, 209, 102, .35); animation: nf-lg-pop .35s ease; }
 @keyframes nf-lg-pop { 0% { transform: scale(.97); } 60% { transform: scale(1.025); } 100% { transform: scale(1); } }
-.nf-lg-tick-ring { stroke-dasharray: 63; stroke-dashoffset: 63; animation: nf-lg-draw .45s ease forwards; }
-.nf-lg-tick-mark { stroke-dasharray: 20; stroke-dashoffset: 20; animation: nf-lg-draw .3s .32s ease forwards; }
-@keyframes nf-lg-draw { to { stroke-dashoffset: 0; } }
+.nf-lg-spark { animation: nf-lg-twirl 1.2s ease-in-out infinite; }
+@keyframes nf-lg-twirl { 0%, 100% { transform: rotate(0) scale(1); } 50% { transform: rotate(25deg) scale(1.25); } }
+
+.nf-lg-card > .nf-dw { animation: none; }
+.nf-dw { position: absolute; inset: 0; z-index: 5; pointer-events: none; overflow: hidden; border-radius: inherit; }
+.nf-dw-glow { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 70%, rgba(255, 183, 3, .2), rgba(251, 133, 0, .07) 45%, transparent 75%); animation: nf-dw-glow 1.7s ease-out forwards; }
+@keyframes nf-dw-glow { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
+.nf-dw-burst { position: absolute; width: 0; height: 0; }
+.nf-dw-burst i { position: absolute; left: -3px; top: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px 2px var(--c), 0 0 16px 4px color-mix(in srgb, var(--c) 45%, transparent); opacity: 0; transform: translate(0, 0) scale(.4); animation: nf-dw-fly 1.35s var(--dl, 0s) cubic-bezier(.18, .6, .35, 1) forwards; }
+@keyframes nf-dw-fly {
+  0% { opacity: 1; transform: rotate(var(--a)) translateX(0) scale(1.2); }
+  65% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateX(var(--d)) scale(.55); }
+}
+@media (prefers-reduced-motion: reduce) { .nf-dw-burst i, .nf-lg-spark { animation: none; } .nf-dw-burst i { opacity: 0; } .nf-dw-glow { animation-duration: .01s; } }

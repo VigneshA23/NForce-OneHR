@@ -47,6 +47,8 @@ import NotificationsPage from '../NotificationsPage';
 import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
+import '../login.css';
+import { DiwaliBurst } from '../auth/DiwaliBurst';
 import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTab as MtPenaltiesTab, AssignmentsTab as MtAssignmentsTab, SkillsGrowthTab as MtGrowthTab, AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
@@ -105,6 +107,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'onboarding-page', label: 'Onboarding (full page)', title: 'Onboarding', subtitle: 'All four tabs, the checklist detail view and its popups, with sample data. Changes here only affect this preview.' },
   { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
+  { key: 'login-diwali', label: 'Login: cracker lights', title: 'Login: cracker lights', subtitle: 'Click Sign in to play the effect inside the card (sample only).' },
   { key: 'team-effort', label: 'My Team: Efforts / Punctuality', title: 'My Team: Efforts and Punctuality', subtitle: 'The real tab, fed with sample data.' },
   { key: 'team-negligence', label: 'My Team: Negligence', title: 'My Team: Negligence', subtitle: 'The real tab, fed with sample data.' },
   { key: 'team-penalties', label: 'My Team: Penalties', title: 'My Team: Regularize and Cancel Penalties', subtitle: 'The real tab, fed with sample data.' },
@@ -741,6 +744,38 @@ function TeamTabMock({ tab }: { tab: 'effort' | 'negligence' | 'penalties' | 'as
   }, []);
   if (!ready) return null;
   return tab === 'effort' ? <MtEffortTab token="mock-token" /> : tab === 'negligence' ? <MtNegligenceTab token="mock-token" /> : tab === 'penalties' ? <MtPenaltiesTab token="mock-token" /> : tab === 'assignments' ? <MtAssignmentsTab token="mock-token" /> : <MtGrowthTab token="mock-token" />;
+}
+
+function LoginDiwaliMock() {
+  // Mock only: click Sign in to play the cracker-lights effect; nothing is submitted anywhere.
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => {
+    if (!signedIn) return;
+    const t = window.setTimeout(() => setSignedIn(false), 3200);
+    return () => window.clearTimeout(t);
+  }, [signedIn]);
+  return (
+    <div style={{ display: 'grid', placeItems: 'center', padding: '24px 0 40px', background: 'linear-gradient(135deg, #0b0b0f, #2a0a0a)', borderRadius: 16 }}>
+      <div className="nf-lg-card">
+        <h2 className="nf-lg-title">Welcome back</h2>
+        <p className="nf-lg-sub">Click Sign in to see the effect (sample only, nothing is submitted).</p>
+        <form onSubmit={e => { e.preventDefault(); if (!signedIn) setSignedIn(true); }}>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#334155' }}>Email address</label>
+            <input defaultValue="you@company.com" style={{ width: '100%', boxSizing: 'border-box', height: 44, padding: '0 12px', borderRadius: 10, border: '1px solid #e2e8f0' }} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#334155' }}>Password</label>
+            <input type="password" defaultValue="password" style={{ width: '100%', boxSizing: 'border-box', height: 44, padding: '0 12px', borderRadius: 10, border: '1px solid #e2e8f0' }} />
+          </div>
+          {signedIn && <DiwaliBurst />}
+          <button type="submit" className={`nf-lg-submit${signedIn ? ' is-done' : ''}`} disabled={signedIn}>
+            {signedIn ? 'Signed in' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
 }
 
 function AttentionMock() {
@@ -1991,6 +2026,8 @@ function Tiles({ page }: { page: string }) {
       return <TeamPopupsMock />;
     case 'team-today':
       return <TeamTodayMock />;
+    case 'login-diwali':
+      return <LoginDiwaliMock />;
     case 'team-effort':
       return <TeamTabMock tab="effort" />;
     case 'team-negligence':
