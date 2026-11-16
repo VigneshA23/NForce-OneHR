@@ -91,7 +91,9 @@ export default function ProjectAllocationsPage() {
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [projectId, setProjectId] = useState('');
-  const [capacityPercent, setCapacityPercent] = useState(100);
+  const [capacityInput, setCapacityInput] = useState('100');
+  const capacityValid = /^\d+$/.test(capacityInput) && +capacityInput >= 1 && +capacityInput <= 100;
+  const capacityPercent = capacityValid ? Number(capacityInput) : 0;
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
@@ -153,6 +155,7 @@ export default function ProjectAllocationsPage() {
     setFormError('');
     if (selected.size === 0) { setFormError('Select at least one employee'); return; }
     if (!projectId) { setFormError('Select a project'); return; }
+    if (!capacityValid) { setFormError('Capacity % must be a whole number from 1 to 100'); return; }
     if (!startDate || !endDate) { setFormError('Start and end dates are required'); return; }
 
     setSubmitting(true);
@@ -281,10 +284,13 @@ export default function ProjectAllocationsPage() {
             <div className="nf-pa-field">
               <label>Capacity %</label>
               <div className="nf-pa-suffix">
-                <input type="number" min={1} max={100} value={capacityPercent}
-                  onChange={e => setCapacityPercent(Number(e.target.value))} className="nf-pa-input" />
+                <input type="text" inputMode="numeric" value={capacityInput} aria-invalid={!capacityValid}
+                  onChange={e => setCapacityInput(e.target.value.trim())} className="nf-pa-input" />
                 <span>%</span>
               </div>
+              {!capacityValid && (
+                <small role="alert" style={{ color: 'var(--risk)' }}>Enter a whole number from 1 to 100</small>
+              )}
             </div>
 
             <div className="nf-pa-two">
@@ -303,7 +309,7 @@ export default function ProjectAllocationsPage() {
             )}
 
             {can('project_allocations', 'CREATE', 'TEAM') && (
-            <button type="button" onClick={handleSubmit} disabled={submitting} className="nf-pa-primary">
+            <button type="button" onClick={handleSubmit} disabled={submitting || !capacityValid}className="nf-pa-primary">
               {submitting ? 'Allocating…' : `Allocate ${selected.size || ''} Employee${selected.size === 1 ? '' : 's'}`}
             </button>
             )}
