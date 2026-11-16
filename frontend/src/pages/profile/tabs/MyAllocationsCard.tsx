@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { FolderKanban } from 'lucide-react';
 import { projectAllocationsApi, type MyAllocation } from '../../../api/projectAllocations';
 import {
-  MY_ALLOCATIONS_EMPTY_MESSAGE, NO_CURRENT_MESSAGE, NO_UPCOMING_MESSAGE, STATUS_LABEL,
-  clientLabel, formatAllocationRange, formatPercent, groupMyAllocations, projectLabel,
+  CLOSED_PROJECT_LABEL, MY_ALLOCATIONS_EMPTY_MESSAGE, NO_CURRENT_MESSAGE, NO_UPCOMING_MESSAGE, STATUS_LABEL,
+  clientLabel, formatAllocationRange, formatPercent, groupMyAllocations, isProjectClosed, projectHoldLabel, projectLabel,
 } from '../../../lib/myAllocations';
 import { SectionHeader } from '../shared';
 
@@ -55,11 +55,12 @@ function Body({ items, error, onRetry }: { items: MyAllocation[] | null; error: 
     return <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>{MY_ALLOCATIONS_EMPTY_MESSAGE}</div>;
   }
 
-  const { current, upcoming } = groupMyAllocations(items);
+  const { current, upcoming, closed } = groupMyAllocations(items);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <Group title="Current" rows={current} emptyText={NO_CURRENT_MESSAGE} />
       <Group title="Upcoming" rows={upcoming} emptyText={NO_UPCOMING_MESSAGE} />
+      {closed.length > 0 && <Group title="Closed projects" rows={closed} emptyText="" />}
     </div>
   );
 }
@@ -80,16 +81,26 @@ function Group({ title, rows, emptyText }: { title: string; rows: MyAllocation[]
 }
 
 function AllocationItem({ a }: { a: MyAllocation }) {
-  const tone = a.status === 'CURRENT' ? 'var(--ok)' : 'var(--info)';
+  const closed = isProjectClosed(a);
+  const tone = closed ? 'var(--txt-mut)' : a.status === 'CURRENT' ? 'var(--ok)' : 'var(--info)';
   const percent = Math.max(0, Math.min(100, a.capacityPercent));
+  const holdLabel = projectHoldLabel(a.projectStatus);
   return (
-    <div role="listitem" style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div role="listitem" style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, opacity: closed ? 0.8 : 1 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt)', overflowWrap: 'anywhere' }}>{projectLabel(a.projectName)}</span>
-        <span style={{
-          flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: tone,
-          background: `color-mix(in srgb, ${tone} 14%, transparent)`,
-        }}>{STATUS_LABEL[a.status]}</span>
+        <span style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {holdLabel && (
+            <span style={{
+              fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: 'var(--warn)',
+              background: 'color-mix(in srgb, var(--warn) 14%, transparent)',
+            }}>{holdLabel}</span>
+          )}
+          <span style={{
+            fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999, color: tone,
+            background: `color-mix(in srgb, ${tone} 14%, transparent)`,
+          }}>{closed ? CLOSED_PROJECT_LABEL : STATUS_LABEL[a.status]}</span>
+        </span>
       </div>
       <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Client: {clientLabel(a.clientName)}</div>
       <div>

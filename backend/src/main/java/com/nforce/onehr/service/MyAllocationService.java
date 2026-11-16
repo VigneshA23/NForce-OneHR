@@ -5,6 +5,7 @@ import com.nforce.onehr.dto.allocation.MyAllocationResponse.Status;
 import com.nforce.onehr.entity.Client;
 import com.nforce.onehr.entity.Project;
 import com.nforce.onehr.entity.ProjectAllocation;
+import com.nforce.onehr.entity.ProjectStatus;
 import com.nforce.onehr.repository.ClientRepository;
 import com.nforce.onehr.repository.ProjectAllocationRepository;
 import com.nforce.onehr.repository.ProjectRepository;
@@ -40,6 +41,12 @@ import java.util.stream.Collectors;
  * </ul>
  * Project and client are joined by batch id lookups (the allocation entity stores raw ids). A missing
  * project or an untagged/missing client yields null names, never an error.
+ *
+ * <p>The project's status travels with each allocation ({@code projectStatus}): closing a project
+ * deliberately leaves its allocation rows untouched, so a closed project's allocation is still returned,
+ * labelled CLOSED, and sorted after the ACTIVE ones (then ON_HOLD, then CLOSED; within a status, CURRENT
+ * before UPCOMING, then by start date). An ACTIVE project whose end date has passed already counts as
+ * CLOSED, since the daily auto-close may not have run yet.
  */
 @Service
 @RequiredArgsConstructor
@@ -73,14 +80,18 @@ public class MyAllocationService {
         Map<UUID, Project> projectsById = projectRepository
                 .findAllById(allocations.stream().map(ProjectAllocation::getProjectId).collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(Project::getId, Function.identity()));
+
         Map<UUID, Client> clientsById = clientRepository
                 .findAllById(projectsById.values().stream().map(Project::getClientId)
                         .filter(Objects::nonNull).collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(Client::getId, Function.identity()));
 
+        // A closed project's allocation is NOT dropped (closing a project deliberately leaves its allocation
+        // rows alone) — it is shown labelled with the project's status, after the active ones.
         return allocations.stream()
                 .map(a -> toResponse(a, projectsById.get(a.getProjectId()), clientsById, today))
-                .sorted(Comparator.comparing(MyAllocationResponse::getStatus)               // CURRENT before UPCOMING
+                .sorted(Comparator.comparingInt((MyAllocationResponse r) -> projectRank(r.getProjectStatus())) // ACTIVE, ON_HOLD, CLOSED
+                        .thenComparing(MyAllocationResponse::getStatus)                                       // CURRENT before UPCOMING
                         .thenComparing(MyAllocationResponse::getStartDate)
                         .thenComparing(r -> r.getProjectName() == null ? "" : r.getProjectName(),
                                 String.CASE_INSENSITIVE_ORDER))
@@ -89,6 +100,30 @@ public class MyAllocationService {
 
     static LocalDate effectiveEnd(ProjectAllocation a) {
         return a.getActualEndDate() != null ? a.getActualEndDate() : a.getEndDate();
+    }
+
+    /**
+     * The project's status as it should be shown today. An ACTIVE project whose end date has already
+     * passed counts as CLOSED, because the daily sweep that actually flips it may not have run yet.
+     * Null when the project row is missing.
+     */
+    static ProjectStatus effectiveProjectStatus(Project project, LocalDate today) {
+        if (project == null) {
+            return null;
+        }
+        if (project.getStatus() == ProjectStatus.ACTIVE && project.getEndDate() != null
+                && project.getEndDate().isBefore(today)) {
+            return ProjectStatus.CLOSED;
+        }
+        return project.getStatus();
+    }
+
+    /** Active projects first, then on-hold, then closed. An unknown (missing) project sorts with the active ones. */
+    static int projectRank(ProjectStatus status) {
+        if (status == ProjectStatus.CLOSED) {
+            return 2;
+        }
+        return status == ProjectStatus.ON_HOLD ? 1 : 0;
     }
 
     private static MyAllocationResponse toResponse(ProjectAllocation a, Project project,
@@ -101,6 +136,7 @@ public class MyAllocationService {
                 .capacityPercent(a.getCapacityPercent())
                 .startDate(a.getStartDate())
                 .endDate(effectiveEnd(a))
+                .projectStatus(effectiveProjectStatus(project, today))
                 .status(a.getStartDate().isAfter(today) ? Status.UPCOMING : Status.CURRENT)
                 .build();
     }

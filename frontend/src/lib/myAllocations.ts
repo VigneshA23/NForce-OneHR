@@ -5,12 +5,25 @@ import type { MyAllocation } from '../api/projectAllocations';
 export const MY_ALLOCATIONS_EMPTY_MESSAGE = 'You have no current or upcoming project allocations.';
 export const NO_CURRENT_MESSAGE = 'No current allocations.';
 export const NO_UPCOMING_MESSAGE = 'No upcoming allocations.';
+export const CLOSED_PROJECT_LABEL = 'Project closed';
 
-/** Splits the server list by status, keeping the server's order (it already sorts by start date). */
-export function groupMyAllocations(list: MyAllocation[]): { current: MyAllocation[]; upcoming: MyAllocation[] } {
+export function isProjectClosed(a: Pick<MyAllocation, 'projectStatus'>): boolean {
+  return a.projectStatus === 'CLOSED';
+}
+
+/**
+ * Splits the server list into Current, Upcoming and Closed, keeping the server's order (active projects
+ * first, then by start date). An allocation on a CLOSED project goes in `closed` whatever its dates, so the
+ * Current and Upcoming groups only ever hold allocations of projects that are still running.
+ */
+export function groupMyAllocations(list: MyAllocation[]): {
+  current: MyAllocation[]; upcoming: MyAllocation[]; closed: MyAllocation[];
+} {
+  const open = list.filter(a => !isProjectClosed(a));
   return {
-    current: list.filter(a => a.status === 'CURRENT'),
-    upcoming: list.filter(a => a.status === 'UPCOMING'),
+    current: open.filter(a => a.status === 'CURRENT'),
+    upcoming: open.filter(a => a.status === 'UPCOMING'),
+    closed: list.filter(isProjectClosed),
   };
 }
 
@@ -37,6 +50,11 @@ export function clientLabel(name: string | null): string {
 /** "60%" — whole percent, as stored (1–100). */
 export function formatPercent(value: number): string {
   return `${value}%`;
+}
+
+/** A small extra label only when the project is paused; null for a normal (active or unknown) project. */
+export function projectHoldLabel(projectStatus: MyAllocation['projectStatus']): string | null {
+  return projectStatus === 'ON_HOLD' ? 'Project on hold' : null;
 }
 
 export const STATUS_LABEL: Record<MyAllocation['status'], string> = {
