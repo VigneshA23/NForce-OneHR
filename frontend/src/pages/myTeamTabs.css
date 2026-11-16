@@ -1,0 +1,9 @@
+/* My Team tabs (Efforts, Negligence, Penalties, Assignments, Performance): table and row polish.
+   Presentation only; theme tokens throughout. */
+.nf-mt-tab table thead th { background: color-mix(in srgb, var(--brand) 7%, var(--raised)); color: var(--brand) !important; letter-spacing: .07em; padding-top: 11px !important; padding-bottom: 11px !important; }
+.nf-mt-tab table tbody tr { transition: background .12s; }
+.nf-mt-tab table tbody tr:hover td { background: color-mix(in srgb, var(--brand) 5%, var(--panel)); }
+.nf-mt-tab table tbody td { vertical-align: middle; }
+.nf-mt-tab table input[type="checkbox"] { accent-color: var(--brand); width: 15px; height: 15px; cursor: pointer; }
+.nf-mt-tab .nf-team-leaderboard-row:hover { background: color-mix(in srgb, var(--brand) 4%, var(--panel)); }
+.nf-mt-tab select, .nf-mt-tab input[type="date"] { border-radius: 10px !important; }

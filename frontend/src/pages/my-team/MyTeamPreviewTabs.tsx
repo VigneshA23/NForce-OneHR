@@ -108,7 +108,7 @@ export function EffortsTab({ people, avatar }: { people: TabPerson[]; avatar: Av
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={panel}>
-        <div style={head}><span style={title}>Avg. Work Hours Leaderboard</span><span style={count}>{shortDate(r.from)} – {shortDate(r.to)}</span></div>
+        <div style={head}><span style={title}>Avg. Work Hours Leaderboard</span><span style={count}>{shortDate(r.from)} to {shortDate(r.to)}</span></div>
         <DateRange {...r} />
         {rows.map(({ p, avg, worked, expected }) => (
           <div key={p.userId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 18px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
@@ -124,7 +124,7 @@ export function EffortsTab({ people, avatar }: { people: TabPerson[]; avatar: Av
         <Kpi label="Max. on time / day" value={max} note="highest single day" color="var(--brand-bright)" />
       </div>
       <div style={panel}>
-        <div style={head}><span style={title}>On-Time Leaderboard</span><span style={count}>{shortDate(r.from)} – {shortDate(r.to)}</span></div>
+        <div style={head}><span style={title}>On-Time Leaderboard</span><span style={count}>{shortDate(r.from)} to {shortDate(r.to)}</span></div>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(220px, 320px)' }} className="mt-twocol">
           <div>
             {[...rows].sort((a, b) => b.onTime - a.onTime).map(({ p, onTime, expected }) => (
@@ -156,13 +156,13 @@ export function NegligenceTab({ people, avatar }: { people: TabPerson[]; avatar:
     return people.map(p => { const active = 20 + Math.round(rnd() * 2); const l = Math.round(rnd() * 7); return { p, active, l, pct: (l / active) * 100 }; }).filter(x => x.l > 0).sort((a, b) => b.pct - a.pct);
   }, [people, r.from, r.to]);
   const least = useMemo(() => { const rnd = seeded(rangeSeed(r.to, r.from) + 5); return people.map(p => ({ p, hrs: 5 + rnd() * 3.5 })).sort((a, b) => a.hrs - b.hrs).slice(0, 6); }, [people, r.from, r.to]);
-  const buckets = [['< 4 hrs', 4], ['4–6 hrs', 9], ['6–8 hrs', 32], ['8–9 hrs', 41], ['9+ hrs', 14]] as const;
+  const buckets = [['< 4 hrs', 4], ['4 to 6 hrs', 9], ['6 to 8 hrs', 32], ['8 to 9 hrs', 41], ['9+ hrs', 14]] as const;
   const breaks = useMemo(() => { const rnd = seeded(rangeSeed(r.from, r.to) + 9); return people.map(p => ({ p, n: 2 + rnd() * 4 })).sort((a, b) => b.n - a.n).slice(0, 6); }, [people, r.from, r.to]);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={panel}><DateRange {...r} /></div>
       <div style={panel}>
-        <div style={head}><span style={title}>Late Arrivals</span><span style={count}>{shortDate(r.from)} – {shortDate(r.to)}</span></div>
+        <div style={head}><span style={title}>Late Arrivals</span><span style={count}>{shortDate(r.from)} to {shortDate(r.to)}</span></div>
         {late.map(({ p, active, l, pct }) => (
           <div key={p.userId} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 18px', borderBottom: '1px solid var(--line)' }}>
             <div style={{ flex: 1 }}><PersonCell p={p} avatar={avatar} /></div>
@@ -267,8 +267,8 @@ export function PenaltiesTab({ people, avatar, toast }: { people: TabPerson[]; a
 }
 
 /* ══ Employee Assignments ══ */
-const SHIFTS = ['General (9:00 AM – 6:00 PM)', 'Morning (7:00 AM – 4:00 PM)', 'Late (11:00 AM – 8:00 PM)'];
-const OFFS = ['Sat–Sun', 'Fri–Sat', 'Sun only'];
+const SHIFTS = ['General (9:00 AM to 6:00 PM)', 'Morning (7:00 AM to 4:00 PM)', 'Late (11:00 AM to 8:00 PM)'];
+const OFFS = ['Sat and Sun', 'Fri and Sat', 'Sun only'];
 const POLICIES = ['Standard Penalisation', 'Relaxed Penalisation', 'No Penalisation'];
 export function AssignmentsTab({ people, avatar, toast }: { people: TabPerson[]; avatar: AvatarRenderer; toast: Toast }) {
   const [rows, setRows] = useState(() => people.map((p, i) => ({ p, shift: SHIFTS[i % 2], off: OFFS[0], policy: POLICIES[i % 3 === 2 ? 1 : 0] })));

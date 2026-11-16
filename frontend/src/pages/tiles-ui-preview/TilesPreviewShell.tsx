@@ -47,7 +47,7 @@ import NotificationsPage from '../NotificationsPage';
 import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
-import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
+import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTab as MtPenaltiesTab, AssignmentsTab as MtAssignmentsTab, SkillsGrowthTab as MtGrowthTab, AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
@@ -105,6 +105,11 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'onboarding-page', label: 'Onboarding (full page)', title: 'Onboarding', subtitle: 'All four tabs, the checklist detail view and its popups, with sample data. Changes here only affect this preview.' },
   { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
+  { key: 'team-effort', label: 'My Team: Efforts / Punctuality', title: 'My Team: Efforts and Punctuality', subtitle: 'The real tab, fed with sample data.' },
+  { key: 'team-negligence', label: 'My Team: Negligence', title: 'My Team: Negligence', subtitle: 'The real tab, fed with sample data.' },
+  { key: 'team-penalties', label: 'My Team: Penalties', title: 'My Team: Regularize and Cancel Penalties', subtitle: 'The real tab, fed with sample data.' },
+  { key: 'team-assignments', label: 'My Team: Assignments', title: 'My Team: Employee Assignments', subtitle: 'The real tab, fed with sample data.' },
+  { key: 'team-growth', label: 'My Team: Performance', title: 'My Team: Performance', subtitle: 'The real tab, fed with sample data.' },
   { key: 'team-reports', label: 'My Team: Reports tab', title: 'My Team: Reports', subtitle: 'The Reports tab of My Team. Cards open the real download dialogs; nothing is sent from this preview.' },
   { key: 'attention-panel', label: 'My Team: Needs your attention', title: 'My Team: Needs your attention', subtitle: 'Sample pending requests. Approve / Reject here only change this preview.' },
   { key: 'allocations-page', label: 'Project Allocations (full page)', title: 'Project Allocations', subtitle: 'Allocate and Projects tabs with sample data. Allocating and saving only change this preview.' },
@@ -680,6 +685,62 @@ function TeamReportsMock() {
       <MyTeamReportsTab token="mock-token" />
     </div>
   ) : null;
+}
+
+function TeamTabMock({ tab }: { tab: 'effort' | 'negligence' | 'penalties' | 'assignments' | 'growth' }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample data for each My Team tab so the real tab components render without a backend.
+    const prevFetch = window.fetch;
+    const people = [['Ramesh A', 'Software Engineer'], ['Lalith Kumar Ratnala', 'Senior Engineer'], ['Abuzar Siddiqui', 'QA Engineer'], ['Sri vidya', 'Business Analyst'], ['Praveen Gurram', 'Tech Lead'], ['Sanjukta', 'Designer']];
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const daily = Array.from({ length: 7 }, (_, i) => ({ date: day(6 - i), employeesOnTime: 3 + (i % 4), count: 1 + (i % 3), lateCount: 1 + (i % 3), avgBreaks: 1.5 + (i % 3) * 0.4 }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes('/attendance/team-effort')) {
+        return json(people.map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, avgHoursPerDay: 8.6 - i * 0.7, hoursWorked: 60 - i * 5, expectedHours: 56, activeDays: 7 })));
+      }
+      if (url.includes('/attendance/team-punctuality')) {
+        return json({ leaderboard: people.map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, onTimeDays: 7 - (i % 4), expectedWorkingDays: 7, percentage: ((7 - (i % 4)) / 7) * 100 })), daily, summary: { averageEmployeesOnTime: 4.2, minimumEmployeesOnTime: 3, maximumEmployeesOnTime: 6 } });
+      }
+      if (url.includes('/attendance/team-negligence')) {
+        return json({
+          lateArrivals: people.slice(0, 4).map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, lateDays: 6 - i, activeDays: 21, latePct: ((6 - i) / 21) * 100 })),
+          dailyLateCounts: daily.map(d => ({ date: d.date, count: d.lateCount })),
+          leastHoursWorked: people.slice(0, 3).map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, avgHoursPerDay: 6.2 + i * 0.4, hoursWorked: 120 + i * 9 })),
+          hoursHistogram: [{ label: '< 4 hrs', count: 1, pct: 8 }, { label: '4 to 6 hrs', count: 2, pct: 17 }, { label: '6 to 8 hrs', count: 5, pct: 42 }, { label: '8+ hrs', count: 4, pct: 33 }],
+          frequentBreaks: people.slice(0, 3).map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, totalBreakCount: 40 - i * 5, totalBreakHours: 14 - i, avgBreaksPerDay: 2.4 - i * 0.3 })),
+          breaksTrend: daily.map(d => ({ date: d.date, avgBreaks: d.avgBreaks })),
+        });
+      }
+      if (url.includes('/attendance/penalties') && !url.includes('/cancel')) {
+        const st = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'APPLIED', 'NOT_PENALIZED', 'PENDING_REVIEW'];
+        return json(people.map(([n], i) => ({ id: 'p' + i, employeeUserId: 'u' + i, fullName: n, employeeCode: 'NF' + (100 + i), incidentDate: day(i + 1), penalizedOn: i % 2 ? day(i) : null, status: st[i], locationName: 'Hyderabad', departmentName: 'Engineering', discrepancyType: ['LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH', 'LATE_ARRIVAL', 'LATE_ARRIVAL', 'MISSING_PUNCH'][i], deductionDays: 0.5, cancellable: st[i] === 'APPLIED' || st[i] === 'PENDING_REVIEW' })));
+      }
+      if (url.includes('/employee-assignments/lookups')) {
+        return json({ shifts: [{ id: 's1', name: 'General' }, { id: 's2', name: 'Morning' }], weeklyOffPolicies: [{ id: 'w1', name: 'Sat and Sun' }], penalisationPolicies: [{ id: 'z1', name: 'Standard Penalisation' }], departments: ['Engineering', 'Design'], locations: ['Hyderabad'] });
+      }
+      if (url.includes('/employee-assignments/team')) {
+        return json(people.map(([n], i) => ({ employeeUserId: 'u' + i, employeeCode: 'NF' + (100 + i), fullName: n, departmentName: 'Engineering', locationName: 'Hyderabad', employeeTimezone: 'Asia/Kolkata', shiftId: i === 5 ? null : 's1', shiftName: i === 5 ? null : 'General', shiftStartTime: '09:00', shiftEndTime: '18:00', shiftEffectiveSince: '2026-01-01', pendingShiftId: null, pendingShiftName: null, pendingShiftEffectiveFrom: null, weeklyOffPolicyId: 'w1', weeklyOffPolicyName: 'Sat and Sun', weeklyOffPolicyEffectiveSince: '2026-01-01', pendingWeeklyOffPolicyId: null, pendingWeeklyOffPolicyName: null, pendingWeeklyOffPolicyEffectiveFrom: null, penalisationPolicyId: 'z1', penalisationPolicyName: 'Standard Penalisation' })));
+      }
+      if (url.endsWith('/growth')) {
+        const lv = ['Beginner', 'Intermediate', 'Advanced', 'Expert'];
+        return json(people.map(([n], i) => ({
+          employeeUserId: 'u' + i, employeeName: n, employeeCode: 'NF' + (100 + i),
+          skills: ['React', 'Java', 'SQL'].slice(0, 1 + (i % 3)).map((k, j) => ({ id: 'k' + i + j, skillId: null, skillName: k, proficiencyLevelId: null, proficiencyLevel: lv[(i + j) % 4], createdAt: '', updatedAt: '' })),
+          certificates: i % 2 ? [{ id: 'c' + i, name: 'AWS Cloud Practitioner', categoryId: null, categoryName: 'Cloud', issuingOrganization: 'AWS', credentialId: null, credentialUrl: null, issueDate: '2025-03-01', expiryDate: '2028-03-01', createdAt: '', updatedAt: '' }] : [],
+          learningEntries: i % 3 === 0 ? [{ id: 'l' + i, title: 'System Design', description: null, learningType: 'COURSE', status: 'IN_PROGRESS', provider: 'Udemy', startDate: '2026-09-01', completedDate: null, skillsDeveloped: [], certificateName: null, certificateIssueDate: null, certificateExpiryDate: null }] : [],
+        })));
+      }
+      if (url.includes('/api/')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    setReady(true);
+    return () => { window.fetch = prevFetch; };
+  }, []);
+  if (!ready) return null;
+  return tab === 'effort' ? <MtEffortTab token="mock-token" /> : tab === 'negligence' ? <MtNegligenceTab token="mock-token" /> : tab === 'penalties' ? <MtPenaltiesTab token="mock-token" /> : tab === 'assignments' ? <MtAssignmentsTab token="mock-token" /> : <MtGrowthTab token="mock-token" />;
 }
 
 function AttentionMock() {
@@ -1930,6 +1991,16 @@ function Tiles({ page }: { page: string }) {
       return <TeamPopupsMock />;
     case 'team-today':
       return <TeamTodayMock />;
+    case 'team-effort':
+      return <TeamTabMock tab="effort" />;
+    case 'team-negligence':
+      return <TeamTabMock tab="negligence" />;
+    case 'team-penalties':
+      return <TeamTabMock tab="penalties" />;
+    case 'team-assignments':
+      return <TeamTabMock tab="assignments" />;
+    case 'team-growth':
+      return <TeamTabMock tab="growth" />;
     case 'team-reports':
       return <TeamReportsMock />;
     case 'change-password-page':
