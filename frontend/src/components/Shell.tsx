@@ -28,6 +28,7 @@ import { EmployeeAvatar } from './EmployeeAvatar';
 import { WorkAnniversaryOverlay } from './WorkAnniversaryOverlay';
 import { getAnniversaryYears, hasShownAnniversaryThisYear, markAnniversaryShown } from '../lib/workAnniversary';
 import { BirthdayCelebrationOverlay } from './BirthdayCelebrationOverlay';
+import { tidyDashes } from '../lib/richText';
 import { isBirthdayToday, localDateKey, hasShownBirthdayToday, markBirthdayShown } from '../lib/birthday';
 import { useAccentColor, ACCENT_BAND_POSITION_X } from '../lib/accentColor';
 import sidebarDecoration from '../assets/sidebar-decoration.png';
@@ -708,7 +709,7 @@ export function Shell() {
                     style={dropdownRowStyle(searchIdx === globalIdx)}
                     onMouseEnter={() => setSearchIdx(globalIdx)} onMouseLeave={() => setSearchIdx(-1)}>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</div>
+                      <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tidyDashes(item.title)}</div>
                       {item.subtitle && (
                         <div style={{ fontSize: 11, color: '#6B7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.subtitle}</div>
                       )}
@@ -720,7 +721,7 @@ export function Shell() {
                 <button onMouseDown={() => navigate(group.refineUrl!)} style={{ ...dropdownRowStyle(false), color: '#E4373D', fontSize: 12, fontWeight: 600 }}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,.06)'; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'none'; }}>
-                  See all {group.totalCount} in {group.label} →
+                  See all {group.totalCount} in {group.label}
                 </button>
               )}
             </div>

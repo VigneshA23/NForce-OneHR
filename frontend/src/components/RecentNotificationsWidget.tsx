@@ -60,7 +60,7 @@ export function RecentNotificationsWidget({ className }: { className?: string })
       <div className="nf-dash-title">
         <span className="nf-dash-ico"><Bell size={18} /></span>
         <h3>Recent Notifications</h3>
-        <button type="button" className="nf-dash-link" onClick={() => navigate('/notifications')}>View all →</button>
+        <button type="button" className="nf-dash-link" onClick={() => navigate('/notifications')}>View all</button>
       </div>
 
       {loading ? (

@@ -11,6 +11,7 @@ import {
   PieChart, Pie, Cell,
 } from 'recharts';
 import DashTile from '../components/DashTile';
+import { tidyDashes } from '../lib/richText';
 import './dashboardPolish.css';
 import { usePreviewMode } from '../lib/previewMode';
 import { previewMonthHistory, PREVIEW_CONFIG, PREVIEW_STATS, PREVIEW_BALANCES, previewRequests, previewHolidays } from './dashboard-ui-preview/dashboardPreviewData';
@@ -641,13 +642,13 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
         <DashTile
           icon={<Clock size={16} />} accent="var(--brand)" label="Present Today"
           value={teamLoading ? '-' : `${presentCount}/${teamToday.length}`}
-          sub="checked in so far today · view list →"
+          sub="checked in so far today · view list"
           onClick={() => setShowPresentModal(true)}
         />
         <DashTile
           icon={<Calendar size={16} />} accent="#8B5CF6" label="On Leave"
           value={String(onLeaveLoading ? '-' : onLeaveCount)}
-          sub="on leave today · view list →"
+          sub="on leave today · view list"
           onClick={() => setShowLeaveModal(true)}
         />
       </div>
@@ -749,7 +750,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
             onClick={() => navigate('/attendance')}
             className="nf-dash-link" style={{ alignSelf: 'flex-start', marginLeft: 0 }}
           >
-            {isHr ? 'View organization attendance →' : 'View team attendance →'}
+            {isHr ? 'View organization attendance' : 'View team attendance'}
           </button>
         </div>
         <div className="nf-dash-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -765,7 +766,7 @@ function TeamDashboardView({ scope }: { scope: DashboardScope }) {
             onClick={() => navigate('/approvals?type=LEAVE')}
             className="nf-dash-link" style={{ alignSelf: 'flex-start', marginLeft: 0 }}
           >
-            Review in Approval Center →
+            Review in Approval Center
           </button>
         </div>
         <PendingCard
@@ -1242,7 +1243,7 @@ function ActionNeeded({ requests }: { requests: MyRequestItem[] }) {
         onClick={() => navigate('/requests')}
         style={{ marginTop: 'auto', padding: 0, paddingTop: 12, fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer' }}
       >
-        View all requests →
+        View all requests
       </button>
     </div>
   );
@@ -1324,7 +1325,7 @@ function RecentRequests({ requests }: { requests: MyRequestItem[] }) {
         onClick={() => navigate('/requests')}
         style={{ marginTop: 'auto', padding: 0, paddingTop: 10, fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer' }}
       >
-        View all →
+        View all
       </button>
     </div>
   );
@@ -1397,7 +1398,7 @@ function UpcomingHolidays({ holidays }: { holidays: HolidayRow[] }) {
                 </div>
                 <div>
                   <div className="nf-holiday-name" style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {h.holidayName}
+                    {tidyDashes(h.holidayName)}
                   </div>
                   <div className="nf-holiday-date" style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
                     {d.toLocaleDateString('en-US', { weekday: 'long' })}
@@ -1745,7 +1746,7 @@ function SuperAdminDashboardView() {
       icon: <Users size={16} />,
       label: 'Total Users',
       value: usersLoading ? '-' : String(allUsers.length),
-      sub: usersLoading ? '' : `${activeUsers} active · ${inactiveUsers} inactive · view directory →`,
+      sub: usersLoading ? '' : `${activeUsers} active · ${inactiveUsers} inactive · view directory`,
       accent: '#4E9EE8',
       onClick: () => navigate('/directory'),
     },
@@ -1753,7 +1754,7 @@ function SuperAdminDashboardView() {
       icon: <UserCheck size={16} />,
       label: 'Present Today',
       value: attendanceLoading ? '-' : `${presentCount}/${todayRecords.length}`,
-      sub: 'org-wide check-ins · view list →',
+      sub: 'org-wide check-ins · view list',
       accent: '#2FB67C',
       onClick: () => setShowPresentModal(true),
     },
@@ -1761,7 +1762,7 @@ function SuperAdminDashboardView() {
       icon: <Package size={16} />,
       label: 'Total Assets',
       value: assetsLoading ? '-' : totalAssets === null ? '-' : String(totalAssets),
-      sub: 'company-wide inventory · view inventory →',
+      sub: 'company-wide inventory · view inventory',
       accent: '#F97316',
       onClick: () => navigate('/assets'),
     },
@@ -1769,7 +1770,7 @@ function SuperAdminDashboardView() {
       icon: <ShieldCheck size={16} />,
       label: 'Audit Events Today',
       value: auditStatsLoading ? '-' : auditStats ? String(auditStats.todayCount) : '-',
-      sub: 'security events logged · view log →',
+      sub: 'security events logged · view log',
       accent: 'var(--brand)',
       onClick: () => {
         const today = todayIsoDate();
@@ -2089,7 +2090,7 @@ function SuperAdminDashboardView() {
         <div className="nf-dash-title">
           <span className="nf-dash-ico"><Shield size={18} /></span>
           <h3>Recent Audit Events</h3>
-          <button type="button" className="nf-dash-link" onClick={() => navigate('/audit')}>View all in Audit &amp; Security →</button>
+          <button type="button" className="nf-dash-link" onClick={() => navigate('/audit')}>View all in Audit &amp; Security</button>
         </div>
         {recentAuditLoading ? (
           <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', padding: '12px 0' }}>Loading…</div>
