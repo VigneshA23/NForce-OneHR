@@ -8,6 +8,7 @@ import { payrollApi, type AdHocPaymentResponse, type SalaryComponentCatalogRespo
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDateTime, EmptyRow, Modal, FormRow, labelStyle,
   inputStyle, BtnPrimary, BtnGhost, SectionHead, NoPermissionNote, ConfirmDialog, EmployeePicker, useEmployeeDirectory,
+  FilterBar,
 } from './payrollShared';
 
 function BulkAddModal({ runId, components, employeeCount, onClose, onDone }: {
@@ -136,6 +137,7 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
   const [showAdd, setShowAdd] = useState(false);
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [removing, setRemoving] = useState<AdHocPaymentResponse | null>(null);
+  const [search, setSearch] = useState('');
 
   function reload() {
     payrollApi.listAdHocPayments(runId, token).then(setPayments).catch(() => showToast('error', 'Failed to load ad-hoc payments'));
@@ -161,6 +163,8 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
     }
   }
 
+  const filtered = payments.filter(p => nameFor(p.employeeId).toLowerCase().includes(search.trim().toLowerCase()));
+
   return (
     <div>
       <SectionHead
@@ -179,13 +183,14 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
           </div>
         }
       />
+      <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>{['Employee', 'Component', 'Amount', 'Reason', 'Added By', 'Added At', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>
           <tbody>
-            {payments.map(p => (
+            {filtered.map(p => (
               <tr key={p.id}>
                 <td style={tdStyle}><PersonCellById userId={p.employeeId} name={nameFor(p.employeeId)} /></td>
                 <td style={tdStyle}>{p.componentName}</td>
@@ -198,7 +203,9 @@ export function AdHocPaymentsTab({ runId, canConfigure }: { runId: string; canCo
                 </td>
               </tr>
             ))}
-            {payments.length === 0 && <EmptyRow cols={7} msg="No ad-hoc payments for this run." />}
+            {filtered.length === 0 && (
+              <EmptyRow cols={7} msg={payments.length === 0 ? 'No ad-hoc payments for this run.' : 'No matches for your search.'} />
+            )}
           </tbody>
         </table>
       </div>

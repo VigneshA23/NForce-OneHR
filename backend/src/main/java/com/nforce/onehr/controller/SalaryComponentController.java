@@ -1,6 +1,7 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.payroll.CreateSalaryComponentCatalogRequest;
+import com.nforce.onehr.dto.payroll.ReorderSalaryComponentsRequest;
 import com.nforce.onehr.dto.payroll.SalaryComponentCatalogResponse;
 import com.nforce.onehr.dto.payroll.UpdateSalaryComponentCatalogRequest;
 import com.nforce.onehr.service.SalaryComponentService;
@@ -41,5 +42,11 @@ public class SalaryComponentController {
     @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
     public List<SalaryComponentCatalogResponse> list() {
         return salaryComponentService.list();
+    }
+
+    @PatchMapping("/order")
+    @PreAuthorize("hasAuthority('payroll:CONFIGURE:ALL')")
+    public List<SalaryComponentCatalogResponse> reorder(@Valid @RequestBody ReorderSalaryComponentsRequest req, Principal principal) {
+        return salaryComponentService.reorder(req.getOrderedIds(), principal.getName());
     }
 }

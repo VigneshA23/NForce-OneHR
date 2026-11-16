@@ -84,7 +84,7 @@ class PayslipPdfServiceTest {
     void render_toleratesMissingOptionalHeaderFields() {
         PayslipPdfModel m = new PayslipPdfModel(null, "INR", "November 2026",
                 LocalDate.of(2026, 10, 26), LocalDate.of(2026, 11, 25), "Asha Rao", "EMP001",
-                null, null, null, 31, 31, bd("0"), List.of(), List.of(), bd("0"), bd("0"), bd("0"));
+                null, null, null, 31, 31, bd("0"), List.of(), List.of(), bd("0"), bd("0"), bd("0"), null, null);
 
         assertDoesNotThrow(() -> service.render(m));
     }
@@ -94,7 +94,7 @@ class PayslipPdfServiceTest {
         PayslipPdfModel m = new PayslipPdfModel("NForce", "INR", "November 2026",
                 LocalDate.of(2026, 10, 26), LocalDate.of(2026, 11, 25), "Asha Rao", "EMP001",
                 "Engineering", "Engineer", LocalDate.of(2024, 1, 1), 31, 20, bd("25"),
-                List.of(), List.of(), bd("0"), bd("0"), bd("0"));
+                List.of(), List.of(), bd("0"), bd("0"), bd("0"), null, null);
 
         String text = text(service.render(m));
 
@@ -102,12 +102,38 @@ class PayslipPdfServiceTest {
         assertFalse(text.contains("-5"), text);
     }
 
+    @Test
+    void render_withCustomHeaderAndFooterText_usesThemInsteadOfDefaults() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipPdfModel withText = new PayslipPdfModel(base.companyName(), base.currency(), base.periodLabel(),
+                base.cycleStart(), base.cycleEnd(), base.employeeName(), base.employeeCode(), base.department(),
+                base.designation(), base.joiningDate(), base.cycleDays(), base.employedDays(), base.lopDays(),
+                base.earnings(), base.deductions(), base.grossPay(), base.totalDeductions(), base.netPay(),
+                "PAYSLIP", "Custom footer note.");
+
+        String text = text(service.render(withText));
+
+        assertTrue(text.contains("PAYSLIP November 2026"), text);
+        assertTrue(text.contains("Custom footer note."), text);
+        assertFalse(text.contains(DEFAULT_FOOTER_FOR_TEST), text);
+    }
+
+    @Test
+    void render_withPassword_producesAPdfThatRequiresItToOpen() {
+        byte[] pdf = service.render(model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00")), "ABCDE1234F");
+
+        assertThrows(Exception.class, () -> new PdfReader(pdf)); // no password supplied
+        assertDoesNotThrow(() -> new PdfReader(pdf, "ABCDE1234F".getBytes()));
+    }
+
+    private static final String DEFAULT_FOOTER_FOR_TEST = "This is a computer-generated payslip and does not require a signature.";
+
     private PayslipPdfModel model(List<Line> earnings, List<Line> deductions,
                                   BigDecimal gross, BigDecimal totalDeductions, BigDecimal net) {
         return new PayslipPdfModel("NForce One Pvt Ltd", "INR", "November 2026",
                 LocalDate.of(2026, 10, 26), LocalDate.of(2026, 11, 25),
                 "Asha Rao", "EMP001", "Engineering", "Senior Engineer", LocalDate.of(2024, 4, 1),
-                31, 31, bd("1.5"), earnings, deductions, gross, totalDeductions, net);
+                31, 31, bd("1.5"), earnings, deductions, gross, totalDeductions, net, null, null);
     }
 
     private static BigDecimal bd(String v) {

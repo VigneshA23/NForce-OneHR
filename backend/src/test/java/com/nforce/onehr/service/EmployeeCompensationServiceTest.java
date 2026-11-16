@@ -200,4 +200,36 @@ class EmployeeCompensationServiceTest {
         assertNull(result.get(0).getEffectiveTo());
         assertEquals(LocalDate.of(2026, 1, 1), result.get(1).getEffectiveTo());
     }
+
+    @Test
+    void listAllCurrent_delegatesToFindAllEffectiveAt() {
+        LocalDate asOf = LocalDate.of(2026, 11, 16);
+        EmployeeCompensation current = EmployeeCompensation.builder()
+                .id(UUID.randomUUID()).employeeId(employeeId).structure(structure())
+                .ctc(new BigDecimal("1500000")).effectiveFrom(LocalDate.of(2026, 1, 1)).build();
+        when(employeeCompensationRepository.findAllEffectiveAt(asOf)).thenReturn(List.of(current));
+
+        List<EmployeeCompensationResponse> result = service.listAllCurrent(asOf);
+
+        assertEquals(1, result.size());
+        assertEquals(employeeId, result.get(0).getEmployeeId());
+    }
+
+    @Test
+    void listAllHistory_returnsEveryEmployeesRowsFromTheRepository() {
+        UUID otherEmployeeId = UUID.randomUUID();
+        EmployeeCompensation mine = EmployeeCompensation.builder()
+                .id(UUID.randomUUID()).employeeId(employeeId).structure(structure())
+                .ctc(new BigDecimal("1500000")).effectiveFrom(LocalDate.of(2026, 1, 1)).build();
+        EmployeeCompensation theirs = EmployeeCompensation.builder()
+                .id(UUID.randomUUID()).employeeId(otherEmployeeId).structure(structure())
+                .ctc(new BigDecimal("900000")).effectiveFrom(LocalDate.of(2026, 2, 1)).build();
+        when(employeeCompensationRepository.findAllByOrderByCreatedAtDesc()).thenReturn(List.of(theirs, mine));
+
+        List<EmployeeCompensationResponse> result = service.listAllHistory();
+
+        assertEquals(2, result.size());
+        assertEquals(otherEmployeeId, result.get(0).getEmployeeId());
+        assertEquals(employeeId, result.get(1).getEmployeeId());
+    }
 }

@@ -129,6 +129,15 @@ pages:
         route: /statutory-compliance
         description: "Configure and version-date PF, ESI and Professional Tax rules by country — the slab config every payslip's statutory deductions are computed from."
 
+  - pageId: payroll-reports
+    module: payroll
+    permissions: ["payroll:VIEW:ALL"]
+    variants:
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Payroll Reports"
+        route: /payroll-reports
+        description: "Current CTC Report (every employee's current salary structure and CTC) and Salary Revision Report (every compensation assignment or revision ever made)."
+
   - pageId: my-documents
     module: documents
     variants:

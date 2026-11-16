@@ -3,7 +3,7 @@ import { PersonCellById } from '../../components/PersonCell';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { payrollApi, type ArrearsResponse } from '../../api/payroll';
-import { panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, StatusBadge, SectionHead } from './payrollShared';
+import { panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, StatusBadge, SectionHead, FilterBar } from './payrollShared';
 
 const SOURCE_LABEL: Record<string, string> = {
   SALARY_REVISION: 'Salary Revision', LOP_REVERSAL: 'LOP Reversal', HOLD_RELEASE: 'Hold Release',
@@ -16,12 +16,14 @@ export function ArrearsTab({ runId }: { runId: string }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const [rows, setRows] = useState<ArrearsResponse[]>([]);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     payrollApi.getArrears(runId, token).then(setRows).catch(() => showToast('error', 'Failed to load arrears'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId, token]);
 
+  const filtered = rows.filter(r => r.employeeName.toLowerCase().includes(search.trim().toLowerCase()));
   const pending = rows.filter(r => r.status === 'PENDING');
   const applied = rows.filter(r => r.status === 'APPLIED');
   const pendingTotal = pending.reduce((sum, r) => sum + r.amount, 0);
@@ -40,11 +42,12 @@ export function ArrearsTab({ runId }: { runId: string }) {
         Auto-computed from backdated salary revisions, LOP reversals and salary hold releases — never manually entered.
         A PENDING row lands on this employee's next payslip; an APPLIED one already has.
       </div>
+      <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Employee', 'Amount', 'Source', 'Source Cycle', 'Reason', 'Status'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
-            {rows.map(r => (
+            {filtered.map(r => (
               <tr key={r.id}>
                 <td style={tdStyle}><PersonCellById userId={r.employeeId} name={r.employeeName} /></td>
                 <td style={tdStyle}>{fmtCurrency(r.amount)}{r.amount < 0 ? ' (recovery)' : ''}</td>
@@ -54,7 +57,9 @@ export function ArrearsTab({ runId }: { runId: string }) {
                 <td style={tdStyle}><StatusBadge status={r.status} /></td>
               </tr>
             ))}
-            {rows.length === 0 && <EmptyRow cols={6} msg="No arrears for this run's employees." />}
+            {filtered.length === 0 && (
+              <EmptyRow cols={6} msg={rows.length === 0 ? "No arrears for this run's employees." : 'No matches for your search.'} />
+            )}
           </tbody>
         </table>
       </div>

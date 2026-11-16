@@ -5,7 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayrollRunReviewItemResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtDate, StatusBadge, EmptyRow, Modal, FormRow, labelStyle,
-  inputStyle, BtnPrimary, BtnGhost, SectionHead,
+  inputStyle, BtnPrimary, BtnGhost, SectionHead, FilterBar,
 } from './payrollShared';
 
 function RejectReasonModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (reason: string) => Promise<void> }) {
@@ -36,6 +36,7 @@ export function LeaveAppliedReviewTab({ runId, canConfigure }: { runId: string; 
   const [items, setItems] = useState<PayrollRunReviewItemResponse[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showReject, setShowReject] = useState(false);
+  const [search, setSearch] = useState('');
 
   function reload() {
     payrollApi.listLeaveAppliedReview(runId, token).then(setItems).catch(() => showToast('error', 'Failed to load review items'));
@@ -43,7 +44,8 @@ export function LeaveAppliedReviewTab({ runId, canConfigure }: { runId: string; 
 
   useEffect(reload, [runId, token]);
 
-  const pendingIds = items.filter(i => i.decision === 'PENDING').map(i => i.id);
+  const filtered = items.filter(i => i.employeeName.toLowerCase().includes(search.trim().toLowerCase()));
+  const pendingIds = filtered.filter(i => i.decision === 'PENDING').map(i => i.id);
   const allPendingSelected = pendingIds.length > 0 && pendingIds.every(id => selected.has(id));
 
   function toggleAll() {
@@ -83,6 +85,7 @@ export function LeaveAppliedReviewTab({ runId, canConfigure }: { runId: string; 
           </div>
         )}
       />
+      <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -92,7 +95,7 @@ export function LeaveAppliedReviewTab({ runId, canConfigure }: { runId: string; 
             </tr>
           </thead>
           <tbody>
-            {items.map(item => (
+            {filtered.map(item => (
               <tr key={item.id}>
                 {canConfigure && (
                   <td style={tdStyle}>
@@ -106,7 +109,9 @@ export function LeaveAppliedReviewTab({ runId, canConfigure }: { runId: string; 
                 <td style={tdStyle}><StatusBadge status={item.decision} /></td>
               </tr>
             ))}
-            {items.length === 0 && <EmptyRow cols={canConfigure ? 6 : 5} msg="No leave-applied items for this run." />}
+            {filtered.length === 0 && (
+              <EmptyRow cols={canConfigure ? 6 : 5} msg={items.length === 0 ? 'No leave-applied items for this run.' : 'No matches for your search.'} />
+            )}
           </tbody>
         </table>
       </div>

@@ -14,9 +14,11 @@ import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.SalaryComponentType;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.entity.PayslipSettings;
 import com.nforce.onehr.repository.PayGroupRepository;
 import com.nforce.onehr.repository.PayslipLineItemRepository;
 import com.nforce.onehr.repository.PayslipRepository;
+import com.nforce.onehr.repository.PayslipSettingsRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.service.PayslipService.PayslipFile;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,6 +59,7 @@ class PayslipServiceTest {
     @Mock private EmployeeRepository employeeRepository;
     @Mock private PayGroupRepository payGroupRepository;
     @Mock private UserRepository userRepository;
+    @Mock private PayslipSettingsRepository payslipSettingsRepository;
 
     private PayslipService service;
 
@@ -66,7 +69,8 @@ class PayslipServiceTest {
     @BeforeEach
     void setUp() {
         service = new PayslipService(payslipRepository, lineItemRepository, employeeRepository, payGroupRepository,
-                userRepository, new PayslipAccessPolicy(), new PayslipPdfService());
+                userRepository, new PayslipAccessPolicy(), new PayslipPdfService(), payslipSettingsRepository);
+        lenient().when(payslipSettingsRepository.findById(any())).thenReturn(Optional.empty());
     }
 
     // ── access matrix ──
@@ -176,6 +180,36 @@ class PayslipServiceTest {
         String text = text(file.data());
         assertTrue(text.contains("Basic") && text.contains("Professional Tax"), text);
         assertFalse(text.contains("Employer PF"), text);
+        assertNotNull(payslip);
+    }
+
+    @Test
+    void payslipSettings_customHeaderAndFooterText_reachTheRenderedPdf() throws IOException {
+        stubUser("emp@x.com", employeeId, "EMPLOYEE");
+        stubPayslip();
+        when(payslipSettingsRepository.findById(payGroupId)).thenReturn(Optional.of(
+                PayslipSettings.builder().payGroupId(payGroupId).documentHeaderText("PAYSLIP").footerText("Custom footer.").build()));
+
+        PayslipFile file = service.getMyPayslipPdf("emp@x.com", "2026-11");
+
+        String text = text(file.data());
+        assertTrue(text.contains("PAYSLIP November 2026"), text);
+        assertTrue(text.contains("Custom footer."), text);
+    }
+
+    @Test
+    void payslipSettings_passwordProtected_encryptsWithTheEmployeesOwnPanUppercased() {
+        stubUser("emp@x.com", employeeId, "EMPLOYEE");
+        Payslip payslip = stubPayslip();
+        Employee employee = employeeRepository.findById(employeeId).orElseThrow();
+        employee.setPanNumber("abcde1234f");
+        when(payslipSettingsRepository.findById(payGroupId)).thenReturn(Optional.of(
+                PayslipSettings.builder().payGroupId(payGroupId).passwordProtected(true).build()));
+
+        PayslipFile file = service.getMyPayslipPdf("emp@x.com", "2026-11");
+
+        assertThrows(Exception.class, () -> new PdfReader(file.data()));
+        assertDoesNotThrow(() -> new PdfReader(file.data(), "ABCDE1234F".getBytes()));
         assertNotNull(payslip);
     }
 

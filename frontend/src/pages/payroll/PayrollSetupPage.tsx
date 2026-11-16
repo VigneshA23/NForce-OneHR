@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Receipt, FileStack, Wallet as WalletIcon, UserCog, Repeat } from 'lucide-react';
+import { Settings, Receipt, FileStack, Wallet as WalletIcon, UserCog, Repeat, FileCheck, FileSliders } from 'lucide-react';
 import PageTitleBlock from '../../components/PageTitleBlock';
 import { TabBar, type TabDef } from '../../components/TabBar';
 import { useAuthStore } from '../../store/authStore';
@@ -13,9 +13,11 @@ import { SalaryStructuresTab } from './SalaryStructuresTab';
 import { PayGroupsTab } from './PayGroupsTab';
 import { EmployeeCompensationTab } from './EmployeeCompensationTab';
 import { RecurringAdHocPaymentRulesTab } from './RecurringAdHocPaymentRulesTab';
+import { FilingDetailsTab } from './FilingDetailsTab';
+import { PayslipSettingsTab } from './PayslipSettingsTab';
 import './payroll.css';
 
-type SetupSection = 'components' | 'structures' | 'pay-groups' | 'compensation' | 'recurring-payments';
+type SetupSection = 'components' | 'structures' | 'pay-groups' | 'compensation' | 'recurring-payments' | 'filing-details' | 'payslip-settings';
 
 const SECTIONS: TabDef<SetupSection>[] = [
   { key: 'components', label: 'Salary Components', icon: <Receipt size={15} /> },
@@ -23,6 +25,8 @@ const SECTIONS: TabDef<SetupSection>[] = [
   { key: 'pay-groups', label: 'Pay Groups', icon: <WalletIcon size={15} /> },
   { key: 'compensation', label: 'Employee Compensation', icon: <UserCog size={15} /> },
   { key: 'recurring-payments', label: 'Recurring Payments', icon: <Repeat size={15} /> },
+  { key: 'filing-details', label: 'Filing Details', icon: <FileCheck size={15} /> },
+  { key: 'payslip-settings', label: 'Payslip Settings', icon: <FileSliders size={15} /> },
 ];
 
 /**
@@ -100,7 +104,7 @@ export default function PayrollSetupPage() {
         />
       </div>
 
-      <TabBar tabs={SECTIONS} active={section} onChange={setSection} ariaLabel="Payroll setup sections" className="nf-pilltabs" style={{ marginBottom: 18 }} />
+      <TabBar tabs={SECTIONS} active={section} onChange={setSection} ariaLabel="Payroll setup sections" style={{ marginBottom: 18 }} />
 
       {section === 'components' && <SalaryComponentsTab catalog={catalog} onChanged={reloadCatalog} />}
       {section === 'structures' && (
@@ -113,6 +117,8 @@ export default function PayrollSetupPage() {
       {section === 'pay-groups' && <PayGroupsTab payGroups={payGroups} onChanged={reloadPayGroups} />}
       {section === 'compensation' && <EmployeeCompensationTab structures={structures} payGroups={payGroups} />}
       {section === 'recurring-payments' && <RecurringAdHocPaymentRulesTab catalog={catalog} payGroups={payGroups} canConfigure={canConfigure} />}
+      {section === 'filing-details' && <FilingDetailsTab payGroups={payGroups} />}
+      {section === 'payslip-settings' && <PayslipSettingsTab payGroups={payGroups} />}
     </div>
   );
 }

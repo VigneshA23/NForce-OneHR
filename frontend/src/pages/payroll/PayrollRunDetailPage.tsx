@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Users, IndianRupee, MinusCircle, Wallet, LayoutGrid, Receipt, CalendarCheck,
@@ -12,8 +12,8 @@ import { hasPermission } from '../../lib/permissions';
 import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayrollRunResponse, type PayrollRunStatus, type PayGroupResponse } from '../../api/payroll';
 import {
-  fmtCurrency, fmtDate, fmtDateTime, StatusBadge, StatTile, Modal, FormRow, labelStyle, inputStyle,
-  BtnPrimary, BtnGhost,
+  fmtCurrency, fmtDate, fmtDateTime, StatusBadge, StatTile, StepCard, SectionHead, Modal, FormRow,
+  labelStyle, inputStyle, BtnPrimary, BtnGhost,
 } from './payrollShared';
 import { PayslipsTab } from './PayslipsTab';
 import { LeaveAppliedReviewTab } from './LeaveAppliedReviewTab';
@@ -63,6 +63,21 @@ const STEPS: TabDef<StepKey>[] = [
   { key: 'holds-arrears', label: 'Salaries on Hold & Arrears', icon: <PauseCircle size={15} /> },
   { key: 'statutory-override', label: 'Override (PF, ESI, PT)', icon: <ShieldCheck size={15} /> },
   { key: 'cost-report', label: 'Cost Report', icon: <PieChart size={15} /> },
+];
+
+// Overview's step-card grid, matching Keka's own "Run Payroll" dashboard (§3.1 of the restyle
+// spec) — every other step as a clickable card instead of leaving Overview a dead end. Excludes
+// 'overview' itself; tone values cycle through the app's existing semantic tokens (StatTile's own
+// convention) rather than introducing new colors.
+const OVERVIEW_CARDS: { key: StepKey; label: string; caption: string; icon: ReactNode; tone: string }[] = [
+  { key: 'payslips', label: 'Payslips', caption: "Review and recompute every employee's payslip for this cycle.", icon: <Receipt size={20} />, tone: 'var(--info)' },
+  { key: 'leave-attendance', label: 'Leave, Attendance & Payable Units', caption: 'Decide leave-applied and no-attendance cases; review payable units.', icon: <CalendarCheck size={20} />, tone: 'var(--brand)' },
+  { key: 'joiners-exits', label: 'New Joinees & Exits', caption: 'Employees who joined or exited within this cycle.', icon: <UserRoundPlus size={20} />, tone: 'var(--ok)' },
+  { key: 'bonus-revisions-ot', label: 'Bonus, Salary Revisions & Overtime', caption: 'Ad-hoc bonus/overtime payments and mid-cycle salary revisions.', icon: <Gift size={20} />, tone: 'var(--warn)' },
+  { key: 'reimbursement-adhoc', label: 'Reimbursement, Adhoc Payment, Deduction', caption: 'Cleared expense claims, ad-hoc payments and deductions.', icon: <ReceiptIcon size={20} />, tone: 'var(--info)' },
+  { key: 'holds-arrears', label: 'Salaries on Hold & Arrears', caption: 'Employees excluded from processing or payout, and pending arrears.', icon: <PauseCircle size={20} />, tone: 'var(--risk)' },
+  { key: 'statutory-override', label: 'Override (PF, ESI, PT)', caption: 'Per-employee overrides to the computed statutory deductions.', icon: <ShieldCheck size={20} />, tone: 'var(--brand)' },
+  { key: 'cost-report', label: 'Cost Report', caption: "This run's total cost broken down by department and project.", icon: <PieChart size={20} />, tone: 'var(--ok)' },
 ];
 
 type LeaveAttendanceSubTab = 'leave-applied' | 'no-attendance' | 'lop-summary' | 'lop-reversal' | 'payable-units';
@@ -235,8 +250,15 @@ export default function PayrollRunDetailPage() {
       <TabBar tabs={STEPS} active={step} onChange={setStep} ariaLabel="Payroll run steps" className="nf-pilltabs nf-pilltabs--wrap" style={{ marginBottom: 18 }} />
 
       {step === 'overview' && (
-        <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 22px' }}>
-          <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, margin: 0 }}>
+        <>
+          <div className="nf-pr-steps">
+            {OVERVIEW_CARDS.map(c => (
+              <StepCard key={c.key} icon={c.icon} tone={c.tone} label={c.label} caption={c.caption} onClick={() => setStep(c.key)} />
+            ))}
+          </div>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 22px' }}>
+            <SectionHead title="Run Status" />
+            <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, margin: 0 }}>
             <div><dt style={labelStyle}>Submitted</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{fmtDateTime(run.submittedAt)}</dd></div>
             <div><dt style={labelStyle}>Approved</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{fmtDateTime(run.approvedAt)}</dd></div>
             <div><dt style={labelStyle}>Disbursed</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{fmtDateTime(run.disbursedAt)}</dd></div>
@@ -248,7 +270,8 @@ export default function PayrollRunDetailPage() {
               </>
             )}
           </dl>
-        </div>
+          </div>
+        </>
       )}
 
       {step === 'payslips' && <PayslipsTab runId={runId} payGroupId={run.payGroupId} cycleStart={run.cycleStart} canConfigure={canConfigure} />}
@@ -257,7 +280,7 @@ export default function PayrollRunDetailPage() {
 
       {step === 'leave-attendance' && (
         <div>
-          <TabBar tabs={LEAVE_ATTENDANCE_SUBTABS} active={leaveAttendanceSubTab} onChange={setLeaveAttendanceSubTab} size="sm" ariaLabel="Leave, attendance and payable units steps" style={{ marginBottom: 16 }} />
+          <TabBar tabs={LEAVE_ATTENDANCE_SUBTABS} active={leaveAttendanceSubTab} onChange={setLeaveAttendanceSubTab} size="sm" className="nf-boxedtabs" ariaLabel="Leave, attendance and payable units steps" style={{ marginBottom: 16 }} />
           {leaveAttendanceSubTab === 'leave-applied' && <LeaveAppliedReviewTab runId={runId} canConfigure={canConfigure} />}
           {leaveAttendanceSubTab === 'no-attendance' && <NoAttendanceReviewTab runId={runId} canConfigure={canConfigure} />}
           {leaveAttendanceSubTab === 'payable-units' && <PayableUnitsTab runId={runId} />}
@@ -266,7 +289,7 @@ export default function PayrollRunDetailPage() {
 
       {step === 'bonus-revisions-ot' && (
         <div>
-          <TabBar tabs={BONUS_REVISIONS_OT_SUBTABS} active={bonusRevisionsOtSubTab} onChange={setBonusRevisionsOtSubTab} size="sm" ariaLabel="Bonus, salary revisions and overtime steps" style={{ marginBottom: 16 }} />
+          <TabBar tabs={BONUS_REVISIONS_OT_SUBTABS} active={bonusRevisionsOtSubTab} onChange={setBonusRevisionsOtSubTab} size="sm" className="nf-boxedtabs" ariaLabel="Bonus, salary revisions and overtime steps" style={{ marginBottom: 16 }} />
           {bonusRevisionsOtSubTab === 'bonus-ot' && <AdHocPaymentsTab runId={runId} canConfigure={canConfigure} />}
           {bonusRevisionsOtSubTab === 'salary-revision' && <SalaryRevisionTab runId={runId} payGroupId={run.payGroupId} canConfigure={canConfigure} />}
         </div>
@@ -274,7 +297,7 @@ export default function PayrollRunDetailPage() {
 
       {step === 'reimbursement-adhoc' && (
         <div>
-          <TabBar tabs={REIMBURSEMENT_SUBTABS} active={reimbursementSubTab} onChange={setReimbursementSubTab} size="sm" ariaLabel="Reimbursement, adhoc payment and deduction steps" style={{ marginBottom: 16 }} />
+          <TabBar tabs={REIMBURSEMENT_SUBTABS} active={reimbursementSubTab} onChange={setReimbursementSubTab} size="sm" className="nf-boxedtabs" ariaLabel="Reimbursement, adhoc payment and deduction steps" style={{ marginBottom: 16 }} />
           {reimbursementSubTab === 'salary-component-claim' && <SalaryComponentClaimTab runId={runId} />}
           {reimbursementSubTab === 'adhoc-payments' && <AdHocPaymentsTab runId={runId} canConfigure={canConfigure} />}
           {reimbursementSubTab === 'adhoc-deductions' && <AdHocDeductionsTab runId={runId} canConfigure={canConfigure} />}
@@ -283,7 +306,7 @@ export default function PayrollRunDetailPage() {
 
       {step === 'holds-arrears' && (
         <div>
-          <TabBar tabs={HOLDS_SUBTABS} active={holdsSubTab} onChange={setHoldsSubTab} size="sm" ariaLabel="Salaries on hold and arrears steps" style={{ marginBottom: 16 }} />
+          <TabBar tabs={HOLDS_SUBTABS} active={holdsSubTab} onChange={setHoldsSubTab} size="sm" className="nf-boxedtabs" ariaLabel="Salaries on hold and arrears steps" style={{ marginBottom: 16 }} />
           {holdsSubTab === 'processing-hold' && <SalaryHoldsTab runId={runId} holdType="PROCESSING" canConfigure={canConfigure} />}
           {holdsSubTab === 'payout-hold' && <SalaryHoldsTab runId={runId} holdType="PAYOUT" canConfigure={canConfigure} />}
           {holdsSubTab === 'arrears' && <ArrearsTab runId={runId} />}

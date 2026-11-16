@@ -46,25 +46,48 @@ public class PayslipPdfService {
     /** One component row on the earnings or deductions table. */
     public record Line(String name, BigDecimal amount) {}
 
+    // documentHeaderText/footerText default to null — Keka restyle's "Configure Payslip
+    // Settings" (§3.9) overrides them per pay group; a payslip whose pay group never configured
+    // either (or didn't exist before this setting did) renders with exactly the same hardcoded
+    // text this always used, not a sudden blank or placeholder.
     public record PayslipPdfModel(String companyName, String currency, String periodLabel,
                                   LocalDate cycleStart, LocalDate cycleEnd,
                                   String employeeName, String employeeCode, String department,
                                   String designation, LocalDate joiningDate,
                                   int cycleDays, int employedDays, BigDecimal lopDays,
                                   List<Line> earnings, List<Line> deductions,
-                                  BigDecimal grossPay, BigDecimal totalDeductions, BigDecimal netPay) {}
+                                  BigDecimal grossPay, BigDecimal totalDeductions, BigDecimal netPay,
+                                  String documentHeaderText, String footerText) {}
+
+    private static final String DEFAULT_TITLE_PREFIX = "Payslip for";
+    private static final String DEFAULT_FOOTER = "This is a computer-generated payslip and does not require a signature.";
 
     public byte[] render(PayslipPdfModel m) {
+        return render(m, null);
+    }
+
+    /** {@code password}, when non-blank, encrypts the PDF so it can't be opened without it — Keka
+     * restyle's "Enable password protection for payslips" setting (§3.9), keyed by the
+     * employee's own PAN (matching that screen's own documented convention: "the password to
+     * open Payslip will be the PAN number ... in uppercase"), resolved by the caller, not here —
+     * this method only knows it received a password, never what it's derived from. */
+    public byte[] render(PayslipPdfModel m, String password) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         Document doc = new Document(PageSize.A4, 36, 36, 36, 36);
         try {
-            PdfWriter.getInstance(doc, out);
+            PdfWriter writer = PdfWriter.getInstance(doc, out);
+            if (password != null && !password.isBlank()) {
+                writer.setEncryption(password.getBytes(), password.getBytes(),
+                        com.lowagie.text.pdf.PdfWriter.ALLOW_PRINTING, com.lowagie.text.pdf.PdfWriter.STANDARD_ENCRYPTION_128);
+            }
             doc.open();
 
             Paragraph company = new Paragraph(orDash(m.companyName()), TITLE);
             company.setAlignment(Element.ALIGN_CENTER);
             doc.add(company);
-            Paragraph title = new Paragraph("Payslip for " + m.periodLabel(), HEADING);
+            String titlePrefix = m.documentHeaderText() != null && !m.documentHeaderText().isBlank()
+                    ? m.documentHeaderText() : DEFAULT_TITLE_PREFIX;
+            Paragraph title = new Paragraph(titlePrefix + " " + m.periodLabel(), HEADING);
             title.setAlignment(Element.ALIGN_CENTER);
             title.setSpacingAfter(10);
             doc.add(title);
@@ -77,7 +100,8 @@ public class PayslipPdfService {
             doc.add(spacer());
             doc.add(totalsTable(m));
 
-            Paragraph note = new Paragraph("This is a computer-generated payslip and does not require a signature.", NOTE);
+            String footerText = m.footerText() != null && !m.footerText().isBlank() ? m.footerText() : DEFAULT_FOOTER;
+            Paragraph note = new Paragraph(footerText, NOTE);
             note.setSpacingBefore(14);
             doc.add(note);
         } catch (DocumentException e) {

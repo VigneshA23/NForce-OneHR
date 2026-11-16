@@ -30,6 +30,7 @@ import PayrollRunsPage from './pages/PayrollRunsPage';
 import PayrollRunDetailPage from './pages/payroll/PayrollRunDetailPage';
 import PayrollSetupPage from './pages/payroll/PayrollSetupPage';
 import StatutoryCompliancePage from './pages/payroll/StatutoryCompliancePage';
+import PayrollReportsPage from './pages/payroll/PayrollReportsPage';
 import MyFinancesPage from './pages/MyFinancesPage';
 import DocumentsPage from './pages/DocumentsPage';
 import DocumentsCompliancePage from './pages/DocumentsCompliancePage';
@@ -211,6 +212,7 @@ export default function App() {
           <Route path="/payroll-runs/:runId" element={<PayrollRunDetailPage />} />
           <Route path="/payroll-setup" element={<PayrollSetupPage />} />
           <Route path="/statutory-compliance" element={<StatutoryCompliancePage />} />
+          <Route path="/payroll-reports" element={<PayrollReportsPage />} />
           <Route path="/my-finances"  element={<MyFinancesPage />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}

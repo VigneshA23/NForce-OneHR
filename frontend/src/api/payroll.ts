@@ -28,6 +28,63 @@ export interface PayGroupResponse {
   active: boolean;
 }
 
+// Keka restyle — Filing Details (§3.8).
+export interface PayGroupFilingDetailsResponse {
+  payGroupId: string;
+  pan: string | null;
+  tan: string | null;
+  tanCircleNumber: string | null;
+  citTdsLocation: string | null;
+  form130Signatory: string | null;
+  signatoryDesignation: string | null;
+  signatoryFatherName: string | null;
+  pfEstablishmentId: string | null;
+  esiEstablishmentId: string | null;
+  updatedAt: string | null;
+}
+
+// Keka restyle — Import Financial Information (§3.4).
+export interface EmployeeFinancialDetailsResponse {
+  employeeId: string;
+  employeeCode: string;
+  employeeName: string;
+  bankAccountNumber: string | null;
+  bankName: string | null;
+  bankIfsc: string | null;
+  panNumber: string | null;
+  uanNumber: string | null;
+  esiNumber: string | null;
+}
+
+// Keka restyle — Import Investment Declaration (§3.4).
+export interface InvestmentDeclarationResponse {
+  id: string;
+  employeeId: string;
+  financialYear: string;
+  section: string;
+  declaredAmount: number;
+}
+
+// Keka restyle — Configure Payslip Settings (§3.9).
+export interface PayslipSettingsResponse {
+  payGroupId: string;
+  passwordProtected: boolean;
+  documentHeaderText: string | null;
+  footerText: string | null;
+}
+
+export interface PtRegisteredLocationResponse {
+  id: string;
+  payGroupId: string;
+  stateName: string;
+  locationName: string;
+  establishmentId: string | null;
+  registrationDate: string | null;
+  signatory: string | null;
+  signatoryDesignation: string | null;
+  signatoryFatherName: string | null;
+}
+
 export type PayrollRunStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'DISBURSED';
 
 export interface PayrollRunResponse {
@@ -243,6 +300,8 @@ export interface SalaryComponentCatalogResponse {
   shownOnPayslip: boolean;
   prorateOnLop: boolean;
   active: boolean;
+  displayOrder: number;
+  accountingCode: string | null;
 }
 
 export interface DepartmentCostResponse {
@@ -373,6 +432,17 @@ export const payrollApi = {
 
   getCompensationHistory: (employeeId: string, token: string) =>
     fetch(`${BASE}/employee-compensation/employee/${employeeId}/history`, { headers: bearerOnly(token) }).then(handle<EmployeeCompensationResponse[]>),
+
+  // Org-wide "who was revised when" admin view — every compensation row across every employee.
+  // Pair with auditApi (action: 'EMPLOYEE_COMPENSATION_ASSIGNED') to find who made each change and
+  // when; this endpoint itself carries no actor/timestamp of its own (see the backend service's
+  // own comment for why).
+  listAllCompensationHistory: (token: string) =>
+    fetch(`${BASE}/employee-compensation/history`, { headers: bearerOnly(token) }).then(handle<EmployeeCompensationResponse[]>),
+
+  // Keka restyle — "Current CTC Report" (§3.6 Reports Home). asOf defaults to today server-side.
+  listAllCurrentCompensation: (token: string, asOf?: string) =>
+    fetch(`${BASE}/employee-compensation/current${asOf ? `?asOf=${asOf}` : ''}`, { headers: bearerOnly(token) }).then(handle<EmployeeCompensationResponse[]>),
 
   // US-C02 self-service follow-up — "me" resolved server-side from the JWT, no employeeId needed.
   // Returns null (not a thrown error) when nothing's been assigned yet — a real, expected state for
@@ -538,12 +608,74 @@ export const payrollApi = {
   updatePayGroup: (id: string, payload: Partial<{ name: string; legalEntity: string; frequency: string; currency: string; cycleStartDay: number; cycleEndDay: number; processingDay: number; active: boolean }>, token: string) =>
     fetch(`${BASE}/pay-groups/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayGroupResponse>),
 
+  // Keka restyle — Filing Details (§3.8): Income Tax/PF/ESI, one row per pay group.
+  getFilingDetails: (payGroupId: string, token: string) =>
+    fetch(`${BASE}/pay-groups/${payGroupId}/filing-details`, { headers: bearerOnly(token) }).then(handle<PayGroupFilingDetailsResponse>),
+
+  updateFilingDetails: (payGroupId: string, payload: {
+    pan?: string; tan?: string; tanCircleNumber?: string; citTdsLocation?: string; form130Signatory?: string;
+    signatoryDesignation?: string; signatoryFatherName?: string; pfEstablishmentId?: string; esiEstablishmentId?: string;
+  }, token: string) =>
+    fetch(`${BASE}/pay-groups/${payGroupId}/filing-details`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayGroupFilingDetailsResponse>),
+
+  // Keka restyle — "PT Registered states"/"Registered PT Locations" (§3.8).
+  listPtLocations: (payGroupId: string, token: string) =>
+    fetch(`${BASE}/pay-groups/${payGroupId}/pt-locations`, { headers: bearerOnly(token) }).then(handle<PtRegisteredLocationResponse[]>),
+
+  createPtLocation: (payGroupId: string, payload: {
+    stateName: string; locationName: string; establishmentId?: string; registrationDate?: string;
+    signatory?: string; signatoryDesignation?: string; signatoryFatherName?: string;
+  }, token: string) =>
+    fetch(`${BASE}/pay-groups/${payGroupId}/pt-locations`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PtRegisteredLocationResponse>),
+
+  updatePtLocation: (payGroupId: string, id: string, payload: {
+    stateName: string; locationName: string; establishmentId?: string; registrationDate?: string;
+    signatory?: string; signatoryDesignation?: string; signatoryFatherName?: string;
+  }, token: string) =>
+    fetch(`${BASE}/pay-groups/${payGroupId}/pt-locations/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PtRegisteredLocationResponse>),
+
+  deletePtLocation: (payGroupId: string, id: string, token: string) =>
+    fetch(`${BASE}/pay-groups/${payGroupId}/pt-locations/${id}`, { method: 'DELETE', headers: authHeaders(token) }).then(res => {
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    }),
+
+  // Keka restyle — Configure Payslip Settings (§3.9). Genuinely read by the PDF renderer
+  // (PayslipService#toModel) — a pay group with no row renders exactly as it always has.
+  getPayslipSettings: (payGroupId: string, token: string) =>
+    fetch(`${BASE}/pay-groups/${payGroupId}/payslip-settings`, { headers: bearerOnly(token) }).then(handle<PayslipSettingsResponse>),
+
+  updatePayslipSettings: (payGroupId: string, payload: { passwordProtected: boolean; documentHeaderText?: string; footerText?: string }, token: string) =>
+    fetch(`${BASE}/pay-groups/${payGroupId}/payslip-settings`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayslipSettingsResponse>),
+
+  // Keka restyle — Import Financial Information (§3.4). No bulk endpoint on the backend; the
+  // import wizard calls this once per valid row, same loop pattern as the salary import.
+  getEmployeeFinancialDetails: (employeeId: string, token: string) =>
+    fetch(`${BASE}/employees/${employeeId}/financial-details`, { headers: bearerOnly(token) }).then(handle<EmployeeFinancialDetailsResponse>),
+
+  updateEmployeeFinancialDetails: (employeeId: string, payload: Partial<{
+    bankAccountNumber: string; bankName: string; bankIfsc: string; panNumber: string; uanNumber: string; esiNumber: string;
+  }>, token: string) =>
+    fetch(`${BASE}/employees/${employeeId}/financial-details`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<EmployeeFinancialDetailsResponse>),
+
+  // Keka restyle — Import Investment Declaration (§3.4). Bookkeeping only — see the backend
+  // migration's own comment for why nothing reads this into a TDS computation yet.
+  upsertInvestmentDeclaration: (payload: { employeeId: string; financialYear: string; section: string; declaredAmount: number }, token: string) =>
+    fetch(`${BASE}/investment-declarations`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<InvestmentDeclarationResponse>),
+
+  listInvestmentDeclarations: (employeeId: string, token: string) =>
+    fetch(`${BASE}/investment-declarations?${new URLSearchParams({ employeeId }).toString()}`, { headers: bearerOnly(token) }).then(handle<InvestmentDeclarationResponse[]>),
+
   // US-C20 — Salary Component catalog (full CRUD; previously only wrapped for reading)
   createSalaryComponent: (payload: { name: string; type: string; taxable?: boolean; taxSection?: string; includedInCtc?: boolean; shownOnPayslip?: boolean; prorateOnLop?: boolean }, token: string) =>
     fetch(`${BASE}/salary-components`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<SalaryComponentCatalogResponse>),
 
-  updateSalaryComponent: (id: string, payload: Partial<{ name: string; type: string; taxable: boolean; taxSection: string; includedInCtc: boolean; shownOnPayslip: boolean; prorateOnLop: boolean; active: boolean }>, token: string) =>
+  updateSalaryComponent: (id: string, payload: Partial<{ name: string; type: string; taxable: boolean; taxSection: string; includedInCtc: boolean; shownOnPayslip: boolean; prorateOnLop: boolean; active: boolean; accountingCode: string }>, token: string) =>
     fetch(`${BASE}/salary-components/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<SalaryComponentCatalogResponse>),
+
+  // Keka's "Order of components" screen (§3.8) — the full catalog's ids in the desired order;
+  // the backend assigns displayOrder = index in one transaction.
+  reorderSalaryComponents: (orderedIds: string[], token: string) =>
+    fetch(`${BASE}/salary-components/order`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ orderedIds }) }).then(handle<SalaryComponentCatalogResponse[]>),
 
   // US-C13 — Statutory Rules (config/versioning only — see StatutoryRuleResponse's own doc comment)
   listStatutoryRules: (token: string) =>

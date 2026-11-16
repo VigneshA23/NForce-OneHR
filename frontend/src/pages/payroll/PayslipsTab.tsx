@@ -7,7 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayslipResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, EmptyRow, Modal, FormRow, labelStyle, inputStyle,
-  BtnPrimary, BtnGhost, SectionHead, useEmployeeDirectory,
+  BtnPrimary, BtnGhost, SectionHead, FilterBar, useEmployeeDirectory,
 } from './payrollShared';
 
 function OverrideLopModal({ payGroupId, employeeId, cycleStart, onClose, onDone }: {
@@ -150,6 +150,7 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, canConfigure }: { r
   const { showToast } = useToast();
   const [payslips, setPayslips] = useState<PayslipResponse[]>([]);
   const [selected, setSelected] = useState<PayslipResponse | null>(null);
+  const [search, setSearch] = useState('');
   const { nameFor } = useEmployeeDirectory();
 
   function reload() {
@@ -158,7 +159,8 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, canConfigure }: { r
 
   useEffect(reload, [runId, token]);
 
-  const { pageRows, pagerProps } = usePaged(payslips, [runId]);
+  const filtered = payslips.filter(p => nameFor(p.employeeId).toLowerCase().includes(search.trim().toLowerCase()));
+  const { pageRows, pagerProps } = usePaged(filtered, [runId, search]);
   const totalNet = payslips.reduce((sum, p) => sum + p.netPay, 0);
 
   return (
@@ -171,6 +173,7 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, canConfigure }: { r
           </span>
         )}
       />
+      <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
         <table className="nf-pr-table nf-pr-table-clickable" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -188,7 +191,9 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, canConfigure }: { r
                 <td style={tdStyle}>{p.paymentWithheld ? 'Yes' : 'No'}</td>
               </tr>
             ))}
-            {pageRows.length === 0 && <EmptyRow cols={7} msg="No payslips yet — generate the draft first." />}
+            {pageRows.length === 0 && (
+              <EmptyRow cols={7} msg={payslips.length === 0 ? 'No payslips yet — generate the draft first.' : 'No matches for your search.'} />
+            )}
           </tbody>
         </table>
         <TablePagination {...pagerProps} noun="payslips" />

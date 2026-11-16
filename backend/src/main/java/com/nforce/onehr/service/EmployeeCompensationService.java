@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -134,6 +135,29 @@ public class EmployeeCompensationService {
     @Transactional(readOnly = true)
     public List<EmployeeCompensationResponse> getHistory(UUID employeeId) {
         return employeeCompensationRepository.findByEmployeeIdOrderByEffectiveFromDesc(employeeId).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    // Keka restyle — "Current CTC Report" (§3.6 Reports Home): every employee's compensation row
+    // effective on the given date, reusing the exact point-in-time query generateDraft already
+    // relies on (US-C08) rather than a second "current" concept of its own.
+    @Transactional(readOnly = true)
+    public List<EmployeeCompensationResponse> listAllCurrent(LocalDate asOf) {
+        return employeeCompensationRepository.findAllEffectiveAt(asOf).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    // Org-wide "who was revised when" admin view — every compensation row across every employee,
+    // newest first. The frontend joins each row against GET /api/audit-logs?action=
+    // EMPLOYEE_COMPENSATION_ASSIGNED (by this row's own id, which is exactly the targetId that
+    // call was logged against) to show who made the change and when, rather than this endpoint
+    // carrying actor/timestamp fields of its own — the audit trail is already the one place that's
+    // tracked, and duplicating it here would drift the moment either one changed independently.
+    @Transactional(readOnly = true)
+    public List<EmployeeCompensationResponse> listAllHistory() {
+        return employeeCompensationRepository.findAllByOrderByCreatedAtDesc().stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
     }

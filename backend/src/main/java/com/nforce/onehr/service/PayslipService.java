@@ -9,9 +9,11 @@ import com.nforce.onehr.entity.PayslipLineItem;
 import com.nforce.onehr.entity.SalaryComponentType;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
+import com.nforce.onehr.entity.PayslipSettings;
 import com.nforce.onehr.repository.PayGroupRepository;
 import com.nforce.onehr.repository.PayslipLineItemRepository;
 import com.nforce.onehr.repository.PayslipRepository;
+import com.nforce.onehr.repository.PayslipSettingsRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.service.PayslipPdfService.Line;
 import com.nforce.onehr.service.PayslipPdfService.PayslipPdfModel;
@@ -63,6 +65,7 @@ public class PayslipService {
     private final UserRepository userRepository;
     private final PayslipAccessPolicy accessPolicy;
     private final PayslipPdfService pdfService;
+    private final PayslipSettingsRepository payslipSettingsRepository;
 
     /** Periods ({@code yyyy-MM}, newest first) for which the caller has a viewable payslip. */
     @Transactional(readOnly = true)
@@ -92,11 +95,14 @@ public class PayslipService {
                 .orElseThrow(() -> new NoSuchElementException("No payslip available for " + period));
         Employee employee = employeeRepository.findById(employeeId)
                 .orElseThrow(() -> new NoSuchElementException("Employee not found"));
-        byte[] pdf = pdfService.render(toModel(payslip, employee, month));
+        PayslipSettings settings = payslipSettingsRepository.findById(payslip.getPayrollRun().getPayGroupId()).orElse(null);
+        String password = (settings != null && settings.isPasswordProtected() && employee.getPanNumber() != null)
+                ? employee.getPanNumber().toUpperCase(Locale.ENGLISH) : null;
+        byte[] pdf = pdfService.render(toModel(payslip, employee, month, settings), password);
         return new PayslipFile(pdf, "application/pdf", "payslip-" + employee.getEmployeeCode() + "-" + month + ".pdf");
     }
 
-    private PayslipPdfModel toModel(Payslip payslip, Employee employee, YearMonth month) {
+    private PayslipPdfModel toModel(Payslip payslip, Employee employee, YearMonth month, PayslipSettings settings) {
         PayrollRun run = payslip.getPayrollRun();
         PayGroup payGroup = payGroupRepository.findById(run.getPayGroupId()).orElse(null);
         List<PayslipLineItem> items = lineItemRepository.findByPayslipId(payslip.getId());
@@ -111,7 +117,9 @@ public class PayslipService {
                 employee.getJoiningDate(),
                 payslip.getCycleDays(), payslip.getEmployedDays(), payslip.getLopDays(),
                 lines(items, EARNING_TYPES), lines(items, DEDUCTION_TYPES),
-                payslip.getGrossPay(), payslip.getTotalDeductions(), payslip.getNetPay());
+                payslip.getGrossPay(), payslip.getTotalDeductions(), payslip.getNetPay(),
+                settings == null ? null : settings.getDocumentHeaderText(),
+                settings == null ? null : settings.getFooterText());
     }
 
     /** Only earning/deduction types are printed; anything else (e.g. a contribution) is never shown. */

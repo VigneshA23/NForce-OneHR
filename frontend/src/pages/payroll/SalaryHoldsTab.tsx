@@ -8,6 +8,7 @@ import { payrollApi, type SalaryHoldResponse, type SalaryHoldType } from '../../
 import {
   panelStyle, thStyle, tdStyle, fmtDateTime, StatusBadge, EmptyRow, Modal, FormRow, labelStyle,
   inputStyle, BtnPrimary, BtnGhost, SectionHead, NoPermissionNote, ConfirmDialog, EmployeePicker, useEmployeeDirectory,
+  FilterBar,
 } from './payrollShared';
 
 function CreateHoldModal({ runId, fixedType, onClose, onCreated }: {
@@ -79,6 +80,7 @@ export function SalaryHoldsTab({ runId, holdType, canConfigure }: { runId: strin
   const [holds, setHolds] = useState<SalaryHoldResponse[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [releasing, setReleasing] = useState<SalaryHoldResponse | null>(null);
+  const [search, setSearch] = useState('');
 
   function reload() {
     payrollApi.listSalaryHolds(runId, token).then(setHolds).catch(() => showToast('error', 'Failed to load salary holds'));
@@ -96,7 +98,8 @@ export function SalaryHoldsTab({ runId, holdType, canConfigure }: { runId: strin
     }
   }
 
-  const visible = holdType ? holds.filter(h => h.holdType === holdType) : holds;
+  const byType = holdType ? holds.filter(h => h.holdType === holdType) : holds;
+  const visible = byType.filter(h => nameFor(h.employeeId).toLowerCase().includes(search.trim().toLowerCase()));
   const columns = holdType ? ['Employee', 'Status', 'Reason', 'Created By', 'Released By', ''] : ['Employee', 'Type', 'Status', 'Reason', 'Created By', 'Released By', ''];
 
   return (
@@ -107,6 +110,7 @@ export function SalaryHoldsTab({ runId, holdType, canConfigure }: { runId: strin
           ? <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Employee</BtnPrimary>
           : <NoPermissionNote action="add holds" />}
       />
+      <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { X, Wallet, FileCheck2, Receipt, ClipboardList, PauseCircle, Undo2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, Wallet, FileCheck2, Receipt, ClipboardList, PauseCircle, Undo2, Search } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../../store/authStore';
@@ -113,6 +114,46 @@ export function EmployeePicker({ value, onChange, options }: {
   );
 }
 
+// The filter/search strip that sits above a list table (Keka's "filter bar" pattern) — a search
+// box plus whatever filter controls the caller already has real data for. Deliberately doesn't
+// fabricate dropdowns the underlying data can't back; `children` is where a caller adds its own
+// (e.g. a status <select>) using the same inputStyle-less, borderless look as the search box.
+export function FilterBar({ search, onSearchChange, placeholder = 'Search employee', children }: {
+  search?: string; onSearchChange?: (v: string) => void; placeholder?: string; children?: ReactNode;
+}) {
+  return (
+    <div className="nf-pr-filterbar">
+      {children}
+      {onSearchChange && (
+        <label className="nf-pr-filterbar-search">
+          <Search size={14} />
+          <input value={search ?? ''} onChange={e => onSearchChange(e.target.value)} placeholder={placeholder} />
+        </label>
+      )}
+    </div>
+  );
+}
+
+/** Overview's step-card grid tile — a round pastel-tinted icon, a primary-coloured title link and
+ * a grey caption, matching Keka's "Run Payroll" step cards. Reuses the same --mk tone convention
+ * as StatTile, just without the big KPI number (this is a nav link, not a readout). */
+export function StepCard({ icon, tone, label, caption, onClick, disabled, disabledReason }: {
+  icon: ReactNode; tone: string; label: string; caption?: string; onClick: () => void; disabled?: boolean; disabledReason?: string;
+}) {
+  return (
+    <button
+      type="button" className="nf-pr-stepcard" style={{ ['--mk' as string]: tone }}
+      onClick={onClick} disabled={disabled} title={disabled ? disabledReason : undefined}
+    >
+      <span className="nf-pr-stepcard-ico">{icon}</span>
+      <span>
+        <div className="nf-pr-stepcard-title">{label}</div>
+        {caption && <div className="nf-pr-stepcard-caption">{caption}</div>}
+      </span>
+    </button>
+  );
+}
+
 export function EmptyRow({ cols, msg }: { cols: number; msg: string }) {
   return (
     <tr>
@@ -207,13 +248,139 @@ export function Modal({ title, subtitle, onClose, children, wide }: { title: str
   );
 }
 
+// A focused full-screen task (Keka's pattern for big edits — Update Salary Structure, Revise
+// Salary): hides everything else, title + close top-left/right, caller-supplied action buttons
+// (Cancel/Save) in a sticky header bar instead of a modal footer. Scrollable body below.
+//
+// Rendered via a portal straight onto <body> (same escape hatch TeamGrowthModal already uses) —
+// this component is always mounted several levels deep inside a tab's own page content, and
+// `position: fixed` only measures against the true viewport when NO ancestor between it and
+// <body> has its own transform/filter/will-change (several of which this app's animated sections
+// apply elsewhere — see the .nf-section-enter comment in index.css for the same class of bug).
+// A portal makes that ancestry irrelevant instead of having to prove none of it ever will.
+export function FullScreenTask({ title, subtitle, onClose, actions, children }: {
+  title: string; subtitle?: ReactNode; onClose: () => void; actions: ReactNode; children: ReactNode;
+}) {
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, []);
+
+  return createPortal(
+    <div className="nf-pr-fullscreen">
+      <div className="nf-pr-fullscreen-head">
+        <div>
+          <div className="nf-pr-fullscreen-title">{title}</div>
+          {subtitle && <div className="nf-pr-fullscreen-subtitle">{subtitle}</div>}
+        </div>
+        <div className="nf-pr-fullscreen-actions">
+          {actions}
+          <button type="button" className="nf-pr-fullscreen-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+      </div>
+      <div className="nf-pr-fullscreen-body">{children}</div>
+    </div>,
+    document.body,
+  );
+}
+
+// Right-side slide-in panel for editing a single record (Keka's drawer pattern, §1.4) — a grey
+// read-only block for fields that can't change after creation, a scrollable form body, and a
+// sticky Discard/Update footer. Portalled onto <body> for the same reason FullScreenTask is.
+export function Drawer({ title, readOnlyBlock, onClose, children, footer }: {
+  title: string; readOnlyBlock?: ReactNode; onClose: () => void; children: ReactNode; footer: ReactNode;
+}) {
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, []);
+
+  return createPortal(
+    <div className="nf-pr-drawer-overlay" onClick={onClose}>
+      <div className="nf-pr-drawer-panel" role="dialog" aria-label={title} onClick={e => e.stopPropagation()}>
+        <div className="nf-pr-drawer-head">
+          <div className="nf-pr-drawer-title">{title}</div>
+          <button type="button" className="nf-pr-drawer-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+        {readOnlyBlock && <div className="nf-pr-drawer-readonly">{readOnlyBlock}</div>}
+        <div className="nf-pr-drawer-body">{children}</div>
+        <div className="nf-pr-drawer-footer">{footer}</div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// A pill toggle (Keka's switch pattern, §1.4) — --primary when on, light grey when off. A plain
+// checkbox styled as a switch would be simpler, but role="switch" semantics communicate "this
+// flips a setting" better than a checkbox does for things like "Enabled"/"Active".
+export function ToggleSwitch({ checked, onChange, label, disabled }: {
+  checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; disabled?: boolean;
+}) {
+  function toggle() { if (!disabled) onChange(!checked); }
+  return (
+    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? .6 : 1 }}>
+      <span
+        role="switch" aria-checked={checked} aria-disabled={disabled} tabIndex={disabled ? -1 : 0}
+        onClick={toggle}
+        onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } }}
+        style={{
+          width: 36, height: 20, borderRadius: 999, flexShrink: 0, position: 'relative', display: 'inline-block',
+          background: checked ? 'var(--brand)' : 'var(--line2)', transition: 'background .15s',
+        }}
+      >
+        <span style={{
+          position: 'absolute', top: 2, left: checked ? 18 : 2, width: 16, height: 16, borderRadius: '50%',
+          background: '#fff', transition: 'left .15s', boxShadow: '0 1px 3px rgba(0,0,0,.3)',
+        }} />
+      </span>
+      {label}
+    </label>
+  );
+}
+
+// Keka's import-wizard stepper (§1.4/§3.4) — a horizontal row of numbered circles, the active
+// step filled, earlier ones also filled (done), later ones outline-only.
+export function Stepper({ steps, activeIndex }: { steps: string[]; activeIndex: number }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', gap: 36, marginBottom: 28 }}>
+      {steps.map((label, i) => {
+        const reached = i <= activeIndex;
+        return (
+          <div key={label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 700,
+              background: reached ? 'var(--brand)' : 'var(--panel)',
+              color: reached ? '#fff' : 'var(--txt-dim)',
+              border: reached ? 'none' : '1px solid var(--line2)',
+            }}>
+              {i + 1}
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: i === activeIndex ? 'var(--brand)' : 'var(--txt-dim)' }}>{label}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function FormRow({ children }: { children: ReactNode }) {
   return <div style={{ marginBottom: 14 }}>{children}</div>;
 }
 
 export function BtnPrimary({ children, onClick, disabled, type = 'button' }: { children: ReactNode; onClick?: () => void; disabled?: boolean; type?: 'button' | 'submit' }) {
   return (
-    <button type={type} onClick={onClick} disabled={disabled} style={{ background: disabled ? 'var(--raised)' : 'var(--brand)', color: disabled ? 'var(--txt-dim)' : '#fff', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+    // display:inline-flex + alignItems:center — Tailwind's preflight (this app imports
+    // tailwindcss in index.css) resets every <svg> to display:block; inside a plain inline-block
+    // button that forces a hard line break between an icon prefix and the label that follows it
+    // (an icon with no following inline siblings is unaffected, which is why this went unnoticed
+    // in buttons that are icon-only). Every call site elsewhere that mixes an icon with text
+    // already works around this per-button (e.g. PayrollRunsPage's "Generate New Run"); fixing it
+    // here covers every BtnPrimary/BtnGhost + icon combination in the payroll module at once.
+    <button type={type} onClick={onClick} disabled={disabled} style={{ display: 'inline-flex', alignItems: 'center', background: disabled ? 'var(--raised)' : 'var(--brand)', color: disabled ? 'var(--txt-dim)' : '#fff', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer' }}>
       {children}
     </button>
   );
@@ -221,7 +388,7 @@ export function BtnPrimary({ children, onClick, disabled, type = 'button' }: { c
 
 export function BtnGhost({ children, onClick, disabled }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
   return (
-    <button onClick={onClick} disabled={disabled} style={{ background: 'var(--raised)', color: disabled ? 'var(--txt-dim)' : 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+    <button onClick={onClick} disabled={disabled} style={{ display: 'inline-flex', alignItems: 'center', background: 'var(--raised)', color: disabled ? 'var(--txt-dim)' : 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: disabled ? 'not-allowed' : 'pointer' }}>
       {children}
     </button>
   );

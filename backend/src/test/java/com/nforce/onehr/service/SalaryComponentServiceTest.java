@@ -152,14 +152,55 @@ class SalaryComponentServiceTest {
     }
 
     @Test
-    void list_ordersByName() {
+    void list_ordersByDisplayOrderThenName() {
         SalaryComponent a = SalaryComponent.builder().id(UUID.randomUUID()).name("Basic").type("EARNING").build();
         SalaryComponent b = SalaryComponent.builder().id(UUID.randomUUID()).name("HRA").type("EARNING").build();
-        when(salaryComponentRepository.findAllByOrderByNameAsc()).thenReturn(List.of(a, b));
+        when(salaryComponentRepository.findAllByOrderByDisplayOrderAscNameAsc()).thenReturn(List.of(a, b));
 
         List<SalaryComponentCatalogResponse> result = salaryComponentService.list();
 
         assertEquals(2, result.size());
         assertEquals("Basic", result.get(0).getName());
+    }
+
+    @Test
+    void update_setsAccountingCode() {
+        SalaryComponent existing = SalaryComponent.builder().id(UUID.randomUUID()).name("HRA").type("EARNING").build();
+        when(salaryComponentRepository.findById(existing.getId())).thenReturn(Optional.of(existing));
+
+        UpdateSalaryComponentCatalogRequest req = new UpdateSalaryComponentCatalogRequest();
+        req.setAccountingCode(" GL-4010 ");
+        SalaryComponentCatalogResponse resp = salaryComponentService.update(existing.getId(), req, actorEmail);
+
+        assertEquals("GL-4010", resp.getAccountingCode());
+    }
+
+    @Test
+    void reorder_assignsDisplayOrderByPositionAndLogsOnce() {
+        SalaryComponent a = SalaryComponent.builder().id(UUID.randomUUID()).name("Basic").type("EARNING").displayOrder(5).build();
+        SalaryComponent b = SalaryComponent.builder().id(UUID.randomUUID()).name("HRA").type("EARNING").displayOrder(0).build();
+        when(salaryComponentRepository.findAllById(List.of(b.getId(), a.getId()))).thenReturn(List.of(a, b));
+        when(salaryComponentRepository.findAllByOrderByDisplayOrderAscNameAsc()).thenReturn(List.of(b, a));
+
+        List<SalaryComponentCatalogResponse> result = salaryComponentService.reorder(List.of(b.getId(), a.getId()), actorEmail);
+
+        assertEquals(0, b.getDisplayOrder());
+        assertEquals(1, a.getDisplayOrder());
+        assertEquals(2, result.size());
+        verify(salaryComponentRepository).saveAll(List.of(a)); // only a's order actually changed (5 -> 1); b was already 0
+        verify(auditService).log(eq(actorId), eq("SALARY_COMPONENTS_REORDERED"), isNull(), isNull(), any());
+    }
+
+    @Test
+    void reorder_skipsAnIdThatNoLongerExists() {
+        SalaryComponent a = SalaryComponent.builder().id(UUID.randomUUID()).name("Basic").type("EARNING").displayOrder(0).build();
+        UUID missing = UUID.randomUUID();
+        when(salaryComponentRepository.findAllById(List.of(a.getId(), missing))).thenReturn(List.of(a));
+        when(salaryComponentRepository.findAllByOrderByDisplayOrderAscNameAsc()).thenReturn(List.of(a));
+
+        List<SalaryComponentCatalogResponse> result = salaryComponentService.reorder(List.of(a.getId(), missing), actorEmail);
+
+        assertNotNull(result);
+        assertEquals(0, a.getDisplayOrder());
     }
 }

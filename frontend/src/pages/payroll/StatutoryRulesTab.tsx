@@ -17,6 +17,52 @@ import {
 const RULE_TYPE_SUGGESTIONS = ['PF', 'ESI', 'PROFESSIONAL_TAX'];
 const RULE_TYPE_LABEL: Record<string, string> = { PF: 'Provident Fund', ESI: 'ESI', PROFESSIONAL_TAX: 'Professional Tax' };
 
+// slabConfig is always a flat JSON object of plain numbers (see StatutoryDeductionService's own
+// tests — e.g. {"employeeRate":0.12,"wageCeiling":25000}), never a fixed schema across rule
+// types. Generic camelCase -> "SPACED UPPERCASE" labeling (not a per-field description) is the
+// only honest way to show it structurally without guessing what a field means for a rule type
+// this UI doesn't otherwise understand.
+function humanizeKey(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toUpperCase();
+}
+
+/** Parses slabConfig into label/value pairs for display; null if it isn't a flat object (keeps
+ * the raw-JSON fallback available for whatever doesn't fit this shape). */
+function parseSlabConfig(slabConfig: string): [string, unknown][] | null {
+  try {
+    const parsed = JSON.parse(slabConfig);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return Object.entries(parsed);
+  } catch { /* not valid JSON — fall through */ }
+  return null;
+}
+
+function SlabConfigSummary({ slabConfig }: { slabConfig: string }) {
+  const entries = parseSlabConfig(slabConfig);
+  if (!entries || entries.length === 0) return <span style={{ color: 'var(--txt-dim)' }}>—</span>;
+  return (
+    <span style={{ color: 'var(--txt-mut)' }}>
+      {entries.map(([k, v]) => `${humanizeKey(k)}: ${v}`).join(' · ')}
+    </span>
+  );
+}
+
+function SlabConfigGrid({ slabConfig }: { slabConfig: string }) {
+  const entries = parseSlabConfig(slabConfig);
+  if (!entries) {
+    return <pre style={{ margin: 0, fontSize: 11, whiteSpace: 'pre-wrap', color: 'var(--txt)' }}>{slabConfig}</pre>;
+  }
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+      {entries.map(([k, v]) => (
+        <div key={k}>
+          <div style={labelStyle}>{humanizeKey(k)}</div>
+          <div style={{ fontSize: 14, color: 'var(--txt)' }}>{String(v)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ReviseRuleModal({ onClose, onCreated }: { onClose: () => void; onCreated: (r: StatutoryRuleResponse) => void }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
@@ -106,11 +152,11 @@ function HistoryModal({ country, ruleType, onClose }: { country: string; ruleTyp
     <Modal title={`${ruleType} (${country}) — History`} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {history.map(r => (
-          <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 10 }}>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 6 }}>
+          <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 10 }}>
               {fmtDate(r.effectiveFrom)} – {r.effectiveTo ? fmtDate(r.effectiveTo) : 'Current'}
             </div>
-            <pre style={{ margin: 0, fontSize: 11, whiteSpace: 'pre-wrap', color: 'var(--txt)' }}>{r.slabConfig}</pre>
+            <SlabConfigGrid slabConfig={r.slabConfig} />
           </div>
         ))}
         {history.length === 0 && <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>No history found.</div>}
@@ -162,13 +208,14 @@ export function StatutoryRulesTab() {
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
-            <tr>{['Country', 'Rule Type', 'Effective From', 'Created', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+            <tr>{['Country', 'Rule Type', 'Current Config', 'Effective From', 'Created', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>
           <tbody>
             {rules.map(r => (
               <tr key={r.id}>
                 <td style={tdStyle}>{r.country}</td>
                 <td style={tdStyle}>{r.ruleType}</td>
+                <td style={tdStyle}><SlabConfigSummary slabConfig={r.slabConfig} /></td>
                 <td style={tdStyle}>{fmtDate(r.effectiveFrom)}</td>
                 <td style={tdStyle}>{fmtDate(r.createdAt)}</td>
                 <td style={tdStyle}>
@@ -176,7 +223,7 @@ export function StatutoryRulesTab() {
                 </td>
               </tr>
             ))}
-            {rules.length === 0 && <EmptyRow cols={5} msg="No statutory rules configured yet." />}
+            {rules.length === 0 && <EmptyRow cols={6} msg="No statutory rules configured yet." />}
           </tbody>
         </table>
       </div>

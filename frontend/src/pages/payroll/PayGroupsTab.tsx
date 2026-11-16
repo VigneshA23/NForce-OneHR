@@ -5,25 +5,31 @@ import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayGroupResponse } from '../../api/payroll';
 import {
-  panelStyle, thStyle, tdStyle, EmptyRow, Modal, FormRow, labelStyle, inputStyle,
-  BtnPrimary, BtnGhost, SectionHead,
+  panelStyle, thStyle, tdStyle, EmptyRow, Drawer, FormRow, labelStyle, inputStyle,
+  BtnPrimary, BtnGhost, SectionHead, ToggleSwitch, FilterBar,
 } from './payrollShared';
 
 interface PayGroupForm {
   name: string; legalEntity: string; currency: string;
-  cycleStartDay: number; cycleEndDay: number; processingDay: number;
+  cycleStartDay: number; cycleEndDay: number; processingDay: number; active: boolean;
 }
 
 function emptyForm(): PayGroupForm {
-  return { name: '', legalEntity: '', currency: 'INR', cycleStartDay: 26, cycleEndDay: 25, processingDay: 26 };
+  return { name: '', legalEntity: '', currency: 'INR', cycleStartDay: 26, cycleEndDay: 25, processingDay: 26, active: true };
 }
 
 function fromExisting(pg: PayGroupResponse): PayGroupForm {
-  return { name: pg.name, legalEntity: pg.legalEntity ?? '', currency: pg.currency, cycleStartDay: pg.cycleStartDay, cycleEndDay: pg.cycleEndDay, processingDay: pg.processingDay };
+  return {
+    name: pg.name, legalEntity: pg.legalEntity ?? '', currency: pg.currency,
+    cycleStartDay: pg.cycleStartDay, cycleEndDay: pg.cycleEndDay, processingDay: pg.processingDay, active: pg.active,
+  };
 }
 
-function PayGroupFormModal({ title, initial, onClose, onSubmit }: {
-  title: string; initial: PayGroupForm; onClose: () => void; onSubmit: (form: PayGroupForm) => Promise<void>;
+/** Keka's Pay Group header card shows Legal Entity/Currency as fixed label/value pairs rather
+ * than editable fields on the day-to-day screen — mirrored here as the drawer's grey read-only
+ * block when editing an existing pay group (both stay editable while creating a new one). */
+function PayGroupDrawer({ title, initial, isNew, onClose, onSubmit }: {
+  title: string; initial: PayGroupForm; isNew: boolean; onClose: () => void; onSubmit: (form: PayGroupForm) => Promise<void>;
 }) {
   const [form, setForm] = useState(initial);
   const [submitting, setSubmitting] = useState(false);
@@ -37,38 +43,65 @@ function PayGroupFormModal({ title, initial, onClose, onSubmit }: {
   }
 
   return (
-    <Modal title={title} subtitle="Cycle Start/End define the pay cycle window (e.g. 26–25); Processing Day is when payroll is run for that cycle." onClose={onClose}>
+    <Drawer
+      title={title}
+      onClose={onClose}
+      readOnlyBlock={!isNew ? (
+        <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+          <div><div style={labelStyle}>Legal Entity</div><div style={{ fontSize: 14, color: 'var(--txt)' }}>{form.legalEntity || '—'}</div></div>
+          <div><div style={labelStyle}>Currency</div><div style={{ fontSize: 14, color: 'var(--txt)' }}>{form.currency}</div></div>
+        </div>
+      ) : undefined}
+      footer={(
+        <>
+          <BtnGhost onClick={onClose}>Discard</BtnGhost>
+          <BtnPrimary onClick={submit} disabled={!valid || submitting}>{submitting ? 'Saving…' : isNew ? 'Create' : 'Update'}</BtnPrimary>
+        </>
+      )}
+    >
+      {!isNew && (
+        <div style={{ marginBottom: 18 }}>
+          <ToggleSwitch
+            checked={form.active} onChange={v => setForm(f => ({ ...f, active: v }))}
+            label={<span style={{ fontSize: 13.5, color: 'var(--txt)' }}>{form.active ? 'This pay group is Active' : 'This pay group is Inactive'}</span>}
+          />
+        </div>
+      )}
       <FormRow>
         <label style={labelStyle}>Name *</label>
         <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} placeholder="e.g. Default pay group" />
       </FormRow>
-      <FormRow>
-        <label style={labelStyle}>Legal Entity</label>
-        <input value={form.legalEntity} onChange={e => setForm(f => ({ ...f, legalEntity: e.target.value }))} style={inputStyle} placeholder="optional" />
-      </FormRow>
-      <FormRow>
-        <label style={labelStyle}>Currency</label>
-        <input value={form.currency} onChange={e => setForm(f => ({ ...f, currency: e.target.value.toUpperCase() }))} style={inputStyle} maxLength={3} />
-      </FormRow>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-        <FormRow>
-          <label style={labelStyle}>Cycle Start Day *</label>
-          <input type="number" min={1} max={31} value={form.cycleStartDay} onChange={e => setForm(f => ({ ...f, cycleStartDay: Number(e.target.value) }))} style={inputStyle} />
-        </FormRow>
-        <FormRow>
-          <label style={labelStyle}>Cycle End Day *</label>
-          <input type="number" min={1} max={31} value={form.cycleEndDay} onChange={e => setForm(f => ({ ...f, cycleEndDay: Number(e.target.value) }))} style={inputStyle} />
-        </FormRow>
-        <FormRow>
-          <label style={labelStyle}>Processing Day *</label>
-          <input type="number" min={1} max={31} value={form.processingDay} onChange={e => setForm(f => ({ ...f, processingDay: Number(e.target.value) }))} style={inputStyle} />
-        </FormRow>
+      {isNew && (
+        <>
+          <FormRow>
+            <label style={labelStyle}>Legal Entity <span style={{ color: 'var(--txt-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(Optional)</span></label>
+            <input value={form.legalEntity} onChange={e => setForm(f => ({ ...f, legalEntity: e.target.value }))} style={inputStyle} />
+          </FormRow>
+          <FormRow>
+            <label style={labelStyle}>Currency</label>
+            <input value={form.currency} onChange={e => setForm(f => ({ ...f, currency: e.target.value.toUpperCase() }))} style={inputStyle} maxLength={3} />
+          </FormRow>
+        </>
+      )}
+      <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
+        <div style={{ ...labelStyle, marginBottom: 10 }}>Pay Schedule</div>
+        <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 12 }}>Cycle Start/End define the pay cycle window (e.g. 26–25); Processing Day is when payroll is run for that cycle.</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          <FormRow>
+            <label style={labelStyle}>Cycle Start Day *</label>
+            <input type="number" min={1} max={31} value={form.cycleStartDay} onChange={e => setForm(f => ({ ...f, cycleStartDay: Number(e.target.value) }))} style={inputStyle} />
+          </FormRow>
+          <FormRow>
+            <label style={labelStyle}>Cycle End Day *</label>
+            <input type="number" min={1} max={31} value={form.cycleEndDay} onChange={e => setForm(f => ({ ...f, cycleEndDay: Number(e.target.value) }))} style={inputStyle} />
+          </FormRow>
+          <FormRow>
+            <label style={labelStyle}>Processing Day *</label>
+            <input type="number" min={1} max={31} value={form.processingDay} onChange={e => setForm(f => ({ ...f, processingDay: Number(e.target.value) }))} style={inputStyle} />
+          </FormRow>
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-        <BtnGhost onClick={onClose}>Cancel</BtnGhost>
-        <BtnPrimary onClick={submit} disabled={!valid || submitting}>{submitting ? 'Saving…' : 'Save'}</BtnPrimary>
-      </div>
-    </Modal>
+    </Drawer>
   );
 }
 
@@ -77,6 +110,7 @@ export function PayGroupsTab({ payGroups, onChanged }: { payGroups: PayGroupResp
   const { showToast } = useToast();
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<PayGroupResponse | null>(null);
+  const [search, setSearch] = useState('');
 
   async function create(form: PayGroupForm) {
     try {
@@ -108,19 +142,22 @@ export function PayGroupsTab({ payGroups, onChanged }: { payGroups: PayGroupResp
     }
   }
 
+  const filtered = payGroups.filter(pg => pg.name.toLowerCase().includes(search.trim().toLowerCase()));
+
   return (
     <div>
       <SectionHead
         title="Pay Groups"
         action={<BtnPrimary onClick={() => setShowCreate(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Pay Group</BtnPrimary>}
       />
+      <FilterBar search={search} onSearchChange={setSearch} placeholder="Search pay group" />
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>{['Name', 'Legal Entity', 'Currency', 'Cycle', 'Processing Day', 'Status', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>
           <tbody>
-            {payGroups.map(pg => (
+            {filtered.map(pg => (
               <tr key={pg.id}>
                 <td style={tdStyle}>{pg.name}</td>
                 <td style={tdStyle}>{pg.legalEntity ?? '–'}</td>
@@ -136,16 +173,18 @@ export function PayGroupsTab({ payGroups, onChanged }: { payGroups: PayGroupResp
                 </td>
               </tr>
             ))}
-            {payGroups.length === 0 && <EmptyRow cols={7} msg="No pay groups yet — add one above." />}
+            {filtered.length === 0 && (
+              <EmptyRow cols={7} msg={payGroups.length === 0 ? 'No pay groups yet — add one above.' : 'No matches for your search.'} />
+            )}
           </tbody>
         </table>
       </div>
 
       {showCreate && (
-        <PayGroupFormModal title="Add Pay Group" initial={emptyForm()} onClose={() => setShowCreate(false)} onSubmit={create} />
+        <PayGroupDrawer title="Add Pay Group" initial={emptyForm()} isNew onClose={() => setShowCreate(false)} onSubmit={create} />
       )}
       {editing && (
-        <PayGroupFormModal title="Edit Pay Group" initial={fromExisting(editing)} onClose={() => setEditing(null)} onSubmit={form => update(editing.id, form)} />
+        <PayGroupDrawer title={`Edit Pay Group – ${editing.name}`} initial={fromExisting(editing)} isNew={false} onClose={() => setEditing(null)} onSubmit={form => update(editing.id, form)} />
       )}
     </div>
   );

@@ -1,23 +1,74 @@
 /* Payroll Run console — KPI tiles, table and modal presentation. Theme tokens only, so light/dark
  * and the accent setting keep working. Pattern mirrors pages/bench/bench.css + pages/assets/shared.tsx. */
 
-.nf-pr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-.nf-pr-tile { --mk: var(--brand); box-sizing: border-box; display: flex; flex-direction: column; min-height: 128px; padding: 16px 18px 14px 22px; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--mk) 22%, var(--line)); border-left: 6px solid var(--mk); background: linear-gradient(135deg, var(--panel) 42%, color-mix(in srgb, var(--mk) 11%, var(--panel)) 100%); box-shadow: 0 4px 14px rgba(16, 24, 40, .05); }
-.nf-pr-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.nf-pr-tile-label { padding-top: 2px; font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-mut); }
-.nf-pr-tile-ico { flex-shrink: 0; width: 44px; height: 44px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--mk); background: color-mix(in srgb, var(--mk) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--mk) 28%, transparent); }
-.nf-pr-tile-val { margin-top: auto; padding-top: 6px; font-family: Inter, sans-serif; font-size: 28px; font-weight: 800; line-height: 1; letter-spacing: -.02em; color: var(--txt); }
+.nf-pr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.nf-pr-tile { --mk: var(--brand); box-sizing: border-box; display: flex; flex-direction: column; min-height: 86px; padding: 12px 14px 10px 16px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--mk) 22%, var(--line)); border-left: 4px solid var(--mk); background: linear-gradient(135deg, var(--panel) 42%, color-mix(in srgb, var(--mk) 11%, var(--panel)) 100%); box-shadow: 0 2px 8px rgba(16, 24, 40, .05); }
+.nf-pr-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.nf-pr-tile-label { padding-top: 1px; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--txt-mut); }
+.nf-pr-tile-ico { flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--mk); background: color-mix(in srgb, var(--mk) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--mk) 28%, transparent); }
+.nf-pr-tile-ico svg { width: 16px; height: 16px; }
+.nf-pr-tile-val { margin-top: auto; padding-top: 4px; font-family: Inter, sans-serif; font-size: 19px; font-weight: 800; line-height: 1; letter-spacing: -.01em; color: var(--txt); }
 
 /* Run console's step tab bar: wrap onto a second row instead of the shared .nf-tabs'
    horizontal-scroll behavior, so every step is visible without scrolling. Scoped here (not in
    the shared .nf-tabs rule in index.css) since other tab bars in the app intentionally scroll. */
 .nf-pilltabs--wrap { flex-wrap: wrap; overflow-x: visible; }
 .nf-pilltabs--wrap .nf-tab { flex: 0 1 auto; }
-.nf-pr-tile-hint { margin-top: 6px; font-size: 12.5px; line-height: 1.4; color: var(--txt-dim); }
+.nf-pr-tile-hint { margin-top: 4px; font-size: 11px; line-height: 1.3; color: var(--txt-dim); }
 
 .nf-pr-table { border-radius: 14px; overflow: hidden; }
 .nf-pr-table tbody tr:last-child td { border-bottom: none; }
 .nf-pr-table tbody tr:hover td { background: color-mix(in srgb, var(--brand) 5%, var(--panel)); }
+
+/* Boxed sub-tabs — a bordered bar where the active tab gets a tinted background instead of an
+   underline, so a step's own sub-steps read as "inside" it rather than another full tab row. */
+.nf-tabs.nf-boxedtabs { gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: none; }
+.nf-boxedtabs .nf-tab { border-bottom: none; border-radius: 7px; background: transparent; }
+.nf-boxedtabs .nf-tab:hover:not(:disabled):not([aria-selected="true"]) { background: color-mix(in srgb, var(--brand) 6%, transparent); color: var(--txt); }
+.nf-boxedtabs .nf-tab[aria-selected="true"] { color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); font-weight: 700; }
+
+/* Overview's step-card grid — same round-icon/left-accent language as .nf-pr-tile, but each card
+   is a nav link into another step rather than a KPI readout. */
+.nf-pr-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.nf-pr-stepcard { --mk: var(--brand); display: flex; align-items: flex-start; gap: 14px; text-align: left; box-sizing: border-box; padding: 16px 18px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--mk) 20%, var(--line)); background: var(--panel); cursor: pointer; font: inherit; color: inherit; transition: transform .15s, box-shadow .15s; }
+.nf-pr-stepcard:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(16, 24, 40, .08); }
+.nf-pr-stepcard:disabled { cursor: not-allowed; opacity: .55; }
+.nf-pr-stepcard-ico { flex-shrink: 0; width: 40px; height: 40px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; color: var(--mk); background: color-mix(in srgb, var(--mk) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--mk) 28%, transparent); }
+.nf-pr-stepcard-title { font-size: 14px; font-weight: 700; color: var(--brand); margin-bottom: 3px; }
+.nf-pr-stepcard-caption { font-size: 12.5px; color: var(--txt-dim); line-height: 1.4; }
+
+/* FilterBar — the search/filter strip that sits above a list table, matching Keka's filter-bar
+   pattern (§1.4 of the restyle spec): its own rounded bar, not fused to the table below it. */
+.nf-pr-filterbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 14px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.nf-pr-filterbar-search { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; min-width: 160px; }
+.nf-pr-filterbar-search svg { flex-shrink: 0; color: var(--txt-dim); }
+.nf-pr-filterbar-search input { flex: 1; border: none; background: none; padding: 9px 0; font-size: 13px; color: var(--txt); outline: none; }
+
+/* FullScreenTask — a focused big-edit screen (Update Salary Structure, Revise Salary) that hides
+   everything else, matching Keka's full-screen task pattern (§1.4). */
+.nf-pr-fullscreen { position: fixed; inset: 0; z-index: 2000; background: var(--shell); display: flex; flex-direction: column; }
+.nf-pr-fullscreen-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 28px; background: var(--panel); border-bottom: 1px solid var(--line); box-shadow: 0 4px 14px rgba(16, 24, 40, .06); flex-shrink: 0; }
+.nf-pr-fullscreen-title { font-size: 18px; font-weight: 800; letter-spacing: -.01em; color: var(--txt); }
+.nf-pr-fullscreen-subtitle { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-pr-fullscreen-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.nf-pr-fullscreen-close { background: none; border: none; color: var(--txt-mut); cursor: pointer; padding: 6px; border-radius: 6px; display: inline-flex; }
+.nf-pr-fullscreen-close:hover { background: var(--raised); color: var(--txt); }
+.nf-pr-fullscreen-body { flex: 1; overflow-y: auto; padding: 24px 28px; }
+
+/* Drawer — right-side slide-in panel for editing a single record (§1.4). */
+.nf-pr-drawer-overlay { position: fixed; inset: 0; z-index: 2000; background: rgba(0, 0, 0, .5); display: flex; justify-content: flex-end; }
+.nf-pr-drawer-panel { width: min(560px, 92vw); height: 100%; background: var(--panel); display: flex; flex-direction: column; box-shadow: -8px 0 28px rgba(0, 0, 0, .25); }
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes nf-pr-drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  .nf-pr-drawer-panel { animation: nf-pr-drawer-in 220ms cubic-bezier(.22, .61, .36, 1); }
+}
+.nf-pr-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 24px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.nf-pr-drawer-title { font-size: 16px; font-weight: 700; color: var(--txt); }
+.nf-pr-drawer-close { background: none; border: none; color: var(--txt-mut); cursor: pointer; padding: 6px; border-radius: 6px; display: inline-flex; flex-shrink: 0; }
+.nf-pr-drawer-close:hover { background: var(--raised); color: var(--txt); }
+.nf-pr-drawer-readonly { padding: 14px 24px; background: var(--raised); border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.nf-pr-drawer-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+.nf-pr-drawer-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--line); flex-shrink: 0; }
 .nf-pr-table-clickable tbody tr { cursor: pointer; }
 
 /* Modal — same visual language as pages/assets/assetsModals.css, kept as its own copy per this

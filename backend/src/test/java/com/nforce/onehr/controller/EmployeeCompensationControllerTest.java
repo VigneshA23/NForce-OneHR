@@ -78,6 +78,16 @@ class EmployeeCompensationControllerTest {
     }
 
     @Test
+    void allHistory_returnsEveryEmployeesCompensationRows() throws Exception {
+        when(employeeCompensationService.listAllHistory()).thenReturn(List.of(
+                EmployeeCompensationResponse.builder().id(UUID.randomUUID()).employeeId(UUID.randomUUID()).ctc(new BigDecimal("1200000")).build(),
+                EmployeeCompensationResponse.builder().id(UUID.randomUUID()).employeeId(UUID.randomUUID()).ctc(new BigDecimal("900000")).build()));
+
+        mvc.perform(get("/api/payroll/employee-compensation/history"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void unknownActor_isNotFound() throws Exception {
         when(userRepository.findByEmail("ghost@x.com")).thenReturn(Optional.empty());
 

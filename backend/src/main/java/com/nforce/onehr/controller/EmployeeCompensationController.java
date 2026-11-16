@@ -7,11 +7,13 @@ import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.service.EmployeeCompensationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -45,6 +47,21 @@ public class EmployeeCompensationController {
     @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
     public List<EmployeeCompensationResponse> getHistory(@PathVariable UUID employeeId) {
         return employeeCompensationService.getHistory(employeeId);
+    }
+
+    @GetMapping("/history")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public List<EmployeeCompensationResponse> getAllHistory() {
+        return employeeCompensationService.listAllHistory();
+    }
+
+    // Keka restyle — "Current CTC Report" (§3.6). Defaults to today so the frontend's report
+    // card needs no query param for the common case.
+    @GetMapping("/current")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public List<EmployeeCompensationResponse> getAllCurrent(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
+        return employeeCompensationService.listAllCurrent(asOf != null ? asOf : LocalDate.now());
     }
 
     @GetMapping("/me/current")

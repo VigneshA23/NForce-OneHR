@@ -6,7 +6,7 @@ import { payrollApi, type PayrollRunReviewItemResponse } from '../../api/payroll
 import { leaveApi, type LeaveType } from '../../api/leave';
 import {
   panelStyle, thStyle, tdStyle, fmtDate, StatusBadge, EmptyRow, Modal, FormRow, labelStyle,
-  inputStyle, BtnPrimary, BtnGhost, SectionHead,
+  inputStyle, BtnPrimary, BtnGhost, SectionHead, FilterBar,
 } from './payrollShared';
 
 type Action = 'DEDUCT_FROM_LEAVE' | 'MARK_LOP' | 'NO_ACTION';
@@ -79,6 +79,7 @@ export function NoAttendanceReviewTab({ runId, canConfigure }: { runId: string; 
   const [deciding, setDeciding] = useState<PayrollRunReviewItemResponse | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [showBulkDecide, setShowBulkDecide] = useState(false);
+  const [search, setSearch] = useState('');
 
   function reload() {
     payrollApi.listNoAttendanceReview(runId, token).then(setItems).catch(() => showToast('error', 'Failed to load review items'));
@@ -87,7 +88,8 @@ export function NoAttendanceReviewTab({ runId, canConfigure }: { runId: string; 
   useEffect(reload, [runId, token]);
   useEffect(() => { leaveApi.listTypes(token).then(setLeaveTypes).catch(() => {}); }, [token]);
 
-  const pendingIds = items.filter(i => i.decision === 'PENDING').map(i => i.id);
+  const filtered = items.filter(i => i.employeeName.toLowerCase().includes(search.trim().toLowerCase()));
+  const pendingIds = filtered.filter(i => i.decision === 'PENDING').map(i => i.id);
   const allPendingSelected = pendingIds.length > 0 && pendingIds.every(id => selected.has(id));
 
   function toggleAll() {
@@ -131,6 +133,7 @@ export function NoAttendanceReviewTab({ runId, canConfigure }: { runId: string; 
           <BtnPrimary onClick={() => setShowBulkDecide(true)}>Decide Selected ({selected.size})</BtnPrimary>
         )}
       />
+      <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
@@ -140,7 +143,7 @@ export function NoAttendanceReviewTab({ runId, canConfigure }: { runId: string; 
             </tr>
           </thead>
           <tbody>
-            {items.map(item => (
+            {filtered.map(item => (
               <tr key={item.id}>
                 {canConfigure && (
                   <td style={tdStyle}>
@@ -157,7 +160,9 @@ export function NoAttendanceReviewTab({ runId, canConfigure }: { runId: string; 
                 )}
               </tr>
             ))}
-            {items.length === 0 && <EmptyRow cols={canConfigure ? 5 : 3} msg="No no-attendance items for this run." />}
+            {filtered.length === 0 && (
+              <EmptyRow cols={canConfigure ? 5 : 3} msg={items.length === 0 ? 'No no-attendance items for this run.' : 'No matches for your search.'} />
+            )}
           </tbody>
         </table>
       </div>
