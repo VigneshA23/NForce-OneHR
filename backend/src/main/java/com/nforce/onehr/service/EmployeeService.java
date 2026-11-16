@@ -229,6 +229,18 @@ public class EmployeeService {
                 .collect(Collectors.toList());
     }
 
+    /** As {@link #listEmployees()}, limited to {@code userIds} (callers resolve the ids from the actor's scope first). */
+    @Transactional(readOnly = true)
+    public List<EmployeeResponse> listEmployees(java.util.Collection<UUID> userIds) {
+        if (userIds.isEmpty()) return List.of();
+        List<Employee> staff = employeeRepository.findAllById(userIds).stream()
+                .filter(e -> e.getUser() == null || e.getUser().getDeletedAt() == null).toList();
+        Map<UUID, EmployeeResponse.ManagerRef> managers =
+                findCurrentManagersBulk(staff.stream().map(Employee::getUserId).toList());
+        return staff.stream().map(e -> toResponse(e, managers.get(e.getUserId()), e.getUser(), null))
+                .collect(Collectors.toList());
+    }
+
     /**
      * HR Admin + Super Admin. Server-side searched/paginated EMPLOYEE-role staff who don't yet
      * have an onboarding checklist — backs OnboardingService#eligibleEmployeesPaged (the

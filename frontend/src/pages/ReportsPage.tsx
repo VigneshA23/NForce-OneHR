@@ -10,7 +10,8 @@ import {
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { useAuthStore } from '../store/authStore';
-import { hasOrgWorkforceView, hasPermission } from '../lib/permissions';
+import { hasOrgWorkforceView } from '../lib/permissions';
+import { useCan } from '../lib/access';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import { attendanceApi, type AttendanceRecord } from '../api/attendance';
 import { leaveApi, type LeaveRequestRecord } from '../api/leave';
@@ -309,11 +310,12 @@ function AccessDenied() {
 export default function ReportsPage() {
   const token = useAuthStore(s => s.token) ?? '';
   const permissions = useAuthStore(s => s.permissions);
-  // Org-wide = every org endpoint `load` fetches (HR Admin + Super Admin, see hasOrgWorkforceView);
-  // otherwise the team view, whose /attendance/team requires attendance:VIEW:TEAM (seeded to
-  // Manager + HR Admin + Super Admin, so only Manager ever reaches this branch by role).
+  const can = useCan();
+  // Org-wide = every org endpoint `load` fetches (see hasOrgWorkforceView); otherwise the team data.
+  // Opening the page is decided by the same permission as the nav item: reports:VIEW:TEAM.
   const isHr = hasOrgWorkforceView(permissions);
-  const authorized = isHr || hasPermission(permissions, 'attendance', 'VIEW', 'TEAM');
+  const authorized = can('reports', 'VIEW', 'TEAM');
+  const canExport = can('reports', 'EXPORT', 'TEAM');
 
   const [directReports, setDirectReports] = useState<DirectReport[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -408,13 +410,13 @@ export default function ReportsPage() {
             {isHr ? 'Company-wide headcount, attendance and leave.' : 'Your team’s headcount, attendance and leave.'}
           </p>
         </PageTitleBlock>
-        <button
+        {canExport && <button
           onClick={handleExport}
           disabled={loading || !!error}
           style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', cursor: loading || error ? 'not-allowed' : 'pointer', opacity: loading || error ? 0.6 : 1 }}
         >
           <Download size={13} /> Export to Excel
-        </button>
+        </button>}
       </div>
 
       {/* Filters */}

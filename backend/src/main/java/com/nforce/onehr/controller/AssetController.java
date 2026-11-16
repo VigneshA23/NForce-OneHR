@@ -61,6 +61,7 @@ public class AssetController {
     // Decisions are made HERE — not on any other page.
 
     @GetMapping("/requests/pending")
+    @PreAuthorize("hasAuthority('assets:APPROVE:TEAM')")
     public List<AssetRequestResponse> pendingForApprover(Principal principal) {
         return assetService.listPendingForApprover(principal.getName());
     }
@@ -166,6 +167,7 @@ public class AssetController {
     }
 
     @GetMapping("/tiles/manager")
+    @PreAuthorize("hasAuthority('assets:APPROVE:TEAM')")
     public Map<String, Object> managerTiles(Principal principal) {
         return assetService.managerTileSummary(principal.getName());
     }

@@ -1,8 +1,10 @@
 package com.nforce.onehr.service;
 
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
 
 import java.math.BigDecimal;
 import java.net.URI;
@@ -38,6 +40,28 @@ public class EmailService {
     @Value("${app.base-url:http://localhost:5180}")
     private String baseUrl;
 
+    /** APP_BASE_URL is meant to be one URL, but is sometimes set to a comma-separated list like
+     * CORS_ALLOWED_ORIGINS, which turns every emailed link into a broken "a,b/login" string. */
+    @PostConstruct
+    void normalizeBaseUrl() {
+        String single = pickBaseUrl(baseUrl);
+        if (!single.equals(baseUrl)) {
+            log.warn("app.base-url holds more than one URL; emails will link to {}. Set APP_BASE_URL to a single URL.", single);
+            baseUrl = single;
+        }
+    }
+
+    /** One URL, no trailing slash: for a list, the first non-localhost entry (the deployed one),
+     * else the first. */
+    static String pickBaseUrl(String configured) {
+        java.util.List<String> urls = java.util.Arrays.stream(configured.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty())
+                .map(s -> s.endsWith("/") ? s.substring(0, s.length() - 1) : s)
+                .toList();
+        return urls.stream().filter(u -> !u.contains("localhost") && !u.contains("127.0.0.1"))
+                .findFirst().orElse(urls.isEmpty() ? configured : urls.get(0));
+    }
+
     /** Same per-environment allowlist CORS is configured with — reused here so the password-reset
      * link can safely echo back whichever environment's origin actually made the request, instead
      * of always pointing at this instance's own default base URL. */
@@ -49,13 +73,13 @@ public class EmailService {
             .build();
 
     public void sendInviteEmail(String toEmail, String fullName, String tempPassword) {
-        String subject = "Welcome to NForce OneHR — your account is ready";
+        String subject = "Welcome to NForce OneHR: your account is ready";
         String html = buildInviteHtml(fullName, toEmail, tempPassword);
         sendAsync(toEmail, subject, html);
     }
 
     public void sendPasswordResetEmail(String toEmail, String fullName, String tempPassword, String requestOrigin) {
-        String subject = "NForce OneHR — your password has been reset";
+        String subject = "NForce OneHR: your password has been reset";
         String resolvedBaseUrl = resolveBaseUrl(requestOrigin);
         log.info("Password-reset email for {}: request Origin={}, resolved link base={}", toEmail, requestOrigin, resolvedBaseUrl);
         String html = buildResetHtml(fullName, toEmail, tempPassword, resolvedBaseUrl);
@@ -66,7 +90,7 @@ public class EmailService {
      * the address is reachable and tells the user to sign in with it going forward. oldEmail is
      * shown for their own confidence that this wasn't a mistaken account. */
     public void sendEmailUpdatedEmail(String toEmail, String fullName, String oldEmail) {
-        String subject = "NForce OneHR — your account email has been updated";
+        String subject = "NForce OneHR: your account email has been updated";
         String html = buildEmailUpdatedHtml(fullName, toEmail, oldEmail);
         sendAsync(toEmail, subject, html);
     }
@@ -93,28 +117,28 @@ public class EmailService {
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file. */
     public CompletableFuture<Boolean> sendLateArrivalEmail(String toEmail, String ccEmail, String fullName, LocalDate date,
                                       LocalTime expectedTime, LocalTime actualTime, Integer minutesLate) {
-        String subject = "Late arrival recorded — " + DATE_FMT.format(date);
+        String subject = "Late arrival recorded: " + DATE_FMT.format(date);
         String html = buildLateArrivalHtml(fullName, date, expectedTime, actualTime, minutesLate);
         return sendAsync(toEmail, ccEmail, subject, html);
     }
 
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file. */
     public CompletableFuture<Boolean> sendMissingPunchEmail(String toEmail, String ccEmail, String fullName, LocalDate date, LocalTime checkInTime) {
-        String subject = "Missing check-out — " + DATE_FMT.format(date);
+        String subject = "Missing check-out: " + DATE_FMT.format(date);
         String html = buildMissingPunchHtml(fullName, date, checkInTime);
         return sendAsync(toEmail, ccEmail, subject, html);
     }
 
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file. */
     public CompletableFuture<Boolean> sendLeaveAttendanceConflictEmail(String toEmail, String ccEmail, String fullName, LocalDate date, LocalTime checkInTime) {
-        String subject = "Attendance recorded during approved leave — " + DATE_FMT.format(date);
+        String subject = "Attendance recorded during approved leave: " + DATE_FMT.format(date);
         String html = buildLeaveAttendanceConflictHtml(fullName, date, checkInTime);
         return sendAsync(toEmail, ccEmail, subject, html);
     }
 
     /** ccEmail (the employee's current manager) is optional — omitted if there is none on file. */
     public CompletableFuture<Boolean> sendNoAttendanceEmail(String toEmail, String ccEmail, String fullName, LocalDate date) {
-        String subject = "No attendance recorded — " + DATE_FMT.format(date);
+        String subject = "No attendance recorded: " + DATE_FMT.format(date);
         String html = buildNoAttendanceHtml(fullName, date);
         return sendAsync(toEmail, ccEmail, subject, html);
     }
@@ -124,7 +148,7 @@ public class EmailService {
      * no checkout to compare against — see ExceptionService#detectNoAttendanceAndShortage). */
     public CompletableFuture<Boolean> sendWorkHoursShortageEmail(String toEmail, String ccEmail, String fullName, LocalDate date,
                                             LocalTime expectedTime, LocalTime actualTime) {
-        String subject = "Work hours shortage recorded — " + DATE_FMT.format(date);
+        String subject = "Work hours shortage recorded: " + DATE_FMT.format(date);
         String html = buildWorkHoursShortageHtml(fullName, date, expectedTime, actualTime);
         return sendAsync(toEmail, ccEmail, subject, html);
     }
@@ -134,7 +158,7 @@ public class EmailService {
      * amounts are non-null/non-zero — see AttendancePenaltyEvaluationService, the sole caller. */
     public void sendPenaltyEmail(String toEmail, String ccEmail, String fullName, LocalDate date, String reason,
                                   BigDecimal deductionDays, BigDecimal lopDays, BigDecimal leaveDeductionDays) {
-        String subject = "Attendance Penalty Applied — " + DATE_FMT.format(date);
+        String subject = "Attendance Penalty Applied: " + DATE_FMT.format(date);
         String html = buildPenaltyHtml(fullName, date, reason, deductionDays, lopDays, leaveDeductionDays);
         sendAsync(toEmail, ccEmail, subject, html);
     }
@@ -182,388 +206,183 @@ public class EmailService {
                 });
     }
 
-    private String buildInviteHtml(String fullName, String email, String tempPassword) {
+    // ── HTML templates ───────────────────────────────────────────────────────────────────────
+    // One shared layout (header, white card, optional button, help note, footer); each email only
+    // supplies its heading, intro and content. Variables are HTML-escaped via esc() at the call
+    // site, so the helpers below take ready-made HTML.
+
+    private static String esc(String s) {
+        return HtmlUtils.htmlEscape(s == null ? "" : s);
+    }
+
+    private String layout(String heading, String intro, String content, String buttonLabel, String buttonUrl, String note) {
+        String button = buttonUrl == null ? "" : """
+                <table cellpadding="0" cellspacing="0" role="presentation" align="center" style="margin:0 auto 32px;">
+                  <tr><td align="center" style="background:#B11116;border-radius:10px;">
+                    <a href="{{url}}" style="display:inline-block;font-family:Inter,Arial,sans-serif;font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;padding:15px 40px;">{{label}}</a>
+                  </td></tr>
+                </table>
+                """.replace("{{url}}", buttonUrl).replace("{{label}}", buttonLabel);
         return """
                 <!DOCTYPE html>
                 <html lang="en">
                 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#080808;font-family:Inter,Arial,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" style="background:#080808;padding:40px 16px;">
+                <body style="margin:0;padding:0;background:#F1F5F9;font-family:Inter,Arial,sans-serif;">
+                  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#F1F5F9;padding:40px 16px;">
                     <tr><td align="center">
-                      <table width="560" cellpadding="0" cellspacing="0" style="background:#16181D;border:1px solid #2A2E37;border-radius:12px;overflow:hidden;">
-                        <!-- Header -->
-                        <tr><td style="background:#B11116;padding:28px 36px;">
-                          <span style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</span>
+                      <table width="560" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;">
+                        <tr><td align="center" style="background:#B11116;padding:34px 36px 30px;">
+                          <div style="font-family:'Space Grotesk',Arial,sans-serif;font-size:24px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;line-height:1.2;">NForce OneHR</div>
+                          <div style="font-family:Inter,Arial,sans-serif;font-size:14px;color:#F3C4C6;margin-top:6px;">Your people. One platform.</div>
                         </td></tr>
-                        <!-- Body -->
-                        <tr><td style="padding:36px;">
-                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:22px;font-weight:700;color:#E8EAED;margin:0 0 8px;">Your account is ready</h1>
-                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, welcome to NForce OneHR. Your account has been created and you can log in below.</p>
-
-                          <table width="100%%" cellpadding="0" cellspacing="0" style="background:#1E2128;border:1px solid #2A2E37;border-radius:8px;margin-bottom:28px;">
-                            <tr><td style="padding:20px 24px;">
-                              <p style="margin:0 0 10px;font-size:12px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.06em;">Your login credentials</p>
-                              <p style="margin:0 0 6px;font-size:13px;color:#9BA1AC;">Email: <span style="color:#E8EAED;font-weight:600;">%s</span></p>
-                              <p style="margin:0;font-size:13px;color:#9BA1AC;">Temp password: <span style="font-family:'Courier New',monospace;background:#080808;color:#E8EAED;padding:3px 8px;border-radius:4px;font-size:14px;font-weight:600;">%s</span></p>
-                            </td></tr>
-                          </table>
-
-                          <div style="background:rgba(228,55,61,.08);border:1px solid rgba(228,55,61,.2);border-radius:8px;padding:14px 18px;margin-bottom:28px;">
-                            <p style="margin:0;font-size:13px;color:#f4a5a8;line-height:1.5;">You will be required to set your own password on first login. Keep this email private.</p>
-                          </div>
-
-                          <a href="%s/login" style="display:inline-block;background:#B11116;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 28px;border-radius:8px;">Sign in to OneHR →</a>
+                        <tr><td style="padding:40px 40px 32px;">
+                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:26px;font-weight:700;color:#111827;margin:0 0 10px;letter-spacing:-0.01em;">{{heading}}</h1>
+                          <p style="font-size:15px;line-height:1.75;color:#6B7280;margin:0 0 32px;">{{intro}}</p>
+                          {{content}}
+                          {{button}}
+                          <p style="font-size:13.5px;line-height:1.7;color:#94A3B8;margin:0;">{{note}}</p>
                         </td></tr>
-                        <!-- Footer -->
-                        <tr><td style="padding:20px 36px;border-top:1px solid #2A2E37;">
-                          <p style="margin:0;font-size:12px;color:#6B7280;">This email was sent by NForce OneHR. If you didn't expect this, contact your HR administrator.</p>
+                        <tr><td align="center" style="background:#F8FAFC;border-top:1px solid #E2E8F0;padding:22px 36px;">
+                          <p style="margin:0;font-size:13px;color:#94A3B8;">&copy; {{year}} NForce OneHR &middot; All rights reserved</p>
                         </td></tr>
                       </table>
                     </td></tr>
                   </table>
                 </body>
                 </html>
-                """.formatted(fullName, email, tempPassword, baseUrl);
+                """
+                .replace("{{heading}}", heading)
+                .replace("{{intro}}", intro)
+                .replace("{{content}}", content)
+                .replace("{{button}}", button)
+                .replace("{{note}}", note)
+                .replace("{{year}}", String.valueOf(java.time.Year.now().getValue()));
+    }
+
+    /** Label/value rows in a soft card. Arguments are alternating label, value; both already escaped. */
+    private static String details(String... labelValuePairs) {
+        StringBuilder rows = new StringBuilder();
+        for (int i = 0; i < labelValuePairs.length; i += 2) {
+            rows.append("<p style=\"margin:0 0 8px;font-size:14px;color:#6B7280;\">").append(labelValuePairs[i])
+                    .append(": <span style=\"color:#111827;font-weight:600;\">").append(labelValuePairs[i + 1])
+                    .append("</span></p>");
+        }
+        return "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" role=\"presentation\" style=\"background:#F8FAFC;"
+                + "border:1px solid #E2E8F0;border-radius:14px;margin-bottom:32px;\"><tr><td style=\"padding:22px 24px 14px;\">"
+                + rows + "</td></tr></table>";
+    }
+
+    /** Tinted notice. warn = amber, otherwise red. */
+    private static String callout(String text, boolean warn) {
+        String bg = warn ? "#FFFBEB" : "#FEF2F2";
+        String border = warn ? "#FDE68A" : "#FECACA";
+        String color = warn ? "#92400E" : "#991B1B";
+        return "<div style=\"background:" + bg + ";border:1px solid " + border + ";border-radius:12px;padding:16px 20px;margin-bottom:32px;\">"
+                + "<p style=\"margin:0;font-size:14px;color:" + color + ";line-height:1.6;\">" + text + "</p></div>";
+    }
+
+    private static String passwordBox(String tempPassword) {
+        return "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" role=\"presentation\" style=\"background:#F8FAFC;"
+                + "border:2px dashed #CBD5E1;border-radius:14px;margin-bottom:32px;\"><tr><td align=\"center\" style=\"padding:28px 16px;\">"
+                + "<div style=\"font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;letter-spacing:.16em;margin-bottom:14px;\">Temporary password</div>"
+                + "<div style=\"font-family:'Courier New',Courier,monospace;font-size:28px;font-weight:700;color:#111827;letter-spacing:.14em;word-break:break-all;\">"
+                + esc(tempPassword) + "</div></td></tr></table>";
+    }
+
+    private static final String AUTOMATED_NOTE = "This is an automated notice. If you believe this is incorrect, "
+            + "contact your manager or HR administrator.";
+
+    private String buildInviteHtml(String fullName, String email, String tempPassword) {
+        return layout("Welcome, " + esc(fullName) + "!",
+                "Your NForce OneHR account is ready. Use the temporary password below to sign in with <strong style=\"color:#374151;font-weight:600;\">"
+                        + esc(email) + "</strong>. You'll be asked to create a new one on your first login.",
+                passwordBox(tempPassword),
+                "Sign in to OneHR", baseUrl + "/login",
+                "Need help? Contact your manager or your HR administrator.<br>This is an automated message, please do not reply.");
     }
 
     private String buildEmailUpdatedHtml(String fullName, String newEmail, String oldEmail) {
-        return """
-                <!DOCTYPE html>
-                <html lang="en">
-                <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#080808;font-family:Inter,Arial,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" style="background:#080808;padding:40px 16px;">
-                    <tr><td align="center">
-                      <table width="560" cellpadding="0" cellspacing="0" style="background:#16181D;border:1px solid #2A2E37;border-radius:12px;overflow:hidden;">
-                        <!-- Header -->
-                        <tr><td style="background:#B11116;padding:28px 36px;">
-                          <span style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</span>
-                        </td></tr>
-                        <!-- Body -->
-                        <tr><td style="padding:36px;">
-                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:22px;font-weight:700;color:#E8EAED;margin:0 0 8px;">Your account email was updated</h1>
-                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, an administrator has updated the email address on your NForce OneHR account.</p>
-
-                          <table width="100%%" cellpadding="0" cellspacing="0" style="background:#1E2128;border:1px solid #2A2E37;border-radius:8px;margin-bottom:28px;">
-                            <tr><td style="padding:20px 24px;">
-                              <p style="margin:0 0 6px;font-size:13px;color:#9BA1AC;">Previous email: <span style="color:#E8EAED;font-weight:600;">%s</span></p>
-                              <p style="margin:0;font-size:13px;color:#9BA1AC;">New email: <span style="color:#E8EAED;font-weight:600;">%s</span></p>
-                            </td></tr>
-                          </table>
-
-                          <div style="background:rgba(228,55,61,.08);border:1px solid rgba(228,55,61,.2);border-radius:8px;padding:14px 18px;margin-bottom:28px;">
-                            <p style="margin:0;font-size:13px;color:#f4a5a8;line-height:1.5;">Sign in using this new email address from now on. If you didn't expect this change, contact your HR administrator immediately.</p>
-                          </div>
-
-                          <a href="%s/login" style="display:inline-block;background:#B11116;color:#ffffff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 28px;border-radius:8px;">Sign in to OneHR →</a>
-                        </td></tr>
-                        <!-- Footer -->
-                        <tr><td style="padding:20px 36px;border-top:1px solid #2A2E37;">
-                          <p style="margin:0;font-size:12px;color:#6B7280;">This email was sent by NForce OneHR. If you didn't expect this, contact your HR administrator.</p>
-                        </td></tr>
-                      </table>
-                    </td></tr>
-                  </table>
-                </body>
-                </html>
-                """.formatted(fullName, oldEmail, newEmail, baseUrl);
+        return layout("Your account email was updated",
+                "Hi " + esc(fullName) + ", an administrator has updated the email address on your NForce OneHR account.",
+                details("Previous email", esc(oldEmail), "New email", esc(newEmail))
+                        + callout("Sign in using this new email address from now on.", false),
+                "Sign in to OneHR", baseUrl + "/login",
+                "If you didn't expect this change, contact your HR administrator immediately.<br>This is an automated message, please do not reply.");
     }
 
     private String buildResetHtml(String fullName, String email, String tempPassword, String baseUrl) {
         // Carries the email as a query param so the linked page (ResetPasswordPage in the
         // frontend) never has to ask the user to type it again — see forgot-password flow.
         String resetLink = baseUrl + "/reset-password?email=" + java.net.URLEncoder.encode(email, java.nio.charset.StandardCharsets.UTF_8);
-        return """
-                <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-                <meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light">
-                </head>
-                <body bgcolor="#f4f4f4" style="margin:0;padding:0;background-color:#f4f4f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:40px 16px;">
-                    <tr><td align="center">
-                      <table bgcolor="#16181d" width="440" cellpadding="0" cellspacing="0" style="background-color:#16181d;border-radius:6px;overflow:hidden;color:#e0e0e0;">
-                        <tr><td style="background:linear-gradient(90deg, #A01418 0%%, #A01418 30%%, #050506 100%%);background-color:#A01418;padding:8px 30px;">
-                          <table width="100%%" cellpadding="0" cellspacing="0" role="presentation"><tr>
-                            <td valign="middle" align="left" style="width:35px;">
-                              <table cellpadding="0" cellspacing="0" role="presentation" style="width:35px;height:35px;">
-                                <tr><td align="center" valign="middle" bgcolor="#000000" style="width:35px;height:35px;background-color:#000000;border:2px solid #333333;border-radius:50%%;overflow:hidden;">
-                                  <img src="%s/nforce-logo.png" width="35" height="35" alt="" style="display:block;border-radius:50%%;border:0;">
-                                </td></tr>
-                              </table>
-                            </td>
-                            <td valign="middle" align="right" style="color:#ffffff;font-weight:700;font-size:16px;">NForce OneHR</td>
-                          </tr></table>
-                        </td></tr>
-                        <tr><td style="padding:24px 30px;">
-                          <h2 style="color:#ffffff;margin:0 0 14px;font-size:23px;font-weight:700;">Reset your password</h2>
-                          <p style="line-height:1.5;margin:0 0 16px;font-size:14px;color:#d1d5db;">Hi %s, a password reset was requested for %s. Use the temporary password below to sign in.</p>
-
-                          <table cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 20px;">
-                            <tr>
-                              <td style="font-size:14px;color:#9ca3af;">Password:</td>
-                              <td style="padding-left:12px;">
-                                <span style="display:inline-block;background-color:#1f2229;padding:6px 14px;border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:15px;color:#ffffff;font-weight:bold;border:1px solid #2d313a;">%s</span>
-                              </td>
-                            </tr>
-                          </table>
-
-                          <table width="100%%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#2d2216;border-radius:4px;margin-bottom:23px;">
-                            <tr><td style="border-left:3px solid #d97706;padding:12px 16px;">
-                              <p style="margin:0 0 4px;font-size:13px;font-weight:700;color:#f59e0b;">⚠️ Temporary Password Notice</p>
-                              <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.4;">This password is for one-time use only. Enter it on the next page along with your new password to finish resetting your account.</p>
-                            </td></tr>
-                          </table>
-
-                          <table width="100%%" cellpadding="0" cellspacing="0" role="presentation">
-                            <tr><td>
-                              <a href="%s" style="display:block;width:100%%;box-sizing:border-box;background-color:#b91c1c;color:#ffffff;text-align:center;padding:6.5px 12px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px;">Reset your password →</a>
-                            </td></tr>
-                          </table>
-
-                          <table width="100%%" cellpadding="0" cellspacing="0" role="presentation" style="border-top:1px solid #2d313a;margin-top:20px;">
-                            <tr><td style="padding-top:14px;font-size:11px;color:#6b7280;line-height:1.4;">
-                              This email was sent by NForce OneHR. If you didn't request this reset, contact your HR administrator immediately.
-                            </td></tr>
-                          </table>
-                        </td></tr>
-                      </table>
-                    </td></tr>
-                  </table>
-                </body>
-                </html>
-                """.formatted(baseUrl, fullName, email, tempPassword, resetLink);
+        return layout("Reset your password",
+                "Hi " + esc(fullName) + ", a password reset was requested for <strong style=\"color:#374151;font-weight:600;\">"
+                        + esc(email) + "</strong>. Use the temporary password below to sign in.",
+                passwordBox(tempPassword)
+                        + callout("This password is for one-time use only. Enter it on the next page along with your new password to finish resetting your account.", true),
+                "Reset your password", resetLink,
+                "If you didn't request this reset, contact your HR administrator immediately.<br>This is an automated message, please do not reply.");
     }
 
     private String buildLateArrivalHtml(String fullName, LocalDate date, LocalTime expectedTime,
                                          LocalTime actualTime, Integer minutesLate) {
-        return """
-                <!DOCTYPE html>
-                <html lang="en">
-                <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#080808;font-family:Inter,Arial,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" style="background:#080808;padding:40px 16px;">
-                    <tr><td align="center">
-                      <table width="560" cellpadding="0" cellspacing="0" style="background:#16181D;border:1px solid #2A2E37;border-radius:12px;overflow:hidden;">
-                        <tr><td style="background:#B11116;padding:28px 36px;">
-                          <span style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</span>
-                        </td></tr>
-                        <tr><td style="padding:36px;">
-                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:22px;font-weight:700;color:#E8EAED;margin:0 0 8px;">Late arrival recorded</h1>
-                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, your check-in on %s was recorded after the shift start grace period.</p>
-
-                          <table width="100%%" cellpadding="0" cellspacing="0" style="background:#1E2128;border:1px solid #2A2E37;border-radius:8px;margin-bottom:28px;">
-                            <tr><td style="padding:20px 24px;">
-                              <p style="margin:0 0 6px;font-size:13px;color:#9BA1AC;">Expected: <span style="color:#E8EAED;font-weight:600;">%s</span></p>
-                              <p style="margin:0 0 6px;font-size:13px;color:#9BA1AC;">Actual check-in: <span style="color:#E8EAED;font-weight:600;">%s</span></p>
-                              <p style="margin:0;font-size:13px;color:#9BA1AC;">Minutes late: <span style="color:#E8EAED;font-weight:600;">%d</span></p>
-                            </td></tr>
-                          </table>
-
-                          <p style="color:#6B7280;font-size:12px;line-height:1.5;margin:0;">This is an automated notice. If you believe this is incorrect, contact your manager or HR administrator.</p>
-                        </td></tr>
-                        <tr><td style="padding:20px 36px;border-top:1px solid #2A2E37;">
-                          <p style="margin:0;font-size:12px;color:#6B7280;">This email was sent by NForce OneHR.</p>
-                        </td></tr>
-                      </table>
-                    </td></tr>
-                  </table>
-                </body>
-                </html>
-                """.formatted(fullName, DATE_FMT.format(date),
-                        TIME_FMT.format(expectedTime), TIME_FMT.format(actualTime), minutesLate);
+        return layout("Late arrival recorded",
+                "Hi " + esc(fullName) + ", your check-in on " + DATE_FMT.format(date) + " was recorded after the shift start grace period.",
+                details("Expected", TIME_FMT.format(expectedTime), "Actual check-in", TIME_FMT.format(actualTime),
+                        "Minutes late", String.valueOf(minutesLate)),
+                null, null, AUTOMATED_NOTE);
     }
 
     private String buildMissingPunchHtml(String fullName, LocalDate date, LocalTime checkInTime) {
-        return """
-                <!DOCTYPE html>
-                <html lang="en">
-                <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#080808;font-family:Inter,Arial,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" style="background:#080808;padding:40px 16px;">
-                    <tr><td align="center">
-                      <table width="560" cellpadding="0" cellspacing="0" style="background:#16181D;border:1px solid #2A2E37;border-radius:12px;overflow:hidden;">
-                        <tr><td style="background:#B11116;padding:28px 36px;">
-                          <span style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</span>
-                        </td></tr>
-                        <tr><td style="padding:36px;">
-                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:22px;font-weight:700;color:#E8EAED;margin:0 0 8px;">Missing check-out</h1>
-                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, we noticed you checked in on %s at %s but never checked out.</p>
-
-                          <div style="background:rgba(224,169,59,.08);border:1px solid rgba(224,169,59,.2);border-radius:8px;padding:14px 18px;margin-bottom:28px;">
-                            <p style="margin:0;font-size:13px;color:#E0A93B;line-height:1.5;">Please submit an Attendance Regularization request with your correct check-out time so your manager or HR can review it.</p>
-                          </div>
-
-                          <p style="color:#6B7280;font-size:12px;line-height:1.5;margin:0;">This is an automated notice. If you believe this is incorrect, contact your manager or HR administrator.</p>
-                        </td></tr>
-                        <tr><td style="padding:20px 36px;border-top:1px solid #2A2E37;">
-                          <p style="margin:0;font-size:12px;color:#6B7280;">This email was sent by NForce OneHR.</p>
-                        </td></tr>
-                      </table>
-                    </td></tr>
-                  </table>
-                </body>
-                </html>
-                """.formatted(fullName, DATE_FMT.format(date), TIME_FMT.format(checkInTime));
+        return layout("Missing check-out",
+                "Hi " + esc(fullName) + ", we noticed you checked in on " + DATE_FMT.format(date) + " at "
+                        + TIME_FMT.format(checkInTime) + " but never checked out.",
+                callout("Please submit an Attendance Regularization request with your correct check-out time so your manager or HR can review it.", true),
+                null, null, AUTOMATED_NOTE);
     }
 
     private String buildLeaveAttendanceConflictHtml(String fullName, LocalDate date, LocalTime checkInTime) {
-        return """
-                <!DOCTYPE html>
-                <html lang="en">
-                <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#080808;font-family:Inter,Arial,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" style="background:#080808;padding:40px 16px;">
-                    <tr><td align="center">
-                      <table width="560" cellpadding="0" cellspacing="0" style="background:#16181D;border:1px solid #2A2E37;border-radius:12px;overflow:hidden;">
-                        <tr><td style="background:#B11116;padding:28px 36px;">
-                          <span style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</span>
-                        </td></tr>
-                        <tr><td style="padding:36px;">
-                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:22px;font-weight:700;color:#E8EAED;margin:0 0 8px;">Attendance recorded during approved leave</h1>
-                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, you have an approved leave covering %s, but a check-in at %s was also recorded that day.</p>
-
-                          <div style="background:rgba(228,55,61,.08);border:1px solid rgba(228,55,61,.2);border-radius:8px;padding:14px 18px;margin-bottom:28px;">
-                            <p style="margin:0;font-size:13px;color:#f4a5a8;line-height:1.5;">If this was unintentional, contact your manager or HR administrator to correct your attendance or leave record.</p>
-                          </div>
-
-                          <p style="color:#6B7280;font-size:12px;line-height:1.5;margin:0;">This is an automated notice. If you believe this is incorrect, contact your manager or HR administrator.</p>
-                        </td></tr>
-                        <tr><td style="padding:20px 36px;border-top:1px solid #2A2E37;">
-                          <p style="margin:0;font-size:12px;color:#6B7280;">This email was sent by NForce OneHR.</p>
-                        </td></tr>
-                      </table>
-                    </td></tr>
-                  </table>
-                </body>
-                </html>
-                """.formatted(fullName, DATE_FMT.format(date), TIME_FMT.format(checkInTime));
+        return layout("Attendance recorded during approved leave",
+                "Hi " + esc(fullName) + ", you have an approved leave covering " + DATE_FMT.format(date)
+                        + ", but a check-in at " + TIME_FMT.format(checkInTime) + " was also recorded that day.",
+                callout("If this was unintentional, contact your manager or HR administrator to correct your attendance or leave record.", false),
+                null, null, AUTOMATED_NOTE);
     }
 
     private String buildNoAttendanceHtml(String fullName, LocalDate date) {
-        return """
-                <!DOCTYPE html>
-                <html lang="en">
-                <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#080808;font-family:Inter,Arial,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" style="background:#080808;padding:40px 16px;">
-                    <tr><td align="center">
-                      <table width="560" cellpadding="0" cellspacing="0" style="background:#16181D;border:1px solid #2A2E37;border-radius:12px;overflow:hidden;">
-                        <tr><td style="background:#B11116;padding:28px 36px;">
-                          <span style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</span>
-                        </td></tr>
-                        <tr><td style="padding:36px;">
-                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:22px;font-weight:700;color:#E8EAED;margin:0 0 8px;">No attendance recorded</h1>
-                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, we did not receive any attendance record from you on %s, a day you were expected to work.</p>
-
-                          <div style="background:rgba(228,55,61,.08);border:1px solid rgba(228,55,61,.2);border-radius:8px;padding:14px 18px;margin-bottom:28px;">
-                            <p style="margin:0;font-size:13px;color:#f4a5a8;line-height:1.5;">If you were on approved leave or this is otherwise incorrect, submit an Attendance Regularization request or contact your manager or HR administrator.</p>
-                          </div>
-
-                          <p style="color:#6B7280;font-size:12px;line-height:1.5;margin:0;">This is an automated notice.</p>
-                        </td></tr>
-                        <tr><td style="padding:20px 36px;border-top:1px solid #2A2E37;">
-                          <p style="margin:0;font-size:12px;color:#6B7280;">This email was sent by NForce OneHR.</p>
-                        </td></tr>
-                      </table>
-                    </td></tr>
-                  </table>
-                </body>
-                </html>
-                """.formatted(fullName, DATE_FMT.format(date));
+        return layout("No attendance recorded",
+                "Hi " + esc(fullName) + ", we did not receive any attendance record from you on " + DATE_FMT.format(date)
+                        + ", a day you were expected to work.",
+                callout("If you were on approved leave or this is otherwise incorrect, submit an Attendance Regularization request or contact your manager or HR administrator.", false),
+                null, null, "This is an automated notice.");
     }
 
     private String buildWorkHoursShortageHtml(String fullName, LocalDate date, LocalTime expectedTime, LocalTime actualTime) {
         String detailRow = expectedTime != null && actualTime != null
-                ? """
-                <table width="100%%" cellpadding="0" cellspacing="0" style="background:#1E2128;border:1px solid #2A2E37;border-radius:8px;margin-bottom:28px;">
-                  <tr><td style="padding:20px 24px;">
-                    <p style="margin:0 0 6px;font-size:13px;color:#9BA1AC;">Expected check-out: <span style="color:#E8EAED;font-weight:600;">%s</span></p>
-                    <p style="margin:0;font-size:13px;color:#9BA1AC;">Actual check-out: <span style="color:#E8EAED;font-weight:600;">%s</span></p>
-                  </td></tr>
-                </table>
-                """.formatted(TIME_FMT.format(expectedTime), TIME_FMT.format(actualTime))
+                ? details("Expected check-out", TIME_FMT.format(expectedTime), "Actual check-out", TIME_FMT.format(actualTime))
                 : "";
-        return """
-                <!DOCTYPE html>
-                <html lang="en">
-                <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#080808;font-family:Inter,Arial,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" style="background:#080808;padding:40px 16px;">
-                    <tr><td align="center">
-                      <table width="560" cellpadding="0" cellspacing="0" style="background:#16181D;border:1px solid #2A2E37;border-radius:12px;overflow:hidden;">
-                        <tr><td style="background:#B11116;padding:28px 36px;">
-                          <span style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</span>
-                        </td></tr>
-                        <tr><td style="padding:36px;">
-                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:22px;font-weight:700;color:#E8EAED;margin:0 0 8px;">Work hours shortage recorded</h1>
-                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, your worked hours on %s were short of what was expected for that day.</p>
-
-                          %s
-
-                          <p style="color:#6B7280;font-size:12px;line-height:1.5;margin:0;">This is an automated notice. If you believe this is incorrect, contact your manager or HR administrator.</p>
-                        </td></tr>
-                        <tr><td style="padding:20px 36px;border-top:1px solid #2A2E37;">
-                          <p style="margin:0;font-size:12px;color:#6B7280;">This email was sent by NForce OneHR.</p>
-                        </td></tr>
-                      </table>
-                    </td></tr>
-                  </table>
-                </body>
-                </html>
-                """.formatted(fullName, DATE_FMT.format(date), detailRow);
+        return layout("Work hours shortage recorded",
+                "Hi " + esc(fullName) + ", your worked hours on " + DATE_FMT.format(date) + " were short of what was expected for that day.",
+                detailRow, null, null, AUTOMATED_NOTE);
     }
 
     private String buildPenaltyHtml(String fullName, LocalDate date, String reason,
                                      BigDecimal deductionDays, BigDecimal lopDays, BigDecimal leaveDeductionDays) {
-        StringBuilder deductionRows = new StringBuilder();
+        java.util.List<String> rows = new java.util.ArrayList<>(java.util.List.of(
+                "Penalty date", DATE_FMT.format(date), "Reason", esc(reason)));
         if (lopDays != null && lopDays.signum() > 0) {
-            deductionRows.append("<p style=\"margin:0 0 6px;font-size:13px;color:#9BA1AC;\">Loss of Pay: <span style=\"color:#E8EAED;font-weight:600;\">")
-                    .append(lopDays).append(" day(s)</span></p>");
+            rows.addAll(java.util.List.of("Loss of Pay", lopDays + " day(s)"));
         }
         if (leaveDeductionDays != null && leaveDeductionDays.signum() > 0) {
-            deductionRows.append("<p style=\"margin:0 0 6px;font-size:13px;color:#9BA1AC;\">Leave balance deducted: <span style=\"color:#E8EAED;font-weight:600;\">")
-                    .append(leaveDeductionDays).append(" day(s)</span></p>");
+            rows.addAll(java.util.List.of("Leave balance deducted", leaveDeductionDays + " day(s)"));
         }
-        if (deductionRows.length() == 0) {
-            deductionRows.append("<p style=\"margin:0;font-size:13px;color:#9BA1AC;\">Deduction: <span style=\"color:#E8EAED;font-weight:600;\">")
-                    .append(deductionDays != null ? deductionDays : BigDecimal.ZERO).append(" day(s)</span></p>");
+        if (rows.size() == 4) { // neither of the above applied
+            rows.addAll(java.util.List.of("Deduction", (deductionDays != null ? deductionDays : BigDecimal.ZERO) + " day(s)"));
         }
-        return """
-                <!DOCTYPE html>
-                <html lang="en">
-                <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#080808;font-family:Inter,Arial,sans-serif;">
-                  <table width="100%%" cellpadding="0" cellspacing="0" style="background:#080808;padding:40px 16px;">
-                    <tr><td align="center">
-                      <table width="560" cellpadding="0" cellspacing="0" style="background:#16181D;border:1px solid #2A2E37;border-radius:12px;overflow:hidden;">
-                        <tr><td style="background:#B11116;padding:28px 36px;">
-                          <span style="font-family:'Space Grotesk',Arial,sans-serif;font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;">NForce OneHR</span>
-                        </td></tr>
-                        <tr><td style="padding:36px;">
-                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:22px;font-weight:700;color:#E8EAED;margin:0 0 8px;">Attendance penalty applied</h1>
-                          <p style="color:#9BA1AC;font-size:14px;line-height:1.6;margin:0 0 28px;">Hi %s, an attendance penalty has been applied to your record for %s.</p>
-
-                          <table width="100%%" cellpadding="0" cellspacing="0" style="background:#1E2128;border:1px solid #2A2E37;border-radius:8px;margin-bottom:28px;">
-                            <tr><td style="padding:20px 24px;">
-                              <p style="margin:0 0 6px;font-size:13px;color:#9BA1AC;">Penalty date: <span style="color:#E8EAED;font-weight:600;">%s</span></p>
-                              <p style="margin:0 0 6px;font-size:13px;color:#9BA1AC;">Reason: <span style="color:#E8EAED;font-weight:600;">%s</span></p>
-                              %s
-                            </td></tr>
-                          </table>
-
-                          <p style="color:#6B7280;font-size:12px;line-height:1.5;margin:0;">If you believe this is incorrect, you can submit an Attendance Regularization request for this date, or contact your manager or HR administrator.</p>
-                        </td></tr>
-                        <tr><td style="padding:20px 36px;border-top:1px solid #2A2E37;">
-                          <p style="margin:0;font-size:12px;color:#6B7280;">This email was sent by NForce OneHR.</p>
-                        </td></tr>
-                      </table>
-                    </td></tr>
-                  </table>
-                </body>
-                </html>
-                """.formatted(fullName, DATE_FMT.format(date), DATE_FMT.format(date), reason, deductionRows.toString());
+        return layout("Attendance penalty applied",
+                "Hi " + esc(fullName) + ", an attendance penalty has been applied to your record for " + DATE_FMT.format(date) + ".",
+                details(rows.toArray(String[]::new)),
+                null, null,
+                "If you believe this is incorrect, you can submit an Attendance Regularization request for this date, or contact your manager or HR administrator.");
     }
 
     private String jsonString(String raw) {

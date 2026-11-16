@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
+import { useCan } from '../lib/access';
 import { TabBar } from '../components/TabBar';
 import {
   helpdeskApi,
@@ -154,6 +155,7 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
   ticketId: string; token: string; agents: AssignableAgent[]; onBack: () => void; onChanged: () => void;
 }) {
   const { showToast } = useToast();
+  const canEdit = useCan()('helpdesk', 'EDIT');
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
@@ -241,6 +243,7 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
               )}
             </div>
 
+            {canEdit && (
             <form onSubmit={handleReply} className="nf-rq-composer">
               <textarea
                 className="nf-rq-textarea"
@@ -265,10 +268,12 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
                 </button>
               </div>
             </form>
+            )}
           </div>
         </div>
 
         <div className="nf-rq-stack">
+          {canEdit && (
           <div className="nf-rq-panel">
             <div className="nf-rq-panel-head">
               <h3 className="nf-rq-panel-title"><SlidersHorizontal size={16} /> Manage Ticket</h3>
@@ -296,6 +301,7 @@ function TicketDetailView({ ticketId, token, agents, onBack, onChanged }: {
               </div>
             </div>
           </div>
+          )}
 
           <div className="nf-rq-panel">
             <div className="nf-rq-panel-head">
@@ -352,6 +358,7 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
   onBack: () => void; onOpenWorkspace: (id: string) => void; onChanged: () => void;
 }) {
   const { showToast } = useToast();
+  const canEdit = useCan()('helpdesk', 'EDIT');
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -477,12 +484,12 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
               </>
             ) : (
               <div className="nf-rq-actions">
-                {canStartWorking && (
+                {canStartWorking && canEdit && (
                   <button onClick={handleStartWorking} disabled={starting} className="nf-rq-btn nf-rq-btn--primary nf-rq-btn--block">
                     <Play size={14} /> {starting ? 'Starting…' : 'Start Working'}
                   </button>
                 )}
-                {canReassign && (
+                {canReassign && canEdit && (
                   <button onClick={() => setShowAssignPanel(true)} className="nf-rq-btn nf-rq-btn--outline nf-rq-btn--block">
                     <UserPlus size={14} /> Assign to HR
                   </button>

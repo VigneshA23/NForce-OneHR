@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Search, X, Users, ChevronLeft, ChevronRight, History, UserPlus } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
+import { useCan } from '../../lib/access';
 import { KebabMenu, type KebabItem } from '../../components/KebabMenu';
 import { orgApi, type BusinessUnitRow, type DepartmentRow, type LocationRow } from '../../api/org';
 import { penalisationPoliciesApi, type PenalisationPolicySummary } from '../../api/penalisationPolicies';
@@ -264,6 +265,7 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
   onChangePolicy(emp: AllocatableEmployee): void;
   onRemovePolicy(emp: AllocatableEmployee): void;
 }) {
+  const can = useCan();
   const [detail, setDetail] = useState<EmployeeAllocationDetailResponse | null>(null);
   const [noPolicyReason, setNoPolicyReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -341,12 +343,14 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
                 </div>
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                {can('penalization', currentEntry ? 'EDIT' : 'CREATE') && (
                 <button
                   onClick={() => onChangePolicy({ employeeUserId: detail.employeeUserId, fullName: detail.fullName, currentAllocation: currentEntry })}
                   style={{ padding: '6px 12px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                   {currentEntry ? 'Change Policy' : 'Add Policy'}
                 </button>
-                {canRemove && (
+                )}
+                {canRemove && can('penalization', 'DELETE') && (
                   <button
                     onClick={() => onRemovePolicy({ employeeUserId: detail.employeeUserId, fullName: detail.fullName, currentAllocation: currentEntry })}
                     style={{ padding: '6px 12px', background: 'var(--raised2)', color: 'var(--risk)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
@@ -570,6 +574,7 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
   initialPolicyFilter?: string | null;
   onInitialPolicyFilterConsumed?: () => void;
 }) {
+  const can = useCan();
   const { showToast } = useToast();
 
   const [businessUnits, setBusinessUnits] = useState<BusinessUnitRow[]>([]);
@@ -764,11 +769,11 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
   function kebabItems(row: EmployeeAllocationRow): KebabItem[] {
     const items: KebabItem[] = [];
     if (row.resolvedPolicySource === 'ALLOCATION' && row.currentAllocation) {
-      items.push({ label: 'Edit', onClick: () => openEdit(row) });
-    } else {
+      if (can('penalization', 'EDIT')) items.push({ label: 'Edit', onClick: () => openEdit(row) });
+    } else if (can('penalization', 'CREATE')) {
       items.push({ label: 'Assign Policy', onClick: () => openAssign(row) });
     }
-    if (row.resolvedPolicySource === 'ALLOCATION' && row.currentAllocation) {
+    if (row.resolvedPolicySource === 'ALLOCATION' && row.currentAllocation && can('penalization', 'DELETE')) {
       items.push({ label: 'Remove', danger: true, onClick: () => triggerRemove(row) });
     }
     return items;
@@ -782,13 +787,17 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>Penalization Policy Allocation</h2>
         <div style={{ display: 'flex', gap: 8 }}>
+          {can('penalization', 'CREATE') && (
           <button onClick={() => setAddEmployeesOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
             <UserPlus size={14} /> Add Employees
           </button>
+          )}
+          {can('penalization', 'CREATE') && (
           <button onClick={openBulkAssign} disabled={selected.size === 0}
             style={{ padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: selected.size === 0 ? 'var(--txt-dim)' : 'var(--txt)', cursor: selected.size === 0 ? 'not-allowed' : 'pointer', opacity: selected.size === 0 ? 0.6 : 1 }}>
             Update Penalization Policy
           </button>
+          )}
         </div>
       </div>
 
@@ -850,12 +859,16 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 14px' }}>
           <Users size={14} style={{ color: 'var(--txt-mut)' }} />
           <span style={{ fontSize: 12.5, color: 'var(--txt)', fontWeight: 600 }}>{selected.size} selected</span>
+          {can('penalization', 'CREATE') && (
           <button onClick={openBulkAssign} style={{ padding: '5px 12px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
             Update Penalization Policy
           </button>
+          )}
+          {can('penalization', 'DELETE') && (
           <button onClick={triggerBulkRemove} style={{ padding: '5px 12px', background: 'var(--raised2)', color: 'var(--risk)', border: '1px solid rgba(228,55,61,.3)', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
             Remove Allocation
           </button>
+          )}
           <button onClick={() => setSelected(new Set())} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--txt-dim)', fontSize: 12, cursor: 'pointer' }}>
             Clear selection
           </button>
@@ -934,10 +947,12 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
                       ) : (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ color: 'var(--txt-mut)', fontStyle: 'italic' }}>No Penalization Policy</span>
+                          {can('penalization', 'CREATE') && (
                           <button onClick={e => { e.stopPropagation(); openAssign(row); }}
                             style={{ background: 'none', border: 'none', color: 'var(--brand-bright)', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}>
                             Assign Policy
                           </button>
+                          )}
                         </div>
                       )}
                       {row.upcomingAllocation && (
@@ -975,7 +990,7 @@ export default function PenalizationPolicyAllocationSection({ token, initialPoli
           employees={result?.content}
           policies={policies}
           initial={allocateTarget.initial}
-          allowRemoveOption={allocateTarget.allowRemove}
+          allowRemoveOption={allocateTarget.allowRemove && can('penalization', 'DELETE')}
           onClose={() => setAllocateTarget(null)}
           onSubmit={handleAllocateSubmit}
         />

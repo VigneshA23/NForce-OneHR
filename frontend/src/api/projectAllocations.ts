@@ -1,4 +1,5 @@
 import { API_ORIGIN } from './config';
+import type { EmployeeRecord } from './employees';
 
 function authHeaders(token: string) {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
@@ -87,6 +88,10 @@ export const projectsApi = {
     fetch(`${API_ORIGIN}/api/projects/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) })
       .then(handle<ProjectRecord>),
 
+  /** Only people the server accepts as project owner (hold projects:VIEW:TEAM). */
+  eligibleOwners: (token: string): Promise<{ userId: string; fullName: string }[]> =>
+    fetch(`${API_ORIGIN}/api/projects/eligible-owners`, { headers: authHeaders(token) }).then(handle<{ userId: string; fullName: string }[]>),
+
   listClients: (token: string): Promise<ClientRecord[]> =>
     fetch(`${API_ORIGIN}/api/projects/clients`, { headers: authHeaders(token) }).then(handle<ClientRecord[]>),
 
@@ -106,6 +111,10 @@ export interface EmployeeCapacity {
 }
 
 export const projectAllocationsApi = {
+  /** Employees the caller may allocate (server-scoped: direct reports for Team, everyone for Organization). */
+  employees: (token: string): Promise<EmployeeRecord[]> =>
+    fetch(`${API_ORIGIN}/api/allocations/employees`, { headers: authHeaders(token) }).then(handle<EmployeeRecord[]>),
+
   /** US-B05/B13: Manager sees own direct reports only (server-scoped); HR/Super Admin: everyone. Filters AND together. */
   capacity: (token: string, filters: { departmentId?: string; projectId?: string } = {}): Promise<EmployeeCapacity[]> => {
     const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]).toString();

@@ -1,0 +1,62 @@
+/* My Documents & Policies popups. Presentation only; theme tokens throughout. */
+.nf-dp-overlay { position: fixed; inset: 0; z-index: 500; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(8, 12, 22, .6); backdrop-filter: blur(2px); }
+.nf-dp-modal { --dp-accent: var(--brand); width: 100%; max-height: min(90vh, 820px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 70px rgba(0, 0, 0, .45); overflow: hidden; }
+.nf-dp-modal.nf-dp-tone-risk { --dp-accent: var(--risk); }
+.nf-dp-sm { max-width: 440px; }
+.nf-dp-md { max-width: 560px; }
+.nf-dp-lg { max-width: 680px; }
+
+.nf-dp-head { display: flex; align-items: center; gap: 14px; padding: 18px 22px; border-bottom: 1px solid var(--line); background: linear-gradient(135deg, color-mix(in srgb, var(--dp-accent) 10%, var(--panel)), var(--panel)); }
+.nf-dp-ico { width: 44px; height: 44px; flex-shrink: 0; display: grid; place-items: center; border-radius: 12px; color: var(--dp-accent); background: color-mix(in srgb, var(--dp-accent) 14%, var(--raised)); border: 1px solid color-mix(in srgb, var(--dp-accent) 26%, var(--line)); }
+.nf-dp-titles { flex: 1; min-width: 0; }
+.nf-dp-title { font-size: 17px; font-weight: 800; letter-spacing: -.01em; color: var(--txt); overflow-wrap: anywhere; }
+.nf-dp-sub { font-size: 12.5px; color: var(--txt-mut); margin-top: 3px; line-height: 1.4; }
+.nf-dp-x { width: 32px; height: 32px; flex-shrink: 0; display: grid; place-items: center; border-radius: 9px; border: 1px solid var(--line); background: var(--raised); color: var(--txt-mut); cursor: pointer; }
+.nf-dp-x:hover { color: var(--txt); border-color: var(--line2); }
+
+.nf-dp-body { padding: 18px 22px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+.nf-dp-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 22px; border-top: 1px solid var(--line); background: var(--panel); }
+
+.nf-dp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.nf-dp-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; padding: 4px 11px; border-radius: 999px; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line); }
+.nf-dp-chip.is-brand { color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border-color: color-mix(in srgb, var(--brand) 26%, var(--line)); }
+.nf-dp-chip.is-risk { color: var(--risk); background: color-mix(in srgb, var(--risk) 10%, var(--panel)); border-color: color-mix(in srgb, var(--risk) 28%, var(--line)); }
+.nf-dp-chip.is-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 11%, var(--panel)); border-color: color-mix(in srgb, var(--ok) 28%, var(--line)); }
+
+.nf-dp-read { padding: 16px 18px; border-radius: 14px; border: 1px solid var(--line); background: var(--raised); font-size: 13.5px; line-height: 1.75; color: var(--txt); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow-y: auto; }
+
+.nf-dp-attach { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 14px; text-align: left; font: inherit; border-radius: 12px; border: 1px solid var(--line2); background: var(--panel); color: var(--txt); cursor: pointer; transition: border-color .15s, background .15s; }
+.nf-dp-attach:hover:not(:disabled) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 6%, var(--panel)); }
+.nf-dp-attach:disabled { opacity: .7; cursor: wait; }
+.nf-dp-attach-ico { width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center; border-radius: 10px; color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, var(--raised)); }
+.nf-dp-attach-txt { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nf-dp-attach-txt small { display: block; font-size: 11.5px; font-weight: 500; color: var(--txt-mut); }
+
+.nf-dp-agree { display: flex; align-items: flex-start; gap: 11px; padding: 13px 15px; border-radius: 14px; cursor: pointer; border: 1px solid var(--line2); background: var(--panel); transition: border-color .15s, background .15s; }
+.nf-dp-agree.is-on { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
+.nf-dp-agree input { width: 17px; height: 17px; margin-top: 1px; flex-shrink: 0; cursor: pointer; accent-color: var(--brand); }
+.nf-dp-agree span { font-size: 13px; line-height: 1.5; color: var(--txt); }
+
+.nf-dp-f { min-width: 0; }
+.nf-dp-l { display: block; font-size: 11.5px; font-weight: 700; color: var(--txt-mut); margin-bottom: 6px; }
+.nf-dp-in { width: 100%; box-sizing: border-box; height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line2); background: var(--shell); color: var(--txt); font: inherit; font-size: 13.5px; outline: none; transition: border-color .15s, box-shadow .15s; }
+.nf-dp-in:focus { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
+.nf-dp-in.is-bad { border-color: var(--risk); }
+.nf-dp-file { height: auto; padding: 9px 12px; cursor: pointer; }
+.nf-dp-file::file-selector-button { margin-right: 12px; padding: 6px 14px; border: none; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 700; color: #fff; background: var(--brand); }
+.nf-dp-hint { font-size: 11.5px; color: var(--txt-mut); margin-top: 6px; }
+.nf-dp-err { font-size: 12.5px; color: var(--risk); margin-top: 6px; }
+.nf-dp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.nf-dp-text { font-size: 13.5px; line-height: 1.6; color: var(--txt-mut); margin: 0; }
+
+.nf-dp-cancel { height: 40px; padding: 0 20px; border-radius: 10px; border: 1px solid var(--line2); background: var(--raised); color: var(--txt-mut); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.nf-dp-cancel:hover:not(:disabled) { color: var(--txt); }
+.nf-dp-go { height: 40px; padding: 0 22px; display: inline-flex; align-items: center; gap: 7px; border-radius: 10px; border: none; background: var(--brand); color: #fff; font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; }
+.nf-dp-go.is-risk { background: var(--risk); }
+.nf-dp-go:hover:not(:disabled) { filter: brightness(1.08); }
+.nf-dp-go:disabled, .nf-dp-cancel:disabled { opacity: .55; cursor: not-allowed; }
+
+@media (max-width: 560px) {
+  .nf-dp-grid { grid-template-columns: 1fr; }
+  .nf-dp-overlay { padding: 8px; }
+}

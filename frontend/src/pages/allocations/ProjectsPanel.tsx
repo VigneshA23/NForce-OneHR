@@ -1,19 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Search, FolderKanban, CalendarDays, AlertTriangle, X } from 'lucide-react';
-import type { EmployeeRecord } from '../../api/employees';
 import { orgApi, type DepartmentRow } from '../../api/org';
 import {
   projectsApi, PROJECT_STATUS_LABEL,
   type ClientRecord, type ProjectPayload, type ProjectRecord, type ProjectStatus,
 } from '../../api/projectAllocations';
+import { useCan } from '../../lib/access';
 import { usePaged } from '../../components/usePaged';
 import { TablePagination } from '../../components/TablePagination';
 import './allocations.css';
 
 const STATUS_TONE: Record<ProjectStatus, string> = { ACTIVE: 'is-ok', ON_HOLD: 'is-warn', CLOSED: 'is-off' };
-
-// US-B03: only these may own (and therefore allocate on) a project — the backend enforces the same rule.
-const OWNER_ROLES = new Set(['MANAGER', 'HR_ADMIN', 'SUPER_ADMIN']);
 
 const EMPTY_FORM: ProjectPayload = {
   code: '', name: '', startDate: '', endDate: null, ownerEmployeeId: null, departmentId: null, clientId: null, status: 'ACTIVE',
@@ -22,7 +19,6 @@ const EMPTY_FORM: ProjectPayload = {
 interface Props {
   token: string;
   projects: ProjectRecord[];
-  employees: EmployeeRecord[];
   onSaved: (project: ProjectRecord) => void;
 }
 
@@ -30,7 +26,8 @@ interface Props {
  * US-B01 (projects as reference data), US-B02 (client tag) and US-B03 (Manager owner). There is
  * intentionally no delete: closing a project is a status change, so its allocations stay intact.
  */
-export default function ProjectsPanel({ token, projects, employees, onSaved }: Props) {
+export default function ProjectsPanel({ token, projects, onSaved }: Props) {
+  const can = useCan();
   const [departments, setDepartments] = useState<DepartmentRow[]>([]);
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [search, setSearch] = useState('');
@@ -48,7 +45,10 @@ export default function ProjectsPanel({ token, projects, employees, onSaved }: P
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load departments/clients'));
   }, [token]);
 
-  const owners = useMemo(() => employees.filter(e => OWNER_ROLES.has(e.role)), [employees]);
+  // Owner eligibility is decided by the server (ProjectService.requireEligibleOwner: the owner must hold
+  // projects:VIEW:TEAM), not by a role name here; a rejected pick is shown through the form's error banner.
+  const [owners, setOwners] = useState<{ userId: string; fullName: string }[]>([]);
+  useEffect(() => { projectsApi.eligibleOwners(token).then(setOwners).catch(() => setOwners([])); }, [token]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -121,9 +121,11 @@ export default function ProjectsPanel({ token, projects, employees, onSaved }: P
             <span>Projects</span>
             <small>{projects.length} in total. Close a project to stop new allocations.</small>
           </div>
+          {can('projects', 'CREATE') && (
           <button type="button" onClick={openNew} className="nf-pa-primary is-sm">
             <Plus size={14} /> New Project
           </button>
+          )}
         </div>
         <div className="nf-pa-body">
           <div className="nf-pa-search">
@@ -160,9 +162,11 @@ export default function ProjectsPanel({ token, projects, employees, onSaved }: P
                     <span className={`nf-pa-pill ${STATUS_TONE[p.status]}`}><i />{PROJECT_STATUS_LABEL[p.status]}</span>
                   </td>
                   <td style={{ textAlign: 'right' }}>
+                    {can('projects', 'EDIT') && (
                     <button type="button" onClick={() => openEdit(p)} aria-label={`Edit ${p.name}`} className="nf-pa-edit">
                       <Pencil size={14} />
                     </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -231,10 +235,12 @@ export default function ProjectsPanel({ token, projects, employees, onSaved }: P
                 <option value="">None</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              {can('projects', 'CREATE') && (
               <div className="nf-pa-addrow">
                 <input placeholder="New client / cost center" value={newClientName} onChange={e => setNewClientName(e.target.value)} className="nf-pa-input" />
                 <button type="button" onClick={handleAddClient} disabled={!newClientName.trim()} className="nf-pa-ghost">Add</button>
               </div>
+              )}
             </div>
 
             <div className="nf-pa-field">

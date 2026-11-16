@@ -9,8 +9,9 @@ import { useAuthStore } from '../store/authStore';
 //
 // A stale/invalid/missing JWT never reaches a controller: JwtAuthenticationFilter leaves the
 // SecurityContext empty, so Spring Security's filter-chain-level `.anyRequest().authenticated()`
-// check rejects it with an empty-bodied 403 before Spring MVC (and GlobalExceptionHandler) ever
-// runs. An authenticated-but-unauthorized request (e.g. an Employee hitting a
+// check rejects it before Spring MVC (and GlobalExceptionHandler) ever runs — with HTTP 401
+// (UnauthenticatedEntryPoint). Older backends answered this same case with an empty-bodied 403, so
+// both are still treated as "session no longer valid" (a 403 WITH a body is an authorization failure). An authenticated-but-unauthorized request (e.g. an Employee hitting a
 // @PreAuthorize("hasRole('SUPER_ADMIN')") endpoint) is thrown from inside the controller
 // invocation instead, so it always comes back as a 403 with a JSON error body from
 // GlobalExceptionHandler#handleAccessDenied. The empty body is what tells the two apart —
@@ -58,13 +59,13 @@ export function installAuthFetch(): void {
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const response = await originalFetch(input, init);
 
-    if (response.status === 403 && !handledSessionInvalidation) {
+    if ((response.status === 401 || response.status === 403) && !handledSessionInvalidation) {
       const url = typeof input === 'string' ? input : input.toString();
       const isApiCall = url.includes('/api/');
       const isAuthenticatedCall = hasBearerAuth(init?.headers) || hasBearerAuth((input as Request)?.headers);
 
       if (isApiCall && isAuthenticatedCall) {
-        const bodyText = await response.clone().text().catch(() => '');
+        const bodyText = response.status === 401 ? '' : await response.clone().text().catch(() => '');
         if (bodyText.trim().length === 0) {
           handledSessionInvalidation = true;
           useAuthStore.getState().clearAuth();

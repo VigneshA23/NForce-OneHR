@@ -9,6 +9,7 @@ import './documentsCompliance.css';
 import { KebabMenu } from '../components/KebabMenu';
 import { TablePagination, clampPage, paginate } from '../components/TablePagination';
 import { useAuthStore } from '../store/authStore';
+import { useCan } from '../lib/access';
 import { useToast } from '../context/ToastContext';
 import { TabBar } from '../components/TabBar';
 import {
@@ -142,6 +143,7 @@ function DetailModal({
   onClose(): void;
 }) {
   const token = useAuthStore(s => s.token)!;
+  const can = useCan();
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [fileLoading, setFileLoading] = useState(true);
   const [fileError, setFileError] = useState(false);
@@ -235,7 +237,7 @@ function DetailModal({
 
         {/* Actions — only for pending docs */}
         <div className="nf-dc-dfoot">
-          {doc.status === 'PENDING_VERIFICATION' ? (
+          {doc.status === 'PENDING_VERIFICATION' && can('documents', 'APPROVE') ? (
             mode === 'view' ? (
               <>
                 <button type="button" onClick={onClose} disabled={acting} className="nf-dc-ghost">Close</button>

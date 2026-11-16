@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import type { LucideIcon } from 'lucide-react';
 import {
   Archive, ArchiveRestore, ArrowUp, BookOpen, CheckCircle2, ChevronDown, Eye, EyeOff, FileText,
@@ -1512,88 +1513,94 @@ export default function HelpDeskPage() {
         </div>
       </div>
 
-      {showContactModal && (
-        <ContactHRModal
-          categories={categories}
-          token={token}
-          initialDescription={contactPrefill}
-          onClose={() => { setShowContactModal(false); setContactPrefill(''); loadTickets(0); }}
-          onCreated={() => loadTickets(0)}
-        />
-      )}
+      {/* Portaled to <body>: a fixed overlay inside the page sits under the sticky top bar (the page wrapper is transformed), clipping the popup's header. */}
+      {createPortal(
+        <>
+        {showContactModal && (
+          <ContactHRModal
+            categories={categories}
+            token={token}
+            initialDescription={contactPrefill}
+            onClose={() => { setShowContactModal(false); setContactPrefill(''); loadTickets(0); }}
+            onCreated={() => loadTickets(0)}
+          />
+        )}
 
-      {activeContentId && (
-        <ContentModal
-          id={activeContentId}
-          token={token}
-          isAdmin={isAdmin}
-          viewedRef={viewedContentRef}
-          onClose={() => setActiveContentId(null)}
-          onContactHR={openContactFromModal}
-        />
-      )}
+        {activeContentId && (
+          <ContentModal
+            id={activeContentId}
+            token={token}
+            isAdmin={isAdmin}
+            viewedRef={viewedContentRef}
+            onClose={() => setActiveContentId(null)}
+            onContactHR={openContactFromModal}
+          />
+        )}
 
-      {showAllFaqs && (
-        <AllFaqsModal
-          token={token}
-          isAdmin={isAdmin}
-          refreshToken={contentVersion}
-          actions={isAdmin ? contentActions : undefined}
-          busyIds={busyIds}
-          onClose={() => setShowAllFaqs(false)}
-        />
-      )}
+        {showAllFaqs && (
+          <AllFaqsModal
+            token={token}
+            isAdmin={isAdmin}
+            refreshToken={contentVersion}
+            actions={isAdmin ? contentActions : undefined}
+            busyIds={busyIds}
+            onClose={() => setShowAllFaqs(false)}
+          />
+        )}
 
-      {showAllGuides && (
-        <AllGuidesModal
-          token={token}
-          isAdmin={isAdmin}
-          refreshToken={contentVersion}
-          onOpenItem={id => { setShowAllGuides(false); setActiveContentId(id); }}
-          actions={isAdmin ? contentActions : undefined}
-          busyIds={busyIds}
-          onClose={() => setShowAllGuides(false)}
-        />
-      )}
+        {showAllGuides && (
+          <AllGuidesModal
+            token={token}
+            isAdmin={isAdmin}
+            refreshToken={contentVersion}
+            onOpenItem={id => { setShowAllGuides(false); setActiveContentId(id); }}
+            actions={isAdmin ? contentActions : undefined}
+            busyIds={busyIds}
+            onClose={() => setShowAllGuides(false)}
+          />
+        )}
 
-      {formOpen && (
-        <ContentFormModal
-          editing={editingContent}
-          initialType={formInitialType}
-          token={token}
-          onClose={() => setFormOpen(false)}
-          onSaved={refreshContent}
-        />
-      )}
+        {formOpen && (
+          <ContentFormModal
+            editing={editingContent}
+            initialType={formInitialType}
+            token={token}
+            onClose={() => setFormOpen(false)}
+            onSaved={refreshContent}
+          />
+        )}
 
-      {reviewingPublish && (
-        <ReviewPublishModal
-          item={reviewingPublish}
-          token={token}
-          onClose={() => setReviewingPublish(null)}
-          onEdit={openEditFromReview}
-          onPublished={handlePublished}
-        />
-      )}
+        {reviewingPublish && (
+          <ReviewPublishModal
+            item={reviewingPublish}
+            token={token}
+            onClose={() => setReviewingPublish(null)}
+            onEdit={openEditFromReview}
+            onPublished={handlePublished}
+          />
+        )}
 
-      {withdrawing && (
-        <ReasonPromptModal
-          title={`Withdraw "${withdrawing.title}"`}
-          label="Withdrawal reason"
-          onConfirm={handleWithdrawConfirmed}
-          onClose={() => setWithdrawing(null)}
-        />
-      )}
+        {withdrawing && (
+          <ReasonPromptModal
+            title={`Withdraw "${withdrawing.title}"`}
+            label="Withdrawal reason"
+            onConfirm={handleWithdrawConfirmed}
+            onClose={() => setWithdrawing(null)}
+          />
+        )}
 
-      {confirmAction && (
-        <ConfirmModal
-          title={confirmAction.title}
-          body={confirmAction.body}
-          confirmLabel={confirmAction.confirmLabel}
-          danger={confirmAction.danger}
-          onConfirm={confirmAction.run}
-          onClose={() => setConfirmAction(null)}
-        />
+        {confirmAction && (
+          <ConfirmModal
+            title={confirmAction.title}
+            body={confirmAction.body}
+            confirmLabel={confirmAction.confirmLabel}
+            danger={confirmAction.danger}
+            onConfirm={confirmAction.run}
+            onClose={() => setConfirmAction(null)}
+          />
+        )}
+        </>,
+        document.body,
       )}
     </div>
   );

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PersonCell } from '../components/PersonCell';
+import { PersonCell, PersonAvatar } from '../components/PersonCell';
+import { createPortal } from 'react-dom';
+import './employeeEdit.css';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { X, ChevronDown, ChevronUp, Search, Users, AlertCircle, Contact } from 'lucide-react';
+import { X, ChevronDown, ChevronUp, Search, Users, AlertCircle, Contact, UserCog, User, Building2, Briefcase, MapPin, Lock, Info } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
+import { useCan } from '../lib/access';
 import { employeesApi, type EmployeeRecord, type UpdateEmployeePayload } from '../api/employees';
 import { orgApi } from '../api/org';
 import { inactiveDimStyle, InactiveEditBanner, InactiveFieldsConfirm } from '../components/EmployeeStatus';
@@ -11,23 +14,7 @@ import { inactiveDimStyle, InactiveEditBanner, InactiveFieldsConfirm } from '../
 const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
 const WORK_MODES = ['ONSITE', 'HYBRID', 'REMOTE'];
 
-const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
-const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.5)' };
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
-const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label style={labelStyle}>{label}</label>{children}</div>;
-}
-
-function ModalHeader({ title, onClose }: { title: string; onClose: () => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-      <span style={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: 15, color: 'var(--txt)' }}>{title}</span>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-dim)', padding: 4, borderRadius: 4, display: 'flex', alignItems: 'center' }}><X size={16} /></button>
-    </div>
-  );
-}
 
 // Page-local, purely presentational restyle of the Active/Inactive pill — same `active` input
 // and same Active/Inactive wording as the shared EmployeeStatus.StatusBadge.
@@ -138,7 +125,7 @@ function CreatableLocationSelect({
 }
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
-function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
+export function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string }) {
   const [form, setForm] = useState<UpdateEmployeePayload>({
     fullName: emp.fullName,
     businessUnitId: emp.businessUnitId ?? undefined,
@@ -172,74 +159,123 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
     } finally { setSubmitting(false); }
   }
 
-  return (
-    <div style={overlayStyle}>
-      <div style={{ ...modalStyle, maxWidth: 540 }}>
-        <ModalHeader title={`Edit - ${emp.fullName}`} onClose={onClose} />
-        <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', fontSize: 13, padding: '10px 14px', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6 }}>{error}</div>}
-          {isInactive && <InactiveEditBanner />}
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Full Name">
-              <input style={inputStyle} value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} />
-            </Field>
+  const canSave = !(submitting || employmentFieldsLocked);
+
+  return createPortal(
+    <div className="nf-ee-overlay" role="presentation">
+      <div className="nf-ee-modal" role="dialog" aria-modal="true" aria-label={`Edit ${emp.fullName}`}>
+        <div className="nf-ee-head">
+          <span className="nf-ee-head-ico"><UserCog size={20} /></span>
+          <div className="nf-ee-head-txt">
+            <div className="nf-ee-title">Edit Employee</div>
+            <div className="nf-ee-sub">Update organisation and employment details.</div>
           </div>
-          <Field label="Business Unit">
-            <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => setForm(f => ({ ...f, businessUnitId: e.target.value || undefined }))}>
-              <option value="">– None –</option>
-              {opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Department">
-            <select style={inputStyle} disabled={employmentFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
-              <option value="">– None –</option>
-              {assignableOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Designation">
-            <select style={inputStyle} disabled={employmentFieldsLocked} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
-              <option value="">– None –</option>
-              {assignableOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
-            </select>
-          </Field>
-          <Field label="Employment Type">
-            <select style={inputStyle} disabled={employmentFieldsLocked} value={form.employmentType ?? 'FULL_TIME'} onChange={e => setForm(f => ({ ...f, employmentType: e.target.value }))}>
-              {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
-            </select>
-          </Field>
-          <Field label="Work Mode">
-            <select style={inputStyle} value={form.workMode ?? 'ONSITE'} onChange={e => setForm(f => ({ ...f, workMode: e.target.value }))}>
-              {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
-            </select>
-          </Field>
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Location">
-              <CreatableLocationSelect
-                locations={opts.locations}
-                value={form.locationId}
-                onChange={id => setForm(f => ({ ...f, locationId: id }))}
-                token={token}
-                disabled
-              />
-              <div style={{ fontSize: 11, color: 'var(--txt-mut)', marginTop: 4 }}>
-                Location changes are currently unavailable when updating an employee. Contact an administrator.
+          <button type="button" className="nf-ee-x" onClick={onClose} aria-label="Close"><X size={16} /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="nf-ee-form">
+          <div className="nf-ee-body">
+            <div className="nf-ee-who">
+              <PersonAvatar userId={emp.userId} name={emp.fullName} size={44} />
+              <div className="nf-ee-who-txt">
+                <div className="nf-ee-who-name">{emp.fullName}</div>
+                <div className="nf-ee-who-meta">{emp.employeeCode} · {emp.email}</div>
               </div>
-            </Field>
+              <span className={`nf-ee-pill ${emp.active ? 'ok' : 'off'}`}>{emp.active ? 'Active' : 'Inactive'}</span>
+            </div>
+
+            {error && <div className="nf-ee-error" role="alert"><AlertCircle size={15} /><span>{error}</span></div>}
+            {isInactive && <InactiveEditBanner />}
+
+            <section className="nf-ee-sec">
+              <div className="nf-ee-sec-h"><span className="nf-ee-sec-ico"><User size={14} /></span>Personal</div>
+              <div className="nf-ee-grid">
+                <div className="nf-ee-f full">
+                  <label className="nf-ee-l">Full name</label>
+                  <input className="nf-ee-in" value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} />
+                </div>
+              </div>
+            </section>
+
+            <section className="nf-ee-sec">
+              <div className="nf-ee-sec-h"><span className="nf-ee-sec-ico"><Building2 size={14} /></span>Organisation</div>
+              <div className="nf-ee-grid">
+                <div className="nf-ee-f">
+                  <label className="nf-ee-l">Business unit</label>
+                  <select className="nf-ee-in" value={form.businessUnitId ?? ''} onChange={e => setForm(f => ({ ...f, businessUnitId: e.target.value || undefined }))}>
+                    <option value="">None</option>
+                    {opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+                <div className="nf-ee-f">
+                  <label className="nf-ee-l">Department</label>
+                  <select className="nf-ee-in" disabled={employmentFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined }))}>
+                    <option value="">None</option>
+                    {assignableOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+                <div className="nf-ee-f full">
+                  <label className="nf-ee-l">Designation</label>
+                  <select className="nf-ee-in" disabled={employmentFieldsLocked} value={form.designationId ?? ''} onChange={e => setForm(f => ({ ...f, designationId: e.target.value || undefined }))}>
+                    <option value="">None</option>
+                    {assignableOptions(opts.designations, form.designationId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <section className="nf-ee-sec">
+              <div className="nf-ee-sec-h"><span className="nf-ee-sec-ico"><Briefcase size={14} /></span>Employment</div>
+              <div className="nf-ee-grid">
+                <div className="nf-ee-f">
+                  <label className="nf-ee-l">Employment type</label>
+                  <select className="nf-ee-in" disabled={employmentFieldsLocked} value={form.employmentType ?? 'FULL_TIME'} onChange={e => setForm(f => ({ ...f, employmentType: e.target.value }))}>
+                    {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+                  </select>
+                </div>
+                <div className="nf-ee-f">
+                  <label className="nf-ee-l">Work mode</label>
+                  <select className="nf-ee-in" value={form.workMode ?? 'ONSITE'} onChange={e => setForm(f => ({ ...f, workMode: e.target.value }))}>
+                    {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <section className="nf-ee-sec">
+              <div className="nf-ee-sec-h"><span className="nf-ee-sec-ico"><MapPin size={14} /></span>Location<span className="nf-ee-lock"><Lock size={11} /> Locked</span></div>
+              <div className="nf-ee-f">
+                <CreatableLocationSelect
+                  locations={opts.locations}
+                  value={form.locationId}
+                  onChange={id => setForm(f => ({ ...f, locationId: id }))}
+                  token={token}
+                  disabled
+                />
+                <div className="nf-ee-hint">
+                  Location changes are currently unavailable when updating an employee. Contact an administrator.
+                </div>
+              </div>
+            </section>
+
+            <div className="nf-ee-note">
+              <Info size={14} />
+              <span>Manager and Role are managed by Super Admin only. Attendance timezone is derived automatically from Location. See the Locations tab under Organization Masters.</span>
+            </div>
+
+            {isInactive && (
+              <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Department, Designation, or Employment Type" />
+            )}
           </div>
-          <div style={{ gridColumn: '1/-1', fontSize: 11, color: 'var(--txt-dim)' }}>
-            Manager &amp; Role are managed by Super Admin only. Attendance timezone is derived
-            automatically from Location - see the Locations tab under Organization Masters.
-          </div>
-          {isInactive && (
-            <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Department, Designation, or Employment Type" />
-          )}
-          <div style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 18px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={submitting || employmentFieldsLocked} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: (submitting || employmentFieldsLocked) ? 'not-allowed' : 'pointer', opacity: (submitting || employmentFieldsLocked) ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
+
+          <div className="nf-ee-foot">
+            <button type="button" className="nf-ee-cancel" onClick={onClose}>Cancel</button>
+            <button type="submit" className="nf-ee-save" disabled={!canSave}>{submitting ? 'Saving…' : 'Save Changes'}</button>
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -247,6 +283,7 @@ function EditModal({ emp, onClose, onUpdated, token }: { emp: EmployeeRecord; on
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function EmployeeMasterPage() {
   const token = useAuthStore(s => s.token)!;
+  const can = useCan();
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   // Set when the real employeesApi.list call fails — drives the error panel + Retry below.
@@ -444,9 +481,9 @@ export default function EmployeeMasterPage() {
                       </td>
                       <td style={tdStyle}><StatusBadge active={emp.active} /></td>
                       <td style={{ ...tdStyle, padding: '8px 12px', width: 44 }}>
-                        <KebabMenu items={[
+                        {can('employees', 'EDIT') && <KebabMenu items={[
                           { label: 'Edit', onClick: () => setEditing(emp) },
-                        ]} />
+                        ]} />}
                       </td>
                     </tr>
                   ))}

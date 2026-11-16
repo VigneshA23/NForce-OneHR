@@ -68,7 +68,7 @@ public class AttendanceController {
     private final ExceptionService exceptionService;
 
     // No @PreAuthorize below on the self-service endpoints: hasRole('EMPLOYEE') (the pre-Phase-3
-    // gate) was never a real narrowing — every account holds EMPLOYEE alongside whatever admin
+    // gate) was never a real narrowing — every account is an employee first (no stored EMPLOYEE row is needed since V270) alongside whatever admin
     // role it's assigned (see UserManagementService.rolesFor), so it was already equivalent to
     // the blanket .anyRequest().authenticated() the security filter chain enforces regardless.
     // EMPLOYEE deliberately has zero role_permissions rows (see V225's header) — self-service

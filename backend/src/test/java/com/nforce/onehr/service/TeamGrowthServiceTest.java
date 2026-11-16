@@ -84,6 +84,21 @@ class TeamGrowthServiceTest {
     }
 
     @Test
+    void teamSummaryList_needsTheTeamPermission_aReportingLineAloneIsNotEnough() {
+        for (String code : List.of("EMPLOYEE", "CUSTOM_OTHER")) {
+            String email = actor(code);
+            lenient().when(directReportScopeService.directReports(email)).thenReturn(List.of());
+            assertThrows(AccessDeniedException.class, () -> service.listTeamGrowthSummaries(email), code);
+        }
+        // Holders of the team permission (seeded MANAGER/HR_ADMIN, or a custom role) are allowed.
+        for (String code : List.of("MANAGER", "HR_ADMIN", "CUSTOM_TEAM_SKILLS")) {
+            String email = actor(code);
+            when(directReportScopeService.directReports(email)).thenReturn(List.of());
+            assertEquals(List.of(), service.listTeamGrowthSummaries(email), code);
+        }
+    }
+
+    @Test
     void everyoneElse_isLimitedToTheirDirectReports() {
         for (String code : List.of("EMPLOYEE", "MANAGER", "CUSTOM_OTHER")) {
             String email = actor(code);

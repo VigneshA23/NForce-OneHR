@@ -17,9 +17,11 @@ import com.nforce.onehr.repository.ProjectRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -57,8 +59,16 @@ public class ProjectService {
     private final UserRepository userRepository;
     private final EffectivePermissionService effectivePermissionService;
 
-    @Transactional(readOnly = true)
+    /** Daily sweep; list() also runs it so a project never shows Active a moment after its end date. */
+    @Scheduled(cron = "${app.projects.close-expired.cron:0 5 0 * * *}")
+    @Transactional
+    public int closeExpiredProjects() {
+        return projectRepository.closeExpired(LocalDate.now());
+    }
+
+    @Transactional
     public List<ProjectResponse> list(String actorEmail) {
+        closeExpiredProjects();
         User actor = userRepository.findByEmail(actorEmail)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
         List<Project> projects = effectivePermissionService.hasAuthority(actor, VIEW_ALL)
@@ -138,6 +148,21 @@ public class ProjectService {
         project.setDepartmentId(req.getDepartmentId());
         project.setClientId(req.getClientId());
         if (req.getStatus() != null) project.setStatus(req.getStatus());
+    }
+
+    public record OwnerOption(java.util.UUID userId, String fullName) {}
+
+    /** Project Owner dropdown: people with the Manager role who also pass {@link #requireEligibleOwner}. */
+    @Transactional(readOnly = true)
+    public List<OwnerOption> eligibleOwners() {
+        return employeeRepository.findAllWithDetails().stream()
+                .filter(e -> e.getUser() != null && e.getUser().getDeletedAt() == null
+                        && effectivePermissionService.hasAuthority(e.getUser(), OWNER_AUTHORITY)
+                        // HR Admin / Super Admin pass the permission check via VIEW:ALL; the dropdown is Managers only.
+                        && e.getUser().getRoles().stream().anyMatch(r -> "MANAGER".equals(r.getCode())))
+                .map(e -> new OwnerOption(e.getUserId(), e.getFullName()))
+                .sorted(java.util.Comparator.comparing(OwnerOption::fullName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
     }
 
     /** US-B03: the owner is the person who allocates on the project, so it must be someone with project responsibility. */

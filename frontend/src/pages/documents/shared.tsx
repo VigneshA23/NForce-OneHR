@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { Eye, Undo2 } from 'lucide-react';
+import { Eye, Undo2, Upload, AlertTriangle } from 'lucide-react';
+import { DocPopup } from './DocPopup';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import {
@@ -96,44 +97,40 @@ export function UploadModal({
   const name = (docType as any).name ?? (docType as any).documentTypeName;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-      <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 420, maxWidth: '94vw' }}>
-        <h3 style={{ margin: '0 0 18px', fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{existing ? 'Update' : 'Upload'}: {name}</h3>
-        <form onSubmit={submit}>
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>File *</label>
-            <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" required
-              style={{ width: '100%', padding: '8px 10px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', fontSize: 13 }} />
+    <DocPopup
+      icon={Upload}
+      size="md"
+      title={`${existing ? 'Update' : 'Upload'}: ${name}`}
+      sub={existing ? 'Choose a new file to replace the current one.' : 'PDF, JPG, PNG or Word files are accepted.'}
+      onClose={onClose}
+      footer={(
+        <>
+          <button type="button" className="nf-dp-cancel" onClick={onClose} disabled={loading}>Cancel</button>
+          <button type="submit" form="nf-dp-upload-form" className="nf-dp-go" disabled={loading || !!dateError}>
+            <Upload size={15} /> {loading ? (existing ? 'Updating…' : 'Uploading…') : existing ? 'Update' : 'Upload'}
+          </button>
+        </>
+      )}
+    >
+      <form id="nf-dp-upload-form" onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="nf-dp-f">
+          <label className="nf-dp-l">File *</label>
+          <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" required className="nf-dp-in nf-dp-file" />
+        </div>
+        <div className="nf-dp-grid nf-grid-2col-collapse">
+          <div className="nf-dp-f">
+            <label className="nf-dp-l">Issue date</label>
+            <input type="date" value={issueDate} onChange={e => setIssueDate(e.target.value)} className="nf-dp-in" />
           </div>
-          <div className="nf-grid-2col-collapse" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Issue Date</label>
-              <input type="date" value={issueDate} onChange={e => setIssueDate(e.target.value)}
-                style={{ width: '100%', padding: '8px 10px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', fontSize: 13 }} />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, color: 'var(--txt-dim)', display: 'block', marginBottom: 5 }}>Expiry Date {requiresExpiry ? '*' : ''}</label>
-              <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} required={requiresExpiry}
-                min={issueDate || undefined}
-                style={{ width: '100%', padding: '8px 10px', background: 'var(--shell)', border: `1px solid ${dateError ? '#ef4444' : 'var(--line)'}`, borderRadius: 6, color: 'var(--txt)', fontSize: 13 }} />
-            </div>
+          <div className="nf-dp-f">
+            <label className="nf-dp-l">Expiry date {requiresExpiry ? '*' : ''}</label>
+            <input type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} required={requiresExpiry}
+              min={issueDate || undefined} className={`nf-dp-in${dateError ? ' is-bad' : ''}`} />
           </div>
-          {dateError && (
-            <p style={{ margin: '-10px 0 14px', fontSize: 12, color: '#ef4444' }}>{dateError}</p>
-          )}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} disabled={loading}
-              style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
-              Cancel
-            </button>
-            <button type="submit" disabled={loading || !!dateError}
-              style={{ padding: '8px 20px', background: '#A01418', border: 'none', borderRadius: 6, color: '#fff', cursor: loading || dateError ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: loading || dateError ? .7 : 1 }}>
-              {loading ? (existing ? 'Updating…' : 'Uploading…') : existing ? 'Update' : 'Upload'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </div>
+        {dateError && <p className="nf-dp-err" style={{ margin: 0 }}>{dateError}</p>}
+      </form>
+    </DocPopup>
   );
 }
 
@@ -171,24 +168,26 @@ export function WithdrawButton({ doc, onWithdrawn }: {
         <Undo2 size={13} />Withdraw
       </button>
       {confirming && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 24, width: 380, maxWidth: '94vw' }}>
-            <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>Withdraw {doc.documentTypeName}?</h3>
-            <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--txt-mut)' }}>
-              This pulls it out of Pending Review so HR won't act on it. You'll be able to upload a new version right after.
-            </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button type="button" onClick={() => setConfirming(false)} disabled={loading}
-                style={{ padding: '8px 20px', background: 'var(--shell)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--txt)', cursor: 'pointer', fontSize: 13 }}>
-                Cancel
+        <DocPopup
+          icon={AlertTriangle}
+          tone="risk"
+          size="sm"
+          title={`Withdraw ${doc.documentTypeName}?`}
+          sub="This can't be undone, but you can upload again."
+          onClose={() => setConfirming(false)}
+          footer={(
+            <>
+              <button type="button" className="nf-dp-cancel" onClick={() => setConfirming(false)} disabled={loading}>Cancel</button>
+              <button type="button" className="nf-dp-go is-risk" onClick={confirmWithdraw} disabled={loading}>
+                <Undo2 size={15} /> {loading ? 'Withdrawing…' : 'Withdraw'}
               </button>
-              <button type="button" onClick={confirmWithdraw} disabled={loading}
-                style={{ padding: '8px 20px', background: '#ef4444', border: 'none', borderRadius: 6, color: '#fff', cursor: loading ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: loading ? .7 : 1 }}>
-                {loading ? 'Withdrawing…' : 'Withdraw'}
-              </button>
-            </div>
-          </div>
-        </div>
+            </>
+          )}
+        >
+          <p className="nf-dp-text">
+            This pulls it out of Pending Review so HR won't act on it. You'll be able to upload a new version right after.
+          </p>
+        </DocPopup>
       )}
     </>
   );

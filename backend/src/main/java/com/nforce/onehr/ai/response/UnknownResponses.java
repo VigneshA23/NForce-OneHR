@@ -141,10 +141,12 @@ public class UnknownResponses {
      * to make the user reason about.
      */
     public AssistantResponse malformedResponse(AssistantRequestContext context) {
-        return unknown(context,
-                "I was not able to produce a reliable answer to that. Please try rephrasing the question, "
-                        + "or check Help & Guidance.");
+        return unknown(context, MALFORMED_RESPONSE);
     }
+
+    /** Public so query insights can tell this technical failure apart from a real "no match". */
+    public static final String MALFORMED_RESPONSE = "I was not able to produce a reliable answer to that. "
+            + "Please try rephrasing the question, or check Help & Guidance.";
 
     /**
      * The user asked the assistant to <em>do</em> something rather than explain it.

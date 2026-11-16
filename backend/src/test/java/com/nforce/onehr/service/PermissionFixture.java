@@ -53,6 +53,7 @@ final class PermissionFixture {
         for (Permission p : permissions.values()) grant(superAdmin, p.getModule().getCode(), p.getAction(), "ALL");
         for (String a : List.of("VIEW", "CREATE", "EDIT")) grant(userAdmin, "user_management", a, "ALL");
         grant(userAdmin, "user_roles", "EDIT", "ALL");
+        grant(userAdmin, "employees", "VIEW", "ALL"); // a node whose catalogue range allows a narrower (TEAM) grant
         grant(userAdmin, "roles", "CONFIGURE", "ALL");
         grant(inactiveCustom, "user_management", "DELETE", "ALL");
     }

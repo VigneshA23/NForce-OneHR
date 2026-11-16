@@ -3,7 +3,10 @@ package com.nforce.onehr.ai.service;
 import com.nforce.onehr.ai.config.AiProperties;
 import com.nforce.onehr.ai.contract.AssistantRequestContext;
 import com.nforce.onehr.ai.contract.AssistantResponse;
+import com.nforce.onehr.ai.contract.AssistantResponseType;
 import com.nforce.onehr.ai.contract.AudienceBucket;
+import com.nforce.onehr.ai.entity.AiInteractionLog;
+import com.nforce.onehr.ai.observability.QuestionPhrase;
 import com.nforce.onehr.ai.contract.EmbeddingProvider;
 import com.nforce.onehr.ai.contract.KnowledgeRetriever;
 import com.nforce.onehr.ai.contract.LlmCompletion;
@@ -320,10 +323,15 @@ public class AiAssistantService {
                         long startedNanos,
                         EmbeddingProvider.EmbeddingCallInfo embedInfo,
                         int completionAttempts) {
+        String outcome = classify(errorCode, response, question);
+        boolean keepPhrase = AiInteractionLog.OUTCOME_AMBIGUOUS.equals(outcome)
+                || AiInteractionLog.OUTCOME_NO_MATCH.equals(outcome);
         interactionLogger.record(AiInteractionLogger.Turn.builder()
                 .context(context)
                 .conversationId(conversationId)
                 .questionChars(question == null ? 0 : question.length())
+                .outcome(outcome)
+                .questionPhrase(keepPhrase ? QuestionPhrase.sanitize(question) : null)
                 .knowledge(knowledge)
                 .completion(completion)
                 .response(response)
@@ -332,6 +340,27 @@ public class AiAssistantService {
                 .embeddingPromptTokens(embedInfo.attempts() == 0 ? null : embedInfo.promptTokens())
                 .apiCallAttempts(embedInfo.attempts() + completionAttempts)
                 .build());
+    }
+
+    /**
+     * What happened to the question, for NORA Query Insights; derived from what the turn already
+     * produced, with no extra model call. Null means "not a question outcome": technical failures
+     * (provider, retrieval, rate limit, disabled, malformed model output) and guard declines
+     * (confidential, role claim, too long, empty) must never read as NO_MATCH.
+     */
+    static String classify(String errorCode, AssistantResponse response, String question) {
+        if (AiInteractionLogger.UNCLEAR_QUESTION.equals(errorCode)) return AiInteractionLog.OUTCOME_AMBIGUOUS;
+        if (AiInteractionLogger.NO_KNOWLEDGE.equals(errorCode)) {
+            return isStatement(question) ? AiInteractionLog.OUTCOME_AMBIGUOUS : AiInteractionLog.OUTCOME_NO_MATCH;
+        }
+        if (errorCode != null || response == null) return null;
+        if (response.getType() != AssistantResponseType.UNKNOWN) return AiInteractionLog.OUTCOME_MATCHED;
+
+        String answer = response.getAnswer();
+        if (UnknownResponses.NEEDS_MORE_DETAIL.equals(answer)) return AiInteractionLog.OUTCOME_AMBIGUOUS;
+        if (UnknownResponses.INTERNALS_NOT_DISCLOSED.equals(answer)
+                || UnknownResponses.MALFORMED_RESPONSE.equals(answer)) return null;
+        return AiInteractionLog.OUTCOME_NO_MATCH; // the model was grounded and still declined
     }
 
     /**

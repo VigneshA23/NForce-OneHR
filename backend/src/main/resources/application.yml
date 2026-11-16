@@ -101,6 +101,10 @@ spring:
     out-of-order: true
 
 app:
+  # Break-glass: set to an existing active user's email to restore Super Admin ONLY when none is active (see
+  # SuperAdminRecoveryRunner). Leave unset normally.
+  recovery:
+    super-admin-email: ${ONEHR_RECOVERY_SUPER_ADMIN_EMAIL:}
   jwt:
     secret: ${JWT_SECRET}
   cors:

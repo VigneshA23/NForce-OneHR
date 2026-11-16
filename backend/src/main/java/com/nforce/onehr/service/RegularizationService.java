@@ -19,6 +19,7 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.RegularizationApprovalRepository;
 import com.nforce.onehr.repository.RegularizationRequestRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.ApprovalGuards;
 import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
@@ -439,6 +440,9 @@ public class RegularizationService {
     /** Selected manager (validated as an eligible approver) else the employee's current manager. */
     private UUID resolveAssignedApprover(UUID employeeId, UUID managerUserId) {
         if (managerUserId != null) {
+            if (managerUserId.equals(employeeId)) {
+                throw new IllegalArgumentException("You cannot select yourself as your approver");
+            }
             User candidate = userRepository.findById(managerUserId)
                     .orElseThrow(() -> new IllegalArgumentException("Selected manager not found"));
             if (!eligibleApprover().test(candidate)) {
@@ -588,6 +592,7 @@ public class RegularizationService {
         RegularizationRequest req = regularizationRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Request not found"));
 
+        ApprovalGuards.assertNotOwn(actor.getId(), req.getEmployeeUserId(), "regularization request");
         boolean finalStage;
         String actingRole = actingRoleLabel(actor);
         boolean override = hasOverrideRole(actor);
@@ -722,6 +727,7 @@ public class RegularizationService {
         RegularizationRequest req = regularizationRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Request not found"));
 
+        ApprovalGuards.assertNotOwn(actor.getId(), req.getEmployeeUserId(), "regularization request");
         String actingRole = actingRoleLabel(actor);
         boolean override = hasOverrideRole(actor);
         if (STATUS_PENDING.equals(req.getStatus())) {

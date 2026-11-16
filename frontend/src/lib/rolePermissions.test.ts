@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   categoryState, filterCatalogue, grantableScopes, sameGrants, setCategory, setGrant, summarizeGrants, toGrantMap, toGrants,
 } from './rolePermissions';
-import { isRoutePermitted, permissionNavItems } from './permissions';
-import { NAV } from './nav.config';
 import type { CatalogueModule } from '../api/roles';
 import type { MyPermissionsResponse } from '../api/me';
 
@@ -73,44 +71,5 @@ describe('role editor selection', () => {
     expect(summarizeGrants([])).toBe('No permissions');
     expect(summarizeGrants([{ module: 'a', action: 'VIEW', scope: 'ALL' }, { module: 'a', action: 'EDIT', scope: 'ALL' }]))
       .toBe('2 permissions · 1 module');
-  });
-});
-
-describe('permissionNavItems', () => {
-  it('surfaces admin items a custom role grants on top of the persona nav', () => {
-    const perms = me({ user_management: { VIEW: ['ALL'] }, roles: { VIEW: ['ALL'] } },
-                     { user_management: { VIEW: ['ALL'] }, roles: { VIEW: ['ALL'] } });
-    expect(permissionNavItems(NAV.Employee, perms, 'Employee').map((i) => i.key)).toEqual(['access', 'roles']);
-  });
-
-  it('also surfaces items granted through a system role (an edited system-role grant), not just custom roles', () => {
-    const perms = me({ employees: { VIEW: ['ALL'] }, exceptions: { VIEW: ['ALL'] } });
-    expect(permissionNavItems(NAV.Employee, perms, 'Employee').map((i) => i.key).sort()).toEqual(['employees', 'exceptions']);
-  });
-
-  it('leaves the Super Admin persona exactly as curated', () => {
-    const perms = me({ employees: { VIEW: ['ALL'] }, exceptions: { VIEW: ['ALL'] }, roles: { VIEW: ['ALL'] } });
-    expect(permissionNavItems(NAV['Super Admin'], perms, 'Super Admin')).toEqual([]);
-  });
-
-  it('adds one item per distinct requirement and nothing already in the persona nav', () => {
-    const perms = me({ organization: { EDIT: ['ALL'] }, roles: { VIEW: ['ALL'] } });
-    // (masters + organization share one requirement; HR already lists organization)
-    expect(permissionNavItems(NAV['HR Admin'], perms, 'HR Admin').map((i) => i.key)).toEqual(['roles']);
-    expect(permissionNavItems(NAV.Employee, perms, 'Employee').map((i) => i.key).sort()).toEqual(['organization', 'roles']);
-  });
-
-  it('adds nothing before permissions have loaded (fails closed)', () => {
-    expect(permissionNavItems(NAV.Employee, null, 'Employee')).toEqual([]);
-  });
-});
-
-describe('isRoutePermitted', () => {
-  it('guards the Super Admin audit-trail regularization route by its own permission', () => {
-    const none = me({ regularization: { VIEW: ['ALL'], APPROVE: ['ALL'] } });
-    const sa = me({ regularization: { VIEW: ['ALL'], EXPORT: ['ALL'] } });
-    expect(isRoutePermitted('/attendance/regularization/all', none)).toBe(false);
-    expect(isRoutePermitted('/attendance/regularization/all', sa)).toBe(true);
-    expect(isRoutePermitted('/attendance', none)).toBe(true);
   });
 });

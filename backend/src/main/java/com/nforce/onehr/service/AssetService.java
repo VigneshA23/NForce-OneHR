@@ -4,6 +4,7 @@ import com.nforce.onehr.dto.asset.*;
 import com.nforce.onehr.entity.*;
 import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.repository.*;
+import com.nforce.onehr.security.ApprovalGuards;
 import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
@@ -138,6 +139,10 @@ public class AssetService {
         if (effectivePermissionService.hasAuthority(actor, APPROVE_ALL)) {
             // HR/Super Admin (assets:APPROVE:ALL) see PENDING (to approve) + APPROVED (ready to fulfill)
             return toRequestResponses(requestRepo.findByStatusIn(List.of("PENDING", "APPROVED")));
+        }
+        // A reporting line alone never exposes a team's requests: the approver permission is required too.
+        if (!effectivePermissionService.hasAuthority(actor, APPROVE_TEAM)) {
+            throw new AccessDeniedException("Not authorized to view asset requests awaiting approval");
         }
         // Manager: only own direct reports, only PENDING
         List<AssetRequest> pending = requestRepo.findByStatus("PENDING");
@@ -470,6 +475,9 @@ public class AssetService {
     @Transactional(readOnly = true)
     public Map<String, Object> managerTileSummary(String actorEmail) {
         User actor = requireActor(actorEmail);
+        if (!effectivePermissionService.hasAuthority(actor, APPROVE_TEAM)) {
+            throw new AccessDeniedException("Not authorized to view team asset figures");
+        }
         List<UUID> reportIds = historyRepo.findCurrentDirectReportIds(actor.getId());
         long assigned = reportIds.isEmpty() ? 0 :
                 assignmentRepo.findByEmployeeUserIdInAndEffectiveToIsNull(reportIds).size();
@@ -520,16 +528,13 @@ public class AssetService {
     }
 
     private void assertCanDecideRequest(User actor, UUID requestOwnerUserId) {
-        Set<String> authorities = effectivePermissionService.coverage(actor.getRoles());
-        if (authorities.contains(APPROVE_ALL)) return;
-        if (authorities.contains(APPROVE_TEAM)) {
-            boolean isReport = historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(requestOwnerUserId)
-                    .map(EmployeeManagerHistory::getManagerUserId)
-                    .map(actor.getId()::equals)
-                    .orElse(false);
-            if (isReport) return;
-        }
-        throw new AccessDeniedException("Not authorized to decide on this request");
+        ApprovalGuards.assertCanDecide(actor, effectivePermissionService.coverage(actor.getRoles()), "assets",
+                requestOwnerUserId, null,
+                () -> historyRepo.findByEmployeeUserIdAndEffectiveToIsNull(requestOwnerUserId)
+                        .map(EmployeeManagerHistory::getManagerUserId)
+                        .map(actor.getId()::equals)
+                        .orElse(false),
+                "asset request", "Not authorized to decide on this request");
     }
 
     private AssetRequest requirePendingRequest(Long requestId) {

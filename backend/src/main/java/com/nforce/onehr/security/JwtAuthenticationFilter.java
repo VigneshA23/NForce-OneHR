@@ -54,6 +54,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         || principal.getTokenVersion() == jwtTokenProvider.extractTokenVersion(token);
 
                 if (userDetails.isEnabled() && tokenVersionCurrent) {
+                    // First-login / admin-reset accounts hold a "must change password" token that may
+                    // only reach /api/auth/** (change-password itself) until a new token is minted.
+                    // Enforced here, not just by the frontend redirect, so a direct API call can't skip it.
+                    if (jwtTokenProvider.extractMustChangePassword(token)
+                            && !request.getRequestURI().startsWith("/api/auth/")) {
+                        rejectPasswordChangeRequired(response);
+                        return;
+                    }
                     UsernamePasswordAuthenticationToken auth =
                             new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                     auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
@@ -75,6 +83,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private void rejectPasswordChangeRequired(HttpServletResponse response) throws IOException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json");
+        response.getWriter().write("{\"message\":\"You must change your password before continuing\","
+                + "\"code\":\"PASSWORD_CHANGE_REQUIRED\"}");
     }
 
     private String extractBearerToken(HttpServletRequest request) {

@@ -8,6 +8,7 @@ import {
 import { useAuthStore } from '../store/authStore';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { useEmployeeCodes } from '../lib/useEmployeeCodes';
+import { useCan } from '../lib/access';
 import { TablePagination, clampPage, paginate } from '../components/TablePagination';
 import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
 import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApproval';
@@ -642,8 +643,22 @@ function Row({ label, value, span }: { label: string; value?: string | null; spa
 
 const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST', 'WFH', 'PARTIAL_DAY', 'OVERTIME', 'HELP_CONTENT'];
 
+// The permission that lets a user approve each request type (TEAM scope or wider).
+const APPROVE_PERMISSION: Record<RequestType, [string, string]> = {
+  LEAVE: ['leave', 'APPROVE'],
+  REGULARIZATION: ['regularization', 'APPROVE'],
+  EXPENSE: ['expenses', 'APPROVE'],
+  ASSET_REQUEST: ['assets', 'APPROVE'],
+  WFH: ['attendance_requests', 'APPROVE'],
+  PARTIAL_DAY: ['attendance_requests', 'APPROVE'],
+  OVERTIME: ['overtime', 'APPROVE'],
+  HELP_CONTENT: ['hr_help_content', 'APPROVE'],
+};
+
 export default function ApprovalsPage() {
   const token = useAuthStore(s => s.token)!;
+  const can = useCan();
+  const chipTypes = ALL_TYPES.filter(t => can(APPROVE_PERMISSION[t][0], APPROVE_PERMISSION[t][1], 'TEAM'));
   const [searchParams] = useSearchParams();
   const [items, setItems] = useState<ApprovalItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -772,7 +787,7 @@ export default function ApprovalsPage() {
           )}
         </div>
         <div className="apv-tabs" role="group" aria-label="Filter by request type">
-          {(['ALL', ...ALL_TYPES] as const).map(t => (
+          {(['ALL', ...chipTypes] as const).map(t => (
             <button
               key={t}
               type="button"

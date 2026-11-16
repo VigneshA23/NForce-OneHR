@@ -66,6 +66,12 @@ public class TeamGrowthService {
     // row per direct report, built from 3 bulk queries total rather than 3-per-employee.
     @Transactional(readOnly = true)
     public List<TeamGrowthSummary> listTeamGrowthSummaries(String actorEmail) {
+        // Same rule as getEmployeeGrowth's relationship path: a reporting line is eligibility only.
+        User actor = userRepository.findByEmail(actorEmail)
+                .orElseThrow(() -> new IllegalStateException("Actor not found"));
+        if (!effectivePermissionService.hasAuthority(actor, "skill_ratings:VIEW:TEAM")) {
+            throw new AccessDeniedException("Not authorized to view your team's skills");
+        }
         List<Employee> reports = directReportScopeService.directReports(actorEmail);
         if (reports.isEmpty()) return List.of();
         List<UUID> ids = reports.stream().map(Employee::getUserId).collect(Collectors.toList());

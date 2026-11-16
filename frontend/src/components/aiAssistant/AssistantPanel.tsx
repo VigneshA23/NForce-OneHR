@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, RotateCcw, Send, X } from 'lucide-react';
 import { NoraAvatar } from './NoraAvatar';
@@ -7,6 +7,7 @@ import { myCompliance } from '../../api/documents';
 import { useAuthStore } from '../../store/authStore';
 import { useAccessibilityPrefs } from '../../lib/accessibilityPrefs';
 import { resolvePageTarget } from '../../lib/ai/pageTargets';
+import { accessReady, visibleNavItems } from '../../lib/access';
 import { AssistantEmptyState, MessageList } from './MessageList';
 import {
   assistantReducer,
@@ -77,6 +78,13 @@ function clampPanelPosition(position: Position, size: { width: number; height: n
 export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: AssistantPanelProps) {
   const token = useAuthStore((s) => s.token);
   const role = useAuthStore((s) => s.user?.role);
+  const permissions = useAuthStore((s) => s.permissions);
+  const accessCatalogue = useAuthStore((s) => s.accessCatalogue);
+  // What this user may open, by permission (same set the sidebar shows) — null until both have loaded.
+  const visibleItems = useMemo(
+    () => (accessReady(permissions, accessCatalogue) ? visibleNavItems(permissions, accessCatalogue) : null),
+    [permissions, accessCatalogue],
+  );
   const userName = useAuthStore((s) => s.user?.fullName);
   const navigate = useNavigate();
   const { reduceAnimations } = useAccessibilityPrefs();
@@ -215,18 +223,18 @@ export function AssistantPanel({ onClose, currentPageId, unreadCount = 0 }: Assi
   }, [token, state.conversationId]);
 
   const goTo = useCallback((pageId: string) => {
-    const target = resolvePageTarget(pageId, role);
+    const target = resolvePageTarget(pageId, role, visibleItems);
     if (!target) return;
     // Deliberately does not close the panel - Shell (and the panel, once open) already survives
     // ordinary navigation untouched, so the conversation should too. Only the X button and the
     // reset button end the session; navigating away and back should find the chat exactly as it
     // was left.
     navigate(target.route);
-  }, [role, navigate]);
+  }, [role, visibleItems, navigate]);
 
   const resolveLabel = useCallback(
-    (pageId: string) => resolvePageTarget(pageId, role)?.label ?? null,
-    [role],
+    (pageId: string) => resolvePageTarget(pageId, role, visibleItems)?.label ?? null,
+    [role, visibleItems],
   );
 
   const tooLong = draft.trim().length > MAX_MESSAGE_CHARS;

@@ -3,6 +3,7 @@ package com.nforce.onehr.config;
 
 import com.nforce.onehr.security.CustomUserDetailsService;
 import com.nforce.onehr.security.JwtAuthenticationFilter;
+import com.nforce.onehr.security.UnauthenticatedEntryPoint;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -36,6 +37,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final CustomUserDetailsService userDetailsService;
+    private final UnauthenticatedEntryPoint unauthenticatedEntryPoint;
 
     // Default matches application.yml's cors.allowed-origins (a separate, unused property key —
     // this @Value reads the literal env var, not that nested YAML path) so a fresh checkout works
@@ -63,6 +65,8 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                 .anyRequest().authenticated()
             )
+            // Not signed in / invalid token → 401 (a signed-in user lacking a permission stays 403).
+            .exceptionHandling(eh -> eh.authenticationEntryPoint(unauthenticatedEntryPoint))
             .authenticationProvider(authenticationProvider())
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 

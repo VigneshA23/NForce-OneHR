@@ -165,6 +165,27 @@ class AiInteractionLoggerTest {
     }
 
     @Test
+    @DisplayName("the phrase is stored for AMBIGUOUS and NO_MATCH only, never for MATCHED or no outcome")
+    void phraseIsStoredOnlyForUnansweredQuestions() {
+        for (String outcome : new String[] {"NO_MATCH", "AMBIGUOUS"}) {
+            org.mockito.Mockito.clearInvocations(repository);
+            logger.record(AiInteractionLogger.Turn.builder().context(context()).outcome(outcome)
+                    .questionPhrase("how do i view my payslip")
+                    .response(AssistantResponse.builder().type(AssistantResponseType.UNKNOWN).build()).build());
+            AiInteractionLog saved = captureSaved();
+            assertThat(saved.getOutcome()).isEqualTo(outcome);
+            assertThat(saved.getQuestionPhrase()).isEqualTo("how do i view my payslip");
+        }
+        for (String outcome : new String[] {"MATCHED", null}) {
+            org.mockito.Mockito.clearInvocations(repository);
+            logger.record(AiInteractionLogger.Turn.builder().context(context()).outcome(outcome)
+                    .questionPhrase("should never be stored")
+                    .response(AssistantResponse.builder().type(AssistantResponseType.HOW_TO).build()).build());
+            assertThat(captureSaved().getQuestionPhrase()).isNull();
+        }
+    }
+
+    @Test
     @DisplayName("a logging failure never reaches the caller")
     void loggingFailuresAreSwallowed() {
         when(repository.save(any())).thenThrow(new RuntimeException("table is gone"));
@@ -192,9 +213,10 @@ class AiInteractionLoggerTest {
             if (field.getType() != String.class) continue;
             String name = field.getName().toLowerCase(Locale.ROOT);
             for (String word : forbidden) {
-                // feedbackComment is the one deliberate exception: text the user volunteered as
-                // feedback, covered by the same retention note and never sent to the logger.
-                if (name.contains(word) && !name.startsWith("feedback")) {
+                // Deliberate exceptions: feedbackComment (text the user volunteered, never sent to
+                // the logger) and questionPhrase (QuestionPhrase-sanitised, AMBIGUOUS/NO_MATCH
+                // only, enforced by phraseIsStoredOnlyForUnansweredQuestions).
+                if (name.contains(word) && !name.startsWith("feedback") && !name.equals("questionphrase")) {
                     throw new AssertionError(type.getSimpleName() + "." + field.getName()
                             + " looks like it could hold message text, which this table must not store");
                 }

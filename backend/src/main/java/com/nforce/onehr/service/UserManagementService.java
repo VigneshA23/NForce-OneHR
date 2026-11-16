@@ -897,6 +897,13 @@ public class UserManagementService {
         auditService.log(actor.getId(), "ROLE_CHANGED", userId,
                 auditSnapshot.toJson(Map.of("roles", roleCodes(current))),
                 auditSnapshot.toJson(Map.of("roles", roleCodes(next))));
+        // Gaining or losing Super Admin is the single most sensitive access change: its own audit action so
+        // it can be filtered and alerted on, alongside the generic ROLE_CHANGED above.
+        if (holdsSuperAdmin(current) != holdsSuperAdmin(next)) {
+            auditService.log(actor.getId(), "ROLE_SUPER_ADMIN_CHANGED", userId,
+                    auditSnapshot.toJson(Map.of("roles", roleCodes(current))),
+                    auditSnapshot.toJson(Map.of("roles", roleCodes(next))));
+        }
         notificationService.send(target.getId(), "ACCOUNT", "Roles Updated",
                 "Your roles have been updated by an administrator.", "/profile");
         forceLogoutAfterCommit(target.getId());

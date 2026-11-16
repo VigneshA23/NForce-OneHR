@@ -53,10 +53,15 @@ function parseState(state: string | null): Record<string, unknown> | null {
   }
 }
 
+/** Text that comes from the server can contain long dashes or arrows; show plain wording instead. */
+function plain(text: string): string {
+  return text.replace(/\s*[→]\s*/g, ' to ').replace(/\s*[—–]\s*/g, ' - ').replace(/^\s*-\s*$/, '-');
+}
+
 function fmtValue(v: unknown): string {
-  if (v === null || v === undefined || v === '') return '–';
+  if (v === null || v === undefined || v === '') return '-';
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
-  return String(v);
+  return plain(String(v));
 }
 
 // "effectiveFrom" always means "the point this configuration starts governing behavior from" —
@@ -69,7 +74,7 @@ function fmtSnapshotValue(key: string, beforeVal: unknown, afterVal: unknown): s
     const raw = afterVal ?? beforeVal;
     return typeof raw === 'string' ? fmtDateTime(raw) : fmtValue(raw);
   }
-  return `${fmtValue(beforeVal)} → ${fmtValue(afterVal)}`;
+  return `${fmtValue(beforeVal)} to ${fmtValue(afterVal)}`;
 }
 
 // Icons/colors copied verbatim from AuditStatCards.tsx's CardDef[] (that file is not touched —
@@ -202,7 +207,7 @@ function AuditDetailModal({ entry, onClose }: { entry: AuditLogEntry; onClose: (
               <AffectedUsersList users={affectedUsers} onNavigate={onClose} />
             </div>
           ) : (
-            <InfoCard icon={<Users size={14} />} label="Affected User" value={entry.targetLabel} />
+            <InfoCard icon={<Users size={14} />} label="Affected User" value={plain(entry.targetLabel)} />
           )}
 
           {keys.length > 0 && (
@@ -278,7 +283,7 @@ export function AuditLogTable({ rows }: Props) {
                   <span className="nf-audit-date">{d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' })}</span>
                   <span className="nf-audit-time">{d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
                 </td>
-                <td className="nf-audit-user" title={r.targetLabel}>{r.targetLabel}</td>
+                <td className="nf-audit-user" title={plain(r.targetLabel)}>{plain(r.targetLabel)}</td>
                 <td>
                   <div className="nf-audit-by">
                     <span className={`nf-audit-by-av${r.actorName ? '' : ' sys'}`}>{r.actorName ? initialsOf(r.actorName) : 'SY'}</span>

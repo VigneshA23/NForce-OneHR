@@ -1,5 +1,7 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.dto.roles.RoleDtos.CatalogueAction;
+import com.nforce.onehr.dto.roles.RoleDtos.CatalogueNode;
 import com.nforce.onehr.dto.roles.RoleDtos.CreateRoleRequest;
 import com.nforce.onehr.dto.roles.RoleDtos.Grant;
 import com.nforce.onehr.dto.roles.RoleDtos.UpdateRoleRequest;
@@ -44,6 +46,9 @@ class RoleAdminServiceTest {
     @Mock private com.nforce.onehr.security.ForceLogoutBroadcaster forceLogoutBroadcaster;
     @Mock private AuditLogRepository auditLogRepository;
     @Spy private com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    // The real catalogue file: scope validation must be exercised against what production loads.
+    @Spy private com.nforce.onehr.security.PermissionCatalogue permissionCatalogue = com.nforce.onehr.security.PermissionCatalogue.loaded();
 
     @InjectMocks private RoleAdminService service;
 
@@ -262,8 +267,68 @@ class RoleAdminServiceTest {
     }
 
     @Test
+    void grantsOutsideTheCatalogueScopeRange_areRefused_evenWhenTheActorHoldsThePermission() {
+        // DEPARTMENT / LOCATION are never evaluated, and user_management is organisation-wide only:
+        // a grant there would silently do nothing, so it is refused up front.
+        for (Grant g : List.of(new Grant("employees", "VIEW", "DEPARTMENT"), new Grant("employees", "VIEW", "LOCATION"),
+                new Grant("user_management", "VIEW", "TEAM"), new Grant("user_management", "VIEW", "OWN"))) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> service.setPermissions(custom.getId(), List.of(g), 0, "ua@test.com"), g.toString());
+            assertTrue(e.getMessage().contains("not supported") || e.getMessage().contains("Invalid scope"), e.getMessage());
+        }
+        verify(rolePermissionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void catalogueTree_isModuleSubmoduleSection_withScopeRanges_andReadOnlyForUnconfigurableNodes() {
+        List<CatalogueNode> tree = service.catalogueTree();
+
+        CatalogueNode attendance = tree.stream().filter(n -> n.code().equals("mod.attendance")).findFirst().orElseThrow();
+        assertEquals("MODULE", attendance.type());
+        assertTrue(attendance.actions().isEmpty(), "a module holds no grants");
+        CatalogueNode requests = attendance.children().stream().filter(n -> n.code().equals("sub.attendance_requests")).findFirst().orElseThrow();
+        assertEquals("SUBMODULE", requests.type());
+        CatalogueNode regularization = requests.children().stream().filter(n -> n.code().equals("regularization")).findFirst().orElseThrow();
+        assertEquals("SECTION", regularization.type());
+        // The fixture registers no regularization permission, so the node shows read-only with no actions
+        // rather than offering grants the database would not accept.
+        assertTrue(regularization.actions().isEmpty());
+        assertFalse(regularization.configurable());
+
+        CatalogueNode leave = tree.stream().filter(n -> n.code().equals("mod.leave")).findFirst().orElseThrow()
+                .children().stream().filter(n -> n.code().equals("leave")).findFirst().orElseThrow();
+        assertEquals("SUBMODULE", leave.type());
+        assertEquals(new CatalogueAction("APPROVE", "TEAM", "ALL"),
+                leave.actions().stream().filter(a -> a.action().equals("APPROVE")).findFirst().orElseThrow());
+    }
+
+    @Test
+    void changesOnAHighSensitivityNode_areFlaggedInTheAuditEntry_ordinaryOnesAreNot() {
+        // A realistic repository: saved grants become visible to the next read (so the diff is real).
+        when(rolePermissionRepository.saveAll(any())).thenAnswer(inv -> {
+            List<RolePermission> saved = inv.getArgument(0);
+            saved.stream().filter(rp -> rp.getId() == null).forEach(f.rows::add);
+            return saved;
+        });
+        service.setPermissions(custom.getId(), List.of(new Grant("user_management", "VIEW", "ALL")), 0, "ua@test.com");
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<Map<String, Object>> snapshots =
+                (org.mockito.ArgumentCaptor<Map<String, Object>>) (org.mockito.ArgumentCaptor<?>) org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(auditSnapshot, atLeastOnce()).toJson(snapshots.capture());
+        assertTrue(snapshots.getAllValues().stream().anyMatch(m -> m.get("highImpact") instanceof List<?> l
+                        && l.contains("user_management:VIEW:ALL")),
+                "user_management is HIGH sensitivity: the change must be flagged");
+
+        clearInvocations(auditSnapshot);
+        service.setPermissions(custom.getId(), List.of(new Grant("employees", "VIEW", "TEAM")), 0, "ua@test.com");
+        verify(auditSnapshot, atLeastOnce()).toJson(snapshots.capture());
+        assertTrue(snapshots.getAllValues().stream().noneMatch(m -> m.get("highImpact") instanceof List<?> l
+                && l.contains("employees:VIEW:TEAM")));
+    }
+
+    @Test
     void canGrantWithinOwnCeiling_atANarrowerScope() {
-        service.setPermissions(custom.getId(), List.of(new Grant("user_management", "VIEW", "TEAM")), 0, "ua@test.com");
+        service.setPermissions(custom.getId(), List.of(new Grant("employees", "VIEW", "TEAM")), 0, "ua@test.com");
 
         List<RolePermission> saved = captureSaved();
         assertEquals(1, saved.size());
@@ -301,7 +366,7 @@ class RoleAdminServiceTest {
             return saved;
         });
 
-        service.setPermissions(custom.getId(), List.of(new Grant("user_management", "VIEW", "TEAM")), 0, "ua@test.com");
+        service.setPermissions(custom.getId(), List.of(new Grant("employees", "VIEW", "TEAM")), 0, "ua@test.com");
 
         verify(forceLogoutBroadcaster).permissionsChanged(List.of(holder1.getId(), holder2.getId()));
     }

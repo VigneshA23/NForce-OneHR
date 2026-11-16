@@ -3,6 +3,7 @@ import PageTitleBlock from '../../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, Search, Users, Settings, TrendingUp } from 'lucide-react';
 import { TabBar } from '../../components/TabBar';
+import { useCan } from '../../lib/access';
 import { DashboardTab } from './DashboardTab';
 import { SearchTab } from './SearchTab';
 import { DirectoryTab } from './DirectoryTab';
@@ -29,15 +30,19 @@ const VALID_SETTINGS_SUB_TABS = new Set<string>(['skills', 'levels', 'categories
  * and Settings (master-list configuration, skill requests, migration review).
  */
 export default function TalentPerformancePage() {
+  const can = useCan();
+  // Settings (master data, skill requests) needs talent_skills:CONFIGURE; hide the tab otherwise.
+  const visibleTabs = TABS.filter(t => t.key !== 'settings' || can('talent_skills', 'CONFIGURE'));
   // Deep-linked from a notification (e.g. a new Skill Request) via
   // /talent-performance?tab=settings&sub=requests — read once on mount, same as a normal initial
   // state; this page doesn't otherwise sync its tab state to the URL as the user clicks around.
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const requestedSub = searchParams.get('sub');
-  const [tab, setTab] = useState<Tab>(
+  const [tabState, setTab] = useState<Tab>(
     requestedTab && VALID_TABS.has(requestedTab) ? (requestedTab as Tab) : 'dashboard'
   );
+  const tab: Tab = visibleTabs.some(t => t.key === tabState) ? tabState : 'dashboard';
   const initialSettingsSubTab: SettingsSubTab | undefined =
     requestedSub && VALID_SETTINGS_SUB_TABS.has(requestedSub) ? (requestedSub as SettingsSubTab) : undefined;
 
@@ -55,7 +60,7 @@ export default function TalentPerformancePage() {
         ariaLabel="Performance views"
         active={tab}
         onChange={setTab}
-        tabs={TABS.map(t => ({ key: t.key, label: t.label, icon: <t.icon size={14} aria-hidden="true" /> }))}
+        tabs={visibleTabs.map(t => ({ key: t.key, label: t.label, icon: <t.icon size={14} aria-hidden="true" /> }))}
       />
 
       {tab === 'dashboard' && <DashboardTab />}

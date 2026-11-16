@@ -7,6 +7,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
 import { hasPermission } from '../lib/permissions';
+import { useCan } from '../lib/access';
 import { useToast } from '../context/ToastContext';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import {
@@ -31,7 +32,7 @@ import { reportsApi, type AttendanceRequestReportType, type AttendanceRequestRep
 import { orgApi, type DepartmentRow, type LocationRow } from '../api/org';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
 import { kudosApi } from '../api/kudos';
-import { projectAllocationsApi } from '../api/projectAllocations';
+import { projectAllocationsApi, projectsApi } from '../api/projectAllocations';
 import TeamCapacityTab from './my-team/TeamCapacityTab';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
@@ -3105,23 +3106,33 @@ function SkillsGrowthTab({ token }: { token: string }) {
 
 type MyTeamTab = 'overview' | 'effort' | 'negligence' | 'penalties' | 'assignments' | 'reports' | 'growth' | 'capacity';
 const ALL_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'effort', 'negligence', 'penalties', 'assignments', 'growth', 'capacity', 'reports'];
-const HR_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'reports'];
 
 export default function MyTeamPage() {
   const token = useAuthStore(s => s.token)!;
   const user = useAuthStore(s => s.user);
   const role = toShellRole(user?.role);
-  const permissions = useAuthStore(s => s.permissions);
-  // "Employee" here means "no direct-reports view": the roster/calendar below is built on
-  // /attendance/team + /attendance/team-month, which require attendance:VIEW:TEAM — seeded to
-  // exactly Manager/HR Admin/Super Admin, the non-Employee roles. Until permissions have loaded,
-  // fall back to the role so viewMode's one-time initializer below doesn't lock a manager into Peers.
-  const isEmployee = permissions ? !hasPermission(permissions, 'attendance', 'VIEW', 'TEAM') : role === 'Employee';
-  // Efforts/Punctuality, Negligence, Penalties and Employee Assignments are manager tools for
-  // monitoring one's own reports — not part of HR Admin's My Team view. Reports stays: HR relies
-  // on its org-wide Overtime/WFH/Partial Day request reports (see ReportsService), which have no
-  // other home in the app.
-  const allowedTabs: readonly MyTeamTab[] = role === 'HR Admin' ? HR_MY_TEAM_TABS : ALL_MY_TEAM_TABS;
+  const can = useCan();
+  // "Employee" here means "no team responsibility": the roster/calendar below is built on
+  // /attendance/team + /attendance/team-month, which require attendance:VIEW:TEAM.
+  const isEmployee = !can('attendance', 'VIEW', 'TEAM');
+  // Each tab is offered only when the user holds the permission that backs it.
+  const canAtt = can('attendance', 'VIEW', 'TEAM');
+  const canAttEdit = can('attendance', 'EDIT', 'TEAM');
+  const canAssign = can('employee_assignments', 'VIEW', 'TEAM');
+  const canPerf = can('skill_ratings', 'VIEW', 'TEAM');
+  const canCap = can('project_allocations', 'VIEW', 'TEAM');
+  const canReports = can('reports', 'VIEW', 'TEAM');
+  const allowedTabs = useMemo<readonly MyTeamTab[]>(() => ALL_MY_TEAM_TABS.filter(t => {
+    switch (t) {
+      case 'effort': case 'negligence': return canAtt;
+      case 'penalties': return canAttEdit;
+      case 'assignments': return canAssign;
+      case 'growth': return canPerf;
+      case 'capacity': return canCap;
+      case 'reports': return canReports;
+      default: return true;
+    }
+  }), [canAtt, canAttEdit, canAssign, canPerf, canCap, canReports]);
 
   // Business-zone date (not the UTC-derived todayIsoDate) — the backend roster is keyed on the
   // org business day, and a UTC date is still "yesterday" before 05:30 IST.
@@ -3264,7 +3275,19 @@ export default function MyTeamPage() {
         names.set(a.projectId, a.projectName ?? 'Unnamed project');
       }));
       setProjectsByEmployee(byEmp);
-      setProjectOptions([...names].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)));
+      setProjectOptions(prev => {
+        const byId = new Map(prev.map(p => [p.id, p]));
+        names.forEach((name, id) => byId.set(id, { id, name }));
+        return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+      });
+    }).catch(() => {});
+    // Also offer the projects this manager owns, so the filter is populated before anyone is allocated.
+    projectsApi.list(token).then(list => {
+      setProjectOptions(prev => {
+        const byId = new Map(prev.map(p => [p.id, p]));
+        list.filter(p => p.status === 'ACTIVE').forEach(p => { if (!byId.has(p.id)) byId.set(p.id, { id: p.id, name: p.name }); });
+        return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+      });
     }).catch(() => {});
   }, [token, isEmployee]);
 

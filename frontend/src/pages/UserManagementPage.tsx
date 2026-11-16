@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { PersonCell } from '../components/PersonCell';
+import { PersonCell, PersonAvatar } from '../components/PersonCell';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
-import { Plus, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon } from 'lucide-react';
+import { Plus, User as UserIcon, Users2, ShieldCheck, UserX, Search as SearchIcon, UserCog, X as XIcon, AlertCircle, Building2, Briefcase, MapPin, Lock, Clock3, UserCheck } from 'lucide-react';
 import { KebabMenu } from '../components/KebabMenu';
 import { useAuthStore } from '../store/authStore';
 import { usersApi, employeesApi, type EmployeeRecord, type UpdateUserPayload, type UpdateJoiningDatePayload, type ResetPasswordResult } from '../api/employees';
@@ -14,13 +14,15 @@ import { InactiveEditBanner, InactiveFieldsConfirm } from '../components/Employe
 import { businessTodayIsoDate } from '../utils/businessDate';
 import { CreatableLocationSelect, ShiftSelect } from './user-management/SharedControls';
 import { ROLES, EMPLOYMENT_TYPES, WORK_MODES, fmtEffectiveDate, getShiftOptions, getDepartmentOptions, getDesignationOptions, getLocationOptions, getManagersForRole, type OrgOptions } from './user-management/orgOptionsHelpers';
-import { overlayStyle, modalStyle, inputStyle, labelStyle, primaryBtnStyle, secondaryBtnStyle, ModalHeader, Field, ManagerApprovalWarning } from './user-management/formPrimitives';
+import { overlayStyle, modalStyle, inputStyle, labelStyle, ModalHeader, ManagerApprovalWarning } from './user-management/formPrimitives';
 import { EMAIL_PATTERN } from './user-management/wizardLogic';
 import { CreateEmployeeWizard } from './user-management/CreateEmployeeWizard';
 import { hasPermission } from '../lib/permissions';
+import { useCan } from '../lib/access';
 import { categoriesOf, roleCountsOf, roleOptionsOf } from '../lib/roleCategories';
 import ManageUserRolesModal from '../components/ManageUserRolesModal';
 import './userManagementPolish.css';
+import './employeeEdit.css';
 
 /** Today as "YYYY-MM-DD" in the org's business timezone (see businessTodayIsoDate's own doc
  * comment) — matches what a plain <input type="date"> compares against, and matches the
@@ -84,7 +86,7 @@ function RowActionsMenu({ items }: {
   onClose?: () => void;
   items: RowActionItem[];
 }) {
-  return <KebabMenu items={items} />;
+  return items.length ? <KebabMenu items={items} /> : null;
 }
 
 // `opts.managers` (the potential-managers list) is fetched once per page load and shared by
@@ -102,7 +104,7 @@ function syncManagerOption(managers: EmployeeRecord[], updated: EmployeeRecord):
 // frontend/src/pages/user-management/CreateEmployeeWizard.tsx (rendered at the call site below).
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
-function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
+export function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
   user: EmployeeRecord; onClose: () => void; onUpdated: (e: EmployeeRecord) => void; token: string;
   // Shared with AddModal — see AddModal's own comment on these two props for why this isn't
   // fetched fresh here.
@@ -179,98 +181,78 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
 
   const set = (key: keyof UpdateUserPayload, val: any) => setForm(f => ({ ...f, [key]: val || undefined }));
 
-  return (
-    <div style={overlayStyle}>
-      <div className="nf-um-modal" style={{ ...modalStyle, maxWidth: 580 }}>
-        <ModalHeader title={`Edit - ${user.fullName}`} onClose={onClose} />
-        <form onSubmit={handleSubmit} className="nf-grid-2col-collapse" style={{ padding: 24, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          {error && <div style={{ gridColumn: '1/-1', color: 'var(--risk)', background: 'rgba(228,55,61,.08)', border: '1px solid rgba(228,55,61,.2)', borderRadius: 6, padding: '10px 14px', fontSize: 13 }}>{error}</div>}
-          {isInactive && <InactiveEditBanner />}
-          <div style={{ gridColumn: '1/-1' }}><Field label="Full Name"><input style={inputStyle} value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} /></Field></div>
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Company Email">
-              <input type="email" style={inputStyle} value={form.email ?? ''} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" />
-            </Field>
-            {emailChanged && (
-              <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                Changing the email signs the user out and sends a notice to the new address with a sign-in link.
-              </div>
-            )}
+  const canSave = !(submitting || gatedFieldsLocked);
+  const isSA = form.role === 'SUPER_ADMIN';
+  const mgrList = getManagersForRole(form.role ?? 'EMPLOYEE', opts.managers).filter(m => m.userId !== user.userId);
+  const mgrRoleLabel = (form.role ?? '') === 'EMPLOYEE' ? 'Manager or HR Admin'
+    : form.role === 'MANAGER' ? 'HR Admin or Super Admin'
+    : 'Super Admin';
+
+  return createPortal(
+    <div className="nf-ee-overlay" role="presentation">
+      <div className="nf-ee-modal" role="dialog" aria-modal="true" aria-label={`Edit ${user.fullName}`}>
+        <div className="nf-ee-head">
+          <span className="nf-ee-head-ico"><UserCog size={20} /></span>
+          <div className="nf-ee-head-txt">
+            <div className="nf-ee-title">Edit User</div>
+            <div className="nf-ee-sub">Update account, role, organisation and shift details.</div>
           </div>
-          <Field label="Role">
-            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.role ?? 'EMPLOYEE'} onChange={e => {
-              const newRole = e.target.value;
-              const newMgrs = getManagersForRole(newRole, opts.managers).filter(m => m.userId !== user.userId);
-              setForm(f => ({
-                ...f, role: newRole,
-                managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
-              }));
-            }}>
-              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
-          </Field>
-          <Field label="Employment Type">
-            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
-              {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
-            </select>
-          </Field>
-          <Field label="Work Mode">
-            <select style={inputStyle} value={form.workMode ?? 'ONSITE'} onChange={e => set('workMode', e.target.value)}>
-              {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
-            </select>
-          </Field>
-          <Field label="Business Unit">
-            <select style={inputStyle} value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
-              <option value="">None</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Department">
-            <select style={inputStyle} disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined, designationId: undefined }))}>
-              <option value="">None</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Designation">
-            <select style={inputStyle} disabled={gatedFieldsLocked || !form.departmentId} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
-              <option value="">{form.departmentId ? 'None' : 'Select a Department first'}</option>
-              {getDesignationOptions(opts.designations, form.designationId, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
-            </select>
-          </Field>
-          <Field label="Date of Joining">
-            <input type="date" style={inputStyle} value={joiningDate} onChange={e => setJoiningDate(e.target.value)} />
-          </Field>
-          {joiningDate !== user.joiningDate && (
-            <div style={{ gridColumn: '1/-1' }}>
-              <Field label="Reason for date change">
-                <textarea
-                  style={{ ...inputStyle, minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
-                  value={joiningDateNote}
-                  onChange={e => setJoiningDateNote(e.target.value)}
-                  placeholder="Reason for changing the date of joining…"
-                />
-              </Field>
+          <button type="button" className="nf-ee-x" onClick={onClose} aria-label="Close"><XIcon size={16} /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="nf-ee-form">
+          <div className="nf-ee-body">
+            <div className="nf-ee-who">
+              <PersonAvatar userId={user.userId} name={user.fullName} size={44} />
+              <div className="nf-ee-who-txt">
+                <div className="nf-ee-who-name">{user.fullName}</div>
+                <div className="nf-ee-who-meta">{user.employeeCode} · {user.email}</div>
+              </div>
+              <span className={`nf-ee-pill ${user.active ? 'ok' : 'off'}`}>{user.active ? 'Active' : 'Inactive'}</span>
             </div>
-          )}
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Location">
-              <CreatableLocationSelect locations={getLocationOptions(opts.locations, form.locationId)} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} disabled />
-              <div style={{ fontSize: 11, color: 'var(--txt-mut)', marginTop: 4 }}>
-                Location changes are currently unavailable when updating an employee. Contact an administrator.
+
+            {error && <div className="nf-ee-error" role="alert"><AlertCircle size={15} /><span>{error}</span></div>}
+            {isInactive && <InactiveEditBanner />}
+
+            <section className="nf-ee-sec">
+              <div className="nf-ee-sec-h"><span className="nf-ee-sec-ico"><UserIcon size={14} /></span>Account</div>
+              <div className="nf-ee-grid">
+                <div className="nf-ee-f full">
+                  <label className="nf-ee-l">Full name</label>
+                  <input className="nf-ee-in" value={form.fullName ?? ''} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} />
+                </div>
+                <div className="nf-ee-f full">
+                  <label className="nf-ee-l">Company email</label>
+                  <input type="email" className="nf-ee-in" value={form.email ?? ''} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@nforceone.com" />
+                  {emailChanged && (
+                    <div className="nf-ee-hint warn">Changing the email signs the user out and sends a notice to the new address with a sign-in link.</div>
+                  )}
+                </div>
               </div>
-            </Field>
-          </div>
-          <div style={{ gridColumn: '1/-1' }}>
-            {(() => {
-              const isSA = form.role === 'SUPER_ADMIN';
-              const mgrList = getManagersForRole(form.role ?? 'EMPLOYEE', opts.managers).filter(m => m.userId !== user.userId);
-              const mgrRoleLabel = (form.role ?? '') === 'EMPLOYEE' ? 'Manager or HR Admin'
-                : form.role === 'MANAGER' ? 'HR Admin or Super Admin'
-                : 'Super Admin';
-              return (
-                <Field label={isSA ? 'Reporting Manager' : 'Reporting Manager *'}>
-                  <select style={inputStyle} disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
+            </section>
+
+            <section className="nf-ee-sec">
+              <div className="nf-ee-sec-h"><span className="nf-ee-sec-ico"><UserCheck size={14} /></span>Role and reporting</div>
+              <div className="nf-ee-grid">
+                <div className="nf-ee-f full">
+                  <label className="nf-ee-l">Role</label>
+                  <select className="nf-ee-in" disabled={gatedFieldsLocked} value={form.role ?? 'EMPLOYEE'} onChange={e => {
+                    const newRole = e.target.value;
+                    const newMgrs = getManagersForRole(newRole, opts.managers).filter(m => m.userId !== user.userId);
+                    setForm(f => ({
+                      ...f, role: newRole,
+                      managerId: f.managerId && newMgrs.some(m => m.userId === f.managerId) ? f.managerId : undefined,
+                    }));
+                  }}>
+                    {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  </select>
+                </div>
+                <div className="nf-ee-f full">
+                  <label className="nf-ee-l">{isSA ? 'Reporting manager' : 'Reporting manager *'}</label>
+                  <select className="nf-ee-in" disabled={gatedFieldsLocked} value={form.managerId ?? ''} onChange={e => set('managerId', e.target.value)}>
                     <option value="">{isSA ? 'None (optional)' : 'Select a Reporting Manager'}</option>
                     {/* Deactivated managers stay in the list (see getManagersForRole) but as a
-                        disabled option, so they can't be picked for a new assignment — they're
+                        disabled option, so they can't be picked for a new assignment. They're
                         only shown to explain an EXISTING selection that already points at one. */}
                     {mgrList.map((m: any) => (
                       <option key={m.userId} value={m.userId} disabled={m.active === false}>
@@ -279,55 +261,123 @@ function EditModal({ user, onClose, onUpdated, token, opts, setOpts }: {
                     ))}
                   </select>
                   {!isSA && mgrList.length === 0 && (
-                    <div style={{ fontSize: 11, color: '#E0A93B', marginTop: 4 }}>
-                      No {mgrRoleLabel} users found - add one first.
-                    </div>
+                    <div className="nf-ee-hint warn">No {mgrRoleLabel} users found - add one first.</div>
                   )}
                   <ManagerApprovalWarning manager={mgrList.find((m: any) => m.userId === form.managerId)} />
-                </Field>
-              );
-            })()}
-          </div>
-          <div style={{ gridColumn: '1/-1' }}>
-            <Field label="Shift">
-              <ShiftSelect
-                shifts={getShiftOptions(opts.shifts, form.shiftId)}
-                value={form.shiftId}
-                onChange={id => setForm(f => ({ ...f, shiftId: id }))}
-                onCreated={s => setOpts(o => ({ ...o, shifts: [...o.shifts, s] }))}
-                token={token}
-              />
-            </Field>
-            {shiftChanged && form.shiftId && (
-              <div style={{ marginTop: 10 }}>
-                <Field label="Effective From *">
+                </div>
+              </div>
+            </section>
+
+            <section className="nf-ee-sec">
+              <div className="nf-ee-sec-h"><span className="nf-ee-sec-ico"><Building2 size={14} /></span>Organisation</div>
+              <div className="nf-ee-grid">
+                <div className="nf-ee-f">
+                  <label className="nf-ee-l">Business unit</label>
+                  <select className="nf-ee-in" value={form.businessUnitId ?? ''} onChange={e => set('businessUnitId', e.target.value)}>
+                    <option value="">None</option>{opts.businessUnits.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+                <div className="nf-ee-f">
+                  <label className="nf-ee-l">Department</label>
+                  <select className="nf-ee-in" disabled={gatedFieldsLocked} value={form.departmentId ?? ''} onChange={e => setForm(f => ({ ...f, departmentId: e.target.value || undefined, designationId: undefined }))}>
+                    <option value="">None</option>{getDepartmentOptions(opts.departments, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+                <div className="nf-ee-f full">
+                  <label className="nf-ee-l">Designation</label>
+                  <select className="nf-ee-in" disabled={gatedFieldsLocked || !form.departmentId} value={form.designationId ?? ''} onChange={e => set('designationId', e.target.value)}>
+                    <option value="">{form.departmentId ? 'None' : 'Select a Department first'}</option>
+                    {getDesignationOptions(opts.designations, form.designationId, form.departmentId).map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <section className="nf-ee-sec">
+              <div className="nf-ee-sec-h"><span className="nf-ee-sec-ico"><Briefcase size={14} /></span>Employment</div>
+              <div className="nf-ee-grid">
+                <div className="nf-ee-f">
+                  <label className="nf-ee-l">Employment type</label>
+                  <select className="nf-ee-in" disabled={gatedFieldsLocked} value={form.employmentType ?? 'FULL_TIME'} onChange={e => set('employmentType', e.target.value)}>
+                    {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+                  </select>
+                </div>
+                <div className="nf-ee-f">
+                  <label className="nf-ee-l">Work mode</label>
+                  <select className="nf-ee-in" value={form.workMode ?? 'ONSITE'} onChange={e => set('workMode', e.target.value)}>
+                    {WORK_MODES.map(m => <option key={m} value={m}>{m.charAt(0) + m.slice(1).toLowerCase()}</option>)}
+                  </select>
+                </div>
+                <div className="nf-ee-f full">
+                  <label className="nf-ee-l">Date of joining</label>
+                  <input type="date" className="nf-ee-in" value={joiningDate} onChange={e => setJoiningDate(e.target.value)} />
+                </div>
+                {joiningDate !== user.joiningDate && (
+                  <div className="nf-ee-f full">
+                    <label className="nf-ee-l">Reason for date change</label>
+                    <textarea
+                      className="nf-ee-in"
+                      value={joiningDateNote}
+                      onChange={e => setJoiningDateNote(e.target.value)}
+                      placeholder="Reason for changing the date of joining…"
+                    />
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="nf-ee-sec">
+              <div className="nf-ee-sec-h"><span className="nf-ee-sec-ico"><Clock3 size={14} /></span>Shift</div>
+              <div className="nf-ee-f">
+                <ShiftSelect
+                  shifts={getShiftOptions(opts.shifts, form.shiftId)}
+                  value={form.shiftId}
+                  onChange={id => setForm(f => ({ ...f, shiftId: id }))}
+                  onCreated={sh => setOpts(o => ({ ...o, shifts: [...o.shifts, sh] }))}
+                  token={token}
+                />
+              </div>
+              {shiftChanged && form.shiftId && (
+                <div className="nf-ee-f" style={{ marginTop: 12 }}>
+                  <label className="nf-ee-l">Effective from *</label>
                   <input
                     type="date"
-                    style={inputStyle}
+                    className="nf-ee-in"
                     value={form.shiftEffectiveFrom ?? todayIso()}
                     min={todayIso()}
                     required
                     onChange={e => setForm(f => ({ ...f, shiftEffectiveFrom: e.target.value }))}
                   />
-                </Field>
-                {form.shiftEffectiveFrom && (
-                  <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', marginTop: 5 }}>
-                    This shift will become active for the employee from {fmtEffectiveDate(form.shiftEffectiveFrom)}.
-                  </div>
-                )}
+                  {form.shiftEffectiveFrom && (
+                    <div className="nf-ee-hint">This shift will become active for the employee from {fmtEffectiveDate(form.shiftEffectiveFrom)}.</div>
+                  )}
+                </div>
+              )}
+            </section>
+
+            <section className="nf-ee-sec">
+              <div className="nf-ee-sec-h"><span className="nf-ee-sec-ico"><MapPin size={14} /></span>Location<span className="nf-ee-lock"><Lock size={11} /> Locked</span></div>
+              <div className="nf-ee-f">
+                <CreatableLocationSelect locations={getLocationOptions(opts.locations, form.locationId)} value={form.locationId} onChange={id => setForm(f => ({ ...f, locationId: id }))} token={token} disabled />
+                <div className="nf-ee-hint">
+                  Location changes are currently unavailable when updating an employee. Contact an administrator.
+                </div>
               </div>
+            </section>
+
+            {isInactive && (
+              <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Role, Reporting Manager, Department, Designation, or Employment Type" />
             )}
           </div>
-          {isInactive && (
-            <InactiveFieldsConfirm checked={confirmInactiveEdit} onChange={setConfirmInactiveEdit} fields="Role, Reporting Manager, Department, Designation, or Employment Type" />
-          )}
-          <div className="nf-um-foot" style={{ gridColumn: '1/-1', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={secondaryBtnStyle}>Cancel</button>
-            <button type="submit" disabled={submitting || gatedFieldsLocked} style={{ ...primaryBtnStyle, cursor: (submitting || gatedFieldsLocked) ? 'not-allowed' : 'pointer', opacity: (submitting || gatedFieldsLocked) ? 0.7 : 1 }}>{submitting ? 'Saving…' : 'Save Changes'}</button>
+
+          <div className="nf-ee-foot">
+            <button type="button" className="nf-ee-cancel" onClick={onClose}>Cancel</button>
+            <button type="submit" className="nf-ee-save" disabled={!canSave}>{submitting ? 'Saving…' : 'Save Changes'}</button>
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -527,6 +577,7 @@ export default function UserManagementPage() {
   const token = useAuthStore(s => s.token)!;
   const currentUserEmail = useAuthStore(s => s.user?.email)?.toLowerCase();
   const permissions = useAuthStore(s => s.permissions);
+  const can = useCan();
   // Manage Roles needs the user's role view (user_roles) and the role list (roles) — see RoleController.
   const canManageRoles = hasPermission(permissions, 'user_roles', 'VIEW', 'ALL') && hasPermission(permissions, 'roles', 'VIEW', 'ALL');
   const [managingRoles, setManagingRoles] = useState<EmployeeRecord | null>(null);
@@ -638,9 +689,11 @@ export default function UserManagementPage() {
           {/* Matches the primary "Add/Create" button used across Organization Masters and Workflow
               Studio (var(--brand) fill, '+' glyph) rather than a one-off gradient + custom icon —
               see hr-ux-audit finding UI-003. */}
+          {can('user_management', 'CREATE') && (
           <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', justifyContent: 'center' }}>
             <Plus size={14} /> Add User
           </button>
+          )}
         </div>
       </div>
 
@@ -747,19 +800,19 @@ export default function UserManagementPage() {
                           onToggle={() => setOpenMenuId(id => id === u.userId ? null : u.userId)}
                           onClose={() => setOpenMenuId(null)}
                           items={[
-                          { label: 'Edit', onClick: () => setEditing(u) },
+                          ...(can('user_management', 'EDIT') ? [{ label: 'Edit', onClick: () => setEditing(u) }] : []),
                           ...(canManageRoles ? [{ label: 'Manage Roles', onClick: () => setManagingRoles(u) }] : []),
-                          { label: 'Reset Password', onClick: () => setResetting(u) },
+                          ...(can('user_management', 'EDIT') ? [{ label: 'Reset Password', onClick: () => setResetting(u) }] : []),
                           // Deactivate is hidden outright for the logged-in Super Admin's own row
                           // and for the last remaining active Super Admin — both are unrecoverable
                           // in-app once a session ends, so there's no "disabled with tooltip"
                           // middle ground here (see setActiveStatus on the backend for the
                           // matching, authoritative check).
-                          ...(u.active && (isSelf || isLastActiveSuperAdmin) ? [] : [
+                          ...(!can('user_management', 'EDIT') || (u.active && (isSelf || isLastActiveSuperAdmin)) ? [] : [
                             { label: u.active ? 'Deactivate' : 'Reactivate', onClick: () => setToggling(u) },
                           ]),
                           // Self-delete carries the exact same lockout risk as self-deactivation.
-                          ...(isSelf ? [] : [
+                          ...(isSelf || !can('user_management', 'DELETE') ? [] : [
                             { label: 'Delete', onClick: () => setDeleting(u), danger: true, dividerBefore: true },
                           ]),
                           ]}

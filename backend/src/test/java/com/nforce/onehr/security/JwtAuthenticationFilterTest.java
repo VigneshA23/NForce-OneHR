@@ -84,4 +84,34 @@ class JwtAuthenticationFilterTest {
         assertEquals(EMAIL, SecurityContextHolder.getContext().getAuthentication().getName());
         verify(filterChain).doFilter(request, response);
     }
+
+    @Test
+    void mustChangePasswordToken_isBlockedFromNonAuthApis_with403AndCode() throws Exception {
+        String token = jwtTokenProvider.generateToken(EMAIL, true, 6);
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(request.getRequestURI()).thenReturn("/api/employees");
+        when(userDetailsService.loadUserByUsername(EMAIL)).thenReturn(principalWithVersion(6));
+        java.io.StringWriter body = new java.io.StringWriter();
+        when(response.getWriter()).thenReturn(new java.io.PrintWriter(body));
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        verify(response).setStatus(HttpServletResponse.SC_FORBIDDEN);
+        assertTrue(body.toString().contains("PASSWORD_CHANGE_REQUIRED"));
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+        verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    void mustChangePasswordToken_mayStillReachChangePassword() throws Exception {
+        String token = jwtTokenProvider.generateToken(EMAIL, true, 6);
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+        when(request.getRequestURI()).thenReturn("/api/auth/change-password");
+        when(userDetailsService.loadUserByUsername(EMAIL)).thenReturn(principalWithVersion(6));
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertNotNull(SecurityContextHolder.getContext().getAuthentication());
+        verify(filterChain).doFilter(request, response);
+    }
 }

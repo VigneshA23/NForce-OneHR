@@ -6,6 +6,7 @@ import com.nforce.onehr.dto.allocation.BulkProjectAllocationRequest;
 import com.nforce.onehr.dto.allocation.EmployeeCapacityResponse;
 import com.nforce.onehr.dto.allocation.ProjectAllocationRequest;
 import com.nforce.onehr.dto.allocation.ProjectAllocationResponse;
+import com.nforce.onehr.dto.EmployeeResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Project;
 import com.nforce.onehr.entity.ProjectAllocation;
@@ -20,6 +21,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.nforce.onehr.dto.allocation.ProjectAllocationUpdateRequest;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -57,12 +60,15 @@ public class ProjectAllocationService {
     private final UserRepository userRepository;
     private final DirectReportScopeService directReportScopeService;
     private final EffectivePermissionService effectivePermissionService;
+    private final EmployeeService employeeService;
 
     @Transactional
     public ProjectAllocationResponse allocate(String actorEmail, ProjectAllocationRequest req) {
         Project project = findProject(req.getProjectId());
-        requireCanAllocate(resolveUser(actorEmail), project);
+        User actor = resolveUser(actorEmail);
+        requireCanAllocate(actor, project);
         Employee employee = findEmployee(req.getEmployeeId());
+        requireInScope(actor, employee.getUserId());
         validate(project, req.getStartDate(), req.getEndDate());
         int projected = allocatedCapacity(employee.getUserId(), req.getStartDate(), req.getEndDate()) + req.getCapacityPercent();
         String warning = overAllocationWarning(projected);
@@ -91,16 +97,42 @@ public class ProjectAllocationService {
                 : null;
     }
 
+    /**
+     * US-B03: edit or release (actualEndDate) an allocation. The ownership gate runs against the
+     * allocation's own project, so a Manager can only touch allocations on projects they own.
+     */
+    @Transactional
+    public ProjectAllocationResponse update(String actorEmail, UUID allocationId, ProjectAllocationUpdateRequest req) {
+        ProjectAllocation allocation = allocationRepository.findById(allocationId)
+                .orElseThrow(() -> new NoSuchElementException("Allocation not found"));
+        Project project = findProject(allocation.getProjectId());
+        requireCanAllocate(resolveUser(actorEmail), project);
+        if (req.getCapacityPercent() != null) allocation.setCapacityPercent(req.getCapacityPercent());
+        if (req.getEndDate() != null) allocation.setEndDate(req.getEndDate());
+        if (req.getActualEndDate() != null) allocation.setActualEndDate(req.getActualEndDate());
+        LocalDate end = allocation.getEndDate();
+        if (end.isBefore(allocation.getStartDate())
+                || (allocation.getActualEndDate() != null && allocation.getActualEndDate().isBefore(allocation.getStartDate()))) {
+            throw new IllegalArgumentException("End date cannot be before start date");
+        }
+        Employee employee = findEmployee(allocation.getEmployeeUserId());
+        return toResponse(allocationRepository.save(allocation), employee, project,
+                allocatedCapacity(employee.getUserId(), allocation.getStartDate(), end), null);
+    }
+
     /** US-B10: project/capacity/dates are shared across the request; each employee is still validated on its own. */
     @Transactional
     public BulkAllocationResponse bulkAllocate(String actorEmail, BulkProjectAllocationRequest req) {
         Project project = findProject(req.getProjectId());
         // Whole-request gate, not a per-employee failure: the caller either owns the project or doesn't.
-        requireCanAllocate(resolveUser(actorEmail), project);
+        User actor = resolveUser(actorEmail);
+        requireCanAllocate(actor, project);
+        Set<UUID> scope = allocatableIds(actor);
         List<AllocationResult> results = new ArrayList<>();
         for (UUID employeeId : req.getEmployeeIds()) {
             try {
                 Employee employee = findEmployee(employeeId);
+                if (scope != null && !scope.contains(employee.getUserId())) throw OUT_OF_SCOPE.get();
                 validate(project, req.getStartDate(), req.getEndDate());
                 String warning = overAllocationWarning(
                         allocatedCapacity(employee.getUserId(), req.getStartDate(), req.getEndDate()) + req.getCapacityPercent());
@@ -131,9 +163,32 @@ public class ProjectAllocationService {
         }
     }
 
+    private static final java.util.function.Supplier<AccessDeniedException> OUT_OF_SCOPE =
+            () -> new AccessDeniedException("You can only allocate employees within your permitted scope");
+
+    /** null = every employee (project_allocations:CREATE:ALL); otherwise the actor's current direct reports (TEAM). */
+    private Set<UUID> allocatableIds(User actor) {
+        return effectivePermissionService.hasAuthority(actor, "project_allocations:CREATE:ALL")
+                ? null : directReportScopeService.directReportIds(actor.getEmail());
+    }
+
+    private void requireInScope(User actor, UUID employeeUserId) {
+        Set<UUID> ids = allocatableIds(actor);
+        if (ids != null && !ids.contains(employeeUserId)) throw OUT_OF_SCOPE.get();
+    }
+
+    /** Employees the actor may pick on the allocation page: everyone for CREATE:ALL, direct reports for CREATE:TEAM. */
+    @Transactional(readOnly = true)
+    public List<EmployeeResponse> allocatableEmployees(String actorEmail) {
+        Set<UUID> ids = allocatableIds(resolveUser(actorEmail));
+        return ids == null ? employeeService.listEmployees() : employeeService.listEmployees(ids);
+    }
+
     /** Hard rules (4xx). Over-allocation is deliberately NOT here — it's a soft warning (US-B06). */
     private static void validate(Project project, LocalDate startDate, LocalDate endDate) {
-        if (project.getStatus() != ProjectStatus.ACTIVE) {
+        // An expired project is closed even if the daily sweep hasn't flipped its status yet.
+        boolean expired = project.getEndDate() != null && project.getEndDate().isBefore(LocalDate.now());
+        if (project.getStatus() != ProjectStatus.ACTIVE || expired) {
             throw new IllegalArgumentException("Project \"" + project.getName() + "\" is not active");
         }
         if (endDate.isBefore(startDate)) {

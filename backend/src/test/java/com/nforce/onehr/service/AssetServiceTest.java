@@ -216,7 +216,7 @@ class AssetServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"MANAGER", "EMPLOYEE", "CUSTOM_TEAM_APPROVER"})
+    @ValueSource(strings = {"MANAGER", "CUSTOM_TEAM_APPROVER"})
     void pendingQueue_everyoneElseSeesOnlyDirectReportsPending(String roleCode) {
         actingAs(roleCode);
         when(requestRepo.findByStatus("PENDING")).thenReturn(List.of(
@@ -226,6 +226,30 @@ class AssetServiceTest {
 
         assertEquals(List.of(5L), assetService.listPendingForApprover(actorEmail).stream().map(r -> r.getId()).toList());
         verify(requestRepo, never()).findByStatusIn(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EMPLOYEE", "CUSTOM_OTHER"})
+    void pendingQueueAndManagerTiles_areDenied_toAReportingLineWithoutTheApprovePermission(String roleCode) {
+        // Phase 1: having direct reports used to be enough to read their pending asset requests.
+        actingAs(roleCode);
+        lenient().when(historyRepo.findCurrentDirectReportIds(actorId)).thenReturn(List.of(requesterId));
+
+        assertThrows(AccessDeniedException.class, () -> assetService.listPendingForApprover(actorEmail));
+        assertThrows(AccessDeniedException.class, () -> assetService.managerTileSummary(actorEmail));
+        verifyNoInteractions(requestRepo);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"HR_ADMIN", "SUPER_ADMIN", "CUSTOM_ASSETS"})
+    void approve_andReject_ownRequestIsRefused_evenWithTheOrgWideOverride(String roleCode) {
+        actingAs(roleCode);
+        lenient().when(requestRepo.findById(7L)).thenReturn(Optional.of(AssetRequest.builder()
+                .id(7L).employeeUserId(actorId).categoryId(1).status("PENDING").build()));
+
+        assertThrows(AccessDeniedException.class, () -> assetService.approveRequest(7L, actorEmail));
+        assertThrows(AccessDeniedException.class, () -> assetService.rejectRequest(7L, "no", actorEmail));
+        verify(requestRepo, never()).save(any());
     }
 
     // ── Delete: only assets that were never assigned ──

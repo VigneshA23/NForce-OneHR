@@ -2,16 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import './sidebarNav.css';
-import { buildRoleNav, findActiveAncestors, isNavItemDisabled, navItemDisplayPhase, type ResolvedNavNode, type ResolvedNavGroup, type Role, type NavItem } from '../lib/nav.config';
+import { buildNavTree, findActiveAncestors, isNavItemDisabled, navItemDisplayPhase, type ResolvedNavNode, type ResolvedNavGroup, type NavItem } from '../lib/nav.config';
 
 interface SidebarNavProps {
-  role: Role;
   currentKey: string;
-  /** Narrows NAV[role] down to what the current user's live permissions actually grant — see
-   *  buildRoleNav's own doc comment. Omitted shows the role's full default set. */
-  isVisible?: (item: NavItem) => boolean;
-  /** Items outside NAV[role] granted by the user's custom roles — see permissions.ts permissionNavItems. */
-  extraItems?: NavItem[];
+  /** The modules this user may open — decided by lib/access.ts visibleNavItems (permissions, not roles). */
+  items: NavItem[];
   /** Called when a real (non-placeholder) module link is clicked — lets the shell close the mobile drawer. */
   onNavigate?: () => void;
 }
@@ -32,10 +28,10 @@ interface SidebarNavProps {
  * artwork just shows through (or gets covered by) whatever's currently in front — no separate
  * "make room for the artwork" logic needed here.
  */
-export function SidebarNav({ role, currentKey, isVisible, extraItems, onNavigate }: SidebarNavProps) {
+export function SidebarNav({ currentKey, items, onNavigate }: SidebarNavProps) {
   // Items that only exist as a disabled "P2" placeholder (Phase 2 / locked modules) are left out of the menu
   // entirely. Nothing else about visibility changes: the same role + permission filter applies to the rest.
-  const tree = buildRoleNav(role, (item) => !isNavItemDisabled(item) && (!isVisible || isVisible(item)), extraItems);
+  const tree = buildNavTree(items.filter((item) => !isNavItemDisabled(item)));
   const activeAncestors = findActiveAncestors(tree, currentKey) ?? [];
 
   // Which group keys are currently expanded. Independent per node (not a single-open-branch

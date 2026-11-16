@@ -12,8 +12,8 @@ import java.util.Set;
 
 /**
  * Resolves the single "primary" / displayed role for a user who may hold multiple {@link Role}s
- * (e.g. every Manager/HR Admin also silently holds the base EMPLOYEE role — see
- * UserManagementService#rolesFor). Role has no equals/hashCode override, so a Set&lt;Role&gt;'s
+ * (e.g. a user can hold both a built-in and a custom role; legacy accounts may also still carry a stored
+ * EMPLOYEE row — new ones don't, see V270). Role has no equals/hashCode override, so a Set&lt;Role&gt;'s
  * iteration order is NOT stable across JPA sessions/queries — a fresh load can surface either
  * role first. Never pick "the" role via {@code .stream().findFirst()} on a raw Set&lt;Role&gt;;
  * use this class instead.

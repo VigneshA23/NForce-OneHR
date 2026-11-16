@@ -5,8 +5,8 @@ import {
   Shield, User, LogOut, Menu, X as CloseIcon,
   Clock as ClockIcon, ArrowRight,
 } from 'lucide-react';
-import { NAV, ALL_NAV_ITEMS, toShellRole, isNavItemDisabled, navItemDisplayPhase, type Role, type NavItem } from '../lib/nav.config';
-import { isNavItemVisible, isRoutePermitted, permissionNavItems } from '../lib/permissions';
+import { ALL_NAV_ITEMS, toShellRole, isNavItemDisabled, navItemDisplayPhase, pathBelongsTo, type Role, type NavItem } from '../lib/nav.config';
+import { accessReady, canAccessPath, visibleNavItems as computeVisibleNavItems } from '../lib/access';
 import { meApi } from '../api/me';
 import { AccessDenied } from './AccessDenied';
 import { searchApi, type SearchResultItem as ApiSearchResultItem, type SearchGroup } from '../api/search';
@@ -198,22 +198,17 @@ export function Shell() {
   const email       = storeUser?.email || '';
   const name        = storeUser?.fullName || email || 'User';
   const permissions = useAuthStore((s) => s.permissions);
+  const accessCatalogue = useAuthStore((s) => s.accessCatalogue);
+  // Set when the page-requirements fetch fails, so the user sees why nothing renders instead of a blank page.
+  const [accessLoadFailed, setAccessLoadFailed] = useState(false);
 
-  // NAV[role] is the persona's preset; on top of it every gated item the user's EFFECTIVE
-  // permissions grant (from any role, see permissionNavItems) — a custom-role holder's persona is
-  // usually Employee, whose curated nav lists no admin items.
-  const extraNavItems = useMemo(() => permissionNavItems(NAV[role], permissions, role), [role, permissions]);
-  const navItems = useMemo(() => [...NAV[role], ...extraNavItems], [role, extraNavItems]);
-  // Narrows the role's full candidate list down to what this user's live permissions actually
-  // grant — a plain membership check per item (see isNavItemVisible), not a re-derivation of role
-  // logic. Search suggestions and the sidebar both use this filtered set; `current` below still
-  // matches against the FULL navItems so a denied route is recognized (and its label available)
-  // rather than falling through to an unrelated item.
-  const visibleNavItems = useMemo(
-    () => navItems.filter((n) => isNavItemVisible(n, permissions)),
-    [navItems, permissions]
-  );
-  const isItemVisible = useCallback((n: NavItem) => isNavItemVisible(n, permissions), [permissions]);
+  // Every module this user may open — decided purely by their effective permissions and the backend's
+  // page-requirements catalogue (lib/access.ts), never by the name of a role. A person with no extra role,
+  // a built-in role and a custom role all go through the same rule. Search suggestions and the sidebar use
+  // this set; `current` below also looks at the full list so a denied route still has a label.
+  const ready = accessReady(permissions, accessCatalogue);
+  const navItems = useMemo(() => computeVisibleNavItems(permissions, accessCatalogue), [permissions, accessCatalogue]);
+  const visibleNavItems = navItems;
   // My Profile is reached via the avatar dropdown (below), not a sidebar module, so it has no
   // entry in NAV — without this, the lookup below would silently fall back to navItems[0] and
   // both the topbar title and the sidebar's active-item highlight would show "Home" instead.
@@ -225,12 +220,12 @@ export function Shell() {
   // Directory — the closest existing section this view actually belongs to — while `label`
   // independently overrides what the topbar displays; SidebarNav and the topbar title read
   // different fields off this same object, so they don't have to agree.
-  const current: NavItem = navItems.find((n) => location.pathname.startsWith(n.path))
+  const current: NavItem = navItems.find((n) => pathBelongsTo(location.pathname, n.path))
     ?? (location.pathname.startsWith('/profile/')
       ? { key: 'directory', label: 'Employee Profile', icon: User, phase: 1, path: '/profile' }
       : location.pathname.startsWith('/profile')
         ? { key: 'profile', label: 'My Profile', icon: User, phase: 1, path: '/profile' }
-        : navItems[0]);
+        : ALL_NAV_ITEMS.find((n) => pathBelongsTo(location.pathname, n.path)) ?? navItems[0] ?? ALL_NAV_ITEMS[0]);
   // Looked up against ALL_NAV_ITEMS (every role's items, not just this one's NAV[role]) — a path
   // this role's own array doesn't even mention (e.g. an Employee directly visiting /organization,
   // a key only HR Admin/Super Admin ever see in their nav) must still be checked, or it would
@@ -238,9 +233,10 @@ export function Shell() {
   // above (not in ALL_NAV_ITEMS) or a path no role's nav mentions at all (falls through exactly
   // as before). Backend @PreAuthorize is still the real enforcement regardless of this check; this
   // only stops the page component from mounting at all on a denied direct-URL visit.
-  const globalMatch = ALL_NAV_ITEMS.find((n) => location.pathname.startsWith(n.path));
-  const deniedByPermission = (globalMatch != null && !isNavItemVisible(globalMatch, permissions))
-    || !isRoutePermitted(location.pathname, permissions);
+  // The decision is the catalogue's route table (lib/access.ts canAccessPath): a page not listed there is
+  // baseline self-service. Until both permissions and the catalogue have loaded nothing is mounted, so a
+  // restricted page can never flash up for a user who may not open it.
+  const deniedByPermission = ready && !canAccessPath(location.pathname, permissions, accessCatalogue);
 
   type FlatResult =
     | { kind: 'nav'; item: NavItem }
@@ -363,6 +359,13 @@ export function Shell() {
   // route-level AccessDenied check above; the persisted copy from a previous session covers the
   // instant-of-reload gap before this resolves (see authStore's own comment on that tradeoff).
   const setPermissions = useAuthStore((s) => s.setPermissions);
+  const setAccessCatalogue = useAuthStore((s) => s.setAccessCatalogue);
+  // Which pages need which permission — static per release, so fetched once per token.
+  useEffect(() => {
+    if (!token) return;
+    setAccessLoadFailed(false);
+    meApi.getAccessCatalogue(token).then(setAccessCatalogue).catch(() => setAccessLoadFailed(true));
+  }, [token, setAccessCatalogue]);
   useEffect(() => {
     if (!token) return;
     const refresh = () => { meApi.getPermissions(token).then(setPermissions).catch(() => {}); };
@@ -812,7 +815,7 @@ export function Shell() {
 
         {/* Nav items — hierarchical, click-only inline dropdowns; role visibility unchanged (see
             nav.config.ts), further narrowed by this user's live permissions (isNavItemVisible) */}
-        <SidebarNav role={role} currentKey={current.key} isVisible={isItemVisible} extraItems={extraNavItems} onNavigate={() => setNavOpen(false)} />
+        <SidebarNav currentKey={current.key} items={navItems} onNavigate={() => setNavOpen(false)} />
       </aside>
 
       {/* Main area */}
@@ -987,7 +990,11 @@ export function Shell() {
               .nf-section-enter's entrance animation (same class DashboardPage etc. already use
               for section reveals) instead of the routed page just appearing instantly. */}
           <div key={location.pathname} className="nf-section-enter">
-            {deniedByPermission
+            {!ready
+              ? (accessLoadFailed
+                ? <div role="alert" style={{ padding: 32, color: '#6B7280' }}>Couldn't load your access. Please reload the page.</div>
+                : null)
+              : deniedByPermission
               ? <AccessDenied />
               : isNavItemDisabled(current)
                 ? <ComingInPhase label={current.label} phase={navItemDisplayPhase(current)} />

@@ -4,6 +4,7 @@ import com.nforce.onehr.dto.TeamGrowthResponse;
 import com.nforce.onehr.dto.TeamGrowthSummary;
 import com.nforce.onehr.service.TeamGrowthService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,6 +22,7 @@ public class TeamGrowthController {
     private final TeamGrowthService service;
 
     @GetMapping("/growth")
+    @PreAuthorize("hasAuthority('skill_ratings:VIEW:TEAM')")
     public List<TeamGrowthSummary> listTeamGrowthSummaries(Authentication auth) {
         return service.listTeamGrowthSummaries(auth.getName());
     }

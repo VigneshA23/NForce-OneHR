@@ -2,6 +2,7 @@ package com.nforce.onehr.security;
 
 import com.nforce.onehr.controller.RoleController;
 import com.nforce.onehr.exception.GlobalExceptionHandler;
+import com.nforce.onehr.service.ConvertedManagerReviewService;
 import com.nforce.onehr.service.RoleAdminService;
 import com.nforce.onehr.service.UserManagementService;
 import org.junit.jupiter.api.AfterEach;
@@ -40,7 +41,8 @@ class RoleToolsEndpointsSecurityTest {
     @EnableMethodSecurity
     static class Config {
         @Bean RoleController roleController() {
-            return new RoleController(mock(RoleAdminService.class), mock(UserManagementService.class));
+            return new RoleController(mock(RoleAdminService.class), mock(UserManagementService.class),
+                    mock(ConvertedManagerReviewService.class));
         }
     }
 
@@ -52,7 +54,11 @@ class RoleToolsEndpointsSecurityTest {
         return Stream.of(
                 Arguments.of("GET", "/api/roles/5/history", null, "roles:VIEW:ALL"),
                 Arguments.of("GET", "/api/permissions/holders?module=employees&action=VIEW", null, "roles:VIEW:ALL"),
-                Arguments.of("POST", "/api/roles/5/members/bulk", USERS, "user_roles:EDIT:ALL"));
+                Arguments.of("POST", "/api/roles/5/members/bulk", USERS, "user_roles:EDIT:ALL"),
+                // Phase 3: review of Managers whose role was converted from automatic to explicit.
+                Arguments.of("GET", "/api/roles/converted-managers", null, "roles:VIEW:ALL"),
+                Arguments.of("POST", "/api/roles/converted-managers/11111111-1111-1111-1111-111111111111/reviewed", null, "user_roles:EDIT:ALL"),
+                Arguments.of("GET", "/api/permissions/catalogue/tree", null, "roles:VIEW:ALL"));
     }
 
     @AfterEach

@@ -3,6 +3,7 @@ package com.nforce.onehr.ai.controller;
 import com.nforce.onehr.ai.contract.AssistantResponse;
 import com.nforce.onehr.ai.dto.AiBillingResponse;
 import com.nforce.onehr.ai.dto.AiBillingSettingsResponse;
+import com.nforce.onehr.ai.dto.AiQueryInsightsResponse;
 import com.nforce.onehr.ai.dto.AiRateLimitSettingsResponse;
 import com.nforce.onehr.ai.dto.AiUsageStatsResponse;
 import com.nforce.onehr.ai.dto.AssistantChatRequest;
@@ -24,6 +25,7 @@ import com.nforce.onehr.repository.UserRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,6 +39,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -192,6 +195,19 @@ public class AiAssistantController {
     @PreAuthorize("hasAuthority('ai_assistant:VIEW:ALL')")
     public AiUsageStatsResponse usageStats(@RequestParam(required = false) Integer days) {
         return usageStatsService.stats(days);
+    }
+
+    /**
+     * NORA Query Insights: how many questions matched, needed clarifying or found nothing, plus the
+     * most-asked unanswered phrases. Super Admin only, same as the rest of the API Usage page.
+     * Dates are ISO yyyy-MM-dd, inclusive; default is the current month so far.
+     */
+    @GetMapping("/admin/query-insights")
+    @PreAuthorize("hasAuthority('ai_assistant:VIEW:ALL')")
+    public AiQueryInsightsResponse queryInsights(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return usageStatsService.queryInsights(from, to);
     }
 
     /**

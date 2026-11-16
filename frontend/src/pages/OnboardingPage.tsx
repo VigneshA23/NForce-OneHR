@@ -6,6 +6,7 @@ import {
   Archive, Calendar, Users, AlertTriangle, ClipboardList, X, Eye, Search, UserPlus
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { useCan } from '../lib/access';
 import { useToast } from '../context/ToastContext';
 import {
   onboardingApi, type OnboardingSummary, type OnboardingDetail, type OnboardingItem,
@@ -310,6 +311,7 @@ function AssignAssetToEmployeeModal({
 
 function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId: string; onBack: () => void; onChanged: () => void }) {
   const token = useAuthStore(s => s.token)!;
+  const can = useCan();
   const { showToast } = useToast();
   const [detail, setDetail] = useState<OnboardingDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -390,7 +392,7 @@ function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId:
         </div>
       )}
 
-      {!detail.archived && detail.readyToComplete && (
+      {!detail.archived && detail.readyToComplete && can('onboarding', 'APPROVE') && (
         <div className="nf-ob-banner is-info">
           <span><Check size={17} />All tasks are done - review the details above, then submit to move {detail.employeeName} to Successfully Onboarded.</span>
           <button type="button" onClick={complete} disabled={completing} className="nf-ob-primary">
@@ -433,7 +435,7 @@ function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId:
 
       <Section icon={<ClipboardList size={15} />} title="Pre-boarding" count={`${detail.preBoarding.filter(i => i.done).length}/${detail.preBoarding.length}`}>
         {detail.preBoarding.map(i => (
-          <ItemRow key={i.itemKey} item={i} onToggle={() => toggle(i)} toggling={toggling === i.id} />
+          <ItemRow key={i.itemKey} item={i} onToggle={can('onboarding', 'EDIT') ? () => toggle(i) : undefined} toggling={toggling === i.id} />
         ))}
       </Section>
 
@@ -468,7 +470,7 @@ function OnboardingDetailView({ checklistId, onBack, onChanged }: { checklistId:
             <ItemRow
               key={i.itemKey}
               item={i}
-              onToggle={i.auto ? undefined : () => toggle(i)}
+              onToggle={i.auto || !can('onboarding', 'EDIT') ? undefined : () => toggle(i)}
               toggling={toggling === i.id}
               action={assetCategory ? { label: `Assign ${assetCategory}`, onClick: () => setShowAssetModal(assetCategory) } : undefined}
             />
@@ -539,6 +541,7 @@ const STATUS_FOR_TAB: Record<Exclude<OnboardingTab, 'pending'>, OnboardingQueueS
 
 export default function OnboardingPage() {
   const token = useAuthStore(s => s.token)!;
+  const can = useCan();
   const { showToast } = useToast();
   const [tab, setTab] = useState<OnboardingTab>('pending');
   const [search, setSearch] = useState('');
@@ -713,6 +716,7 @@ export default function OnboardingPage() {
                     </td>
                     <td><span className="nf-ob-date"><Calendar size={13} />{fmtDate(e.joiningDate)}</span></td>
                     <td style={{ textAlign: 'right' }}>
+                      {can('onboarding', 'CREATE') && (
                       <button
                         type="button"
                         onClick={() => startOnboardingFor(e)}
@@ -721,6 +725,7 @@ export default function OnboardingPage() {
                       >
                         {startingId === e.userId ? 'Starting…' : 'Start Onboarding'}
                       </button>
+                      )}
                     </td>
                   </tr>
                 ))}

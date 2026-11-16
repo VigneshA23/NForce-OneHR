@@ -35,6 +35,20 @@
 .nf-rq .tone-indigo { --tone: var(--om-indigo); }
 .nf-rq .tone-rose   { --tone: var(--om-rose); }
 .nf-rq .tone-teal   { --tone: var(--om-teal); }
+.nf-rq-new-request-menu, .nf-rq-overlay {
+  --rq-tint: color-mix(in srgb, var(--brand) 9%, transparent);
+  --rq-accent-txt: var(--brand-bright);
+}
+[data-theme="light"] .nf-rq-new-request-menu, [data-theme="light"] .nf-rq-overlay { --rq-accent-txt: var(--brand); }
+/* The menu and the details popup are portaled to <body>, outside .nf-rq, so they need the tone palette too. */
+.nf-rq-new-request-menu .tone-warn, .nf-rq-overlay .tone-warn { --tone: var(--warn); }
+.nf-rq-new-request-menu .tone-ok, .nf-rq-overlay .tone-ok { --tone: var(--ok); }
+.nf-rq-new-request-menu .tone-risk, .nf-rq-overlay .tone-risk { --tone: var(--risk); }
+.nf-rq-new-request-menu .tone-info, .nf-rq-overlay .tone-info { --tone: var(--info); }
+.nf-rq-new-request-menu .tone-mute, .nf-rq-overlay .tone-mute { --tone: var(--txt-mut); }
+.nf-rq-new-request-menu .tone-indigo, .nf-rq-overlay .tone-indigo { --tone: var(--om-indigo); }
+.nf-rq-new-request-menu .tone-rose, .nf-rq-overlay .tone-rose { --tone: var(--om-rose); }
+.nf-rq-new-request-menu .tone-teal, .nf-rq-overlay .tone-teal { --tone: var(--om-teal); }
 
 /* ── Header card ─────────────────────────────────── */
 .nf-rq-header {
@@ -77,28 +91,48 @@
 .nf-rq-new-request { position: relative; flex-shrink: 0; }
 .nf-rq-new-request-menu {
   z-index: 700;
-  min-width: 190px;
-  padding: 6px;
+  width: 290px;
+  padding: 8px;
   background: var(--panel);
   border: 1px solid var(--line2);
-  border-radius: 10px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .25);
+  border-radius: 16px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .32);
 }
+.nf-rq-new-request-head { padding: 6px 10px 8px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-dim); }
 .nf-rq-new-request-item {
+  --tone: var(--brand);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  margin-bottom: 4px;
   padding: 9px 10px;
-  font-size: 13px;
-  font-weight: 500;
   color: var(--txt);
   text-decoration: none;
-  border-radius: 7px;
-  transition: background .12s;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--tone) 16%, var(--line));
+  border-left: 4px solid var(--tone);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--tone) 9%, var(--panel)) 0%, var(--panel) 70%);
+  transition: background .12s, border-color .12s, transform .12s, box-shadow .12s;
 }
-.nf-rq-new-request-item:hover { background: var(--rq-tint); color: var(--rq-accent-txt); }
-.nf-rq-new-request-item svg { color: var(--txt-dim); flex-shrink: 0; }
-.nf-rq-new-request-item:hover svg { color: var(--rq-accent-txt); }
+.nf-rq-new-request-item:last-child { margin-bottom: 0; }
+.nf-rq-new-request-item .nf-rq-type-icon {
+  width: 38px; height: 38px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--tone), color-mix(in srgb, var(--tone) 68%, #000));
+  box-shadow: 0 5px 12px -5px color-mix(in srgb, var(--tone) 70%, transparent);
+}
+.nf-rq-new-request-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nf-rq-new-request-label { font-size: 13.5px; font-weight: 700; color: var(--txt); }
+.nf-rq-new-request-hint { font-size: 11.5px; font-weight: 500; color: var(--txt-mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nf-rq-new-request-go { flex-shrink: 0; color: var(--tone); opacity: .55; transform: translateX(-4px); transition: opacity .12s, transform .12s; }
+.nf-rq-new-request-item:hover, .nf-rq-new-request-item:focus-visible {
+  background: linear-gradient(100deg, color-mix(in srgb, var(--tone) 20%, var(--panel)) 0%, color-mix(in srgb, var(--tone) 6%, var(--panel)) 100%);
+  border-color: color-mix(in srgb, var(--tone) 40%, var(--line));
+  box-shadow: 0 6px 16px -10px color-mix(in srgb, var(--tone) 70%, transparent);
+  transform: translateY(-1px);
+  outline: none;
+}
+.nf-rq-new-request-item:hover .nf-rq-new-request-go, .nf-rq-new-request-item:focus-visible .nf-rq-new-request-go { opacity: 1; transform: none; }
 
 /* ── Overview row: Request Overview (rings) + Next Request ── */
 .nf-rq-overview-row { display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: stretch; }
@@ -198,13 +232,18 @@
 }
 .nf-rq-help-decor {
   position: absolute;
-  top: -8px;
-  right: -8px;
+  top: 14px;
+  right: 16px;
+  width: 44px;
+  height: 44px;
+  z-index: 0;
+  pointer-events: none;
   color: color-mix(in srgb, var(--brand) 32%, transparent);
   transform: rotate(18deg);
 }
-.nf-rq-help-title { position: relative; font-size: 15px; font-weight: 700; color: var(--txt); margin-bottom: 5px; }
-.nf-rq-help-text { position: relative; font-size: 12.5px; color: var(--txt-mut); line-height: 1.5; margin-bottom: 14px; }
+/* Text keeps clear of the decorative plane in the top-right corner, so the two never overlap. */
+.nf-rq-help-title { position: relative; z-index: 1; font-size: 15px; font-weight: 700; color: var(--txt); margin-bottom: 5px; padding-right: 60px; }
+.nf-rq-help-text { position: relative; z-index: 1; font-size: 12.5px; color: var(--txt-mut); line-height: 1.5; margin-bottom: 14px; padding-right: 56px; }
 
 .nf-rq-encourage { background: color-mix(in srgb, var(--brand) 7%, var(--panel)); }
 .nf-rq-encourage-body { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -889,3 +928,31 @@
   .nf-rq-modal-foot { padding-left: 16px; padding-right: 16px; }
 }
 .nf-rq-view-btn-short { display: none; }
+
+/* ── Request details popup (redesign). Presentation only. ── */
+.nf-rq-modal { max-width: 600px; display: flex; flex-direction: column; }
+.nf-rq-md-head { align-items: center; background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 9%, var(--panel)), var(--panel)); }
+.nf-rq-md-body { display: flex; flex-direction: column; gap: 18px; overflow-y: auto; }
+.nf-rq-md-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.nf-rq-md-fact { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--raised); min-width: 0; }
+.nf-rq-md-fact.wide { grid-column: 1 / -1; }
+.nf-rq-md-fact-ico { width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center; border-radius: 10px; color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, var(--panel)); }
+.nf-rq-md-fact-txt { min-width: 0; }
+.nf-rq-md-steps { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; }
+.nf-rq-md-step { position: relative; display: flex; gap: 12px; padding-bottom: 16px; }
+.nf-rq-md-step:last-child { padding-bottom: 0; }
+.nf-rq-md-step:not(:last-child)::before { content: ''; position: absolute; left: 13px; top: 28px; bottom: 2px; width: 2px; background: var(--line2); }
+.nf-rq-md-dot { width: 28px; height: 28px; flex-shrink: 0; display: grid; place-items: center; border-radius: 999px; color: var(--txt-mut); background: var(--raised2); border: 1px solid var(--line2); }
+.nf-rq-md-dot.tone-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--panel)); border-color: color-mix(in srgb, var(--ok) 30%, var(--line)); }
+.nf-rq-md-dot.tone-risk { color: var(--risk); background: color-mix(in srgb, var(--risk) 14%, var(--panel)); border-color: color-mix(in srgb, var(--risk) 30%, var(--line)); }
+.nf-rq-md-dot.tone-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 32%, var(--line)); }
+.nf-rq-md-dot.tone-info { color: var(--info); background: color-mix(in srgb, var(--info) 14%, var(--panel)); border-color: color-mix(in srgb, var(--info) 30%, var(--line)); }
+.nf-rq-md-step-main { min-width: 0; flex: 1; }
+.nf-rq-md-step-t { font-size: 13.5px; font-weight: 700; color: var(--txt); padding-top: 4px; }
+.nf-rq-md-step-s { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--txt-mut); margin-top: 2px; }
+.nf-rq-md-decision { margin-top: 10px; padding: 11px 14px; border-radius: 12px; border: 1px solid var(--line); border-left-width: 4px; background: var(--raised); overflow-wrap: anywhere; }
+.nf-rq-md-decision.tone-ok { border-left-color: var(--ok); }
+.nf-rq-md-decision.tone-risk { border-left-color: var(--risk); }
+.nf-rq-md-decision.tone-warn { border-left-color: var(--warn); }
+.nf-rq-md-decision.tone-info { border-left-color: var(--info); }
+@media (max-width: 560px) { .nf-rq-md-facts { grid-template-columns: 1fr; } }
