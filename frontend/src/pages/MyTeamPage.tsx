@@ -36,6 +36,7 @@ import { projectAllocationsApi, projectsApi } from '../api/projectAllocations';
 import TeamCapacityTab from './my-team/TeamCapacityTab';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import DashTile from '../components/DashTile';
+import { roundDays } from '../utils/leaveDays';
 import './myTeamTabs.css';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
@@ -717,21 +718,31 @@ function formatDays(n: number): string {
 }
 
 /** Roster card's current-year leave balance, one entry per paid leave type (`null` = loading). */
-function LeaveBalanceLine({ balances }: { balances: LeaveBalance[] | null }) {
-  const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' };
+export function LeaveBalanceLine({ balances }: { balances: LeaveBalance[] | null }) {
+  // One compact line (total days left); the per-type breakdown opens on click so the card stays short.
+  const muted: React.CSSProperties = { fontSize: 11.5, color: 'var(--txt-dim)' };
+  if (balances === null) return <div style={muted}>Leave balance: Loading…</div>;
+  if (balances.filter(b => b.totalDays > 0).length === 0) return <div style={muted}>Leave balance: none on file</div>;
+  // Same rule as the Dashboard tile and the Leave page: types with no quota are left out and a
+  // negative remaining balance counts as 0, so the numbers never disagree across pages.
+  const quota = balances.filter(b => b.totalDays > 0);
+  const left = roundDays(quota.reduce((a, b) => a + Math.max(0, Number(b.remainingDays)), 0));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <span style={labelStyle}>Leave balance</span>
-      {balances === null ? (
-        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Loading…</span>
-      ) : balances.length === 0 ? (
-        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>No balance on file</span>
-      ) : balances.map(b => (
-        <span key={b.leaveTypeCode} style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
-          {b.leaveTypeName}: <strong style={{ color: 'var(--txt)' }}>{formatDays(b.remainingDays)}</strong> of {formatDays(b.totalDays)} days remaining
-        </span>
-      ))}
-    </div>
+    <details className="nf-mt-lb">
+      <summary>
+        <span className="nf-mt-lb-k">Leave balance</span>
+        <span className="nf-mt-lb-v"><strong>{formatDays(left)}</strong> days left</span>
+        <ChevronDown size={13} className="nf-mt-lb-chev" />
+      </summary>
+      <div className="nf-mt-lb-list">
+        {quota.map(b => (
+          <div key={b.leaveTypeCode}>
+            <span>{b.leaveTypeName}</span>
+            <span><strong>{formatDays(b.remainingDays)}</strong> / {formatDays(b.totalDays)}</span>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 

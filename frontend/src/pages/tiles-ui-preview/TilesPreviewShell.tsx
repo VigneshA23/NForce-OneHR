@@ -49,7 +49,8 @@ import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
 import '../login.css';
 import { DiwaliBurst } from '../auth/DiwaliBurst';
-import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTab as MtPenaltiesTab, AssignmentsTab as MtAssignmentsTab, SkillsGrowthTab as MtGrowthTab, AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
+import { MemberCard as MtMemberCard, Pill as MtPill } from '../my-team/MyTeamRedesign';
+import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTab as MtPenaltiesTab, AssignmentsTab as MtAssignmentsTab, SkillsGrowthTab as MtGrowthTab, AttentionPanel, LeaveBalanceLine as MtLeaveBalanceLine, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
@@ -108,6 +109,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
   { key: 'login-diwali', label: 'Login: cracker lights', title: 'Login: cracker lights', subtitle: 'Click Sign in to play the effect inside the card (sample only).' },
+  { key: 'team-member-cards', label: 'My Team: Member cards', title: 'My Team: Member cards', subtitle: 'Roster cards with the compact leave balance. Click it to see the breakdown.' },
   { key: 'team-effort', label: 'My Team: Efforts / Punctuality', title: 'My Team: Efforts and Punctuality', subtitle: 'The real tab, fed with sample data.' },
   { key: 'team-negligence', label: 'My Team: Negligence', title: 'My Team: Negligence', subtitle: 'The real tab, fed with sample data.' },
   { key: 'team-penalties', label: 'My Team: Penalties', title: 'My Team: Regularize and Cancel Penalties', subtitle: 'The real tab, fed with sample data.' },
@@ -773,6 +775,31 @@ function LoginDiwaliMock() {
             {signedIn ? 'Signed in' : 'Sign in'}
           </button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function TeamMemberCardsMock() {
+  // Mock only: roster cards with the compact leave balance line (click it to open the breakdown).
+  const people = [['Test', 'Automation QA Engineer', 'NF-202613574', 'Quality Engineering'], ['Test', 'Junior Sales Engineer', 'NF-202613567', 'Sales'], ['Test', 'Software Engineer', 'NF-202613571', 'Engineering']];
+  const bal = [
+    { leaveTypeCode: 'AL', leaveTypeName: 'Annual Leave', remainingDays: 15, totalDays: 15 },
+    { leaveTypeCode: 'PL', leaveTypeName: 'Paid Leave', remainingDays: 20, totalDays: 20 },
+    { leaveTypeCode: 'TL', leaveTypeName: 'Test Leave', remainingDays: 20, totalDays: 20 },
+  ] as unknown as Parameters<typeof MtLeaveBalanceLine>[0]['balances'];
+  return (
+    <div className="mt-root">
+      <div className="mt-members" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+        {people.map(([n, d, code, dept], i) => (
+          <MtMemberCard key={i} avatar={<span className="mt-avatar" style={{ width: 52, height: 52, borderRadius: '50%', background: 'color-mix(in srgb, var(--brand) 14%, var(--panel))', color: 'var(--brand)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>TE</span>} name={n} designation={d} active status="NOT_IN_YET" 
+            tags={<><MtPill>{dept}</MtPill><MtPill tone="ok">Full time</MtPill></>}
+            extras={<>
+              <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, marginTop: -4 }}>{code}</div>
+              <MtLeaveBalanceLine balances={bal} />
+            </>}
+            onViewProfile={() => undefined} />
+        ))}
       </div>
     </div>
   );
@@ -2026,6 +2053,8 @@ function Tiles({ page }: { page: string }) {
       return <TeamPopupsMock />;
     case 'team-today':
       return <TeamTodayMock />;
+    case 'team-member-cards':
+      return <TeamMemberCardsMock />;
     case 'login-diwali':
       return <LoginDiwaliMock />;
     case 'team-effort':
