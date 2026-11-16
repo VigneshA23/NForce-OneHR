@@ -5,6 +5,7 @@ import com.nforce.onehr.dto.allocation.MyAllocationResponse.Status;
 import com.nforce.onehr.entity.Client;
 import com.nforce.onehr.entity.Project;
 import com.nforce.onehr.entity.ProjectAllocation;
+import com.nforce.onehr.entity.ProjectStatus;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.ClientRepository;
 import com.nforce.onehr.repository.ProjectAllocationRepository;
@@ -164,6 +165,125 @@ class MyAllocationServiceTest {
         assertEquals(LocalDate.of(2026, 12, 15), result.get(0).getEndDate());
     }
 
+    // ── the allocation follows its project (active / on hold / closed) ──
+
+    @Test
+    void closedProject_stillAppears_labelledClosed_withTheAllocationsOwnDates() {
+        Project closed = project("AI", clientId, ProjectStatus.CLOSED, LocalDate.of(2026, 11, 10));
+        stubAllocations(alloc(closed, 100, "2026-11-16", "2026-11-30", null));
+        stubLookups(closed);
+
+        List<MyAllocationResponse> result = service.myCurrentAndUpcoming("emp@x.com", today);
+
+        assertEquals(1, result.size());
+        assertEquals(ProjectStatus.CLOSED, result.get(0).getProjectStatus());
+        assertEquals(LocalDate.of(2026, 11, 16), result.get(0).getStartDate());
+        assertEquals(LocalDate.of(2026, 11, 30), result.get(0).getEndDate());
+    }
+
+    @Test
+    void closedProject_withAnUpcomingAllocation_alsoAppearsClosed() {
+        Project closed = project("AI", clientId, ProjectStatus.CLOSED, null);
+        stubAllocations(alloc(closed, 100, "2026-12-01", "2027-02-28", null));
+        stubLookups(closed);
+
+        MyAllocationResponse r = service.myCurrentAndUpcoming("emp@x.com", today).get(0);
+
+        assertEquals(ProjectStatus.CLOSED, r.getProjectStatus());
+        assertEquals(Status.UPCOMING, r.getStatus());
+    }
+
+    @Test
+    void activeProjectsComeFirst_thenOnHold_thenClosed_regardlessOfDates() {
+        Project closed = project("Zeta", clientId, ProjectStatus.CLOSED, null);
+        Project paused = project("Yankee", clientId, ProjectStatus.ON_HOLD, null);
+        Project active = project("Xray", clientId, ProjectStatus.ACTIVE, null);
+        stubAllocations(
+                alloc(closed, 30, "2026-10-01", "2027-03-31", null),   // closed, earliest start
+                alloc(paused, 30, "2026-10-15", "2027-03-31", null),   // on hold
+                alloc(active, 40, "2026-12-01", "2027-06-30", null));  // active but UPCOMING
+        stubLookups(closed, paused, active);
+
+        List<MyAllocationResponse> result = service.myCurrentAndUpcoming("emp@x.com", today);
+
+        assertEquals(List.of("Xray", "Yankee", "Zeta"), result.stream().map(MyAllocationResponse::getProjectName).toList());
+        assertEquals(List.of(ProjectStatus.ACTIVE, ProjectStatus.ON_HOLD, ProjectStatus.CLOSED),
+                result.stream().map(MyAllocationResponse::getProjectStatus).toList());
+    }
+
+    @Test
+    void withinTheSameProjectStatus_currentComesBeforeUpcoming() {
+        Project a1 = project("Alpha", clientId, ProjectStatus.ACTIVE, null);
+        Project a2 = project("Bravo", clientId, ProjectStatus.ACTIVE, null);
+        stubAllocations(alloc(a2, 50, "2026-12-01", "2027-03-31", null),  // upcoming
+                alloc(a1, 50, "2026-10-01", "2027-03-31", null));         // current
+        stubLookups(a1, a2);
+
+        List<MyAllocationResponse> result = service.myCurrentAndUpcoming("emp@x.com", today);
+
+        assertEquals(List.of("Alpha", "Bravo"), result.stream().map(MyAllocationResponse::getProjectName).toList());
+    }
+
+    @Test
+    void activeProjectPastItsEndDate_countsAsClosed_beforeTheDailyAutoCloseRuns() {
+        // Status is still ACTIVE (the daily sweep has not flipped it yet) but its end date is already in the past.
+        Project ended = project("AI", clientId, ProjectStatus.ACTIVE, LocalDate.of(2026, 11, 10));
+        stubAllocations(alloc(ended, 100, "2026-10-01", "2027-03-31", null));
+        stubLookups(ended);
+
+        assertEquals(ProjectStatus.CLOSED, service.myCurrentAndUpcoming("emp@x.com", today).get(0).getProjectStatus());
+    }
+
+    @Test
+    void activeProjectEndingToday_isStillActive() {
+        Project p = project("AI", clientId, ProjectStatus.ACTIVE, today);
+        stubAllocations(alloc(p, 100, "2026-10-01", "2027-03-31", null));
+        stubLookups(p);
+
+        assertEquals(ProjectStatus.ACTIVE, service.myCurrentAndUpcoming("emp@x.com", today).get(0).getProjectStatus());
+    }
+
+    @Test
+    void onHoldProject_staysVisible_andCarriesItsStatus() {
+        Project paused = project("AI", clientId, ProjectStatus.ON_HOLD, null);
+        stubAllocations(alloc(paused, 100, "2026-10-01", "2027-03-31", null));
+        stubLookups(paused);
+
+        assertEquals(ProjectStatus.ON_HOLD, service.myCurrentAndUpcoming("emp@x.com", today).get(0).getProjectStatus());
+    }
+
+    @Test
+    void reopenedProject_isShownActiveAgain() {
+        Project p = project("AI", clientId, ProjectStatus.ACTIVE, null);   // was CLOSED, set back to ACTIVE
+        stubAllocations(alloc(p, 100, "2026-11-16", "2026-11-30", null));
+        stubLookups(p);
+
+        assertEquals(ProjectStatus.ACTIVE, service.myCurrentAndUpcoming("emp@x.com", today).get(0).getProjectStatus());
+    }
+
+    @Test
+    void closedProjectsAllocationThatAlreadyEnded_isStillExcluded() {
+        // "Closed" does not resurrect history: an allocation that finished before today stays out.
+        Project closed = project("AI", clientId, ProjectStatus.CLOSED, null);
+        stubAllocations(alloc(closed, 100, "2026-01-01", "2026-11-15", null));
+
+        assertTrue(service.myCurrentAndUpcoming("emp@x.com", today).isEmpty());
+    }
+
+    @Test
+    void projectRowMissing_sortsWithTheActiveOnes_andHasNoStatus() {
+        Project closed = project("Closed One", clientId, ProjectStatus.CLOSED, null);
+        ProjectAllocation orphan = alloc(apollo, 30, "2026-10-01", "2027-03-31", null);   // project row will not be returned
+        stubAllocations(alloc(closed, 30, "2026-10-01", "2027-03-31", null), orphan);
+        when(projectRepository.findAllById(anyCollection())).thenReturn(List.of(closed));
+        lenient().when(clientRepository.findAllById(anyCollection())).thenReturn(List.of(acme));
+
+        List<MyAllocationResponse> result = service.myCurrentAndUpcoming("emp@x.com", today);
+
+        assertNull(result.get(0).getProjectStatus());
+        assertEquals(ProjectStatus.CLOSED, result.get(1).getProjectStatus());
+    }
+
     // ── ownership ──
 
     @Test
@@ -262,6 +382,11 @@ class MyAllocationServiceTest {
 
     private Project project(String name, UUID client) {
         return Project.builder().id(UUID.randomUUID()).name(name).code(name.toUpperCase()).clientId(client).build();
+    }
+
+    private Project project(String name, UUID client, ProjectStatus status, LocalDate endDate) {
+        return Project.builder().id(UUID.randomUUID()).name(name).code(name.toUpperCase()).clientId(client)
+                .status(status).endDate(endDate).build();
     }
 
     private ProjectAllocation alloc(Project project, int percent, String start, String end, String actualEnd) {

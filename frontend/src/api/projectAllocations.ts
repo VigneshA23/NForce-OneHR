@@ -123,6 +123,8 @@ export interface MyAllocation {
   startDate: string;
   /** Effective end: the actual end date when released early, else the planned one. */
   endDate: string;
+  /** The project's status as shown today (an ACTIVE project past its end date counts as CLOSED). Null if the project row is missing. */
+  projectStatus: ProjectStatus | null;
   status: MyAllocationStatus;
 }
 

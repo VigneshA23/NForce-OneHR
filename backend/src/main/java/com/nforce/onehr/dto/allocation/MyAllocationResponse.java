@@ -1,5 +1,6 @@
 package com.nforce.onehr.dto.allocation;
 
+import com.nforce.onehr.entity.ProjectStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -29,5 +30,7 @@ public class MyAllocationResponse {
     private final Integer capacityPercent;
     private final LocalDate startDate;
     private final LocalDate endDate;
+    /** The project's status as shown today (ACTIVE / ON_HOLD / CLOSED); an ACTIVE project past its end date counts as CLOSED. Null if the project row is missing. */
+    private final ProjectStatus projectStatus;
     private final Status status;
 }
