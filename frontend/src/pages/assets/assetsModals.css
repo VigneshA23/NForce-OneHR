@@ -7,6 +7,8 @@
   max-width: 560px !important; border-radius: 20px !important; border-color: var(--line2) !important; box-shadow: 0 28px 70px rgba(0, 0, 0, .45) !important;
 }
 
+.nf-as-card.nf-as-card--wide { max-width: 1040px !important; }
+
 .nf-as-head {
   position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 14px; padding: 18px 22px;
   background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); border-bottom: 1px solid var(--line);
