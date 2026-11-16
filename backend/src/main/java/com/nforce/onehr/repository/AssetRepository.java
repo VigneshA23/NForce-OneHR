@@ -21,6 +21,10 @@ public interface AssetRepository extends JpaRepository<Asset, Long> {
 
     boolean existsByAssetTag(String assetTag);
 
+    // Bulk Add duplicate check — one query for the whole file instead of one exists() per row.
+    @Query("SELECT LOWER(a.assetTag) FROM Asset a")
+    List<String> findAllAssetTagsLowercase();
+
     // Backs AssetService#listAllAssets — fetches category and location alongside the assets in
     // one query instead of one lazy-load per row per association (2 extra round trips per asset
     // otherwise). LEFT JOIN for location since it's nullable; category is NOT NULL so an inner

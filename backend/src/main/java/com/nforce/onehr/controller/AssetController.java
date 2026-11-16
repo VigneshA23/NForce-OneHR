@@ -1,12 +1,17 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.asset.*;
+import com.nforce.onehr.service.AssetBulkImportService;
 import com.nforce.onehr.service.AssetService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.security.Principal;
 import java.util.List;
@@ -18,6 +23,7 @@ import java.util.Map;
 public class AssetController {
 
     private final AssetService assetService;
+    private final AssetBulkImportService bulkImportService;
 
     // ── Reference data ────────────────────────────────────
 
@@ -97,6 +103,27 @@ public class AssetController {
     @ResponseStatus(HttpStatus.CREATED)
     public AssetResponse createAsset(@Valid @RequestBody CreateAssetRequest req, Principal principal) {
         return assetService.createAsset(req, principal.getName());
+    }
+
+    // ── HR Admin: Bulk Add (gated by assets:CREATE:ALL in the service) ──
+
+    @GetMapping("/bulk/template")
+    public ResponseEntity<byte[]> bulkTemplate(Principal principal) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"asset-bulk-upload-template.xlsx\"")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(bulkImportService.template(principal.getName()));
+    }
+
+    @PostMapping(value = "/bulk/validate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public AssetBulkValidationResponse bulkValidate(@RequestParam MultipartFile file, Principal principal) {
+        return bulkImportService.validate(file, principal.getName());
+    }
+
+    @PostMapping(value = "/bulk/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String, Object> bulkImport(@RequestParam MultipartFile file, Principal principal) {
+        return bulkImportService.importAssets(file, principal.getName());
     }
 
     @PostMapping("/{id}/assign")
