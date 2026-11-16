@@ -5,6 +5,7 @@ import { Bell, X } from 'lucide-react';
 import { useAccessibilityPrefs } from '../lib/accessibilityPrefs';
 import { notificationsApi } from '../api/notifications';
 import { useAuthStore } from '../store/authStore';
+import { plainText, tidyDashes } from '../lib/richText';
 
 const AUTO_DISMISS_MS = 7000;
 
@@ -91,13 +92,13 @@ function NotificationToastCard({ item, onDismiss }: { item: NotificationToastIte
       </span>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>{item.title}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>{tidyDashes(item.title)}</div>
         <div style={{
           fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.4,
           overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box',
           WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
         }}>
-          {item.message}
+          {item.message ? plainText(item.message) : item.message}
         </div>
       </div>
 

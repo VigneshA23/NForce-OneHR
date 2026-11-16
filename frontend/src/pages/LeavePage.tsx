@@ -445,6 +445,8 @@ export default function LeavePage() {
   const totalPages = Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE));
   const pageSafe = Math.min(page, totalPages);
   const pageRows = filteredRequests.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
+  // The Actions column only exists when something on this page can be acted on (pending requests can be edited).
+  const showActions = pageRows.some(r => r.status === 'PENDING');
 
   function updateFilterAndResetPage(setter: (v: string) => void, value: string) { setter(value); setPage(1); }
 
@@ -540,7 +542,7 @@ export default function LeavePage() {
             <table className="nf-rep-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  {['Type', 'Dates', 'Days', 'Status', 'Reason', 'Approved/Rejected By', 'Actions'].map(h => <th key={h} style={thStyle}>{h}</th>)}
+                  {['Type', 'Dates', 'Days', 'Status', 'Reason', 'Approved/Rejected By', ...(showActions ? ['Actions'] : [])].map(h => <th key={h} style={thStyle}>{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -559,7 +561,7 @@ export default function LeavePage() {
                         </span>
                       </div>
                     </td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.startDate}{r.startDate !== r.endDate ? ` → ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.startDate}{r.startDate !== r.endDate ? ` to ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}</td>
                     <td style={tdStyle}><span className="nf-rep-code">{r.totalDays}</span></td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}>
@@ -586,17 +588,19 @@ export default function LeavePage() {
                         </div>
                       )}
                     </td>
-                    <td style={tdStyle}>
-                      {r.status === 'PENDING' && (
-                        <ActionDock items={[{ label: 'Edit', icon: Pencil, onClick: () => setEditingRequest(r) }]} />
-                      )}
-                    </td>
+                    {showActions && (
+                      <td style={tdStyle}>
+                        {r.status === 'PENDING' && (
+                          <ActionDock items={[{ label: 'Edit', icon: Pencil, onClick: () => setEditingRequest(r) }]} />
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--line)', fontSize: 12, color: 'var(--txt-dim)' }}>
-              <span>Showing {(pageSafe - 1) * PAGE_SIZE + 1}–{Math.min(pageSafe * PAGE_SIZE, filteredRequests.length)} of {filteredRequests.length}</span>
+              <span>Showing {(pageSafe - 1) * PAGE_SIZE + 1} to {Math.min(pageSafe * PAGE_SIZE, filteredRequests.length)} of {filteredRequests.length}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageSafe <= 1} aria-label="Previous page" className="nf-act-btn">
                   <ChevronLeft size={13} />
