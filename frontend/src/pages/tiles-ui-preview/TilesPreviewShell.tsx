@@ -48,6 +48,7 @@ import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
 import '../login.css';
+import '../myTeamTabs.css';
 import { DiwaliBurst } from '../auth/DiwaliBurst';
 import { MemberCard as MtMemberCard, Pill as MtPill } from '../my-team/MyTeamRedesign';
 import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTab as MtPenaltiesTab, AssignmentsTab as MtAssignmentsTab, SkillsGrowthTab as MtGrowthTab, AttentionPanel, LeaveBalanceLine as MtLeaveBalanceLine, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
@@ -109,6 +110,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
   { key: 'login-diwali', label: 'Login: cracker lights', title: 'Login: cracker lights', subtitle: 'Click Sign in to play the effect inside the card (sample only).' },
+  { key: 'team-tabs', label: 'My Team: Section tabs', title: 'My Team: Section tabs', subtitle: 'The section tabs inside a card container.' },
   { key: 'team-member-cards', label: 'My Team: Member cards', title: 'My Team: Member cards', subtitle: 'Roster cards with the compact leave balance. Click it to see the breakdown.' },
   { key: 'team-effort', label: 'My Team: Efforts / Punctuality', title: 'My Team: Efforts and Punctuality', subtitle: 'The real tab, fed with sample data.' },
   { key: 'team-negligence', label: 'My Team: Negligence', title: 'My Team: Negligence', subtitle: 'The real tab, fed with sample data.' },
@@ -803,6 +805,13 @@ function TeamMemberCardsMock() {
       </div>
     </div>
   );
+}
+
+function TeamTabsMock() {
+  // Mock only: the My Team section tabs inside their card container.
+  const tabs = ['Overview', 'Efforts / Punctuality', 'Negligence', 'Regularize & Cancel Penalties', 'Employee Assignments', 'Performance', 'Capacity', 'Reports'].map(l => ({ key: l, label: l }));
+  const [active, setActive] = useState('Overview');
+  return <TabBar ariaLabel="My Team sections" className="nf-mt-tabs" style={{ marginBottom: 20 }} tabs={tabs} active={active} onChange={setActive} />;
 }
 
 function AttentionMock() {
@@ -2055,6 +2064,8 @@ function Tiles({ page }: { page: string }) {
       return <TeamTodayMock />;
     case 'team-member-cards':
       return <TeamMemberCardsMock />;
+    case 'team-tabs':
+      return <TeamTabsMock />;
     case 'login-diwali':
       return <LoginDiwaliMock />;
     case 'team-effort':
