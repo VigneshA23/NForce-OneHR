@@ -11,6 +11,7 @@ import { useMyDocumentsData } from './documents/useMyDocumentsData';
 import { MyDocumentsSection } from './documents/MyDocumentsSection';
 import { TabBar } from '../components/TabBar';
 import { DocPopup } from './documents/DocPopup';
+import { plainText, richText, tidyDashes } from './documents/richText';
 
 // ── Policy Read-First Modal ───────────────────────────────
 
@@ -48,7 +49,7 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
     <DocPopup
       icon={ScrollText}
       size="lg"
-      title={policy.title}
+      title={tidyDashes(policy.title)}
       sub={onConfirm ? 'Read the policy, then confirm your acknowledgment.' : 'Policy details'}
       onClose={onClose}
       footer={(
@@ -68,7 +69,7 @@ function AcknowledgeModal({ policy, onConfirm, onClose }: {
         <span className="nf-dp-chip">Audience: {policy.audience}</span>
         <span className="nf-dp-chip">Published {new Date(policy.publishedAt).toLocaleDateString()}</span>
       </div>
-      <div className="nf-dp-read">{policy.description}</div>
+      <div className="nf-dp-read">{richText(policy.description)}</div>
       {policy.hasAttachment && (
         <button type="button" className="nf-dp-attach" onClick={openAttachment} disabled={attachmentLoading}>
           <span className="nf-dp-attach-ico"><Paperclip size={16} /></span>
@@ -96,7 +97,7 @@ function AnnouncementModal({ announcement, onClose }: { announcement: Announceme
     <DocPopup
       icon={Megaphone}
       size="lg"
-      title={announcement.title}
+      title={tidyDashes(announcement.title)}
       sub="Announcement"
       onClose={onClose}
       closeOnBackdrop
@@ -106,7 +107,7 @@ function AnnouncementModal({ announcement, onClose }: { announcement: Announceme
         {announcement.publishedAt && <span className="nf-dp-chip">Published {new Date(announcement.publishedAt).toLocaleDateString()}</span>}
         <span className="nf-dp-chip">Audience: {announcement.audience}</span>
       </div>
-      <div className="nf-dp-read">{announcement.body}</div>
+      <div className="nf-dp-read">{richText(announcement.body)}</div>
     </DocPopup>
   );
 }
@@ -264,11 +265,11 @@ export default function DocumentsPage() {
                 <span className="nf-opp-ico nf-opp-ico--lg"><ScrollText size={20} /></span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 6 }}>
-                    <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-.01em', color: 'var(--txt)' }}>{p.title}</span>
+                    <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-.01em', color: 'var(--txt)' }}>{tidyDashes(p.title)}</span>
                     <span className="nf-rep-code">v{p.version}</span>
                     {p.required && <span className="nf-req-tag" style={{ marginLeft: 0 }}>Required</span>}
                   </div>
-                  <p style={{ fontSize: 12, color: 'var(--txt-dim)', margin: '0 0 10px', lineHeight: 1.6 }}>{p.description}</p>
+                  <p style={{ fontSize: 12, color: 'var(--txt-dim)', margin: '0 0 10px', lineHeight: 1.6 }}>{plainText(p.description)}</p>
                   <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
                     Published {new Date(p.publishedAt).toLocaleDateString()} · Audience: {p.audience}
                     {p.acknowledgedAt && <span style={{ marginLeft: 12, color: '#22c55e' }}>✓ Acknowledged current version {new Date(p.acknowledgedAt).toLocaleDateString()}</span>}
@@ -322,9 +323,9 @@ export default function DocumentsPage() {
             <div key={a.id} style={{ ...card, padding: 20, display: 'flex', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }} className="nf-opp-card">
               <span className="nf-opp-ico nf-opp-ico--lg"><Megaphone size={20} /></span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-.01em', color: 'var(--txt)', marginBottom: 6 }}>{a.title}</div>
+                <div style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-.01em', color: 'var(--txt)', marginBottom: 6 }}>{tidyDashes(a.title)}</div>
                 {/* Preview only — the full announcement opens via View. */}
-                <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '0 0 10px', lineHeight: 1.6, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>{a.body}</p>
+                <p style={{ fontSize: 13, color: 'var(--txt-mut)', margin: '0 0 10px', lineHeight: 1.6, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>{plainText(a.body)}</p>
                 <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
                   {a.publishedAt && `Published ${new Date(a.publishedAt).toLocaleDateString()}`} · Audience: {a.audience}
                 </div>

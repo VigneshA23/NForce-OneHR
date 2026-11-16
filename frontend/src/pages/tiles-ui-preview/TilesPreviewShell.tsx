@@ -1268,7 +1268,7 @@ function DocumentsMock() {
         return json([pol(1, 'Code of Conduct', '2.0', true, false, 'How we work together and what we expect of each other.'), pol(2, 'Leave Policy', '1.0', true, true, 'Entitlements, approvals and carry-forward rules.'), pol(3, 'Travel Guidelines', '1.0', false, null, 'Booking, limits and reimbursement.')]);
       }
       if (url.endsWith('/api/announcements/published')) {
-        return json([{ id: 1, title: 'Office closed for Diwali', body: 'The office will be closed on 21 Oct for Diwali. Wishing everyone a safe and happy festival.', audience: 'All', scheduledFor: null, publishedAt: '2026-10-18T09:00:00', createdBy: 'HR', createdAt: '2026-10-17T09:00:00', published: true, active: true }]);
+        return json([{ id: 1, title: 'Office closed for Diwali', body: '**Office closed on 21 Oct** — Diwali holiday. Please plan your work 10–20 Oct accordingly. **Wishing everyone a happy festival.**', audience: 'All', scheduledFor: null, publishedAt: '2026-10-18T09:00:00', createdBy: 'HR', createdAt: '2026-10-17T09:00:00', published: true, active: true }]);
       }
       return prevFetch(input, init);
     }) as typeof window.fetch;
