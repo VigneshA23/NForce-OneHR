@@ -99,8 +99,8 @@ export default function DashboardPreviewShell() {
               <div className="nf-dash-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
                 <DashTile icon={<Users size={16} />} accent="#4E9EE8" label={isHr ? 'Total Employees' : 'Direct Reports'} value={isHr ? '248' : '6'} sub={isHr ? 'across the organization' : 'current reports from HR record'} />
                 <DashTile icon={<UserCheck size={16} />} accent="#2FB67C" label="Active" value={isHr ? '241' : '6'} sub={isHr ? 'active org-wide' : 'active in team'} />
-                <DashTile icon={<Clock size={16} />} accent="var(--brand)" label="Present Today" value={isHr ? '203/248' : '5/6'} sub="checked in so far today · view list →" onClick={noop} />
-                <DashTile icon={<Calendar size={16} />} accent="#8B5CF6" label="On Leave" value={isHr ? '17' : '1'} sub="on leave today · view list →" onClick={noop} />
+                <DashTile icon={<Clock size={16} />} accent="var(--brand)" label="Present Today" value={isHr ? '203/248' : '5/6'} sub="checked in so far today · view list" onClick={noop} />
+                <DashTile icon={<Calendar size={16} />} accent="#8B5CF6" label="On Leave" value={isHr ? '17' : '1'} sub="on leave today · view list" onClick={noop} />
               </div>
             </>
           );
@@ -110,10 +110,10 @@ export default function DashboardPreviewShell() {
           <>
             <QuickActions actions={SUPER_ADMIN_QUICK_ACTIONS} />
             <div className="nf-dash-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-              <DashTile icon={<Users size={16} />} accent="#4E9EE8" label="Total Users" value="262" sub="249 active · 13 inactive · view directory →" onClick={noop} />
-              <DashTile icon={<UserCheck size={16} />} accent="#2FB67C" label="Present Today" value="203/248" sub="org-wide check-ins · view list →" onClick={noop} />
-              <DashTile icon={<Package size={16} />} accent="#F97316" label="Total Assets" value="531" sub="company-wide inventory · view inventory →" onClick={noop} />
-              <DashTile icon={<ShieldCheck size={16} />} accent="var(--brand)" label="Audit Events Today" value="84" sub="security events logged · view log →" onClick={noop} />
+              <DashTile icon={<Users size={16} />} accent="#4E9EE8" label="Total Users" value="262" sub="249 active · 13 inactive · view directory" onClick={noop} />
+              <DashTile icon={<UserCheck size={16} />} accent="#2FB67C" label="Present Today" value="203/248" sub="org-wide check-ins · view list" onClick={noop} />
+              <DashTile icon={<Package size={16} />} accent="#F97316" label="Total Assets" value="531" sub="company-wide inventory · view inventory" onClick={noop} />
+              <DashTile icon={<ShieldCheck size={16} />} accent="var(--brand)" label="Audit Events Today" value="84" sub="security events logged · view log" onClick={noop} />
             </div>
           </>
         )}

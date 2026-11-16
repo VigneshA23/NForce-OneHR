@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, Pencil, Search, FolderKanban, CalendarDays, AlertTriangle, X } from 'lucide-react';
-import type { EmployeeRecord } from '../../api/employees';
 import { orgApi, type DepartmentRow } from '../../api/org';
 import {
   projectsApi, PROJECT_STATUS_LABEL,
@@ -20,7 +19,6 @@ const EMPTY_FORM: ProjectPayload = {
 interface Props {
   token: string;
   projects: ProjectRecord[];
-  employees: EmployeeRecord[];
   onSaved: (project: ProjectRecord) => void;
 }
 
@@ -28,7 +26,7 @@ interface Props {
  * US-B01 (projects as reference data), US-B02 (client tag) and US-B03 (Manager owner). There is
  * intentionally no delete: closing a project is a status change, so its allocations stay intact.
  */
-export default function ProjectsPanel({ token, projects, employees, onSaved }: Props) {
+export default function ProjectsPanel({ token, projects, onSaved }: Props) {
   const can = useCan();
   const [departments, setDepartments] = useState<DepartmentRow[]>([]);
   const [clients, setClients] = useState<ClientRecord[]>([]);

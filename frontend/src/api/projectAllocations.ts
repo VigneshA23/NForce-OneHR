@@ -110,7 +110,29 @@ export interface EmployeeCapacity {
   allocations: { projectId: string; projectName: string | null; capacityPercent: number; startDate: string; endDate: string }[];
 }
 
+/** US-B08: one of the caller's own allocations — mirrors dto/allocation/MyAllocationResponse (read-only). */
+export type MyAllocationStatus = 'CURRENT' | 'UPCOMING';
+
+export interface MyAllocation {
+  id: string;
+  /** Null when the project is missing — the UI shows a placeholder. */
+  projectName: string | null;
+  /** Null when the project has no client tag. */
+  clientName: string | null;
+  capacityPercent: number;
+  startDate: string;
+  /** Effective end: the actual end date when released early, else the planned one. */
+  endDate: string;
+  /** The project's status as shown today (an ACTIVE project past its end date counts as CLOSED). Null if the project row is missing. */
+  projectStatus: ProjectStatus | null;
+  status: MyAllocationStatus;
+}
+
 export const projectAllocationsApi = {
+  /** US-B08: the signed-in employee's own current and upcoming allocations. The server resolves who "me" is. */
+  mine: (token: string): Promise<MyAllocation[]> =>
+    fetch(`${API_ORIGIN}/api/allocations/me`, { headers: authHeaders(token) }).then(handle<MyAllocation[]>),
+
   /** Employees the caller may allocate (server-scoped: direct reports for Team, everyone for Organization). */
   employees: (token: string): Promise<EmployeeRecord[]> =>
     fetch(`${API_ORIGIN}/api/allocations/employees`, { headers: authHeaders(token) }).then(handle<EmployeeRecord[]>),

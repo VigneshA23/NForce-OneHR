@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { EmployeeAvatar } from '../../components/EmployeeAvatar';
 import { EmpCode } from '../../components/EmpCode';
+import DashTile from '../../components/DashTile';
 
 /** Shared look for the bench screens. Theme tokens only, so light/dark and the accent setting keep working. */
 export const card: CSSProperties = { background: 'linear-gradient(180deg, color-mix(in srgb, var(--brand) 4%, var(--panel)) 0%, var(--panel) 90px)', border: '1px solid var(--line)', borderRadius: 18, padding: '18px 20px', boxShadow: '0 6px 22px rgba(16, 24, 40, .06)' };
@@ -70,16 +71,7 @@ export function PersonCell({ userId, name }: { userId: string; name: string }) {
 
 /** KPI tile: label and icon on top, the number at the bottom, a coloured edge on the left. */
 export function StatTile({ label, value, hint, icon, tone }: { label: string; value: string; hint?: string; icon: ReactNode; tone: string }) {
-  return (
-    <div className="nf-bn-tile" style={{ ['--mk' as string]: tone }}>
-      <div className="nf-bn-tile-top">
-        <span className="nf-bn-tile-label">{label}</span>
-        <span className="nf-bn-tile-ico">{icon}</span>
-      </div>
-      <div className="nf-bn-tile-val">{value}</div>
-      {hint && <div className="nf-bn-tile-hint">{hint}</div>}
-    </div>
-  );
+  return <DashTile icon={icon} label={label} value={value} sub={hint} accent={tone} />;
 }
 
 export const money = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });

@@ -6,6 +6,7 @@ import { hierarchyApi, type PersonCard } from '../../../api/hierarchy';
 import { dashboardApi, type DirectReport } from '../../../api/dashboard';
 import { SectionHeader, ReadField } from '../shared';
 import { PersonCell } from '../../../components/PersonCell';
+import { MyAllocationsCard } from './MyAllocationsCard';
 import { hasPermission } from '../../../lib/permissions';
 import { useAuthStore } from '../../../store/authStore';
 
@@ -98,6 +99,8 @@ export function JobTab({ profile, token }: { profile: ProfileData; token: string
           </div>
         </div>
       </Card>
+
+      <MyAllocationsCard token={token} />
     </div>
   );
 }

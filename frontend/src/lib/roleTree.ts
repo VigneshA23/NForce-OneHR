@@ -1,6 +1,6 @@
 import type { CatalogueAction, CatalogueModule, CatalogueNode } from '../api/roles';
 import type { MyPermissionsResponse } from '../api/me';
-import { ACTION_LABEL, grantKey, grantableScopes, type CategoryState, type GrantMap } from './rolePermissions';
+import { ACTION_LABEL, grantKey, grantableScopes, setGrant, type CategoryState, type GrantMap } from './rolePermissions';
 
 // Hierarchical catalogue (Module > Submodule > Section).
 //
@@ -58,6 +58,38 @@ export function nodeState(map: GrantMap, node: CatalogueNode, mine: MyPermission
   if (pairs.length === 0) return 'none';
   const on = pairs.filter((p) => map[grantKey(p.leaf.code, p.action.action)]).length;
   return on === 0 ? 'none' : on === pairs.length ? 'all' : 'some';
+}
+
+/**
+ * Tick or clear one action on a leaf, keeping VIEW as the prerequisite of every other action on a page that has
+ * one: clearing VIEW also clears the leaf's other actions, and ticking another action without VIEW also ticks
+ * VIEW (narrowest supported scope, only if the admin may grant it; otherwise the tick is refused). `notice`
+ * says what was changed on the admin's behalf, so it is never silent.
+ */
+export function applyAction(
+  map: GrantMap, leaf: CatalogueNode, action: CatalogueAction, scope: string | null, mine: MyPermissionsResponse | null | undefined,
+): { map: GrantMap; notice?: string } {
+  const view = leaf.actions.find((a) => a.action === 'VIEW');
+  if (!view) return { map: setGrant(map, leaf.code, action.action, scope) };
+  const label = (a: string) => ACTION_LABEL[a] ?? a;
+  if (!scope && action.action === 'VIEW') {
+    const dependents = leaf.actions.filter((a) => a.action !== 'VIEW' && map[grantKey(leaf.code, a.action)]);
+    let next = setGrant(map, leaf.code, 'VIEW', null);
+    for (const d of dependents) next = setGrant(next, leaf.code, d.action, null);
+    return dependents.length === 0 ? { map: next } : {
+      map: next,
+      notice: `${leaf.name}: View was removed, so ${dependents.map((d) => label(d.action)).join(', ')} ${dependents.length === 1 ? 'was' : 'were'} also removed. These actions need View access.`,
+    };
+  }
+  if (scope && action.action !== 'VIEW' && !map[grantKey(leaf.code, 'VIEW')]) {
+    const viewScope = bulkScope(view, grantableScopes(mine, leaf.code, 'VIEW'));
+    if (!viewScope) return { map, notice: `${leaf.name}: ${label(action.action)} needs View access, which you don't hold yourself, so it can't be granted.` };
+    return {
+      map: setGrant(setGrant(map, leaf.code, 'VIEW', viewScope), leaf.code, action.action, scope),
+      notice: `${leaf.name}: View was added as well, because ${label(action.action)} needs it.`,
+    };
+  }
+  return { map: setGrant(map, leaf.code, action.action, scope) };
 }
 
 /**

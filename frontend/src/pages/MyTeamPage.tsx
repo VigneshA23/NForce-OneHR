@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { ChevronDown, ChevronUp, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles, Award, BookOpen, Target, ExternalLink, LayoutGrid, ClipboardCheck, Hourglass, Laptop, Repeat, LogIn, CalendarCheck, Timer, CalendarClock, ArrowUpRight, FileBarChart } from 'lucide-react';
+import { ChevronDown, ChevronUp, Search, Check, X, AlertTriangle, Users, CheckCircle2, Clock, Home, MapPin, Mail, Sparkles, Award, BookOpen, Target, ExternalLink, LayoutGrid, ClipboardCheck, Hourglass, Laptop, Repeat, LogIn, CalendarCheck, Timer, CalendarClock, ArrowUpRight, FileBarChart, UsersRound, Gauge, ShieldAlert, Ban, Gavel, Coffee, Turtle, Clock3, Layers } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { toShellRole } from '../lib/nav.config';
@@ -35,6 +35,9 @@ import { kudosApi } from '../api/kudos';
 import { projectAllocationsApi, projectsApi } from '../api/projectAllocations';
 import TeamCapacityTab from './my-team/TeamCapacityTab';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
+import DashTile from '../components/DashTile';
+import { roundDays } from '../utils/leaveDays';
+import './myTeamTabs.css';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
 import './myTeamAttention.css';
@@ -128,10 +131,19 @@ const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, backgro
 const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.55)' };
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
 const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
-const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
-const panelHeadStyle: React.CSSProperties = { padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 };
-const panelTitleStyle: React.CSSProperties = { fontFamily: 'Inter, sans-serif', fontWeight: 700, fontSize: 14, color: 'var(--txt)' };
-const panelCountStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', background: 'var(--raised2)', padding: '2px 8px', borderRadius: 20 };
+const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 18, overflow: 'hidden', boxShadow: '0 4px 14px rgba(16, 24, 40, .05)' };
+const panelHeadStyle: React.CSSProperties = { padding: '15px 20px', borderBottom: '1px solid var(--line)', background: 'linear-gradient(135deg, color-mix(in srgb, var(--brand) 9%, var(--panel)), var(--panel))', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 };
+const panelTitleStyle: React.CSSProperties = { fontFamily: '"Space Grotesk", Inter, sans-serif', fontWeight: 700, fontSize: 15, letterSpacing: '-.01em', color: 'var(--txt)' };
+const panelCountStyle: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--brand)', background: 'color-mix(in srgb, var(--brand) 11%, var(--panel))', border: '1px solid color-mix(in srgb, var(--brand) 24%, var(--line))', padding: '3px 10px', borderRadius: 20 };
+
+/** Summary tiles shown at the top of each My Team tab (same DashTile every other page uses). */
+function TabTiles({ items }: { items: { icon: React.ReactNode; label: string; value: string | number; sub?: string; accent: string }[] }) {
+  return (
+    <div className="nf-dash-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
+      {items.map(t => <DashTile key={t.label} icon={t.icon} label={t.label} value={String(t.value)} sub={t.sub} accent={t.accent} />)}
+    </div>
+  );
+}
 
 function Avatar({ userId, name, size = 34 }: { userId?: string | null; name: string; size?: number }) {
   return (
@@ -577,25 +589,17 @@ function KpiEmployeesModal({ title, description, people, onClose }: {
  * affordance; cards with no employee-level drilldown (e.g. Team size, Needs your attention)
  * stay static, exactly as before. ── */
 export function KpiCard({ icon, iconColor, label, value, note, onClick }: { icon: React.ReactNode; iconColor: string; label: string; value: React.ReactNode; note: string; onClick?: () => void }) {
+  // Shared dashboard tile (accent bar, tinted fade, icon box) so these match every other page's tiles.
+  const accent = iconColor === 'var(--txt-mut)' ? 'var(--brand)' : iconColor;
   const card = (
-    <div
-      className={onClick ? 'nf-mk is-click' : 'nf-mk'}
-      style={{ ['--mk' as string]: iconColor }}
-      {...(onClick ? {
-        role: 'button' as const,
-        tabIndex: 0,
-        onClick,
-        onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } },
-        'aria-label': `${label}, click to view employees`,
-      } : {})}
-    >
-      <div className="nf-mk-top">
-        <span className="nf-mk-ico">{icon}</span>
-        <span className="nf-mk-label">{label}</span>
-      </div>
-      <div className="nf-mk-val">{value}</div>
-      <div className="nf-mk-note">{note}</div>
-    </div>
+    <DashTile
+      icon={icon}
+      label={label}
+      value={String(value)}
+      sub={note}
+      accent={accent}
+      onClick={onClick}
+    />
   );
   return onClick ? <Tooltip content="Click to view employees">{card}</Tooltip> : card;
 }
@@ -714,21 +718,31 @@ function formatDays(n: number): string {
 }
 
 /** Roster card's current-year leave balance, one entry per paid leave type (`null` = loading). */
-function LeaveBalanceLine({ balances }: { balances: LeaveBalance[] | null }) {
-  const labelStyle: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em' };
+export function LeaveBalanceLine({ balances }: { balances: LeaveBalance[] | null }) {
+  // One compact line (total days left); the per-type breakdown opens on click so the card stays short.
+  const muted: React.CSSProperties = { fontSize: 11.5, color: 'var(--txt-dim)' };
+  if (balances === null) return <div style={muted}>Leave balance: Loading…</div>;
+  if (balances.filter(b => b.totalDays > 0).length === 0) return <div style={muted}>Leave balance: none on file</div>;
+  // Same rule as the Dashboard tile and the Leave page: types with no quota are left out and a
+  // negative remaining balance counts as 0, so the numbers never disagree across pages.
+  const quota = balances.filter(b => b.totalDays > 0);
+  const left = roundDays(quota.reduce((a, b) => a + Math.max(0, Number(b.remainingDays)), 0));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <span style={labelStyle}>Leave balance</span>
-      {balances === null ? (
-        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>Loading…</span>
-      ) : balances.length === 0 ? (
-        <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>No balance on file</span>
-      ) : balances.map(b => (
-        <span key={b.leaveTypeCode} style={{ fontSize: 11.5, color: 'var(--txt-mut)' }}>
-          {b.leaveTypeName}: <strong style={{ color: 'var(--txt)' }}>{formatDays(b.remainingDays)}</strong> of {formatDays(b.totalDays)} days remaining
-        </span>
-      ))}
-    </div>
+    <details className="nf-mt-lb">
+      <summary>
+        <span className="nf-mt-lb-k">Leave balance</span>
+        <span className="nf-mt-lb-v"><strong>{formatDays(left)}</strong> days left</span>
+        <ChevronDown size={13} className="nf-mt-lb-chev" />
+      </summary>
+      <div className="nf-mt-lb-list">
+        {quota.map(b => (
+          <div key={b.leaveTypeCode}>
+            <span>{b.leaveTypeName}</span>
+            <span><strong>{formatDays(b.remainingDays)}</strong> / {formatDays(b.totalDays)}</span>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -784,8 +798,8 @@ function EffortRow({ entry }: { entry: TeamEffortEntry }) {
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ flex: 1, minWidth: 100 }}>
-        <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${fillPct}%`, borderRadius: 4, background: 'var(--brand-bright)' }} />
+        <div style={{ height: 8, borderRadius: 999, background: 'var(--raised2)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${fillPct}%`, borderRadius: 999, background: 'linear-gradient(90deg, color-mix(in srgb, var(--brand-bright) 60%, #fff), var(--brand-bright))' }} />
         </div>
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
@@ -806,8 +820,8 @@ function PunctualityRow({ entry }: { entry: PunctualityLeaderboardEntry }) {
         <div style={{ fontSize: 11, color: 'var(--txt-mut)' }}>{entry.designationName ?? '-'}</div>
       </div>
       <div style={{ flex: 1, minWidth: 100 }}>
-        <div style={{ height: 6, borderRadius: 4, background: 'var(--raised2)', overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${fillPct}%`, borderRadius: 4, background: 'var(--ok)' }} />
+        <div style={{ height: 8, borderRadius: 999, background: 'var(--raised2)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${fillPct}%`, borderRadius: 999, background: 'linear-gradient(90deg, color-mix(in srgb, var(--ok) 60%, #fff), var(--ok))' }} />
         </div>
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
@@ -873,7 +887,7 @@ function PunctualitySection({ from, to, token }: { from: string; to: string; tok
   );
 }
 
-function EffortTab({ token }: { token: string }) {
+export function EffortTab({ token }: { token: string }) {
   const { showToast } = useToast();
   const { from, setFrom, to, setTo } = useTeamDateRange(7);
   const [entries, setEntries] = useState<TeamEffortEntry[]>([]);
@@ -888,8 +902,20 @@ function EffortTab({ token }: { token: string }) {
       .finally(() => setLoading(false));
   }, [token, from, to]);
 
+  const avgHrs = entries.length ? entries.reduce((a, e) => a + e.avgHoursPerDay, 0) / entries.length : 0;
+  const totalHrs = entries.reduce((a, e) => a + e.hoursWorked, 0);
+  const metExpected = entries.filter(e => e.hoursWorked >= e.expectedHours).length;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="nf-mt-tab" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {!loading && entries.length > 0 && (
+        <TabTiles items={[
+          { icon: <UsersRound size={18} />, label: 'Employees tracked', value: entries.length, sub: 'In this date range', accent: 'var(--brand)' },
+          { icon: <Gauge size={18} />, label: 'Avg. hours / day', value: avgHrs.toFixed(1), sub: 'Across the team', accent: 'var(--info)' },
+          { icon: <Clock3 size={18} />, label: 'Hours worked', value: totalHrs.toFixed(0), sub: 'Team total', accent: 'var(--ok)' },
+          { icon: <CheckCircle2 size={18} />, label: 'Met expected hours', value: metExpected, sub: `of ${entries.length} employees`, accent: 'var(--warn)' },
+        ]} />
+      )}
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Avg. Work Hours Leaderboard</span>
@@ -1031,7 +1057,7 @@ function BreaksTrend({ data }: { data: { date: string; avgBreaks: number }[] }) 
   );
 }
 
-function NegligenceTab({ token }: { token: string }) {
+export function NegligenceTab({ token }: { token: string }) {
   const { showToast } = useToast();
   const { from, setFrom, to, setTo } = useTeamDateRange(7);
   const [data, setData] = useState<TeamNegligenceResponse | null>(null);
@@ -1050,7 +1076,12 @@ function NegligenceTab({ token }: { token: string }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="nf-mt-tab" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <TabTiles items={[
+        { icon: <Turtle size={18} />, label: 'Late arrivals', value: data.lateArrivals.length, sub: 'Employees flagged', accent: 'var(--warn)' },
+        { icon: <Timer size={18} />, label: 'Least hours worked', value: data.leastHoursWorked.length, sub: 'Employees flagged', accent: 'var(--risk)' },
+        { icon: <Coffee size={18} />, label: 'Frequent breaks', value: data.frequentBreaks.length, sub: 'Employees flagged', accent: 'var(--info)' },
+      ]} />
       <div style={panelStyle}>
         <div style={panelHeadStyle}>
           <span style={panelTitleStyle}>Late Arrivals</span>
@@ -1126,7 +1157,7 @@ interface AssignmentActionResult {
   failures: { label: string; reason: string }[];
 }
 
-function AssignmentsTab({ token }: { token: string }) {
+export function AssignmentsTab({ token }: { token: string }) {
   const { showToast } = useToast();
   const [lookups, setLookups] = useState<AssignmentLookups | null>(null);
   const [rows, setRows] = useState<EmployeeAssignmentRow[]>([]);
@@ -1238,7 +1269,17 @@ function AssignmentsTab({ token }: { token: string }) {
     : bulkModal === 'weeklyOff' ? lookups?.weeklyOffPolicies
     : lookups?.penalisationPolicies;
 
+  const withShift = rows.filter(r => r.shiftId).length;
   return (
+    <div className="nf-mt-tab" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {!loading && (
+        <TabTiles items={[
+          { icon: <UsersRound size={18} />, label: 'Team members', value: rows.length, sub: 'Matching these filters', accent: 'var(--brand)' },
+          { icon: <Clock3 size={18} />, label: 'Shift assigned', value: withShift, sub: 'Have a shift', accent: 'var(--ok)' },
+          { icon: <AlertTriangle size={18} />, label: 'No shift', value: rows.length - withShift, sub: 'Need an assignment', accent: 'var(--warn)' },
+          { icon: <Layers size={18} />, label: 'Selected', value: selected.size, sub: 'For a bulk update', accent: 'var(--info)' },
+        ]} />
+      )}
     <div style={panelStyle}>
       <div style={panelHeadStyle}>
         <span style={panelTitleStyle}>Time Assignments</span>
@@ -1455,6 +1496,7 @@ function AssignmentsTab({ token }: { token: string }) {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
@@ -2554,7 +2596,7 @@ function RegularizationHistoryModal({ employeeUserId, employeeName, attendanceDa
   );
 }
 
-function PenaltiesTab({ token }: { token: string }) {
+export function PenaltiesTab({ token }: { token: string }) {
   const { showToast } = useToast();
   const { from, setFrom, to, setTo } = useTeamDateRange(30);
   const [rows, setRows] = useState<PenaltyRow[]>([]);
@@ -2642,7 +2684,17 @@ function PenaltiesTab({ token }: { token: string }) {
     }
   }
 
+  const cntBy = (st: AttendancePenaltyStatus) => rows.filter(r => r.status === st).length;
   return (
+    <div className="nf-mt-tab" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {!loading && (
+        <TabTiles items={[
+          { icon: <Gavel size={18} />, label: 'Total records', value: rows.length, sub: 'For these filters', accent: 'var(--brand)' },
+          { icon: <Hourglass size={18} />, label: 'Pending review', value: cntBy('PENDING_REVIEW'), sub: 'Awaiting action', accent: 'var(--warn)' },
+          { icon: <ShieldAlert size={18} />, label: 'Applied', value: cntBy('APPLIED'), sub: 'Penalty deducted', accent: 'var(--risk)' },
+          { icon: <Ban size={18} />, label: 'Cancelled', value: cntBy('CANCELLED') + cntBy('REVERSED'), sub: 'Cancelled or reversed', accent: 'var(--ok)' },
+        ]} />
+      )}
     <div style={panelStyle}>
       <div style={panelHeadStyle}>
         <span style={panelTitleStyle}>Regularize &amp; Cancel Penalties</span>
@@ -2793,6 +2845,7 @@ function PenaltiesTab({ token }: { token: string }) {
           onClose={() => setHistoryFor(null)}
         />
       )}
+    </div>
     </div>
   );
 }
@@ -3068,7 +3121,7 @@ function TeamGrowthRow({ row }: { row: TeamGrowthSummary }) {
 // Read-only window into each direct report's own Skills & Expertise / Certificates / Learning &
 // Development — surfaced inline per row (chips + a per-row expand/collapse) instead of behind a
 // click-through modal, so the roster itself carries the information rather than empty space.
-function SkillsGrowthTab({ token }: { token: string }) {
+export function SkillsGrowthTab({ token }: { token: string }) {
   const { showToast } = useToast();
   const [rows, setRows] = useState<TeamGrowthSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3090,7 +3143,13 @@ function SkillsGrowthTab({ token }: { token: string }) {
     : rows;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div className="nf-mt-tab" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <TabTiles items={[
+        { icon: <UsersRound size={18} />, label: 'Employees', value: rows.length, sub: 'Direct reports', accent: 'var(--brand)' },
+        { icon: <Target size={18} />, label: 'Skills', value: rows.reduce((a, r) => a + r.skills.length, 0), sub: 'Rated across the team', accent: 'var(--info)' },
+        { icon: <Award size={18} />, label: 'Certificates', value: rows.reduce((a, r) => a + r.certificates.length, 0), sub: 'Held by the team', accent: 'var(--ok)' },
+        { icon: <BookOpen size={18} />, label: 'Learning', value: rows.reduce((a, r) => a + r.learningEntries.length, 0), sub: 'Courses and trainings', accent: 'var(--warn)' },
+      ]} />
       <div className="nf-filter-search" style={{ maxWidth: 360 }}>
         <Search size={13} />
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee by name or code…"  />
