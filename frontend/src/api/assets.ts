@@ -88,6 +88,35 @@ export interface AssetTileHR {
   pendingFulfillment: number;
 }
 
+export interface AssetBulkRow {
+  rowNumber: number;
+  assetTag: string;
+  category: string;
+  brand: string | null;
+  model: string | null;
+  serialNumber: string | null;
+  purchaseDate: string | null;
+  purchaseCost: string | null;
+  warrantyExpiry: string | null;
+  condition: string;
+  location: string | null;
+  errors: { column: string; message: string }[];
+}
+
+export interface AssetBulkValidation {
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  rows: AssetBulkRow[];
+}
+
+// Multipart — no Content-Type header, the browser sets the boundary for us.
+function postFile<T>(path: string, file: File, token: string) {
+  const form = new FormData();
+  form.append('file', file);
+  return fetch(`${BASE}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form }).then(handle<T>);
+}
+
 export const assetsApi = {
   categories: (token?: string) =>
     fetch(`${BASE}/categories`, token ? { headers: authHeaders(token) } : {}).then(handle<AssetCategory[]>),
@@ -132,6 +161,17 @@ export const assetsApi = {
     warrantyExpiry?: string; condition?: string; locationId?: string;
   }, token: string) =>
     fetch(`${BASE}`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<AssetResponse>),
+
+  // Bulk Add (assets:CREATE:ALL)
+  downloadBulkTemplate: async (token: string): Promise<Blob> => {
+    const res = await fetch(`${BASE}/bulk/template`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return handle<Blob>(res);
+    return res.blob();
+  },
+
+  validateBulk: (file: File, token: string) => postFile<AssetBulkValidation>('/bulk/validate', file, token),
+
+  importBulk: (file: File, token: string) => postFile<{ imported: number; message: string }>('/bulk/import', file, token),
 
   assignAsset: (assetId: number, employeeUserId: string, token: string) =>
     fetch(`${BASE}/${assetId}/assign`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ employeeUserId }) }).then(handle<AssetResponse>),
