@@ -11,7 +11,7 @@ import { useMyDocumentsData } from './documents/useMyDocumentsData';
 import { MyDocumentsSection } from './documents/MyDocumentsSection';
 import { TabBar } from '../components/TabBar';
 import { DocPopup } from './documents/DocPopup';
-import { plainText, richText, tidyDashes } from './documents/richText';
+import { plainText, richText, tidyDashes } from '../lib/richText';
 
 // ── Policy Read-First Modal ───────────────────────────────
 

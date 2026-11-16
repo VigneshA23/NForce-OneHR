@@ -7,6 +7,7 @@ import { usePreviewMode } from '../lib/previewMode';
 import { previewNotifications } from '../pages/dashboard-ui-preview/dashboardPreviewData';
 import { notificationsApi, type NotificationItem } from '../api/notifications';
 import { getPriority } from '../lib/notificationPriority';
+import { plainText, tidyDashes } from '../lib/richText';
 
 const MAX_ROWS = 5;
 
@@ -84,10 +85,10 @@ export function RecentNotificationsWidget({ className }: { className?: string })
               }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {n.title}
+                  {tidyDashes(n.title)}
                 </div>
                 <div style={{ fontSize: 11.5, color: 'var(--txt-mut)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {n.message}
+                  {n.message ? plainText(n.message) : n.message}
                 </div>
               </div>
               <span style={{ fontSize: 10.5, color: 'var(--txt-dim)', whiteSpace: 'nowrap', flexShrink: 0, marginTop: 1 }}>

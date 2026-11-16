@@ -15,6 +15,7 @@ import {
   type NotificationCategory, type NotificationPriority,
 } from '../lib/notificationPriority';
 import './notificationsPolish.css';
+import { plainText, richText, tidyDashes } from '../lib/richText';
 
 // ── Metadata ─────────────────────────────────────────────────────────────────
 
@@ -235,7 +236,7 @@ function NotifRow({
             color: n.read ? 'var(--txt-mut)' : 'var(--txt)',
             flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
-            {n.title}
+            {tidyDashes(n.title)}
           </span>
           <span style={{
             fontSize: 10, color: 'var(--txt-dim)', flexShrink: 0,
@@ -250,7 +251,7 @@ function NotifRow({
             fontSize: 12.5, color: 'var(--txt-dim)', marginTop: 3,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
-            {n.message}
+            {plainText(n.message)}
           </div>
         )}
 
@@ -309,7 +310,7 @@ function DetailPane({ n, navigate }: { n: NotificationItem | null; navigate: Ret
       <div className="nf-nd-hero">
         <span className="nf-nd-ico" style={{ background: meta.bg, color: meta.color }}>{meta.icon}</span>
         <div className="nf-nd-titles">
-          <h2 className="nf-nd-title">{n.title}</h2>
+          <h2 className="nf-nd-title">{tidyDashes(n.title)}</h2>
           <div className="nf-nd-when"><CalendarClock size={13} />{when.toLocaleString()} · {timeAgo(n.createdAt)}</div>
         </div>
         <Pill
@@ -322,7 +323,7 @@ function DetailPane({ n, navigate }: { n: NotificationItem | null; navigate: Ret
 
       <div className="nf-nd-sec">
         <div className="nf-nd-label">Message</div>
-        <p className="nf-nd-msg">{n.message || 'No additional details provided.'}</p>
+        <p className="nf-nd-msg">{n.message ? richText(n.message) : 'No additional details provided.'}</p>
       </div>
 
       <div className="nf-nd-facts">
