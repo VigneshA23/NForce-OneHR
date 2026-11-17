@@ -1898,3 +1898,18 @@ input[placeholder^="Search"]:not([style*="border: none"]):not(:is(.nf-filter-sea
   position: absolute !important; left: 12px !important; top: 50% !important; transform: translateY(-50%) !important;
   width: 15px !important; height: 15px !important; color: var(--txt-dim); pointer-events: none;
 }
+
+/* Card-style tab bar (add className="nf-tabs-card" to a TabBar). Used by My Team and Attendance. Follows the selected theme colour
+   (--brand): tinted card and border, active tab as a theme-coloured pill. */
+.nf-tabs.nf-tabs-card {
+  gap: 4px; padding: 8px 10px; align-items: center;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 9%, var(--panel)) 0%, var(--panel) 70%);
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line)); border-radius: 16px;
+  box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--brand) 45%, transparent);
+}
+.nf-tabs.nf-tabs-card .nf-tab { flex: 1 1 auto; justify-content: center; padding: 9px 16px; border-bottom: none; border-radius: 10px; transition: color .15s, background .15s; }
+.nf-tabs.nf-tabs-card .nf-tab:hover:not(:disabled):not([aria-selected="true"]) { background: color-mix(in srgb, var(--brand) 8%, transparent); color: var(--txt); }
+.nf-tabs.nf-tabs-card .nf-tab[aria-selected="true"] {
+  color: #fff; background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 72%, #000));
+  box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--brand) 60%, transparent);
+}

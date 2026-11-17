@@ -812,7 +812,7 @@ function TeamTabsMock() {
   // Mock only: the My Team section tabs inside their card container.
   const tabs = ['Overview', 'Efforts / Punctuality', 'Negligence', 'Regularize & Cancel Penalties', 'Employee Assignments', 'Performance', 'Capacity', 'Reports'].map(l => ({ key: l, label: l }));
   const [active, setActive] = useState('Overview');
-  return <TabBar ariaLabel="My Team sections" className="nf-mt-tabs" style={{ marginBottom: 20 }} tabs={tabs} active={active} onChange={setActive} />;
+  return <TabBar ariaLabel="My Team sections" className="nf-tabs-card" style={{ marginBottom: 20 }} tabs={tabs} active={active} onChange={setActive} />;
 }
 
 function AttentionMock() {
