@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { Plus, Megaphone, CheckCircle, Clock, Search, X, Users, Info, Paperclip, FileCheck2, ClipboardCheck, CopyPlus, Pencil, Power, PowerOff, Send, Trash2 } from 'lucide-react';
+import { Plus, Megaphone, CheckCircle, Clock, Search, X, Users, Info, Paperclip, FileCheck2, ClipboardCheck, CopyPlus, Pencil, Power, PowerOff, Send, Trash2, FileSpreadsheet } from 'lucide-react';
+import { BulkAddPoliciesModal } from './policies/BulkAddPoliciesModal';
 import DashTile from '../components/DashTile';
 import { KebabMenu } from '../components/KebabMenu';
 import { PersonCellById } from '../components/PersonCell';
@@ -20,7 +21,7 @@ import {
   listAcknowledgments, listAllAnnouncements, createAnnouncement, publishAnnouncement,
   updateAnnouncement, deactivateAnnouncement, reactivateAnnouncement, deleteAnnouncement,
   resetAcknowledgment, remindEmployee, globalPendingAckCount,
-  validateAttachmentFile, fetchPolicyAttachment,
+  validateAttachmentFile, fetchPolicyAttachment, uploadPolicyAttachment,
   type Policy, type PolicyAcknowledgment, type Announcement,
 } from '../api/policies';
 
@@ -107,7 +108,7 @@ function modalSubtitleFor(title: string): string {
   const t = title.toLowerCase();
   if (t.includes('announcement')) return t.startsWith('edit') ? 'Update the message employees see.' : 'Broadcast a message to the roles you choose.';
   if (t.includes('new version')) return 'Replace the current version and ask employees to acknowledge again.';
-  if (t.startsWith('edit')) return 'Correct the title, description or audience.';
+  if (t.startsWith('edit')) return 'Correct the title, description or audience, or attach a document.';
   return 'Publish a company policy for employees to read and acknowledge.';
 }
 
@@ -295,6 +296,7 @@ function EditPolicyModal({ policy, onClose, onSaved }: { policy: Policy; onClose
   const [title, setTitle] = useState(policy.title);
   const [description, setDescription] = useState(policy.description);
   const [audience, setAudience] = useState<string[]>(parseAudienceToArr(policy.audience));
+  const { file, onFileChange } = useAttachmentField();
   const [loading, setLoading] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -303,7 +305,17 @@ function EditPolicyModal({ policy, onClose, onSaved }: { policy: Policy; onClose
     setLoading(true);
     try {
       const audienceStr = audience.length === 4 ? 'ALL' : audience.join(',');
-      const p = await editPolicy(token, policy.id, { title, description, audience: audienceStr });
+      let p = await editPolicy(token, policy.id, { title, description, audience: audienceStr });
+      // Attach-only endpoint: same version, acknowledgments untouched (unlike Publish New Version).
+      if (file) {
+        try {
+          p = await uploadPolicyAttachment(token, policy.id, file);
+        } catch (err) {
+          onSaved(p); // the text changes did save — keep the list in sync
+          showToast('error', `Changes saved, but the document could not be uploaded (${err instanceof Error ? err.message : 'upload failed'}). Open Edit again to retry.`);
+          return;
+        }
+      }
       onSaved(p);
       showToast('success', 'Policy updated');
       onClose();
@@ -330,6 +342,10 @@ function EditPolicyModal({ policy, onClose, onSaved }: { policy: Policy; onClose
         <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
       </FormField>
       <AudienceField value={audience} onChange={setAudience} />
+      <AttachmentField file={file} onFileChange={onFileChange}
+        hint={policy.hasAttachment
+          ? `optional - replaces the current document${policy.attachmentFileName ? ` (${policy.attachmentFileName})` : ''}; version stays the same`
+          : 'optional - Image, PDF, or Word document; version stays the same'} />
     </PolicyFormModal>
   );
 }
@@ -614,6 +630,7 @@ export default function PoliciesPage() {
   const [pendingAckTotal, setPendingAckTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showPublish, setShowPublish] = useState(false);
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [showAnnounce, setShowAnnounce] = useState(false);
   const [editPolicyTarget, setEditPolicyTarget] = useState<Policy | null>(null);
   const [publishVersionTarget, setPublishVersionTarget] = useState<Policy | null>(null);
@@ -749,10 +766,14 @@ export default function PoliciesPage() {
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Policies & Announcements</h1>
           <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginTop: 4 }}>Publish company policies and broadcast announcements.</p>
         </PageTitleBlock>
-        <div className="nf-policy-actions" style={{ display: 'flex', gap: 10 }}>
+        <div className="nf-policy-actions" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {can('announcements', 'CREATE') && <button onClick={() => setShowAnnounce(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 10, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
             <Megaphone size={14} /> New Announcement
+          </button>}
+          {can('policies', 'CREATE') && <button onClick={() => setShowBulkAdd(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'var(--panel)', border: '1px solid color-mix(in srgb, var(--brand) 40%, var(--line2))', borderRadius: 10, color: 'var(--brand)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+            <FileSpreadsheet size={14} /> Bulk Add Policies
           </button>}
           {can('policies', 'CREATE') && <button onClick={() => setShowPublish(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 30%, transparent)', border: 'none', borderRadius: 10, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
@@ -936,6 +957,16 @@ export default function PoliciesPage() {
           policies={policies}
           onClose={() => setShowPublish(false)}
           onPublished={p => { setPolicies(prev => [p, ...prev.map(old => old.title === p.title ? { ...old, active: false } : old)]); refreshPendingAckTotal(); }}
+        />
+      )}
+      {showBulkAdd && (
+        <BulkAddPoliciesModal
+          token={token}
+          onClose={() => setShowBulkAdd(false)}
+          onImported={() => {
+            listAllPolicies(token).then(setPolicies).catch(e => showToast('error', e instanceof Error ? e.message : 'Load failed'));
+            refreshPendingAckTotal();
+          }}
         />
       )}
       {showAnnounce && (
