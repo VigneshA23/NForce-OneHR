@@ -32,6 +32,7 @@ import { ReviewPublishModal } from '../components/helpContent/ReviewPublishModal
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
 import { ChipGroup } from '../components/TabBar';
 import { ActionDock } from '../components/ActionDock';
+import { plainText, richText, tidyDashes } from '../lib/richText';
 import '../components/helpContent/helpModals.css';
 
 // Same overlay/modal/input/label/table constants used across LeavePage, MyRequestsPage,
@@ -742,8 +743,8 @@ function GuideListItem({ item, onOpen, token, isAdmin, actions, busy }: {
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 18px', minHeight: 56 }}>
       <span className="nf-faq-ico"><Icon size={16} /></span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{item.title}</div>
-        {item.description && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>{item.description}</div>}
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{tidyDashes(item.title)}</div>
+        {item.description && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 3 }}>{plainText(item.description)}</div>}
         {item.attachmentCount > 0 && (
           <div style={{ marginTop: 5 }}><AttachmentIndicator contentId={item.id} count={item.attachmentCount} token={token} kind={CONTENT_TYPE_LABEL[item.type]} /></div>
         )}
@@ -830,10 +831,10 @@ function ContentModal({ id, token, isAdmin, viewedRef, onClose, onContactHR }: {
   return (
     <div className="nf-hp-dlg" style={overlayStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="nf-hp-card" style={{ ...modalStyle, maxWidth: 620 }}>
-        <ModalHeader title={item.title} onClose={onClose} />
+        <ModalHeader title={tidyDashes(item.title)} onClose={onClose} />
         <div style={{ padding: 24 }}>
-          {item.description && <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 0, marginBottom: 14 }}>{item.description}</p>}
-          {item.body && <div style={{ fontSize: 13, color: 'var(--txt)', whiteSpace: 'pre-wrap', lineHeight: 1.6, marginBottom: 16 }}>{item.body}</div>}
+          {item.description && <p style={{ fontSize: 13, color: 'var(--txt-mut)', marginTop: 0, marginBottom: 14 }}>{richText(item.description)}</p>}
+          {item.body && <div style={{ fontSize: 13, color: 'var(--txt)', whiteSpace: 'pre-wrap', lineHeight: 1.6, marginBottom: 16 }}>{richText(item.body)}</div>}
 
           {item.attachments.length > 0 && (
             <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -910,12 +911,12 @@ function FAQAccordion({ items, token, isAdmin, actions, busyIds }: {
               className="nf-faq-q"
             >
               <span className="nf-faq-ico"><HelpCircle size={16} /></span>
-              <span style={{ flex: 1 }}>{faq.title}</span>
+              <span style={{ flex: 1 }}>{tidyDashes(faq.title)}</span>
               <ChevronDown size={16} className="nf-faq-chev" />
             </button>
             {isOpen && (
               <div className="nf-faq-a">
-                {faq.description || 'No further detail available.'}
+                {faq.description ? richText(faq.description) : 'No further detail available.'}
                 {faq.attachmentCount > 0 && (
                   <div style={{ marginTop: 8 }}><AttachmentIndicator contentId={faq.id} count={faq.attachmentCount} token={token} kind="FAQ" /></div>
                 )}
@@ -1382,8 +1383,8 @@ export default function HelpDeskPage() {
                   <button key={r.id} onClick={() => setActiveContentId(r.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px', cursor: 'pointer' }}>
                     <Icon size={15} style={{ color: 'var(--brand)', flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{r.title}</div>
-                      {r.description && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.description}</div>}
+                      <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)' }}>{tidyDashes(r.title)}</div>
+                      {r.description && <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{plainText(r.description)}</div>}
                     </div>
                     <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.05em', flexShrink: 0 }}>{CONTENT_TYPE_LABEL[r.type]}</span>
                   </button>

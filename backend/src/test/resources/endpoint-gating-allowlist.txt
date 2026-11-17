@@ -13,6 +13,9 @@ AssetController#acknowledge | SELF - own data only (ownership checked in the ser
 AssetController#approveRequest | SERVICE - permission / eligibility enforced in the service
 AssetController#assignAsset | SERVICE - permission / eligibility enforced in the service
 AssetController#availableByCategory | SERVICE - permission / eligibility enforced in the service
+AssetController#bulkImport | SERVICE - permission / eligibility enforced in the service
+AssetController#bulkTemplate | SERVICE - permission / eligibility enforced in the service
+AssetController#bulkValidate | SERVICE - permission / eligibility enforced in the service
 AssetController#countAssets | SERVICE - permission / eligibility enforced in the service
 AssetController#createAsset | SERVICE - permission / eligibility enforced in the service
 AssetController#deleteAsset | SERVICE - permission / eligibility enforced in the service

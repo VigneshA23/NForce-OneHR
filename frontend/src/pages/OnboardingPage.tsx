@@ -18,6 +18,7 @@ import { assetsApi, type AssetResponse } from '../api/assets';
 import { documentsForEmployee, fetchDocumentFile, type EmployeeDocument } from '../api/documents';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TabBar } from '../components/TabBar';
+import DashTile from '../components/DashTile';
 import { StatusBadge, inactiveDimStyle, InactiveEditBanner } from '../components/EmployeeStatus';
 import './onboarding.css';
 
@@ -57,16 +58,9 @@ function DocStatusBadge({ status }: { status: string }) {
 }
 
 function Kpi({ icon, label, value, note, danger, tone }: { icon: React.ReactNode; label: string; value: string | number; note: string; danger?: boolean; tone: string }) {
-  return (
-    <div className="nf-ob-kpi" style={{ ['--mk' as string]: danger ? 'var(--risk)' : tone }}>
-      <div className="nf-ob-kpi-top">
-        <span className="nf-ob-kpi-label">{label}</span>
-        <span className="nf-ob-kpi-ico">{icon}</span>
-      </div>
-      <div className="nf-ob-kpi-val">{value}</div>
-      <div className="nf-ob-kpi-note">{note}</div>
-    </div>
-  );
+  // Shared dashboard tile so the KPI row matches the rest of the app.
+  const accent = danger ? 'var(--risk)' : tone === 'var(--txt-mut)' ? 'var(--brand)' : tone;
+  return <DashTile icon={icon} label={label} value={String(value)} sub={note} accent={accent} />;
 }
 
 function Section({ icon, title, count, children }: { icon: React.ReactNode; title: string; count?: string; children: React.ReactNode }) {

@@ -24,6 +24,7 @@ import { StatusBadge, inactiveDimStyle } from '../../components/EmployeeStatus';
 import type { AttendanceRecord } from '../../api/attendance';
 import type { LeaveRequestRecord } from '../../api/leave';
 import './myTeamRedesign.css';
+import DashTile from '../../components/DashTile';
 
 /* ══ Types ══ */
 export type LiveStatus = 'IN' | 'OUT' | 'NOT_IN_YET' | 'LEAVE';
@@ -231,12 +232,8 @@ export function MyTeamHero({ userName, subtitle, metrics, memberLabel }: {
       </div>
       <div className="mt-strip" role="list">
         {items.map(it => (
-          <div className="mt-metric" role="listitem" key={it.label} tabIndex={0} style={{ ['--mc' as string]: it.color }}>
-            <span className="mt-metric-ico" style={{ color: it.color, background: `color-mix(in srgb, ${it.color} 14%, transparent)` }}>{it.icon}</span>
-            <div>
-              <div className="mt-metric-val">{it.value}</div>
-              <div className="mt-metric-lbl">{it.label}</div>
-            </div>
+          <div className="mt-metric" role="listitem" key={it.label}>
+            <DashTile icon={it.icon} label={it.label} value={String(it.value)} accent={it.color} />
           </div>
         ))}
       </div>
@@ -454,7 +451,7 @@ export function TeamCalendarPanel({
           </div>
           <span className="mt-card-sub" style={{ margin: 0 }}>
             {totalPages > 1
-              ? `${pageSafe * pageSize + 1}–${Math.min(members.length, (pageSafe + 1) * pageSize)} of ${members.length}`
+              ? `${pageSafe * pageSize + 1} to ${Math.min(members.length, (pageSafe + 1) * pageSize)} of ${members.length}`
               : `${members.length} ${members.length === 1 ? 'person' : 'people'}`}
           </span>
         </div>
@@ -546,9 +543,9 @@ export function TeamCalendarPanel({
 
       {totalPages > 1 && (
         <div className="mt-pager">
-          <button type="button" className="mt-btn" disabled={pageSafe === 0} onClick={() => onPageChange(Math.max(0, pageSafe - 1))}>← Prev</button>
+          <button type="button" className="mt-btn" disabled={pageSafe === 0} onClick={() => onPageChange(Math.max(0, pageSafe - 1))}>Prev</button>
           <span>Page {pageSafe + 1} of {totalPages}</span>
-          <button type="button" className="mt-btn" disabled={pageSafe >= totalPages - 1} onClick={() => onPageChange(Math.min(totalPages - 1, pageSafe + 1))}>Next →</button>
+          <button type="button" className="mt-btn" disabled={pageSafe >= totalPages - 1} onClick={() => onPageChange(Math.min(totalPages - 1, pageSafe + 1))}>Next</button>
         </div>
       )}
 

@@ -70,7 +70,7 @@ export default function OverviewSection({ token }: { token: string }) {
         </div>
         {cost.rows.length === 0 ? (
           <Empty>{cost.unbandedCount > 0
-            ? `${cost.unbandedCount} benched employee(s) have no compensation band yet — assign bands in Settings.`
+            ? `${cost.unbandedCount} benched employee(s) have no compensation band yet Assign bands in Settings.`
             : 'No benched employees to cost.'}</Empty>
         ) : (
           <table className="nf-bn-table" style={{ width: '100%', borderCollapse: 'collapse' }}>

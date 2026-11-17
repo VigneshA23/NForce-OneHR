@@ -6,9 +6,11 @@ import { ThemeProvider } from './lib/theme';
 import { AccentColorProvider } from './lib/accentColor';
 import { AccessibilityProvider } from './lib/accessibilityPrefs';
 import { installAuthFetch } from './lib/authFetch';
+import { installVersionCheck } from './lib/versionCheck';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 installAuthFetch();
+installVersionCheck();
 
 // Drives a `--app-height` custom property from the live `visualViewport` size, as a more
 // reliable stand-in for `100dvh` on iOS Safari. `dvh` is *supposed* to dynamically track the

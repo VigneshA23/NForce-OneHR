@@ -56,7 +56,7 @@ public enum AuditActionCategory {
     HR_OPERATIONAL(Set.of(
             // AssetService — ASSET_REQUEST_SUBMITTED (self-submitted) intentionally omitted
             "ASSET_REQUEST_APPROVED", "ASSET_REQUEST_REJECTED",
-            "ASSET_CREATED", "ASSET_ASSIGNED", "ASSET_REASSIGNED", "ASSET_RETURNED",
+            "ASSET_CREATED", "ASSETS_BULK_CREATED", "ASSET_ASSIGNED", "ASSET_REASSIGNED", "ASSET_RETURNED",
             "ASSET_RETIRED", "ASSET_DELETED", "ASSET_REQUEST_FULFILLED",
             // EmployeeService — HR Admin's employee create/update path
             "EMPLOYEE_CREATED", "EMPLOYEE_UPDATED",

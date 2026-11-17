@@ -1,12 +1,27 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+
+// One id per build. It is compiled into the bundle and also written to /version.json, so a tab that
+// is running an older build can notice a newer deployment and load it (see src/lib/versionCheck.ts).
+const BUILD_ID = (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 8) + Date.now().toString(36);
+
+const emitVersionFile: Plugin = {
+  name: 'emit-version-json',
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ id: BUILD_ID }) });
+  },
+};
 
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    emitVersionFile,
   ],
+  define: {
+    __BUILD_ID__: JSON.stringify(BUILD_ID),
+  },
   // Renamed from Vite's default 'assets' so the build output directory
   // doesn't collide with the app's own "/assets" (Assets & Expenses) route —
   // static hosts resolve a request path against the filesystem before

@@ -219,7 +219,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
             onMouseLeave={() => setLinkHovered(false)}
             style={{ ...actionLinkStyle, cursor: checkingOut ? 'not-allowed' : 'pointer', opacity: checkingOut ? 0.7 : 1 }}
           >
-            {checkingOut ? 'Web clocking out…' : 'Web Clock Out →'}
+            {checkingOut ? 'Web clocking out…' : 'Web Clock Out'}
           </button>
         </>
       )}
@@ -231,7 +231,7 @@ function WebClockInRow({ webToday, onSubmitted }: {
           onMouseLeave={() => setLinkHovered(false)}
           style={{ ...actionLinkStyle, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1 }}
         >
-          {submitting ? 'Checking in…' : 'Working remotely? Web Clock In →'}
+          {submitting ? 'Checking in…' : 'Working remotely? Web Clock In'}
         </button>
       )}
       {showModal && (
@@ -427,7 +427,7 @@ export function AttendanceHeroBanner() {
           onClick={() => navigate('/attendance?tab=calendar')}
           style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'rgba(229,231,235,0.55)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
         >
-          View full record →
+          View full record
         </button>
         <WebClockInRow webToday={webToday} onSubmitted={refresh} />
         {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
@@ -468,7 +468,7 @@ export function AttendanceHeroBanner() {
           onClick={() => navigate('/attendance?tab=calendar')}
           style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 600, color: 'rgba(229,231,235,0.55)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
         >
-          View full record →
+          View full record
         </button>
         <WebClockInRow webToday={webToday} onSubmitted={refresh} />
         {wfhPrompt && <WebClockInRequestModal offNetwork networkDetail={wfhPrompt ? wfhPrompt.detail : null} onClose={() => setWfhPrompt(false)} onSubmitted={() => refresh()} />}
@@ -506,7 +506,7 @@ export function AttendanceHeroBanner() {
             onClick={() => navigate('/attendance?tab=calendar')}
             style={{ fontSize: 12, fontWeight: 600, color: 'rgba(229,231,235,0.55)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
           >
-            View full record →
+            View full record
           </button>
         </div>
         {checkInAt && (
@@ -558,7 +558,7 @@ export function AttendanceHeroBanner() {
           onClick={() => navigate('/attendance?tab=calendar')}
           style={{ fontSize: 12, fontWeight: 600, color: 'rgba(229,231,235,0.55)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
         >
-          View full record →
+          View full record
         </button>
       </div>
       <WebClockInRow webToday={webToday} onSubmitted={refresh} />

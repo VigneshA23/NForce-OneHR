@@ -106,6 +106,43 @@ export async function publishPolicy(token: string, body: {
   return handle(await fetch(BASE_POLICIES, { method: 'POST', headers: authOnly(token), body: policyFormData(body, file) }));
 }
 
+// ── Bulk Add Policies (policies:CREATE:ALL) ──
+
+export interface PolicyBulkRow {
+  rowNumber: number;
+  title: string;
+  version: string;
+  description: string;
+  audience: string;
+  required: boolean | null;
+  supersedesExisting: boolean;
+  errors: { column: string; message: string }[];
+}
+
+export interface PolicyBulkValidation {
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  rows: PolicyBulkRow[];
+}
+
+export async function downloadPolicyBulkTemplate(token: string): Promise<Blob> {
+  const res = await fetch(`${BASE_POLICIES}/bulk/template`, { headers: authOnly(token) });
+  if (!res.ok) return handle<Blob>(res);
+  return res.blob();
+}
+
+// Multipart — no Content-Type header, the browser sets the boundary.
+async function postPolicyWorkbook<T>(token: string, path: string, file: File): Promise<T> {
+  const form = new FormData();
+  form.append('file', file);
+  return handle(await fetch(`${BASE_POLICIES}/bulk/${path}`, { method: 'POST', headers: authOnly(token), body: form }));
+}
+
+export const validatePolicyBulk = (token: string, file: File) => postPolicyWorkbook<PolicyBulkValidation>(token, 'validate', file);
+
+export const importPolicyBulk = (token: string, file: File) => postPolicyWorkbook<{ published: number; message: string }>(token, 'import', file);
+
 // Images/PDF/Word — see AttachmentValidator on the backend for the enforced size/type rule.
 export async function uploadPolicyAttachment(token: string, id: number, file: File): Promise<Policy> {
   const form = new FormData();

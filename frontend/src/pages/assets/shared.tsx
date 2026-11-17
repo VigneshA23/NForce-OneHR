@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { AlarmClock, Hourglass, CheckCircle2, Boxes, Receipt, ClipboardList, Package, Pencil, Undo2, UserPlus, PackagePlus } from 'lucide-react';
+import { AlarmClock, Hourglass, CheckCircle2, Boxes, Receipt, ClipboardList, Package, Pencil, Undo2, UserPlus, PackagePlus, FileSpreadsheet } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import './assetsModals.css';
 import DashTile from '../../components/DashTile';
@@ -113,6 +113,7 @@ function modalIconFor(title: string): LucideIcon {
   const t = title.toLowerCase();
   if (t.includes('expense')) return Receipt;
   if (t.startsWith('add asset')) return PackagePlus;
+  if (t.startsWith('bulk add')) return FileSpreadsheet;
   if (t.startsWith('assign') || t.startsWith('reassign')) return UserPlus;
   if (t.includes('returned')) return Undo2;
   if (t.startsWith('fulfill')) return CheckCircle2;
@@ -123,6 +124,7 @@ function modalIconFor(title: string): LucideIcon {
 function modalSubtitleFor(title: string): string | null {
   const t = title.toLowerCase();
   if (t.startsWith('add asset')) return 'Register a new company asset in the inventory.';
+  if (t.startsWith('bulk add')) return 'Import many assets at once from an Excel file.';
   if (t.startsWith('assign')) return 'Choose who this asset goes to.';
   if (t.startsWith('reassign')) return 'Move this asset to another employee.';
   if (t.includes('returned')) return 'Record that this asset is back with the company.';
@@ -131,12 +133,12 @@ function modalSubtitleFor(title: string): string | null {
   return null;
 }
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   const Icon = modalIconFor(title);
   const sub = modalSubtitleFor(title);
   return (
     <div style={overlayStyle} className="nf-modal-overlay-in nf-as-dlg">
-      <div style={modalStyle} className="nf-modal-panel-in nf-as-card">
+      <div style={modalStyle} className={`nf-modal-panel-in nf-as-card${wide ? ' nf-as-card--wide' : ''}`}>
         <div className="nf-as-head">
           <span className="nf-as-ico"><Icon size={20} /></span>
           <div className="nf-as-titles">

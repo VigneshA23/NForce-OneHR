@@ -47,7 +47,11 @@ import NotificationsPage from '../NotificationsPage';
 import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
-import { AttentionPanel, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
+import '../login.css';
+import '../myTeamTabs.css';
+import { DiwaliBurst } from '../auth/DiwaliBurst';
+import { MemberCard as MtMemberCard, Pill as MtPill } from '../my-team/MyTeamRedesign';
+import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTab as MtPenaltiesTab, AssignmentsTab as MtAssignmentsTab, SkillsGrowthTab as MtGrowthTab, AttentionPanel, LeaveBalanceLine as MtLeaveBalanceLine, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
@@ -76,7 +80,7 @@ import DirectoryPage from '../DirectoryPage';
 import UserManagementPage, { EditModal as UserEditModal } from '../UserManagementPage';
 import OrgSetupPage from '../OrgSetupPage';
 import HolidaysPage, { HolidayMonthCalendar } from '../HolidaysPage';
-import { EditModal as EmployeeEditModal } from '../EmployeeMasterPage';
+import EmployeeMasterPage, { EditModal as EmployeeEditModal } from '../EmployeeMasterPage';
 import type { EmployeeRecord } from '../../api/employees';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -105,12 +109,21 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'onboarding-page', label: 'Onboarding (full page)', title: 'Onboarding', subtitle: 'All four tabs, the checklist detail view and its popups, with sample data. Changes here only affect this preview.' },
   { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
+  { key: 'login-diwali', label: 'Login: cracker lights', title: 'Login: cracker lights', subtitle: 'Click Sign in to play the effect inside the card (sample only).' },
+  { key: 'team-tabs', label: 'My Team: Section tabs', title: 'My Team: Section tabs', subtitle: 'The section tabs inside a card container.' },
+  { key: 'team-member-cards', label: 'My Team: Member cards', title: 'My Team: Member cards', subtitle: 'Roster cards with the compact leave balance. Click it to see the breakdown.' },
+  { key: 'team-effort', label: 'My Team: Efforts / Punctuality', title: 'My Team: Efforts and Punctuality', subtitle: 'The real tab, fed with sample data.' },
+  { key: 'team-negligence', label: 'My Team: Negligence', title: 'My Team: Negligence', subtitle: 'The real tab, fed with sample data.' },
+  { key: 'team-penalties', label: 'My Team: Penalties', title: 'My Team: Regularize and Cancel Penalties', subtitle: 'The real tab, fed with sample data.' },
+  { key: 'team-assignments', label: 'My Team: Assignments', title: 'My Team: Employee Assignments', subtitle: 'The real tab, fed with sample data.' },
+  { key: 'team-growth', label: 'My Team: Performance', title: 'My Team: Performance', subtitle: 'The real tab, fed with sample data.' },
   { key: 'team-reports', label: 'My Team: Reports tab', title: 'My Team: Reports', subtitle: 'The Reports tab of My Team. Cards open the real download dialogs; nothing is sent from this preview.' },
   { key: 'attention-panel', label: 'My Team: Needs your attention', title: 'My Team: Needs your attention', subtitle: 'Sample pending requests. Approve / Reject here only change this preview.' },
   { key: 'allocations-page', label: 'Project Allocations (full page)', title: 'Project Allocations', subtitle: 'Allocate and Projects tabs with sample data. Allocating and saving only change this preview.' },
   { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
+  { key: 'employee-master-page', label: 'Employee Master (full page)', title: 'Employee Master', subtitle: 'The real page with sample employees and the themed table header.' },
   { key: 'user-edit', label: 'Edit User popup (Access)', title: 'User Management: Edit popup', subtitle: 'Open the popup for an active or an inactive user. Saving only changes this preview.' },
   { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
   { key: 'create-employee-steps', label: 'Create Employee (all 4 steps)', title: 'Create Employee: all four steps', subtitle: 'Pick any step, and the result screen, to see the layout with sample values. Nothing is saved, and the real wizard still checks each step before moving on.' },
@@ -682,6 +695,126 @@ function TeamReportsMock() {
   ) : null;
 }
 
+function TeamTabMock({ tab }: { tab: 'effort' | 'negligence' | 'penalties' | 'assignments' | 'growth' }) {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample data for each My Team tab so the real tab components render without a backend.
+    const prevFetch = window.fetch;
+    const people = [['Ramesh A', 'Software Engineer'], ['Lalith Kumar Ratnala', 'Senior Engineer'], ['Abuzar Siddiqui', 'QA Engineer'], ['Sri vidya', 'Business Analyst'], ['Praveen Gurram', 'Tech Lead'], ['Sanjukta', 'Designer']];
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const daily = Array.from({ length: 7 }, (_, i) => ({ date: day(6 - i), employeesOnTime: 3 + (i % 4), count: 1 + (i % 3), lateCount: 1 + (i % 3), avgBreaks: 1.5 + (i % 3) * 0.4 }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes('/attendance/team-effort')) {
+        return json(people.map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, avgHoursPerDay: 8.6 - i * 0.7, hoursWorked: 60 - i * 5, expectedHours: 56, activeDays: 7 })));
+      }
+      if (url.includes('/attendance/team-punctuality')) {
+        return json({ leaderboard: people.map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, onTimeDays: 7 - (i % 4), expectedWorkingDays: 7, percentage: ((7 - (i % 4)) / 7) * 100 })), daily, summary: { averageEmployeesOnTime: 4.2, minimumEmployeesOnTime: 3, maximumEmployeesOnTime: 6 } });
+      }
+      if (url.includes('/attendance/team-negligence')) {
+        return json({
+          lateArrivals: people.slice(0, 4).map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, lateDays: 6 - i, activeDays: 21, latePct: ((6 - i) / 21) * 100 })),
+          dailyLateCounts: daily.map(d => ({ date: d.date, count: d.lateCount })),
+          leastHoursWorked: people.slice(0, 3).map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, avgHoursPerDay: 6.2 + i * 0.4, hoursWorked: 120 + i * 9 })),
+          hoursHistogram: [{ label: '< 4 hrs', count: 1, pct: 8 }, { label: '4 to 6 hrs', count: 2, pct: 17 }, { label: '6 to 8 hrs', count: 5, pct: 42 }, { label: '8+ hrs', count: 4, pct: 33 }],
+          frequentBreaks: people.slice(0, 3).map(([n, d], i) => ({ employeeUserId: 'u' + i, fullName: n, designationName: d, totalBreakCount: 40 - i * 5, totalBreakHours: 14 - i, avgBreaksPerDay: 2.4 - i * 0.3 })),
+          breaksTrend: daily.map(d => ({ date: d.date, avgBreaks: d.avgBreaks })),
+        });
+      }
+      if (url.includes('/attendance/penalties') && !url.includes('/cancel')) {
+        const st = ['PENDING_REVIEW', 'APPLIED', 'CANCELLED', 'APPLIED', 'NOT_PENALIZED', 'PENDING_REVIEW'];
+        return json(people.map(([n], i) => ({ id: 'p' + i, employeeUserId: 'u' + i, fullName: n, employeeCode: 'NF' + (100 + i), incidentDate: day(i + 1), penalizedOn: i % 2 ? day(i) : null, status: st[i], locationName: 'Hyderabad', departmentName: 'Engineering', discrepancyType: ['LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH', 'LATE_ARRIVAL', 'LATE_ARRIVAL', 'MISSING_PUNCH'][i], deductionDays: 0.5, cancellable: st[i] === 'APPLIED' || st[i] === 'PENDING_REVIEW' })));
+      }
+      if (url.includes('/employee-assignments/lookups')) {
+        return json({ shifts: [{ id: 's1', name: 'General' }, { id: 's2', name: 'Morning' }], weeklyOffPolicies: [{ id: 'w1', name: 'Sat and Sun' }], penalisationPolicies: [{ id: 'z1', name: 'Standard Penalisation' }], departments: ['Engineering', 'Design'], locations: ['Hyderabad'] });
+      }
+      if (url.includes('/employee-assignments/team')) {
+        return json(people.map(([n], i) => ({ employeeUserId: 'u' + i, employeeCode: 'NF' + (100 + i), fullName: n, departmentName: 'Engineering', locationName: 'Hyderabad', employeeTimezone: 'Asia/Kolkata', shiftId: i === 5 ? null : 's1', shiftName: i === 5 ? null : 'General', shiftStartTime: '09:00', shiftEndTime: '18:00', shiftEffectiveSince: '2026-01-01', pendingShiftId: null, pendingShiftName: null, pendingShiftEffectiveFrom: null, weeklyOffPolicyId: 'w1', weeklyOffPolicyName: 'Sat and Sun', weeklyOffPolicyEffectiveSince: '2026-01-01', pendingWeeklyOffPolicyId: null, pendingWeeklyOffPolicyName: null, pendingWeeklyOffPolicyEffectiveFrom: null, penalisationPolicyId: 'z1', penalisationPolicyName: 'Standard Penalisation' })));
+      }
+      if (url.endsWith('/growth')) {
+        const lv = ['Beginner', 'Intermediate', 'Advanced', 'Expert'];
+        return json(people.map(([n], i) => ({
+          employeeUserId: 'u' + i, employeeName: n, employeeCode: 'NF' + (100 + i),
+          skills: ['React', 'Java', 'SQL'].slice(0, 1 + (i % 3)).map((k, j) => ({ id: 'k' + i + j, skillId: null, skillName: k, proficiencyLevelId: null, proficiencyLevel: lv[(i + j) % 4], createdAt: '', updatedAt: '' })),
+          certificates: i % 2 ? [{ id: 'c' + i, name: 'AWS Cloud Practitioner', categoryId: null, categoryName: 'Cloud', issuingOrganization: 'AWS', credentialId: null, credentialUrl: null, issueDate: '2025-03-01', expiryDate: '2028-03-01', createdAt: '', updatedAt: '' }] : [],
+          learningEntries: i % 3 === 0 ? [{ id: 'l' + i, title: 'System Design', description: null, learningType: 'COURSE', status: 'IN_PROGRESS', provider: 'Udemy', startDate: '2026-09-01', completedDate: null, skillsDeveloped: [], certificateName: null, certificateIssueDate: null, certificateExpiryDate: null }] : [],
+        })));
+      }
+      if (url.includes('/api/')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    setReady(true);
+    return () => { window.fetch = prevFetch; };
+  }, []);
+  if (!ready) return null;
+  return tab === 'effort' ? <MtEffortTab token="mock-token" /> : tab === 'negligence' ? <MtNegligenceTab token="mock-token" /> : tab === 'penalties' ? <MtPenaltiesTab token="mock-token" /> : tab === 'assignments' ? <MtAssignmentsTab token="mock-token" /> : <MtGrowthTab token="mock-token" />;
+}
+
+function LoginDiwaliMock() {
+  // Mock only: click Sign in to play the cracker-lights effect; nothing is submitted anywhere.
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => {
+    if (!signedIn) return;
+    const t = window.setTimeout(() => setSignedIn(false), 3200);
+    return () => window.clearTimeout(t);
+  }, [signedIn]);
+  return (
+    <div style={{ display: 'grid', placeItems: 'center', padding: '24px 0 40px', background: 'linear-gradient(135deg, #0b0b0f, #2a0a0a)', borderRadius: 16 }}>
+      <div className="nf-lg-card">
+        <h2 className="nf-lg-title">Welcome back</h2>
+        <p className="nf-lg-sub">Click Sign in to see the effect (sample only, nothing is submitted).</p>
+        <form onSubmit={e => { e.preventDefault(); if (!signedIn) setSignedIn(true); }}>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#334155' }}>Email address</label>
+            <input defaultValue="you@company.com" style={{ width: '100%', boxSizing: 'border-box', height: 44, padding: '0 12px', borderRadius: 10, border: '1px solid #e2e8f0' }} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#334155' }}>Password</label>
+            <input type="password" defaultValue="password" style={{ width: '100%', boxSizing: 'border-box', height: 44, padding: '0 12px', borderRadius: 10, border: '1px solid #e2e8f0' }} />
+          </div>
+          {signedIn && <DiwaliBurst />}
+          <button type="submit" className={`nf-lg-submit${signedIn ? ' is-done' : ''}`} disabled={signedIn}>
+            {signedIn ? 'Signed in' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function TeamMemberCardsMock() {
+  // Mock only: roster cards with the compact leave balance line (click it to open the breakdown).
+  const people = [['Test', 'Automation QA Engineer', 'NF-202613574', 'Quality Engineering'], ['Test', 'Junior Sales Engineer', 'NF-202613567', 'Sales'], ['Test', 'Software Engineer', 'NF-202613571', 'Engineering']];
+  const bal = [
+    { leaveTypeCode: 'AL', leaveTypeName: 'Annual Leave', remainingDays: 15, totalDays: 15 },
+    { leaveTypeCode: 'PL', leaveTypeName: 'Paid Leave', remainingDays: 20, totalDays: 20 },
+    { leaveTypeCode: 'TL', leaveTypeName: 'Test Leave', remainingDays: 20, totalDays: 20 },
+  ] as unknown as Parameters<typeof MtLeaveBalanceLine>[0]['balances'];
+  return (
+    <div className="mt-root">
+      <div className="mt-members" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+        {people.map(([n, d, code, dept], i) => (
+          <MtMemberCard key={i} avatar={<span className="mt-avatar" style={{ width: 52, height: 52, borderRadius: '50%', background: 'color-mix(in srgb, var(--brand) 14%, var(--panel))', color: 'var(--brand)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>TE</span>} name={n} designation={d} active status="NOT_IN_YET" 
+            tags={<><MtPill>{dept}</MtPill><MtPill tone="ok">Full time</MtPill></>}
+            extras={<>
+              <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, marginTop: -4 }}>{code}</div>
+              <MtLeaveBalanceLine balances={bal} />
+            </>}
+            onViewProfile={() => undefined} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TeamTabsMock() {
+  // Mock only: the My Team section tabs inside their card container.
+  const tabs = ['Overview', 'Efforts / Punctuality', 'Negligence', 'Regularize & Cancel Penalties', 'Employee Assignments', 'Performance', 'Capacity', 'Reports'].map(l => ({ key: l, label: l }));
+  const [active, setActive] = useState('Overview');
+  return <TabBar ariaLabel="My Team sections" className="nf-mt-tabs" style={{ marginBottom: 20 }} tabs={tabs} active={active} onChange={setActive} />;
+}
+
 function AttentionMock() {
   const [items, setItems] = useState<ApprovalItem[]>([]);
   const [ready, setReady] = useState(false);
@@ -1127,6 +1260,37 @@ function EmployeeEditMock() {
   );
 }
 
+function EmployeeMasterMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample employee list and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const names = ['Aanuj Reddy K', 'Abbas DarubaiGari', 'Abuzar Siddiqui', 'Anil Kumar Ramtenki', 'Meera Iyer', 'Rohith Reddy', 'Sneha Priya', 'Vikram Singh', 'Ananya Das', 'Karthik V', 'Priya Sharma', 'Sumanth G'];
+    const depts = ['Engineering', 'Engineering', 'Finance', 'Engineering', 'Design', 'Sales'];
+    const list = names.map((n, i) => ({
+      userId: 'u' + i, employeeCode: 'NF-2026' + (1030 - i), fullName: n, email: n.toLowerCase().replace(/[^a-z]/g, '.') + '@nforceone.com', role: 'EMPLOYEE', active: i !== 7,
+      businessUnitId: 'b1', businessUnitName: 'Technology', departmentId: 'd' + (i % 6), departmentName: depts[i % 6], designationId: i === 1 ? null : 'g1', designationName: i === 1 ? null : ['Junior Sales Engineer', 'Software Engineer', 'Backend Developer', 'QA Engineer'][i % 4],
+      locationId: 'l1', locationName: ['Hyderabad', 'Bangalore', 'Vishakhapatnam'][i % 3], shiftId: null, shiftName: null, employmentType: 'FULL_TIME', workMode: ['ONSITE', 'HYBRID', 'ONSITE'][i % 3], joiningDate: '2026-04-12',
+      currentManager: i % 4 === 0 ? null : { userId: 'm1', fullName: ['Vignesh Appani', 'Narendra Reddy', 'Rohit Shivramwar'][i % 3] },
+    }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/employees') && (!init?.method || init.method === 'GET')) return json(list);
+      if (/\/(business-units|departments|designations|locations)$/.test(url)) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <EmployeeMasterPage /> : null;
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -1207,7 +1371,7 @@ function DocumentsMock() {
         return json([pol(1, 'Code of Conduct', '2.0', true, false, 'How we work together and what we expect of each other.'), pol(2, 'Leave Policy', '1.0', true, true, 'Entitlements, approvals and carry-forward rules.'), pol(3, 'Travel Guidelines', '1.0', false, null, 'Booking, limits and reimbursement.')]);
       }
       if (url.endsWith('/api/announcements/published')) {
-        return json([{ id: 1, title: 'Office closed for Diwali', body: 'The office will be closed on 21 Oct for Diwali. Wishing everyone a safe and happy festival.', audience: 'All', scheduledFor: null, publishedAt: '2026-10-18T09:00:00', createdBy: 'HR', createdAt: '2026-10-17T09:00:00', published: true, active: true }]);
+        return json([{ id: 1, title: 'Office closed for Diwali', body: '**Office closed on 21 Oct** — Diwali holiday. Please plan your work 10–20 Oct accordingly. **Wishing everyone a happy festival.**', audience: 'All', scheduledFor: null, publishedAt: '2026-10-18T09:00:00', createdBy: 'HR', createdAt: '2026-10-17T09:00:00', published: true, active: true }]);
       }
       return prevFetch(input, init);
     }) as typeof window.fetch;
@@ -1930,6 +2094,24 @@ function Tiles({ page }: { page: string }) {
       return <TeamPopupsMock />;
     case 'team-today':
       return <TeamTodayMock />;
+    case 'team-member-cards':
+      return <TeamMemberCardsMock />;
+    case 'employee-master-page':
+      return <EmployeeMasterMock />;
+    case 'team-tabs':
+      return <TeamTabsMock />;
+    case 'login-diwali':
+      return <LoginDiwaliMock />;
+    case 'team-effort':
+      return <TeamTabMock tab="effort" />;
+    case 'team-negligence':
+      return <TeamTabMock tab="negligence" />;
+    case 'team-penalties':
+      return <TeamTabMock tab="penalties" />;
+    case 'team-assignments':
+      return <TeamTabMock tab="assignments" />;
+    case 'team-growth':
+      return <TeamTabMock tab="growth" />;
     case 'team-reports':
       return <TeamReportsMock />;
     case 'change-password-page':
