@@ -81,7 +81,7 @@ const TYPE_ICONS: Record<RequestType, LucideIcon> = {
   HELP_CONTENT: FileText,
 };
 
-const EMPTY_VALUE = '–';
+const EMPTY_VALUE = '-';
 
 type ReviewMode = 'approve' | 'reject';
 /** 'review' = opened by clicking the row itself: details first, with both decisions available. */
@@ -162,7 +162,7 @@ function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
 function getRequestedDates(item: ApprovalItem) {
   if (item.requestType === 'LEAVE') {
     if (!item.leaveStartDate) return EMPTY_VALUE;
-    return `${item.leaveStartDate}${item.leaveEndDate && item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`;
+    return `${item.leaveStartDate}${item.leaveEndDate && item.leaveStartDate !== item.leaveEndDate ? ` to ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`;
   }
   if (item.requestType === 'REGULARIZATION' || item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY' || item.requestType === 'OVERTIME') {
     return item.attendanceDate ?? EMPTY_VALUE;
@@ -265,8 +265,8 @@ function ChangesModal({ diff, onClose }: { diff: ApprovalDiff; onClose: () => vo
                   <strong style={{ color: 'var(--txt)' }}>{c.changeType}:</strong>{' '}
                   {c.changeType === 'ADDED' && c.fileName}
                   {c.changeType === 'REMOVED' && c.previousFileName}
-                  {c.changeType === 'REPLACED' && `${c.previousFileName} → ${c.fileName}`}
-                  {c.changeType === 'REORDERED' && `${c.fileName} (position ${(c.previousDisplayOrder ?? 0) + 1} → ${(c.displayOrder ?? 0) + 1})`}
+                  {c.changeType === 'REPLACED' && `${c.previousFileName} to ${c.fileName}`}
+                  {c.changeType === 'REORDERED' && `${c.fileName} (position ${(c.previousDisplayOrder ?? 0) + 1} to ${(c.displayOrder ?? 0) + 1})`}
                 </div>
               ))}
             </>
@@ -411,7 +411,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
             <div className="apv-detail-grid">
               <Row label="Type" value={item.leaveTypeName} />
               <Row label="Days" value={String(item.leaveTotalDays)} />
-              <Row label="Dates" value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} span />
+              <Row label="Dates" value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` to ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} span />
               <Row label="Reason" value={item.leaveReason} span />
             </div>
           )}

@@ -1618,7 +1618,7 @@ function ApprovalsMock() {
       if (url.endsWith('/org-dashboard')) return json({ directReportCount: people.length, teamJoiners: [], directReports: people.map(([userId, fullName, employeeCode]) => ({ userId, fullName, employeeCode, designationName: null, departmentName: null, active: true })) });
       return prevFetch(input, init);
     }) as typeof window.fetch;
-    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' } });
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' }, permissions: { permissions: { leave: { APPROVE: ['TEAM'] }, regularization: { APPROVE: ['TEAM'] }, expenses: { APPROVE: ['TEAM'] }, assets: { APPROVE: ['TEAM'] }, attendance_requests: { APPROVE: ['TEAM'] }, overtime: { APPROVE: ['TEAM'] }, hr_help_content: { APPROVE: ['TEAM'] } } } as never });
     setReady(true);
     return () => {
       window.fetch = prevFetch;
