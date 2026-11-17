@@ -404,9 +404,10 @@ const dash = (
 const missingPunch = <span style={{ color: 'var(--txt-dim)' }}>Missing</span>;
 
 const thStyle: React.CSSProperties = {
-  padding: '9px 12px', textAlign: 'left', fontSize: 10, fontWeight: 700,
-  color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.07em',
-  borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap',
+  padding: '11px 12px', textAlign: 'left', fontSize: 10.5, fontWeight: 800,
+  color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em',
+  borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', whiteSpace: 'nowrap',
+  background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))',
 };
 const tdStyle: React.CSSProperties = {
   padding: '10px 12px', fontSize: 12, color: 'var(--txt-mut)',
@@ -4346,6 +4347,8 @@ function LogsTabBar({ value, onChange }: { value: LogsTab; onChange: (v: LogsTab
       active={value}
       onChange={onChange}
       ariaLabel="Logs and requests"
+      className="nf-tabs-card"
+      style={{ marginBottom: 14 }}
     />
   );
 }
@@ -5392,7 +5395,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
                       <col style={{ width: '14%' }} />
                     </colgroup>
                     <thead>
-                      <tr>{['Date', 'Attendance Visual', 'In / Out', 'Hours', 'Arrival', 'Log'].map((h) => <th key={h} style={{ ...thStyle, background: 'var(--panel)' }}>{h}</th>)}</tr>
+                      <tr>{['Date', 'Attendance Visual', 'In / Out', 'Hours', 'Arrival', 'Log'].map((h) => <th key={h} style={thStyle}>{h}</th>)}</tr>
                     </thead>
                     <tbody>
                       {logPaged.map((info) => {

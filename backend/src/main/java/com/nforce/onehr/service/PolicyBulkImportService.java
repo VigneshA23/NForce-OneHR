@@ -5,6 +5,7 @@ import com.nforce.onehr.dto.doc.PolicyBulkValidationResponse.CellError;
 import com.nforce.onehr.dto.doc.PolicyListItem;
 import com.nforce.onehr.dto.doc.PublishPolicyRequest;
 import com.nforce.onehr.repository.PolicyRepository;
+import com.nforce.onehr.util.ExcelTemplateHeader;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddressList;
@@ -50,6 +51,10 @@ public class PolicyBulkImportService {
 
     public byte[] template(String actorEmail) {
         policyService.requireCanCreate(actorEmail);
+        return buildTemplate();
+    }
+
+    static byte[] buildTemplate() {
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             CellStyle bold = wb.createCellStyle();
             Font font = wb.createFont();
@@ -61,26 +66,23 @@ public class PolicyBulkImportService {
             text.setWrapText(true);
 
             Sheet sheet = wb.createSheet(SHEET);
-            Row header = sheet.createRow(0);
-            int[] widths = {36, 12, 70, 34, 26};
+            ExcelTemplateHeader.write(wb, sheet, "Policy Details", HEADERS, REQUIRED_HEADERS);
+            int[] widths = {36, 14, 70, 34, 30};
             for (int i = 0; i < HEADERS.length; i++) {
-                Cell c = header.createCell(i);
-                c.setCellValue(HEADERS[i]);
-                c.setCellStyle(bold);
                 sheet.setDefaultColumnStyle(i, text);
                 sheet.setColumnWidth(i, widths[i] * 256);
             }
-            sheet.createFreezePane(0, 1);
+            int first = ExcelTemplateHeader.FIRST_DATA_ROW, last = first + MAX_ROWS - 1;
             DataValidationHelper dv = sheet.getDataValidationHelper();
             sheet.addValidationData(dv.createValidation(
                     dv.createExplicitListConstraint(new String[]{"TRUE", "FALSE"}),
-                    new CellRangeAddressList(1, MAX_ROWS, 4, 4)));
+                    new CellRangeAddressList(first, last, 4, 4)));
             // Suggestions only: a comma-separated combination of codes is typed by hand, so no error box.
             List<String> audienceChoices = new ArrayList<>(List.of(ALL_EMPLOYEES));
             audienceChoices.addAll(ROLE_CODES);
             DataValidation audience = dv.createValidation(
                     dv.createExplicitListConstraint(audienceChoices.toArray(String[]::new)),
-                    new CellRangeAddressList(1, MAX_ROWS, 3, 3));
+                    new CellRangeAddressList(first, last, 3, 3));
             audience.setShowErrorBox(false);
             sheet.addValidationData(audience);
 
@@ -96,7 +98,7 @@ public class PolicyBulkImportService {
                     {ACK, "No", "TRUE or FALSE (YES/NO and 1/0 also accepted). Defaults to TRUE when empty."},
                     {},
                     {"Notes"},
-                    {"Fill rows in the '" + SHEET + "' sheet. Do not rename or remove the header row."},
+                    {"Fill rows in the '" + SHEET + "' sheet, starting on row 3. Mandatory columns have red headers. Do not rename or remove the two header rows."},
                     {"Maximum " + MAX_ROWS + " policies per file. Empty rows are ignored."},
                     {"If an active policy already has the exact same title, publishing replaces it (the old one is deactivated) — same as publishing it individually."},
                     {"Every policy is sent to its audience: acknowledgment records and notifications are created for each employee in it."},
@@ -174,14 +176,17 @@ public class PolicyBulkImportService {
         DataFormatter fmt = new DataFormatter();
         FormulaEvaluator eval = wb.getCreationHelper().createFormulaEvaluator();
 
-        Map<String, Integer> cols = headerColumns(sheet.getRow(0), fmt, eval);
+        // Current template: title band on row 1, headers on row 2. Older downloads had headers on row 1.
+        int headerRow = hasRequiredHeaders(sheet.getRow(ExcelTemplateHeader.HEADER_ROW), fmt, eval) ? ExcelTemplateHeader.HEADER_ROW
+                : hasRequiredHeaders(sheet.getRow(0), fmt, eval) ? 0 : ExcelTemplateHeader.HEADER_ROW;
+        Map<String, Integer> cols = headerColumns(sheet.getRow(headerRow), fmt, eval);
         Set<String> activeTitles = policyRepo.findActiveListItems().stream()
                 .map(PolicyListItem::getTitle).collect(Collectors.toSet());
         Map<String, Integer> titleRowInFile = new HashMap<>();
 
         List<PolicyBulkValidationResponse.Row> rows = new ArrayList<>();
         List<PublishPolicyRequest> requests = new ArrayList<>();
-        for (int r = 1; r <= sheet.getLastRowNum(); r++) {
+        for (int r = headerRow + 1; r <= sheet.getLastRowNum(); r++) {
             Row row = sheet.getRow(r);
             if (isBlank(row, cols.values(), fmt, eval)) continue;
             if (rows.size() == MAX_ROWS) {
@@ -225,6 +230,13 @@ public class PolicyBulkImportService {
 
         int invalid = rows.size() - requests.size();
         return new Parsed(new PolicyBulkValidationResponse(rows.size(), requests.size(), invalid, rows), requests);
+    }
+
+    private static boolean hasRequiredHeaders(Row header, DataFormatter fmt, FormulaEvaluator eval) {
+        if (header == null) return false;
+        Set<String> found = new HashSet<>();
+        for (Cell c : header) found.add(squash(text(c, fmt, eval).replace("*", "")).toLowerCase(Locale.ROOT));
+        return REQUIRED_HEADERS.stream().allMatch(h -> found.contains(h.toLowerCase(Locale.ROOT)));
     }
 
     /** Header name → column index; rejects duplicate headers and missing mandatory columns. Unknown columns are ignored. */
