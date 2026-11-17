@@ -21,7 +21,7 @@ import {
   listAcknowledgments, listAllAnnouncements, createAnnouncement, publishAnnouncement,
   updateAnnouncement, deactivateAnnouncement, reactivateAnnouncement, deleteAnnouncement,
   resetAcknowledgment, remindEmployee, globalPendingAckCount,
-  validateAttachmentFile, fetchPolicyAttachment,
+  validateAttachmentFile, fetchPolicyAttachment, uploadPolicyAttachment,
   type Policy, type PolicyAcknowledgment, type Announcement,
 } from '../api/policies';
 
@@ -108,7 +108,7 @@ function modalSubtitleFor(title: string): string {
   const t = title.toLowerCase();
   if (t.includes('announcement')) return t.startsWith('edit') ? 'Update the message employees see.' : 'Broadcast a message to the roles you choose.';
   if (t.includes('new version')) return 'Replace the current version and ask employees to acknowledge again.';
-  if (t.startsWith('edit')) return 'Correct the title, description or audience.';
+  if (t.startsWith('edit')) return 'Correct the title, description or audience, or attach a document.';
   return 'Publish a company policy for employees to read and acknowledge.';
 }
 
@@ -296,6 +296,7 @@ function EditPolicyModal({ policy, onClose, onSaved }: { policy: Policy; onClose
   const [title, setTitle] = useState(policy.title);
   const [description, setDescription] = useState(policy.description);
   const [audience, setAudience] = useState<string[]>(parseAudienceToArr(policy.audience));
+  const { file, onFileChange } = useAttachmentField();
   const [loading, setLoading] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -304,7 +305,17 @@ function EditPolicyModal({ policy, onClose, onSaved }: { policy: Policy; onClose
     setLoading(true);
     try {
       const audienceStr = audience.length === 4 ? 'ALL' : audience.join(',');
-      const p = await editPolicy(token, policy.id, { title, description, audience: audienceStr });
+      let p = await editPolicy(token, policy.id, { title, description, audience: audienceStr });
+      // Attach-only endpoint: same version, acknowledgments untouched (unlike Publish New Version).
+      if (file) {
+        try {
+          p = await uploadPolicyAttachment(token, policy.id, file);
+        } catch (err) {
+          onSaved(p); // the text changes did save — keep the list in sync
+          showToast('error', `Changes saved, but the document could not be uploaded (${err instanceof Error ? err.message : 'upload failed'}). Open Edit again to retry.`);
+          return;
+        }
+      }
       onSaved(p);
       showToast('success', 'Policy updated');
       onClose();
@@ -331,6 +342,10 @@ function EditPolicyModal({ policy, onClose, onSaved }: { policy: Policy; onClose
         <textarea style={{ ...inputS, resize: 'vertical' }} rows={5} value={description} onChange={e => setDescription(e.target.value)} required />
       </FormField>
       <AudienceField value={audience} onChange={setAudience} />
+      <AttachmentField file={file} onFileChange={onFileChange}
+        hint={policy.hasAttachment
+          ? `optional - replaces the current document${policy.attachmentFileName ? ` (${policy.attachmentFileName})` : ''}; version stays the same`
+          : 'optional - Image, PDF, or Word document; version stays the same'} />
     </PolicyFormModal>
   );
 }
