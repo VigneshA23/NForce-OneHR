@@ -8,6 +8,7 @@ import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.repository.AssetCategoryRepository;
 import com.nforce.onehr.repository.AssetRepository;
 import com.nforce.onehr.repository.LocationRepository;
+import com.nforce.onehr.util.ExcelTemplateHeader;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddressList;
@@ -39,6 +40,7 @@ public class AssetBulkImportService {
             "Purchase Date", "Purchase Cost", "Warranty Expiry", "Condition", "Location"};
     static final int PURCHASE_DATE_COL = 5;
     static final int WARRANTY_COL = 7;
+    static final Set<String> MANDATORY = Set.of("Asset Tag", "Category");
     static final int MAX_ROWS = 500;
     static final long MAX_FILE_BYTES = 5L * 1024 * 1024;
     static final List<String> CONDITIONS = List.of("GOOD", "FAIR", "DAMAGED", "REPAIR");
@@ -54,6 +56,11 @@ public class AssetBulkImportService {
 
     public byte[] template(String actorEmail) {
         assetService.requireCanCreate(actorEmail);
+        return buildTemplate(categoryRepo.findAll().stream().map(AssetCategory::getName).toList(),
+                locationRepo.findAll().stream().filter(Location::isActive).map(Location::getName).toList());
+    }
+
+    static byte[] buildTemplate(List<String> categoryNames, List<String> locationNames) {
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             CellStyle bold = wb.createCellStyle();
             Font font = wb.createFont();
@@ -67,26 +74,28 @@ public class AssetBulkImportService {
             date.setDataFormat(wb.createDataFormat().getFormat("yyyy-mm-dd"));
 
             Sheet sheet = wb.createSheet(SHEET);
-            Row header = sheet.createRow(0);
+            ExcelTemplateHeader.write(wb, sheet, "Asset Details", HEADERS, MANDATORY);
             for (int i = 0; i < HEADERS.length; i++) {
-                Cell c = header.createCell(i);
-                c.setCellValue(HEADERS[i]);
-                c.setCellStyle(bold);
                 sheet.setDefaultColumnStyle(i, i == PURCHASE_DATE_COL || i == WARRANTY_COL ? date : text);
-                sheet.setColumnWidth(i, 20 * 256);
+                sheet.setColumnWidth(i, Math.max(16, HEADERS[i].length() + 6) * 256); // room for the filter button
             }
-            sheet.createFreezePane(0, 1);
+            int first = ExcelTemplateHeader.FIRST_DATA_ROW, last = first + MAX_ROWS - 1;
             DataValidationHelper dv = sheet.getDataValidationHelper();
             sheet.addValidationData(dv.createValidation(
                     dv.createExplicitListConstraint(CONDITIONS.toArray(String[]::new)),
-                    new CellRangeAddressList(1, MAX_ROWS, 8, 8)));
+                    new CellRangeAddressList(first, last, 8, 8)));
+            // ponytail: Excel has no native calendar picker in a plain .xlsx (needs macros/add-ins); a
+            // date-typed, date-validated column is the most it allows. Excel for the web / Google Sheets
+            // do show a calendar for such cells.
             for (int col : new int[]{PURCHASE_DATE_COL, WARRANTY_COL}) {
                 DataValidation v = dv.createValidation(
                         dv.createDateConstraint(DataValidationConstraint.OperatorType.BETWEEN,
                                 "DATE(1900,1,1)", "DATE(9999,12,31)", "yyyy-mm-dd"),
-                        new CellRangeAddressList(1, MAX_ROWS, col, col));
+                        new CellRangeAddressList(first, last, col, col));
                 v.setShowErrorBox(true);
                 v.createErrorBox("Invalid date", "Enter a date, e.g. 2025-04-15.");
+                v.setShowPromptBox(true);
+                v.createPromptBox(HEADERS[col], "Enter a date as YYYY-MM-DD, e.g. 2025-04-15.");
                 sheet.addValidationData(v);
             }
 
@@ -105,7 +114,7 @@ public class AssetBulkImportService {
                     {"Location", "No", "Name of an existing active location (see list below)."},
                     {},
                     {"Notes"},
-                    {"Fill rows in the '" + SHEET + "' sheet. Do not rename, reorder or remove the header row."},
+                    {"Fill rows in the '" + SHEET + "' sheet, starting on row 3. Mandatory columns have red headers. Do not rename, reorder or remove the two header rows."},
                     {"Maximum " + MAX_ROWS + " assets per file. Empty rows are ignored."},
                     {"Status is set to AVAILABLE automatically; assign assets from the inventory after import."},
                     {"If any row has an error nothing is imported. Fix the file and upload it again."},
@@ -117,8 +126,8 @@ public class AssetBulkImportService {
             }
             help.getRow(0).forEach(c -> c.setCellStyle(bold));
             help.getRow(12).getCell(0).setCellStyle(bold);
-            r = writeList(help, r + 1, "Valid categories", categoryRepo.findAll().stream().map(AssetCategory::getName), bold);
-            writeList(help, r + 1, "Valid locations", locationRepo.findAll().stream().filter(Location::isActive).map(Location::getName), bold);
+            r = writeList(help, r + 1, "Valid categories", categoryNames.stream(), bold);
+            writeList(help, r + 1, "Valid locations", locationNames.stream(), bold);
             help.setColumnWidth(0, 24 * 256);
             help.setColumnWidth(1, 12 * 256);
             help.setColumnWidth(2, 90 * 256);
@@ -185,14 +194,12 @@ public class AssetBulkImportService {
         DataFormatter fmt = new DataFormatter();
         FormulaEvaluator eval = wb.getCreationHelper().createFormulaEvaluator();
 
-        Row header = sheet.getRow(0);
-        for (int i = 0; i < HEADERS.length; i++) {
-            String h = header == null ? "" : text(header.getCell(i), fmt, eval).replace("*", "").trim();
-            if (!HEADERS[i].equalsIgnoreCase(h)) {
-                throw new IllegalArgumentException("Column headers don't match the template (expected: "
-                        + String.join(", ", HEADERS) + "). Download the latest template.");
-            }
-        }
+        // Current template: title band on row 1, headers on row 2. Older downloads had headers on row 1.
+        int headerRow;
+        if (headersMatch(sheet.getRow(ExcelTemplateHeader.HEADER_ROW), fmt, eval)) headerRow = ExcelTemplateHeader.HEADER_ROW;
+        else if (headersMatch(sheet.getRow(0), fmt, eval)) headerRow = 0;
+        else throw new IllegalArgumentException("Column headers don't match the template (expected: "
+                + String.join(", ", HEADERS) + "). Download the latest template.");
 
         Map<String, AssetCategory> categories = byLowerName(categoryRepo.findAll(), AssetCategory::getName);
         Map<String, Location> locations = byLowerName(locationRepo.findAll(), Location::getName);
@@ -201,7 +208,7 @@ public class AssetBulkImportService {
 
         List<AssetBulkValidationResponse.Row> rows = new ArrayList<>();
         List<CreateAssetRequest> requests = new ArrayList<>();
-        for (int r = 1; r <= sheet.getLastRowNum(); r++) {
+        for (int r = headerRow + 1; r <= sheet.getLastRowNum(); r++) {
             Row row = sheet.getRow(r);
             if (isBlank(row, fmt, eval)) continue;
             if (rows.size() == MAX_ROWS) {
@@ -298,6 +305,14 @@ public class AssetBulkImportService {
             // Unsupported/broken formula: fall back to the raw formula text, which then fails validation.
             return fmt.formatCellValue(c).trim();
         }
+    }
+
+    private static boolean headersMatch(Row header, DataFormatter fmt, FormulaEvaluator eval) {
+        if (header == null) return false;
+        for (int i = 0; i < HEADERS.length; i++) {
+            if (!HEADERS[i].equalsIgnoreCase(text(header.getCell(i), fmt, eval).replace("*", "").trim())) return false;
+        }
+        return true;
     }
 
     private static boolean isBlank(Row row, DataFormatter fmt, FormulaEvaluator eval) {
