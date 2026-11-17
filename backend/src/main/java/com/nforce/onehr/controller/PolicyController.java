@@ -2,6 +2,7 @@ package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.doc.*;
 import com.nforce.onehr.entity.Policy;
+import com.nforce.onehr.service.PolicyBulkImportService;
 import com.nforce.onehr.service.PolicyService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +18,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.security.Principal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -25,6 +27,7 @@ import java.util.UUID;
 public class PolicyController {
 
     private final PolicyService service;
+    private final PolicyBulkImportService bulkImportService;
 
     // ── All authenticated users ────────────────────────────
 
@@ -58,6 +61,30 @@ public class PolicyController {
     public PolicyResponse publish(Principal principal, @Valid @ModelAttribute PublishPolicyRequest req,
                                   @RequestParam(required = false) MultipartFile attachment) throws IOException {
         return service.publish(principal.getName(), req, attachment);
+    }
+
+    // ── HR/SA: Bulk Add Policies (Excel) ──
+
+    @GetMapping("/bulk/template")
+    @PreAuthorize("hasAuthority('policies:CREATE:ALL')")
+    public ResponseEntity<byte[]> bulkTemplate(Principal principal) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"policy-bulk-upload-template.xlsx\"")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(bulkImportService.template(principal.getName()));
+    }
+
+    @PostMapping(value = "/bulk/validate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAuthority('policies:CREATE:ALL')")
+    public PolicyBulkValidationResponse bulkValidate(Principal principal, @RequestParam MultipartFile file) {
+        return bulkImportService.validate(file, principal.getName());
+    }
+
+    @PostMapping(value = "/bulk/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('policies:CREATE:ALL')")
+    public Map<String, Object> bulkImport(Principal principal, @RequestParam MultipartFile file) {
+        return bulkImportService.importPolicies(file, principal.getName());
     }
 
     @PatchMapping("/{id}")

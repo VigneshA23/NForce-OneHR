@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { Plus, Megaphone, CheckCircle, Clock, Search, X, Users, Info, Paperclip, FileCheck2, ClipboardCheck, CopyPlus, Pencil, Power, PowerOff, Send, Trash2 } from 'lucide-react';
+import { Plus, Megaphone, CheckCircle, Clock, Search, X, Users, Info, Paperclip, FileCheck2, ClipboardCheck, CopyPlus, Pencil, Power, PowerOff, Send, Trash2, FileSpreadsheet } from 'lucide-react';
+import { BulkAddPoliciesModal } from './policies/BulkAddPoliciesModal';
 import DashTile from '../components/DashTile';
 import { KebabMenu } from '../components/KebabMenu';
 import { PersonCellById } from '../components/PersonCell';
@@ -614,6 +615,7 @@ export default function PoliciesPage() {
   const [pendingAckTotal, setPendingAckTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showPublish, setShowPublish] = useState(false);
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [showAnnounce, setShowAnnounce] = useState(false);
   const [editPolicyTarget, setEditPolicyTarget] = useState<Policy | null>(null);
   const [publishVersionTarget, setPublishVersionTarget] = useState<Policy | null>(null);
@@ -749,10 +751,14 @@ export default function PoliciesPage() {
           <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Policies & Announcements</h1>
           <p style={{ color: 'var(--txt-dim)', fontSize: 13, marginTop: 4 }}>Publish company policies and broadcast announcements.</p>
         </PageTitleBlock>
-        <div className="nf-policy-actions" style={{ display: 'flex', gap: 10 }}>
+        <div className="nf-policy-actions" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {can('announcements', 'CREATE') && <button onClick={() => setShowAnnounce(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 10, color: 'var(--txt)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
             <Megaphone size={14} /> New Announcement
+          </button>}
+          {can('policies', 'CREATE') && <button onClick={() => setShowBulkAdd(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'var(--panel)', border: '1px solid color-mix(in srgb, var(--brand) 40%, var(--line2))', borderRadius: 10, color: 'var(--brand)', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+            <FileSpreadsheet size={14} /> Bulk Add Policies
           </button>}
           {can('policies', 'CREATE') && <button onClick={() => setShowPublish(true)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 30%, transparent)', border: 'none', borderRadius: 10, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
@@ -936,6 +942,16 @@ export default function PoliciesPage() {
           policies={policies}
           onClose={() => setShowPublish(false)}
           onPublished={p => { setPolicies(prev => [p, ...prev.map(old => old.title === p.title ? { ...old, active: false } : old)]); refreshPendingAckTotal(); }}
+        />
+      )}
+      {showBulkAdd && (
+        <BulkAddPoliciesModal
+          token={token}
+          onClose={() => setShowBulkAdd(false)}
+          onImported={() => {
+            listAllPolicies(token).then(setPolicies).catch(e => showToast('error', e instanceof Error ? e.message : 'Load failed'));
+            refreshPendingAckTotal();
+          }}
         />
       )}
       {showAnnounce && (
