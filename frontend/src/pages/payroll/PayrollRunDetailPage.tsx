@@ -220,9 +220,10 @@ export default function PayrollRunDetailPage() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
         <PageTitleBlock icon={Wallet}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>
-            {fmtDate(run.cycleStart)} – {fmtDate(run.cycleEnd)}
+            {(() => { const [y, m] = run.cycleEnd.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }); })()} Payroll
           </h1>
           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fmtDate(run.cycleStart)} – {fmtDate(run.cycleEnd)}</span>
             <StatusBadge status={run.status} />
             {payGroupName && <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{payGroupName}</span>}
           </div>
@@ -252,10 +253,10 @@ export default function PayrollRunDetailPage() {
       <WithFaqPanel items={FAQ_ITEMS} title="Payroll Run Help">
       <div>
       <div className="nf-pr-tiles" style={{ marginBottom: 18 }}>
-        <StatTile tone="var(--info)" icon={<Users size={20} />} label="Employees" value={String(run.employeeCount)} />
-        <StatTile tone="var(--brand)" icon={<IndianRupee size={20} />} label="Gross Pay" value={fmtCurrency(run.totalGross)} />
-        <StatTile tone="var(--warn)" icon={<MinusCircle size={20} />} label="Deductions" value={fmtCurrency(run.totalDeductions)} />
-        <StatTile tone="var(--ok)" icon={<IndianRupee size={20} />} label="Net Pay" value={fmtCurrency(run.totalNet)} />
+        <StatTile tone="var(--info)" icon={<Users size={20} />} label="Employees" value={String(run.employeeCount)} onClick={() => setStep('payslips')} />
+        <StatTile tone="var(--brand)" icon={<IndianRupee size={20} />} label="Gross Pay" value={fmtCurrency(run.totalGross)} onClick={() => setStep('payslips')} />
+        <StatTile tone="var(--warn)" icon={<MinusCircle size={20} />} label="Deductions" value={fmtCurrency(run.totalDeductions)} onClick={() => setStep('cost-report')} />
+        <StatTile tone="var(--ok)" icon={<IndianRupee size={20} />} label="Net Pay" value={fmtCurrency(run.totalNet)} onClick={() => setStep('payslips')} />
       </div>
 
       <TabBar tabs={STEPS} active={step} onChange={setStep} ariaLabel="Payroll run steps" style={{ marginBottom: 18 }} />
@@ -285,7 +286,7 @@ export default function PayrollRunDetailPage() {
         </>
       )}
 
-      {step === 'payslips' && <PayslipsTab runId={runId} payGroupId={run.payGroupId} cycleStart={run.cycleStart} canConfigure={canConfigure} />}
+      {step === 'payslips' && <PayslipsTab runId={runId} payGroupId={run.payGroupId} cycleStart={run.cycleStart} runStatus={run.status} canConfigure={canConfigure} />}
 
       {step === 'joiners-exits' && <JoinersExitsTab runId={runId} />}
 

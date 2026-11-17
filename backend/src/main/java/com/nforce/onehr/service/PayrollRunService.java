@@ -8,12 +8,18 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /**
  * US-C08 (ONEHR-614), Phase 3 — the payroll run: generates a DRAFT batch of payslips for a pay
@@ -182,6 +188,7 @@ public class PayrollRunService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
+    private final PayslipService payslipService;
 
     // Default-timeout (30s, see application.yml) is sized for this app's normal transactions,
     // which are short and single-method. This one isn't: it loops once per included employee,
@@ -238,16 +245,40 @@ public class PayrollRunService {
         // regenerate to apply. PAYOUT-type holds do NOT exclude — they're processed normally and
         // only intercepted later, at disburse() time.
         Set<UUID> heldEmployeeIds = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(run.getId(), SalaryHoldType.PROCESSING);
-        List<EmployeeCompensation> included = compensations.stream()
-                .filter(comp -> !heldEmployeeIds.contains(comp.getEmployeeId()))
-                .collect(Collectors.toList());
 
-        // US-C22/US-C23: a held employee never goes through buildPayslip this regenerate, so their
-        // review items (from a PRIOR regenerate, before the hold existed) would otherwise linger
-        // forever as stale PENDING rows — permanently blocking submit() for a step that no longer
-        // even applies to them. Wiped explicitly; harmless no-op when there's nothing to delete.
-        for (UUID heldEmployeeId : heldEmployeeIds) {
-            payrollRunReviewService.deleteItemsForEmployee(run.getId(), heldEmployeeId);
+        // A compensation row effective-dated at window.end() doesn't guarantee the employee was
+        // actually employed THROUGH this window — their joining date can sit after it (comp set up
+        // ahead of a future start) or their last working day before it (comp never closed out after
+        // exit). Either way buildPayslip's own PayrollProrationService#recompute call would throw
+        // IllegalArgumentException for them — and since generateDraft is one @Transactional method,
+        // that one employee rolled back payslip generation for EVERY employee in the run. Excluded
+        // up front instead, the same way heldEmployeeIds already is, rather than letting it blow up.
+        Map<UUID, Employee> employeesById = employeeRepository
+                .findAllById(compensations.stream().map(EmployeeCompensation::getEmployeeId).collect(Collectors.toList()))
+                .stream().collect(Collectors.toMap(Employee::getUserId, e -> e));
+        List<EmployeeCompensation> included = new ArrayList<>();
+        Set<UUID> excludedByWindowIds = new HashSet<>();
+        for (EmployeeCompensation comp : compensations) {
+            if (heldEmployeeIds.contains(comp.getEmployeeId())) continue;
+            Employee employee = employeesById.get(comp.getEmployeeId());
+            LocalDate joiningDate = employee == null ? null : employee.getJoiningDate();
+            LocalDate exitDate = employee == null ? null : employee.getLastWorkingDay();
+            boolean employedThroughWindow = employee != null
+                    && !joiningDate.isAfter(window.end()) && (exitDate == null || !exitDate.isBefore(window.start()));
+            if (employedThroughWindow) {
+                included.add(comp);
+            } else {
+                excludedByWindowIds.add(comp.getEmployeeId());
+            }
+        }
+
+        // US-C22/US-C23: a held or not-actually-employed-this-cycle employee never goes through
+        // buildPayslip this regenerate, so their review items (from a PRIOR regenerate, before the
+        // hold existed or before their exit date was recorded) would otherwise linger forever as
+        // stale PENDING rows — permanently blocking submit() for a step that no longer even applies
+        // to them. Wiped explicitly; harmless no-op when there's nothing to delete.
+        for (UUID excludedEmployeeId : Stream.concat(heldEmployeeIds.stream(), excludedByWindowIds.stream()).collect(Collectors.toSet())) {
+            payrollRunReviewService.deleteItemsForEmployee(run.getId(), excludedEmployeeId);
         }
 
         // Recurring ad-hoc payment rules (e.g. a standing monthly Food Allowance) — applied BEFORE
@@ -469,6 +500,96 @@ public class PayrollRunService {
         Payslip payslip = payslipRepository.findByPayrollRunIdAndEmployeeId(runId, employeeId)
                 .orElseThrow(() -> new NoSuchElementException("No payslip for employee " + employeeId + " in run " + runId));
         return toPayslipResponse(payslip, payslipLineItemRepository.findByPayslipId(payslip.getId()));
+    }
+
+    /** A period is the {@code yyyy-MM} of the cycle's END date — same convention {@link
+     * PayslipService} itself uses, so this run's own cycleEnd is all that's needed to find the
+     * matching self-service payslip for this run's own employee. */
+    @Transactional(readOnly = true)
+    public PayslipService.PayslipFile getPayslipPdf(UUID runId, UUID employeeId, String actorEmail) {
+        PayrollRun run = requireRun(runId);
+        return payslipService.getPayslipPdf(actorEmail, employeeId, YearMonth.from(run.getCycleEnd()).toString());
+    }
+
+    /**
+     * Centralized "Distribute Payslips" action on the Payslips tab — one call covers every
+     * payslip in the run (or an explicit subset), never a per-employee send button. Only valid
+     * once the run is APPROVED or DISBURSED — the same visibility floor {@link PayslipService}
+     * itself enforces, so distribution can never run ahead of what's actually renderable.
+     *
+     * <p>PORTAL sets {@link Payslip#isReleased()} true in bulk — the real gate {@link
+     * com.nforce.onehr.repository.PayslipRepository#findVisibleForEmployee} reads, so this is what
+     * actually makes a payslip appear under My Finance (nothing does that automatically anymore).
+     * EMAIL loops the same {@link PayslipService#sendPayslipEmail} a single-employee send always
+     * used, one employee at a time inside its own try/catch, so one bad email address can't abort
+     * the rest of the batch.
+     */
+    @Transactional
+    public DistributePayslipsResponse distributePayslips(UUID runId, DistributePayslipsRequest req, String actorEmail) {
+        PayrollRun run = requireRun(runId);
+        if (!PayrollRunStatus.APPROVED.equals(run.getStatus()) && !PayrollRunStatus.DISBURSED.equals(run.getStatus())) {
+            throw new IllegalStateException("Payslips can only be distributed for an Approved or Disbursed run (currently " + run.getStatus() + ")");
+        }
+
+        List<UUID> targetIds = (req.getEmployeeIds() != null && !req.getEmployeeIds().isEmpty())
+                ? req.getEmployeeIds()
+                : payslipRepository.findByPayrollRunId(runId).stream().map(Payslip::getEmployeeId).toList();
+
+        int releasedCount = 0;
+        if (req.getChannels().contains("PORTAL") && !targetIds.isEmpty()) {
+            payslipRepository.releaseByPayrollRunIdAndEmployeeIdIn(runId, targetIds);
+            releasedCount = targetIds.size();
+        }
+
+        int emailedCount = 0;
+        int emailFailedCount = 0;
+        if (req.getChannels().contains("EMAIL")) {
+            String period = YearMonth.from(run.getCycleEnd()).toString();
+            for (UUID employeeId : targetIds) {
+                try {
+                    if (payslipService.sendPayslipEmail(actorEmail, employeeId, period)) {
+                        emailedCount++;
+                    } else {
+                        emailFailedCount++;
+                    }
+                } catch (Exception e) {
+                    emailFailedCount++;
+                }
+            }
+        }
+
+        User actor = requireActor(actorEmail);
+        auditService.log(actor.getId(), "PAYROLL_PAYSLIPS_DISTRIBUTED", run.getId(), null,
+                auditSnapshot.toJson(Map.of("channels", req.getChannels(), "released", releasedCount, "emailed", emailedCount, "emailFailed", emailFailedCount)));
+
+        return DistributePayslipsResponse.builder()
+                .releasedCount(releasedCount).emailedCount(emailedCount).emailFailedCount(emailFailedCount)
+                .build();
+    }
+
+    /** "Download All" on the Payslips tab — every payslip in the run, zipped, regardless of
+     * distribution state (HR can always pull its own copies). Reuses {@link
+     * PayslipService#getPayslipPdf} per employee, same rendering every other admin/self-service
+     * download already uses, just packed into one archive instead of N separate downloads. */
+    @Transactional(readOnly = true)
+    public PayslipService.PayslipFile bulkPayslipPdf(UUID runId, String actorEmail) {
+        PayrollRun run = requireRun(runId);
+        String period = YearMonth.from(run.getCycleEnd()).toString();
+        List<UUID> employeeIds = payslipRepository.findByPayrollRunId(runId).stream().map(Payslip::getEmployeeId).toList();
+
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(buffer)) {
+            for (UUID employeeId : employeeIds) {
+                PayslipService.PayslipFile file = payslipService.getPayslipPdf(actorEmail, employeeId, period);
+                zip.putNextEntry(new ZipEntry(file.fileName()));
+                zip.write(file.data());
+                zip.closeEntry();
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to build payslips archive", e);
+        }
+
+        return new PayslipService.PayslipFile(buffer.toByteArray(), "application/zip", "payslips-" + period + ".zip");
     }
 
     /**

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, Lock, CheckCircle2, Clock, CalendarClock } from 'lucide-react';
+import { Wallet, Lock, CheckCircle2, Clock, CalendarClock, Loader2 } from 'lucide-react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
@@ -10,68 +10,9 @@ import { useToast } from '../context/ToastContext';
 import { payrollApi, type PayGroupResponse, type PayrollRunResponse } from '../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, StatusBadge, EmptyRow, SectionHead,
-  Modal, FormRow, labelStyle, inputStyle, BtnPrimary, BtnGhost,
+  labelStyle, inputStyle,
 } from './payroll/payrollShared';
 import './payroll/payroll.css';
-
-function GenerateRunModal({ payGroups, defaultPayGroupId, defaultReferenceDate, onClose, onCreated }: {
-  payGroups: PayGroupResponse[];
-  defaultPayGroupId: string;
-  defaultReferenceDate?: string;
-  onClose: () => void;
-  onCreated: (run: PayrollRunResponse) => void;
-}) {
-  const token = useAuthStore(s => s.token)!;
-  const { showToast } = useToast();
-  const [payGroupId, setPayGroupId] = useState(defaultPayGroupId);
-  const [referenceDate, setReferenceDate] = useState(defaultReferenceDate ?? '');
-  const [submitting, setSubmitting] = useState(false);
-
-  // Self-heals a real race: this modal's initial value is whatever defaultPayGroupId was AT THE
-  // MOMENT it mounted — if the page's own pay-group fetch hadn't resolved yet (opened the modal
-  // immediately after navigating in), that was "" and stays "" forever, since useState's initial
-  // value only applies once. The <select> below then masks this entirely: with no empty-value
-  // placeholder option, a browser shows the first real option as selected regardless of the
-  // actual bound value, so it LOOKS chosen while Generate silently stays disabled. This re-syncs
-  // once payGroups actually arrives, same fix as PayrollSetupPage's structureId/payGroupId sync.
-  useEffect(() => {
-    if (!payGroupId && payGroups[0]) setPayGroupId(payGroups[0].id);
-  }, [payGroups, payGroupId]);
-
-  async function submit() {
-    if (!payGroupId) return;
-    setSubmitting(true);
-    try {
-      const run = await payrollApi.generateDraft({ payGroupId, referenceDate: referenceDate || undefined }, token);
-      onCreated(run);
-      onClose();
-      showToast('success', 'Draft run generated');
-    } catch (e) {
-      showToast('error', e instanceof Error ? e.message : 'Failed to generate draft');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <Modal title="Generate Payroll Run" subtitle="Creates (or regenerates, while still DRAFT) the payslips for the cycle containing this date." onClose={onClose}>
-      <FormRow>
-        <label style={labelStyle}>Pay Group *</label>
-        <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
-          {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}
-        </select>
-      </FormRow>
-      <FormRow>
-        <label style={labelStyle}>Reference Date</label>
-        <input type="date" value={referenceDate} onChange={e => setReferenceDate(e.target.value)} style={inputStyle} />
-      </FormRow>
-      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-        <BtnGhost onClick={onClose}>Cancel</BtnGhost>
-        <BtnPrimary onClick={submit} disabled={!payGroupId || submitting}>{submitting ? 'Generating…' : 'Generate'}</BtnPrimary>
-      </div>
-    </Modal>
-  );
-}
 
 type MonthTileStatus = 'LOCKED' | 'COMPLETED' | 'CURRENT' | 'UPCOMING' | 'NOT_GENERATED';
 
@@ -165,33 +106,36 @@ const TILE_LABEL: Record<MonthTileStatus, string> = {
   NOT_GENERATED: 'Not Generated',
 };
 
-function MonthStrip({ payGroup, runs, canConfigure, onOpenRun, onGenerateFor }: {
+function MonthStrip({ payGroup, runs, canConfigure, generatingKey, onOpenRun, onGenerate }: {
   payGroup: PayGroupResponse;
   runs: PayrollRunResponse[];
   canConfigure: boolean;
+  generatingKey: string | null;
   onOpenRun: (runId: string) => void;
-  onGenerateFor: (referenceDate: string) => void;
+  onGenerate: (tile: MonthTile) => void;
 }) {
   const tiles = useMemo(() => buildMonthStrip(payGroup, runs, new Date()), [payGroup, runs]);
 
   function click(tile: MonthTile) {
+    if (generatingKey) return;
     if (tile.run) { onOpenRun(tile.run.id); return; }
     if (tile.status === 'UPCOMING' || !canConfigure) return;
-    onGenerateFor(tile.cycleEnd.toISOString().slice(0, 10));
+    onGenerate(tile);
   }
 
   return (
     <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6, marginBottom: 22 }}>
       {tiles.map(tile => {
         const Icon = TILE_ICON[tile.status];
-        const clickable = !!tile.run || (tile.status !== 'UPCOMING' && canConfigure);
+        const isGenerating = generatingKey === tile.key;
+        const clickable = !generatingKey && (!!tile.run || (tile.status !== 'UPCOMING' && canConfigure));
         const isCurrent = tile.status === 'CURRENT';
         return (
           <button
             key={tile.key}
             onClick={() => click(tile)}
             disabled={!clickable}
-            title={tile.run ? `${tile.run.employeeCount} employees` : tile.status === 'UPCOMING' ? 'Not yet due' : 'Click to generate'}
+            title={tile.run ? `${tile.run.employeeCount} employees` : tile.status === 'UPCOMING' ? 'Not yet due' : `Click to generate the ${fmtDate(tile.cycleStart.toISOString().slice(0, 10))} – ${fmtDate(tile.cycleEnd.toISOString().slice(0, 10))} cycle`}
             style={{
               flex: '0 0 148px', textAlign: 'left', cursor: clickable ? 'pointer' : 'default',
               background: 'var(--panel)', border: `1px solid ${isCurrent ? 'var(--brand)' : 'var(--line)'}`,
@@ -201,7 +145,8 @@ function MonthStrip({ payGroup, runs, canConfigure, onOpenRun, onGenerateFor }: 
           >
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 8 }}>{tile.label}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: TILE_TONE[tile.status], fontSize: 12, fontWeight: 600 }}>
-              <Icon size={14} /> {TILE_LABEL[tile.status]}
+              {isGenerating ? <Loader2 size={14} className="nf-spin" /> : <Icon size={14} />}
+              {isGenerating ? 'Generating…' : TILE_LABEL[tile.status]}
             </div>
             {tile.run && (
               <div style={{ marginTop: 8, fontSize: 11, color: 'var(--txt-mut)' }}>{fmtCurrency(tile.run.totalNet)} net</div>
@@ -223,7 +168,7 @@ export default function PayrollRunsPage() {
   const [payGroups, setPayGroups] = useState<PayGroupResponse[]>([]);
   const [payGroupId, setPayGroupId] = useState('');
   const [runs, setRuns] = useState<PayrollRunResponse[]>([]);
-  const [showGenerate, setShowGenerate] = useState<{ referenceDate?: string } | null>(null);
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
 
   useEffect(() => {
     payrollApi.listPayGroups(token).then(groups => {
@@ -240,6 +185,24 @@ export default function PayrollRunsPage() {
 
   const { pageRows, pagerProps } = usePaged(runs, [payGroupId]);
   const selectedPayGroup = payGroups.find(pg => pg.id === payGroupId) ?? null;
+
+  // Each tile already knows its own exact cycle (cycleStart/cycleEnd from buildMonthStrip's own
+  // boundary math), so there's nothing left for a dialog to ask — generate straight off the click,
+  // the same instinct as regenerate/submit/approve/disburse already being one click each.
+  async function generateForTile(tile: MonthTile) {
+    if (!payGroupId) return;
+    setGeneratingKey(tile.key);
+    try {
+      const run = await payrollApi.generateDraft({ payGroupId, referenceDate: tile.cycleEnd.toISOString().slice(0, 10) }, token);
+      setRuns(prev => [run, ...prev.filter(r => r.id !== run.id)]);
+      showToast('success', 'Draft run generated');
+      navigate(`/payroll-runs/${run.id}`);
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to generate draft');
+    } finally {
+      setGeneratingKey(null);
+    }
+  }
 
   return (
     <div style={{ padding: '24px 28px' }}>
@@ -262,8 +225,9 @@ export default function PayrollRunsPage() {
           payGroup={selectedPayGroup}
           runs={runs}
           canConfigure={canConfigure}
+          generatingKey={generatingKey}
           onOpenRun={runId => navigate(`/payroll-runs/${runId}`)}
-          onGenerateFor={referenceDate => setShowGenerate({ referenceDate })}
+          onGenerate={generateForTile}
         />
       )}
 
@@ -292,16 +256,6 @@ export default function PayrollRunsPage() {
         </table>
         <TablePagination {...pagerProps} noun="runs" />
       </div>
-
-      {showGenerate && (
-        <GenerateRunModal
-          payGroups={payGroups}
-          defaultPayGroupId={payGroupId}
-          defaultReferenceDate={showGenerate.referenceDate}
-          onClose={() => setShowGenerate(null)}
-          onCreated={run => { setRuns(prev => [run, ...prev.filter(r => r.id !== run.id)]); navigate(`/payroll-runs/${run.id}`); }}
-        />
-      )}
     </div>
   );
 }

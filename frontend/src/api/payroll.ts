@@ -501,6 +501,37 @@ export const payrollApi = {
   rollbackEmployeePayslip: (runId: string, employeeId: string, reason: string, token: string) =>
     fetch(`${BASE}/runs/${runId}/payslips/${employeeId}/rollback`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ reason }) }).then(handle<PayslipResponse>),
 
+  /** Opens the employee's actual rendered payslip PDF in a new tab — same document My Finances
+   * would show them, viewed from the run console instead. */
+  viewPayslipPdf: async (runId: string, employeeId: string, token: string) => {
+    const res = await fetch(`${BASE}/runs/${runId}/payslips/${employeeId}/pdf`, { headers: bearerOnly(token) });
+    if (!res.ok) throw new Error(`Failed to open payslip (${res.status})`);
+    const url = URL.createObjectURL(await res.blob());
+    window.open(url, '_blank');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  },
+
+  /** Centralized "Distribute Payslips" — one call for the whole run (or an explicit subset),
+   * never a per-employee send button. `employeeIds` omitted/empty means every payslip in the run. */
+  distributePayslips: (runId: string, payload: { employeeIds?: string[]; channels: ('PORTAL' | 'EMAIL')[] }, token: string) =>
+    fetch(`${BASE}/runs/${runId}/payslips/distribute`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) })
+      .then(handle<{ releasedCount: number; emailedCount: number; emailFailedCount: number }>),
+
+  /** "Download All" — every payslip in the run, zipped, regardless of distribution state. */
+  downloadAllPayslips: async (runId: string, token: string) => {
+    const res = await fetch(`${BASE}/runs/${runId}/payslips/bulk-pdf`, { headers: bearerOnly(token) });
+    if (!res.ok) throw new Error(`Failed to download payslips (${res.status})`);
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    const fileName = match ? match[1] : 'payslips.zip';
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  },
+
   // LOP
   recomputeLop: (payload: { employeeId: string; payGroupId: string; referenceDate?: string; runId?: string }, token: string) =>
     fetch(`${BASE}/lop/recompute`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayrollLopCalculationResponse>),

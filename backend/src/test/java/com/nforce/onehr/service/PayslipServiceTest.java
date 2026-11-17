@@ -72,6 +72,7 @@ class PayslipServiceTest {
     @Mock private SalaryComponentRepository salaryComponentRepository;
     @Mock private LeaveBalanceRepository leaveBalanceRepository;
     @Mock private ArrearsRepository arrearsRepository;
+    @Mock private EmailService emailService;
 
     private PayslipService service;
 
@@ -82,7 +83,7 @@ class PayslipServiceTest {
     void setUp() {
         service = new PayslipService(payslipRepository, lineItemRepository, employeeRepository, payGroupRepository,
                 userRepository, new PayslipAccessPolicy(), new PayslipPdfService(), payslipSettingsRepository,
-                salaryComponentRepository, leaveBalanceRepository, arrearsRepository, 4);
+                salaryComponentRepository, leaveBalanceRepository, arrearsRepository, emailService, 4);
         lenient().when(payslipSettingsRepository.findById(any())).thenReturn(Optional.empty());
     }
 
@@ -107,6 +108,35 @@ class PayslipServiceTest {
         stubPayslip();
 
         assertDoesNotThrow(() -> service.getPayslipPdf("hr@x.com", employeeId, "2026-11"));
+    }
+
+    @Test
+    void sendPayslipEmail_rendersAndEmailsTheSamePdf_toTheEmployeesAddressOnFile() {
+        stubUser("hr@x.com", UUID.randomUUID(), "HR_ADMIN");
+        stubPayslip();
+        Employee employee = employeeRepository.findById(employeeId).orElseThrow();
+        User employeeUser = new User();
+        employeeUser.setEmail("asha.rao@x.com");
+        employee.setUser(employeeUser);
+        when(emailService.sendPayslipEmail(any(), any(), any(), any(), any()))
+                .thenReturn(java.util.concurrent.CompletableFuture.completedFuture(true));
+
+        boolean sent = service.sendPayslipEmail("hr@x.com", employeeId, "2026-11");
+
+        assertTrue(sent);
+        ArgumentCaptor<byte[]> pdfCaptor = ArgumentCaptor.forClass(byte[].class);
+        verify(emailService).sendPayslipEmail(eq("asha.rao@x.com"), eq("Asha Rao"), eq("November 2026"),
+                pdfCaptor.capture(), eq("payslip-EMP001-2026-11.pdf"));
+        assertEquals("%PDF", new String(pdfCaptor.getValue(), 0, 4));
+    }
+
+    @Test
+    void sendPayslipEmail_employeeHasNoEmailOnFile_throws() {
+        stubUser("hr@x.com", UUID.randomUUID(), "HR_ADMIN");
+        stubPayslip(); // Employee stubbed with no `user` set — no email address on file.
+
+        assertThrows(IllegalStateException.class, () -> service.sendPayslipEmail("hr@x.com", employeeId, "2026-11"));
+        verify(emailService, never()).sendPayslipEmail(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -147,7 +177,7 @@ class PayslipServiceTest {
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<String>> statuses = ArgumentCaptor.forClass(Collection.class);
-        verify(payslipRepository).findVisibleForEmployeeBetween(eq(employeeId), any(), any(), statuses.capture());
+        verify(payslipRepository).findReleasedForEmployeeBetween(eq(employeeId), any(), any(), statuses.capture());
         assertEquals(Set.of(PayrollRunStatus.APPROVED, PayrollRunStatus.DISBURSED), Set.copyOf(statuses.getValue()));
     }
 
@@ -158,17 +188,30 @@ class PayslipServiceTest {
 
         service.getMyPayslipPdf("emp@x.com", "2026-11");
 
-        verify(payslipRepository).findVisibleForEmployeeBetween(eq(employeeId),
+        verify(payslipRepository).findReleasedForEmployeeBetween(eq(employeeId),
                 eq(LocalDate.of(2026, 11, 1)), eq(LocalDate.of(2026, 11, 30)), anyCollection());
     }
 
     @Test
     void noPayslipForThePeriod_isNotFound() {
         stubUser("emp@x.com", employeeId, "EMPLOYEE");
-        when(payslipRepository.findVisibleForEmployeeBetween(eq(employeeId), any(), any(), anyCollection()))
+        when(payslipRepository.findReleasedForEmployeeBetween(eq(employeeId), any(), any(), anyCollection()))
                 .thenReturn(List.of());
 
         assertThrows(NoSuchElementException.class, () -> service.getMyPayslipPdf("emp@x.com", "2026-11"));
+    }
+
+    @Test
+    void self_cannotSeeOwnPayslip_beforeHrDistributesIt() {
+        // The run is Approved (so findVisibleForEmployeeBetween — the admin-view path — would find
+        // it), but HR hasn't run "Distribute Payslips" with Portal checked yet, so the self-service
+        // released-gated query returns nothing.
+        stubUser("emp@x.com", employeeId, "EMPLOYEE");
+        when(payslipRepository.findReleasedForEmployeeBetween(eq(employeeId), any(), any(), anyCollection()))
+                .thenReturn(List.of());
+
+        assertThrows(NoSuchElementException.class, () -> service.getMyPayslipPdf("emp@x.com", "2026-11"));
+        verifyNoInteractions(employeeRepository);
     }
 
     @Test
@@ -314,7 +357,7 @@ class PayslipServiceTest {
     @Test
     void listMyPeriods_isNewestFirstAndDistinct() {
         stubUser("emp@x.com", employeeId, "EMPLOYEE");
-        when(payslipRepository.findVisibleForEmployee(eq(employeeId), anyCollection())).thenReturn(List.of(
+        when(payslipRepository.findReleasedForEmployee(eq(employeeId), anyCollection())).thenReturn(List.of(
                 payslipEndingOn(LocalDate.of(2026, 11, 25)),
                 payslipEndingOn(LocalDate.of(2026, 10, 25)),
                 payslipEndingOn(LocalDate.of(2026, 10, 25))));
@@ -337,7 +380,13 @@ class PayslipServiceTest {
 
     private Payslip stubPayslip(PayslipLineItem... items) {
         Payslip payslip = payslipEndingOn(LocalDate.of(2026, 11, 25));
-        when(payslipRepository.findVisibleForEmployeeBetween(eq(employeeId), any(), any(), anyCollection()))
+        // Stubbed for both the admin-view path (findVisibleForEmployeeBetween, ungated on released)
+        // and the self-service path (findReleasedForEmployeeBetween) — lenient since any one test
+        // only exercises one of the two, depending on whether the caller is viewing their own
+        // payslip or someone else's (see PayslipService#renderForEmployee).
+        lenient().when(payslipRepository.findVisibleForEmployeeBetween(eq(employeeId), any(), any(), anyCollection()))
+                .thenReturn(List.of(payslip));
+        lenient().when(payslipRepository.findReleasedForEmployeeBetween(eq(employeeId), any(), any(), anyCollection()))
                 .thenReturn(List.of(payslip));
         Employee employee = new Employee();
         employee.setUserId(employeeId);

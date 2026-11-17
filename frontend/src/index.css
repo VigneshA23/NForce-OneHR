@@ -1493,10 +1493,13 @@ input[type="date"] {
 .nf-tabs {
   display: flex; align-items: flex-end; gap: var(--tabbar-gap);
   box-shadow: inset 0 -1px 0 var(--line);
-  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--line2) transparent;
   -webkit-overflow-scrolling: touch;
 }
-.nf-tabs::-webkit-scrollbar { display: none; }
+.nf-tabs::-webkit-scrollbar { height: 5px; }
+.nf-tabs::-webkit-scrollbar-track { background: transparent; }
+.nf-tabs::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 4px; }
+.nf-tabs::-webkit-scrollbar-thumb:hover { background: var(--txt-dim); }
 .nf-tab {
   display: inline-flex; align-items: center; gap: var(--tabbar-icon-gap); flex: 0 0 auto;
   background: none; border: none; border-bottom: var(--tabbar-indicator) solid transparent;

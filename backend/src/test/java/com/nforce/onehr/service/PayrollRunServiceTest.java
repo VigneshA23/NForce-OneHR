@@ -50,6 +50,7 @@ class PayrollRunServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
+    @Mock private PayslipService payslipService;
 
     private PayrollRunService service;
 
@@ -74,7 +75,7 @@ class PayrollRunServiceTest {
                 adHocPaymentRepository, recurringAdHocPaymentRuleRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
                 salaryHoldRepository, payrollRunReviewService, new SalaryStructureResolutionService(),
                 statutoryDeductionService, arrearsService, salaryComponentRepository, employeeRepository,
-                userRepository, auditService, auditSnapshot);
+                userRepository, auditService, auditSnapshot, payslipService);
 
         lenient().when(recurringAdHocPaymentRuleRepository.findActiveForPayGroup(any())).thenReturn(List.of());
 
@@ -83,7 +84,12 @@ class PayrollRunServiceTest {
         // may compute to "nothing" in them, never throw. Tests exercising the engine itself live in
         // StatutoryDeductionServiceTest; tests here that care about the integration point override
         // this stub explicitly.
-        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(Employee.builder().userId(employeeId).build()));
+        // Joined well before any test's cycle window, never exited — every existing test's
+        // employee passes generateDraft's own "actually employed through this window" filter by
+        // default; the filter's own exclusion behavior is covered by its dedicated tests below.
+        Employee defaultEmployee = Employee.builder().userId(employeeId).joiningDate(LocalDate.of(2000, 1, 1)).build();
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(defaultEmployee));
+        lenient().when(employeeRepository.findAllById(any())).thenReturn(List.of(defaultEmployee));
         lenient().when(statutoryDeductionService.computeDeductions(any(), any(), any(), any(), any())).thenReturn(List.of());
         // Arrears default: nothing PENDING — tests exercising the trigger/apply integration
         // override this stub explicitly.
@@ -615,6 +621,38 @@ class PayrollRunServiceTest {
     }
 
     @Test
+    void generateDraft_employeeJoinsAfterThisCycleEnds_excludedEntirely_doesNotRollBackTheWholeRun() {
+        // A compensation row effective-dated at window.end() doesn't mean the employee was actually
+        // employed through the window — e.g. comp set up ahead of a future joining date. Before this
+        // guard, buildPayslip's own PayrollProrationService#recompute would throw for them and roll
+        // back payslip generation for every OTHER employee in the same @Transactional run too.
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+        when(employeeRepository.findAllById(any())).thenReturn(
+                List.of(Employee.builder().userId(employeeId).joiningDate(cycleEnd.plusDays(1)).build()));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        assertEquals(0, resp.getEmployeeCount());
+        verify(payslipRepository, never()).save(any());
+        verify(payrollProrationService, never()).recompute(any(), any());
+    }
+
+    @Test
+    void generateDraft_employeeExitedBeforeThisCycleStarts_excludedEntirely() {
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+        when(employeeRepository.findAllById(any())).thenReturn(
+                List.of(Employee.builder().userId(employeeId).joiningDate(LocalDate.of(2000, 1, 1))
+                        .lastWorkingDay(cycleStart.minusDays(1)).build()));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        assertEquals(0, resp.getEmployeeCount());
+        verify(payslipRepository, never()).save(any());
+    }
+
+    @Test
     void generateDraft_noEmployeesWithCompensation_rejected() {
         when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of());
         when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
@@ -939,5 +977,109 @@ class PayrollRunServiceTest {
         when(payrollRunRepository.findById(missing)).thenReturn(Optional.empty());
 
         assertThrows(NoSuchElementException.class, () -> service.get(missing));
+    }
+
+    private DistributePayslipsRequest distributeReq(Set<String> channels) {
+        DistributePayslipsRequest req = new DistributePayslipsRequest();
+        req.setChannels(channels);
+        return req;
+    }
+
+    @Test
+    void distributePayslips_draftRun_rejected() {
+        PayrollRun draft = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        assertThrows(IllegalStateException.class, () -> service.distributePayslips(draft.getId(), distributeReq(Set.of("PORTAL")), actorEmail));
+    }
+
+    @Test
+    void distributePayslips_portalOnly_releasesEveryEmployeeInRun_sendsNoEmail() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        UUID otherEmployeeId = UUID.randomUUID();
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        Payslip p2 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(otherEmployeeId).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1, p2));
+
+        DistributePayslipsResponse resp = service.distributePayslips(approved.getId(), distributeReq(Set.of("PORTAL")), actorEmail);
+
+        assertEquals(2, resp.getReleasedCount());
+        assertEquals(0, resp.getEmailedCount());
+        verify(payslipRepository).releaseByPayrollRunIdAndEmployeeIdIn(approved.getId(), List.of(employeeId, otherEmployeeId));
+        verifyNoInteractions(payslipService);
+    }
+
+    @Test
+    void distributePayslips_emailOnly_doesNotRelease_emailsEveryEmployee() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1));
+        when(payslipService.sendPayslipEmail(eq(actorEmail), eq(employeeId), any())).thenReturn(true);
+
+        DistributePayslipsResponse resp = service.distributePayslips(approved.getId(), distributeReq(Set.of("EMAIL")), actorEmail);
+
+        assertEquals(0, resp.getReleasedCount());
+        assertEquals(1, resp.getEmailedCount());
+        assertEquals(0, resp.getEmailFailedCount());
+        verify(payslipRepository, never()).releaseByPayrollRunIdAndEmployeeIdIn(any(), any());
+    }
+
+    @Test
+    void distributePayslips_emailFailsForOneEmployee_othersStillCounted() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        UUID otherEmployeeId = UUID.randomUUID();
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        Payslip p2 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(otherEmployeeId).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1, p2));
+        when(payslipService.sendPayslipEmail(eq(actorEmail), eq(employeeId), any())).thenReturn(true);
+        when(payslipService.sendPayslipEmail(eq(actorEmail), eq(otherEmployeeId), any()))
+                .thenThrow(new IllegalStateException("This employee has no email address on file"));
+
+        DistributePayslipsResponse resp = service.distributePayslips(approved.getId(), distributeReq(Set.of("EMAIL")), actorEmail);
+
+        assertEquals(1, resp.getEmailedCount());
+        assertEquals(1, resp.getEmailFailedCount());
+    }
+
+    @Test
+    void distributePayslips_bothChannels_releasesAndEmails() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1));
+        when(payslipService.sendPayslipEmail(eq(actorEmail), eq(employeeId), any())).thenReturn(true);
+
+        DistributePayslipsResponse resp = service.distributePayslips(approved.getId(), distributeReq(Set.of("PORTAL", "EMAIL")), actorEmail);
+
+        assertEquals(1, resp.getReleasedCount());
+        assertEquals(1, resp.getEmailedCount());
+        verify(payslipRepository).releaseByPayrollRunIdAndEmployeeIdIn(approved.getId(), List.of(employeeId));
+    }
+
+    @Test
+    void bulkPayslipPdf_zipsOnePdfPerPayslipInRun() throws Exception {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        UUID otherEmployeeId = UUID.randomUUID();
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        Payslip p2 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(otherEmployeeId).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1, p2));
+        when(payslipService.getPayslipPdf(eq(actorEmail), eq(employeeId), any()))
+                .thenReturn(new PayslipService.PayslipFile(new byte[]{1, 2, 3}, "application/pdf", "payslip-EMP1.pdf"));
+        when(payslipService.getPayslipPdf(eq(actorEmail), eq(otherEmployeeId), any()))
+                .thenReturn(new PayslipService.PayslipFile(new byte[]{4, 5, 6}, "application/pdf", "payslip-EMP2.pdf"));
+
+        PayslipService.PayslipFile zip = service.bulkPayslipPdf(approved.getId(), actorEmail);
+
+        assertEquals("application/zip", zip.contentType());
+        java.util.Set<String> entryNames = new java.util.HashSet<>();
+        try (java.util.zip.ZipInputStream in = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(zip.data()))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = in.getNextEntry()) != null) entryNames.add(entry.getName());
+        }
+        assertEquals(Set.of("payslip-EMP1.pdf", "payslip-EMP2.pdf"), entryNames);
     }
 }

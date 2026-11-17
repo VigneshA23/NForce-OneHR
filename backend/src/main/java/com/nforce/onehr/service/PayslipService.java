@@ -49,7 +49,11 @@ import java.util.stream.Collectors;
  * <p>Access is checked FIRST, before any lookup, via {@link PayslipAccessPolicy} (owner, HR_ADMIN or
  * SUPER_ADMIN; Manager never) — so a refused caller learns nothing about whether a payslip exists.
  * Only payslips whose run is APPROVED or DISBURSED are ever readable; DRAFT/SUBMITTED are filtered in
- * the query itself.
+ * the query itself. An employee viewing their OWN payslip additionally requires {@code released}
+ * (see {@link com.nforce.onehr.repository.PayslipRepository#findReleasedForEmployee}) — set in bulk
+ * by {@code PayrollRunService#distributePayslips}, never automatically by the run reaching APPROVED/
+ * DISBURSED. HR viewing someone else's payslip from the admin console is exempt from that gate —
+ * deciding whether to distribute an unreleased payslip is the point of that screen.
  *
  * <p>A period is the {@code yyyy-MM} of the pay cycle's END date (a 26 Oct – 25 Nov cycle is
  * {@code 2026-11}). {@link #getPayslipPdf} already takes an explicit {@code employeeId} so the
@@ -81,6 +85,7 @@ public class PayslipService {
     private final SalaryComponentRepository salaryComponentRepository;
     private final LeaveBalanceRepository leaveBalanceRepository;
     private final ArrearsRepository arrearsRepository;
+    private final EmailService emailService;
     private final int fiscalYearStartMonth;
 
     // Same config key PayrollYtdService reads — one fiscal-year-start setting for the whole app,
@@ -89,7 +94,7 @@ public class PayslipService {
                           EmployeeRepository employeeRepository, PayGroupRepository payGroupRepository,
                           UserRepository userRepository, PayslipAccessPolicy accessPolicy, PayslipPdfService pdfService,
                           PayslipSettingsRepository payslipSettingsRepository, SalaryComponentRepository salaryComponentRepository,
-                          LeaveBalanceRepository leaveBalanceRepository, ArrearsRepository arrearsRepository,
+                          LeaveBalanceRepository leaveBalanceRepository, ArrearsRepository arrearsRepository, EmailService emailService,
                           @Value("${app.payroll.fiscal-year-start-month:4}") int fiscalYearStartMonth) {
         this.payslipRepository = payslipRepository;
         this.lineItemRepository = lineItemRepository;
@@ -102,14 +107,17 @@ public class PayslipService {
         this.salaryComponentRepository = salaryComponentRepository;
         this.leaveBalanceRepository = leaveBalanceRepository;
         this.arrearsRepository = arrearsRepository;
+        this.emailService = emailService;
         this.fiscalYearStartMonth = fiscalYearStartMonth;
     }
 
-    /** Periods ({@code yyyy-MM}, newest first) for which the caller has a viewable payslip. */
+    /** Periods ({@code yyyy-MM}, newest first) for which the caller has a viewable payslip —
+     * always self-service, so this is always released=true-gated (see {@link
+     * com.nforce.onehr.repository.PayslipRepository#findReleasedForEmployee}'s own doc). */
     @Transactional(readOnly = true)
     public List<String> listMyPeriods(String actorEmail) {
         User actor = resolveUser(actorEmail);
-        return payslipRepository.findVisibleForEmployee(actor.getId(), VISIBLE_RUN_STATUSES).stream()
+        return payslipRepository.findReleasedForEmployee(actor.getId(), VISIBLE_RUN_STATUSES).stream()
                 .map(p -> YearMonth.from(p.getPayrollRun().getCycleEnd()).toString())
                 .distinct()
                 .sorted(Comparator.reverseOrder())
@@ -123,12 +131,44 @@ public class PayslipService {
 
     @Transactional(readOnly = true)
     public PayslipFile getPayslipPdf(String actorEmail, UUID employeeId, String period) {
+        Rendered r = renderForEmployee(actorEmail, employeeId, period);
+        return new PayslipFile(r.pdf(), "application/pdf", "payslip-" + r.employee().getEmployeeCode() + "-" + r.month() + ".pdf");
+    }
+
+    /** Admin-triggered "Email Payslip" — same access/lookup/render path as {@link #getPayslipPdf},
+     * just delivered as an attachment instead of a download. Fire-and-forget by design, same as
+     * every other transactional email in this app (see {@code EmailService#sendAsync}'s own note):
+     * a failed send never rolls back or re-throws, it only logs — the payslip itself was already
+     * real before this was ever called.
+     * @return true once Resend accepted the message, false on any send failure. */
+    @Transactional(readOnly = true)
+    public boolean sendPayslipEmail(String actorEmail, UUID employeeId, String period) {
+        Rendered r = renderForEmployee(actorEmail, employeeId, period);
+        User employeeUser = r.employee().getUser();
+        if (employeeUser == null || employeeUser.getEmail() == null) {
+            throw new IllegalStateException("This employee has no email address on file");
+        }
+        String periodLabel = PERIOD_LABEL.format(r.month());
+        String fileName = "payslip-" + r.employee().getEmployeeCode() + "-" + r.month() + ".pdf";
+        return emailService.sendPayslipEmail(employeeUser.getEmail(), r.employee().getFullName(), periodLabel, r.pdf(), fileName).join();
+    }
+
+    private record Rendered(Employee employee, YearMonth month, byte[] pdf) {}
+
+    private Rendered renderForEmployee(String actorEmail, UUID employeeId, String period) {
         User actor = resolveUser(actorEmail);
         accessPolicy.requireCanView(actor, employeeId);
         YearMonth month = parsePeriod(period);
 
-        Payslip payslip = payslipRepository.findVisibleForEmployeeBetween(
-                        employeeId, month.atDay(1), month.atEndOfMonth(), VISIBLE_RUN_STATUSES).stream()
+        // Self-service (actor viewing their OWN payslip) requires released=true — an employee must
+        // never see their own payslip before HR distributes it. HR viewing someone ELSE's payslip
+        // from the admin console (View/Email/bulk-zip/Distribute) deliberately skips that gate —
+        // deciding whether/how to distribute an unreleased payslip is the whole point of that screen.
+        boolean selfService = actor.getId().equals(employeeId);
+        List<Payslip> candidates = selfService
+                ? payslipRepository.findReleasedForEmployeeBetween(employeeId, month.atDay(1), month.atEndOfMonth(), VISIBLE_RUN_STATUSES)
+                : payslipRepository.findVisibleForEmployeeBetween(employeeId, month.atDay(1), month.atEndOfMonth(), VISIBLE_RUN_STATUSES);
+        Payslip payslip = candidates.stream()
                 .findFirst()
                 .orElseThrow(() -> new NoSuchElementException("No payslip available for " + period));
         Employee employee = employeeRepository.findById(employeeId)
@@ -137,7 +177,7 @@ public class PayslipService {
         String password = (settings != null && settings.isPasswordProtected() && employee.getPanNumber() != null)
                 ? employee.getPanNumber().toUpperCase(Locale.ENGLISH) : null;
         byte[] pdf = pdfService.render(toModel(payslip, employee, month, settings), password);
-        return new PayslipFile(pdf, "application/pdf", "payslip-" + employee.getEmployeeCode() + "-" + month + ".pdf");
+        return new Rendered(employee, month, pdf);
     }
 
     private PayslipPdfModel toModel(Payslip payslip, Employee employee, YearMonth month, PayslipSettings settings) {
