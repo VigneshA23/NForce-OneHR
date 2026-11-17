@@ -678,7 +678,8 @@ export default function MyRequestsPage() {
           {/* Type filter bar */}
           <TabBar
             ariaLabel="Filter by request type"
-            style={{ padding: '0 14px' }}
+            className="nf-tabs-card"
+          style={{ margin: '14px 14px 6px' }}
             active={typeFilter}
             onChange={setTypeFilter}
             tabs={(['ALL', ...ALL_TYPES] as const).map(t => {

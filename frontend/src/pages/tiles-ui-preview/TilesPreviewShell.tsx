@@ -29,7 +29,7 @@ import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/acc
 import { KpiCard } from '../talent/DashboardTab';
 import { KpiTile } from '../LeavePage';
 import { AccessStatTiles } from '../UserManagementPage';
-import { Kpi } from '../HelpDeskAdminPage';
+import HelpDeskAdminPage, { Kpi } from '../HelpDeskAdminPage';
 import MyRequestsPage, { StatRing } from '../MyRequestsPage';
 import { Tile } from '../assets/shared';
 import { PolicyStatTiles } from '../PoliciesPage';
@@ -124,6 +124,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
   { key: 'employee-master-page', label: 'Employee Master (full page)', title: 'Employee Master', subtitle: 'The real page with sample employees and the themed table header.' },
+  { key: 'hr-requests-page', label: 'HR Service Requests (full page)', title: 'HR Service Requests', subtitle: 'The real page with sample tickets, the themed tab card and header.' },
   { key: 'user-edit', label: 'Edit User popup (Access)', title: 'User Management: Edit popup', subtitle: 'Open the popup for an active or an inactive user. Saving only changes this preview.' },
   { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
   { key: 'create-employee-steps', label: 'Create Employee (all 4 steps)', title: 'Create Employee: all four steps', subtitle: 'Pick any step, and the result screen, to see the layout with sample values. Nothing is saved, and the real wizard still checks each step before moving on.' },
@@ -1291,6 +1292,39 @@ function EmployeeMasterMock() {
   return ready ? <EmployeeMasterPage /> : null;
 }
 
+function HrRequestsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample HR Help Desk tickets and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString(); };
+    const names = ['Ramesh A', 'Lalith Kumar Ratnala', 'Abuzar Siddiqui', 'Sri vidya', 'Praveen Gurram', 'Sanjukta', 'Vyshnavi Guthala'];
+    const cats = ['Payroll query', 'Leave policy', 'Laptop issue', 'ID card', 'Benefits', 'Attendance correction', 'Other'];
+    const st = ['OPEN', 'IN_PROGRESS', 'OPEN', 'RESOLVED', 'IN_PROGRESS', 'CLOSED', 'OPEN'];
+    const tickets = names.map((n, i) => ({
+      id: 't' + i, ticketNumber: 'HD-' + (1001 + i), categoryName: cats[i], status: st[i], priority: 'MEDIUM', employeeUserId: 'u' + i, employeeName: n,
+      assignedTo: i % 2 ? 'a1' : null, assignedToName: i % 2 ? 'Hr Admin' : null, replyCount: i, satisfactionRating: null, createdAt: day(i + 2), updatedAt: day(i),
+    }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const path = url.split('?')[0];
+      if (path.endsWith('/api/hr/helpdesk/dashboard')) return json({ openCount: 3, inProgressCount: 2, resolvedCount: 1, closedCount: 1 });
+      if (path.endsWith('/api/hr/helpdesk/agents')) return json([{ userId: 'a1', name: 'Hr Admin', active: true }]);
+      if (path.endsWith('/api/hr/helpdesk')) return json({ content: tickets, totalElements: tickets.length, totalPages: 1, number: 0, size: 10 });
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <HelpDeskAdminPage /> : null;
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -2096,6 +2130,8 @@ function Tiles({ page }: { page: string }) {
       return <TeamTodayMock />;
     case 'team-member-cards':
       return <TeamMemberCardsMock />;
+    case 'hr-requests-page':
+      return <HrRequestsMock />;
     case 'employee-master-page':
       return <EmployeeMasterMock />;
     case 'team-tabs':
