@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Wallet, FileCheck2, Receipt, ClipboardList, PauseCircle, Undo2, Search } from 'lucide-react';
+import { X, Wallet, FileCheck2, Receipt, ClipboardList, PauseCircle, Undo2, Search, HelpCircle, ChevronDown } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useAuthStore } from '../../store/authStore';
@@ -87,6 +87,23 @@ export function SectionHead({ title, action }: { title: string; action?: ReactNo
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, letterSpacing: '-.01em', fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{title}</h2>
       {action}
+    </div>
+  );
+}
+
+// Same categorical order already validated and in use for the talent module's pie charts
+// (talent/DashboardTab.tsx's PIE_PALETTE) — reused rather than re-picked, so color identity for
+// "series N" stays consistent app-wide instead of drifting per feature.
+export const PIE_PALETTE = ['#B11116', '#4C8DD6', '#2FB67C', '#E0A93B', '#8B5FBF', 'var(--raised2)'];
+export const chartTooltipStyle = { contentStyle: { background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' } };
+
+export function ChartCard({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <div style={{ ...panelStyle, boxShadow: 'none', padding: '16px 18px' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>{title}</div>
+      {hint && <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 2, marginBottom: 10 }}>{hint}</div>}
+      {!hint && <div style={{ marginBottom: 12 }} />}
+      {children}
     </div>
   );
 }
@@ -391,5 +408,61 @@ export function BtnGhost({ children, onClick, disabled }: { children: ReactNode;
     <button onClick={onClick} disabled={disabled} style={{ display: 'inline-flex', alignItems: 'center', background: 'var(--raised)', color: disabled ? 'var(--txt-dim)' : 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: disabled ? 'not-allowed' : 'pointer' }}>
       {children}
     </button>
+  );
+}
+
+export type FaqItem = { q: string; a: ReactNode };
+
+/** A right-docked "how do I do this" panel — static, hand-written per page. Not the AI
+ * assistant (AssistantLauncher) and not the Help Desk knowledge base; a page-scoped quick
+ * reference for the exact actions that page offers. Sticky so it stays in view while the page's
+ * own content scrolls past it. All items start closed; an employee opens only what they need. */
+export function FaqPanel({ items, title = 'FAQ' }: { items: FaqItem[]; title?: string }) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  return (
+    <div style={{ ...panelStyle, width: 300, flexShrink: 0, position: 'sticky', top: 16, padding: '16px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 18px 14px', borderBottom: '1px solid var(--line)' }}>
+        <HelpCircle size={15} style={{ color: 'var(--brand)' }} />
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{title}</div>
+      </div>
+      <div>
+        {items.map((item, i) => {
+          const open = openIndex === i;
+          return (
+            <div key={i} style={{ borderBottom: i < items.length - 1 ? '1px solid var(--line)' : 'none' }}>
+              <button
+                type="button"
+                onClick={() => setOpenIndex(open ? null : i)}
+                style={{
+                  width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+                  background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer',
+                  padding: '12px 18px', fontSize: 12.5, fontWeight: 600, color: 'var(--txt)',
+                }}
+              >
+                <span>{item.q}</span>
+                <ChevronDown size={14} style={{ color: 'var(--txt-dim)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+              </button>
+              {open && (
+                <div style={{ padding: '0 18px 14px', fontSize: 12, lineHeight: 1.6, color: 'var(--txt-mut)' }}>
+                  {item.a}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Wraps a page's existing content with the sticky FAQ panel on the right, so every payroll tab
+ * can add one without re-deriving its own grid layout — the page's own content takes the
+ * remaining space at `flex: 1`, the panel holds a fixed width beside it. */
+export function WithFaqPanel({ items, title, children }: { items: FaqItem[]; title?: string; children: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+      <FaqPanel items={items} title={title} />
+    </div>
   );
 }

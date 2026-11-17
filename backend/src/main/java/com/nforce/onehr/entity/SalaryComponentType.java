@@ -17,6 +17,10 @@ public final class SalaryComponentType {
     public static final String AD_HOC_DEDUCTION = "AD_HOC_DEDUCTION";
     public static final String REIMBURSEMENT = "REIMBURSEMENT";
 
+    // Employer-side amount (e.g. "Employer PF") — prints only in the payslip's optional
+    // Contributions section, never counted as a deduction from net pay.
+    public static final String CONTRIBUTION = "CONTRIBUTION";
+
     private SalaryComponentType() {
     }
 }

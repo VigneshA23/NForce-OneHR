@@ -8,7 +8,7 @@ import { payrollApi, type EmployeeCompensationResponse } from '../../api/payroll
 import { hasPermission } from '../../lib/permissions';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, FilterBar, FullScreenTask,
-  useEmployeeDirectory,
+  useEmployeeDirectory, WithFaqPanel, type FaqItem,
 } from './payrollShared';
 import { AllChangesHistory } from './EmployeeCompensationTab';
 import './payroll.css';
@@ -100,6 +100,13 @@ const REPORT_ICON: Record<ReportId, React.ReactNode> = {
  * Recently Used are a per-browser preference (localStorage), not server state. The left category
  * panel only has one real category — "Compensation Reports" — rather than Keka's full list
  * (Payroll Run Reports, YTD, Statutory Forms, Loan, F&F...), none of which this app has data for. */
+const FAQ_ITEMS: FaqItem[] = [
+  { q: 'What reports are actually available today?', a: 'Two: Current CTC (every employee’s latest salary structure and CTC) and Salary Revision (every compensation assignment or revision ever made, org-wide). Both reuse existing compensation data — nothing is a separate aggregation job.' },
+  { q: 'How do Favourites and Recently Used work?', a: 'Click the star on a report to favourite it, or just open a report to have it show up under Recently Used. Both lists are remembered on this browser only — they’re not shared with other HR users or saved on the server.' },
+  { q: 'Can I export a report?', a: 'Not yet — these open as an on-screen table (Current CTC) or list (Salary Revision), not a downloadable file.' },
+  { q: 'Why don’t I see Payroll Run Reports, YTD or Statutory Forms?', a: 'This app doesn’t have the underlying data for those yet, so they’re not listed rather than shown as empty placeholders.' },
+];
+
 export default function PayrollReportsPage() {
   const permissions = useAuthStore(s => s.permissions);
   const canView = hasPermission(permissions, 'payroll', 'VIEW', 'ALL');
@@ -146,6 +153,7 @@ export default function PayrollReportsPage() {
         <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Current CTC and salary revision history, across every employee.</p>
       </PageTitleBlock>
 
+      <WithFaqPanel items={FAQ_ITEMS} title="Payroll Reports Help">
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 260px) 1fr', gap: 20, alignItems: 'start' }}>
         <div style={panelStyle}>
           {CATEGORIES.map(c => {
@@ -197,6 +205,7 @@ export default function PayrollReportsPage() {
           {filteredReports.length === 0 && <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>No reports match your search.</div>}
         </div>
       </div>
+      </WithFaqPanel>
 
       {open && openDef && (
         <FullScreenTask title={openDef.title} subtitle={openDef.description} onClose={() => setOpen(null)} actions={null}>

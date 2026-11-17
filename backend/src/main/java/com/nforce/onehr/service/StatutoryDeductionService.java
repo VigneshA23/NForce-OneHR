@@ -57,6 +57,11 @@ public class StatutoryDeductionService {
     private final SalaryComponentRepository salaryComponentRepository;
     private final ObjectMapper objectMapper;
 
+    // Reserved catalog name for the employer side of PF — never seeded, same self-serve
+    // convention as "PF"/"ESI"/"Professional Tax": an admin creates it (as type CONTRIBUTION)
+    // only if they want it to print.
+    private static final String EMPLOYER_PF = "Employer PF";
+
     public record ComputedDeduction(SalaryComponent component, BigDecimal amount) {
     }
 
@@ -72,6 +77,34 @@ public class StatutoryDeductionService {
         computeEsi(employeeId, country, cycleStart, cycleEnd, grossPay).ifPresent(deductions::add);
         computeProfessionalTax(employeeId, country, cycleStart, cycleEnd).ifPresent(deductions::add);
         return deductions;
+    }
+
+    /**
+     * Employer-side amounts — informational only, never deducted from net pay, so they're kept
+     * entirely separate from {@link #computeDeductions}. Today this is just Employer PF, read
+     * from the SAME PF {@link StatutoryRule}'s slabConfig via an optional {@code employerRate}
+     * key alongside the existing {@code employeeRate}/{@code wageCeiling} — silent-skip (not an
+     * error) when that key, the "Employer PF" catalog entry, or the employee's own PF deduction
+     * itself isn't configured, same "nothing configured yet" steady state as every other
+     * statutory computation here.
+     */
+    public List<ComputedDeduction> computeEmployerContributions(Employee employee, BigDecimal basicAmount, LocalDate cycleEnd) {
+        if (employee.getLocation() == null || employee.getLocation().getCountry() == null) {
+            return List.of();
+        }
+        String country = employee.getLocation().getCountry();
+        return rule(country, PF, cycleEnd).flatMap(rule -> {
+            JsonNode slab = parse(rule);
+            if (!slab.has("employerRate")) {
+                return Optional.<ComputedDeduction>empty();
+            }
+            return component(EMPLOYER_PF).map(catalog -> {
+                BigDecimal rate = decimal(slab, "employerRate");
+                BigDecimal ceiling = decimal(slab, "wageCeiling");
+                BigDecimal base = basicAmount.min(ceiling);
+                return new ComputedDeduction(catalog, round(base.multiply(rate)));
+            });
+        }).filter(d -> d.amount().signum() > 0).map(List::of).orElseGet(List::of);
     }
 
     private Optional<ComputedDeduction> computePf(UUID employeeId, String country, LocalDate cycleStart, LocalDate cycleEnd, BigDecimal basicAmount) {

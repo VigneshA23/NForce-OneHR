@@ -6,21 +6,28 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayGroupResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, EmptyRow, Drawer, FormRow, labelStyle, inputStyle,
-  BtnPrimary, BtnGhost, SectionHead, ToggleSwitch, FilterBar,
+  BtnPrimary, BtnGhost, SectionHead, ToggleSwitch, FilterBar, WithFaqPanel, type FaqItem,
 } from './payrollShared';
 
+const FAQ_ITEMS: FaqItem[] = [
+  { q: 'What is a pay group, and do I need more than one?', a: 'A pay group defines a pay cycle (start/end/processing day), currency and legal entity that a set of employees is paid under. Most companies need just one — add more only for separate legal entities or genuinely different pay cycles/currencies.' },
+  { q: 'What do Cycle Start/End Day and Processing Day control?', a: 'Cycle Start/End define the pay period window (e.g. 26–25 means the 26th of the previous month through the 25th of this one). Processing Day is when payroll is actually run for that cycle — they don’t have to be the same day.' },
+  { q: 'What happens if I deactivate a pay group?', a: 'It stops appearing as an option for new assignments, but existing employees, runs and payslips already tied to it are untouched. Reactivate it any time with the same action.' },
+  { q: 'Can I change Legal Entity or Currency later?', a: 'No — the drawer shows them as a read-only reference once a pay group exists, since changing currency or entity after payslips have been generated under it would be misleading. Create a new pay group instead. Address is the exception — it’s just letterhead text, so it stays editable any time.' },
+];
+
 interface PayGroupForm {
-  name: string; legalEntity: string; currency: string;
+  name: string; legalEntity: string; address: string; currency: string;
   cycleStartDay: number; cycleEndDay: number; processingDay: number; active: boolean;
 }
 
 function emptyForm(): PayGroupForm {
-  return { name: '', legalEntity: '', currency: 'INR', cycleStartDay: 26, cycleEndDay: 25, processingDay: 26, active: true };
+  return { name: '', legalEntity: '', address: '', currency: 'INR', cycleStartDay: 26, cycleEndDay: 25, processingDay: 26, active: true };
 }
 
 function fromExisting(pg: PayGroupResponse): PayGroupForm {
   return {
-    name: pg.name, legalEntity: pg.legalEntity ?? '', currency: pg.currency,
+    name: pg.name, legalEntity: pg.legalEntity ?? '', address: pg.address ?? '', currency: pg.currency,
     cycleStartDay: pg.cycleStartDay, cycleEndDay: pg.cycleEndDay, processingDay: pg.processingDay, active: pg.active,
   };
 }
@@ -70,6 +77,15 @@ function PayGroupDrawer({ title, initial, isNew, onClose, onSubmit }: {
       <FormRow>
         <label style={labelStyle}>Name *</label>
         <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} placeholder="e.g. Default pay group" />
+      </FormRow>
+      <FormRow>
+        <label style={labelStyle}>Address <span style={{ color: 'var(--txt-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(Optional)</span></label>
+        <textarea
+          value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+          style={{ ...inputStyle, minHeight: 64, resize: 'vertical' }}
+          placeholder={'e.g. 4th Floor, Example Towers\nHyderabad, Telangana 500081'}
+        />
+        <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>Printed under the company name on every payslip for this pay group.</div>
       </FormRow>
       {isNew && (
         <>
@@ -145,6 +161,7 @@ export function PayGroupsTab({ payGroups, onChanged }: { payGroups: PayGroupResp
   const filtered = payGroups.filter(pg => pg.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
+    <WithFaqPanel items={FAQ_ITEMS} title="Pay Groups Help">
     <div>
       <SectionHead
         title="Pay Groups"
@@ -187,5 +204,6 @@ export function PayGroupsTab({ payGroups, onChanged }: { payGroups: PayGroupResp
         <PayGroupDrawer title={`Edit Pay Group – ${editing.name}`} initial={fromExisting(editing)} isNew={false} onClose={() => setEditing(null)} onSubmit={form => update(editing.id, form)} />
       )}
     </div>
+    </WithFaqPanel>
   );
 }

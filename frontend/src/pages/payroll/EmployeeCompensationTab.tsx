@@ -10,6 +10,7 @@ import type { EmployeeRecord } from '../../api/employees';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, fmtDateTime, EmptyRow, FormRow, labelStyle,
   inputStyle, BtnPrimary, BtnGhost, SectionHead, EmployeePicker, FullScreenTask, FilterBar, useEmployeeDirectory,
+  WithFaqPanel, type FaqItem,
 } from './payrollShared';
 import { SalaryImportWizard } from './SalaryImportWizard';
 import { FinancialDetailsImportWizard } from './FinancialDetailsImportWizard';
@@ -220,6 +221,14 @@ const VIEW_MODES: TabDef<ViewMode>[] = [
   { key: 'all-changes', label: 'All Changes', icon: <History size={14} /> },
 ];
 
+const FAQ_ITEMS: FaqItem[] = [
+  { q: 'What’s the difference between "Assign" and "Revise" Compensation?', a: 'Same screen, same action underneath — it’s labeled "Assign" when the employee has no compensation yet, and "Revise" once they do. Both create a new compensation row effective from the date you set.' },
+  { q: 'Does revising someone’s compensation change past payslips?', a: 'No. A new compensation row only affects payslips generated for cycles on or after its effective date; anything already generated stays exactly as it was.' },
+  { q: 'Where do I see every change made across all employees?', a: 'Switch to the "All Changes" view at the top — it lists every compensation revision org-wide with who made it and when, pulled from the audit log.' },
+  { q: 'What are the four Import buttons for?', a: 'Bulk-upload an Excel file instead of entering rows one by one: Salaries (new compensation per employee), Financial Info (bank/PAN/UAN), Bonuses (one-off ad-hoc payments), and Investment Declaration (reference-only, not wired into any tax calculation yet). Each walks through Upload → Match Columns → Preview before writing anything.' },
+  { q: 'Why does the employee picker clear itself after I save?', a: 'On purpose — so you don’t accidentally start revising the same person again. Search and pick the next employee from empty each time.' },
+];
+
 export function EmployeeCompensationTab({ structures, payGroups }: { structures: SalaryStructureResponse[]; payGroups: PayGroupResponse[] }) {
   const token = useAuthStore(s => s.token)!;
   const { employees } = useEmployeeDirectory();
@@ -248,6 +257,7 @@ export function EmployeeCompensationTab({ structures, payGroups }: { structures:
   }
 
   return (
+    <WithFaqPanel items={FAQ_ITEMS} title="Employee Compensation Help">
     <div>
       <TabBar
         tabs={VIEW_MODES} active={view} onChange={setView} className="nf-boxedtabs" ariaLabel="Employee compensation view" style={{ marginBottom: 18 }}
@@ -336,5 +346,6 @@ export function EmployeeCompensationTab({ structures, payGroups }: { structures:
         <InvestmentDeclarationImportWizard onClose={() => setShowInvestmentImport(false)} onImported={() => {}} />
       )}
     </div>
+    </WithFaqPanel>
   );
 }

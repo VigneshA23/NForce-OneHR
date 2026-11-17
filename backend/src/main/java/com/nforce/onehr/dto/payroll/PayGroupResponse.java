@@ -11,6 +11,7 @@ public class PayGroupResponse {
     private UUID id;
     private String name;
     private String legalEntity;
+    private String address;
     private String frequency;
     private String currency;
     private int cycleStartDay;

@@ -9,8 +9,15 @@ import {
 } from '../../api/payroll';
 import {
   panelStyle, Drawer, FormRow, labelStyle, inputStyle, BtnPrimary, BtnGhost, SectionHead,
-  ConfirmDialog, fmtDate,
+  ConfirmDialog, fmtDate, WithFaqPanel, type FaqItem,
 } from './payrollShared';
+
+const FAQ_ITEMS: FaqItem[] = [
+  { q: 'What are Filing Details actually for?', a: "They record the registration numbers (PAN/TAN, PF and ESI establishment IDs, PT-registered locations) a pay group needs for statutory filings. They're reference data only — saving them doesn't change any payroll calculation." },
+  { q: 'How is this scoped?', a: 'Per pay group, via the selector at the top — the same scoping Payslip Settings uses. Switch pay groups to see or edit a different one’s filing details.' },
+  { q: 'How do I register a Professional Tax location?', a: 'Open the Professional Tax (PT) tab. Pick an existing state on the left, then "Add Location to <state>" — or "Add New PT State" to start one that isn’t listed yet.' },
+  { q: 'Is anything here validated against a government portal?', a: 'No. This app doesn’t integrate with any external tax authority — these fields are admin-entered and trusted as-is, the same as the Accounting Code field on Salary Components.' },
+];
 
 /** A label/value field in an editable settings grid — the pattern every Filing Details panel
  * (Income Tax, PF, ESI) shares, matching Keka's own label/value grid (§3.8). */
@@ -298,6 +305,7 @@ export function FilingDetailsTab({ payGroups }: { payGroups: PayGroupResponse[] 
   }
 
   return (
+    <WithFaqPanel items={FAQ_ITEMS} title="Filing Details Help">
     <div>
       <div style={{ maxWidth: 320, marginBottom: 18 }}>
         <label style={labelStyle}>Pay Group</label>
@@ -331,5 +339,6 @@ export function FilingDetailsTab({ payGroups }: { payGroups: PayGroupResponse[] 
         </>
       )}
     </div>
+    </WithFaqPanel>
   );
 }

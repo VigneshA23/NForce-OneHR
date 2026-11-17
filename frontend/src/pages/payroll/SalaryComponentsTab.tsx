@@ -7,12 +7,20 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type SalaryComponentCatalogResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, EmptyRow, Drawer, FormRow, labelStyle, inputStyle,
-  BtnPrimary, BtnGhost, SectionHead, ToggleSwitch, FilterBar,
+  BtnPrimary, BtnGhost, SectionHead, ToggleSwitch, FilterBar, WithFaqPanel, type FaqItem,
 } from './payrollShared';
+
+const FAQ_ITEMS: FaqItem[] = [
+  { q: 'What’s the difference between the three tabs here?', a: 'Components is the master catalog — create, edit, activate or deactivate. Order of Components sets the sequence components print in. Accounting Code records an optional ledger/GL reference per component.' },
+  { q: 'What does "Shown on Payslip" actually control?', a: "When off, that component is left off the generated payslip PDF entirely — even though it still counts toward CTC and still appears in the salary structure. Useful for internal-only deductions you don't want an employee to see as a line item." },
+  { q: 'What does the Order of Components sequence actually affect?', a: 'The order components print in everywhere a component list is shown — payslip, pay register, reports and salary breakup. Drag the arrows into the order you want, then Save Order; it only takes effect once saved.' },
+  { q: 'Can I change a component’s type after creating it?', a: 'No — Component Type is fixed once a component exists (shown read-only in the Edit drawer). If you got it wrong, deactivate it and create a new one instead; a component already used by a structure or a processed payroll run can’t be deleted.' },
+  { q: 'What is Accounting Code used for?', a: 'Just a reference ledger/GL code for your own accounting system — this app doesn’t validate or sync it against anything external.' },
+];
 
 const TYPE_LABEL: Record<string, string> = {
   EARNING: 'Earning', AD_HOC_EARNING: 'Ad-hoc Earning', DEDUCTION: 'Deduction',
-  AD_HOC_DEDUCTION: 'Ad-hoc Deduction', REIMBURSEMENT: 'Reimbursement',
+  AD_HOC_DEDUCTION: 'Ad-hoc Deduction', REIMBURSEMENT: 'Reimbursement', CONTRIBUTION: 'Contribution',
 };
 
 interface ComponentForm {
@@ -295,6 +303,7 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
   const filtered = catalog.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
+    <WithFaqPanel items={FAQ_ITEMS} title="Salary Components Help">
     <div>
       <TabBar tabs={COMPONENT_VIEWS} active={view} onChange={setView} className="nf-boxedtabs" ariaLabel="Salary component views" style={{ marginBottom: 18 }} />
 
@@ -347,5 +356,6 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
         </>
       )}
     </div>
+    </WithFaqPanel>
   );
 }

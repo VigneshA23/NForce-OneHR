@@ -41,6 +41,7 @@ public class PayGroupService {
         PayGroup group = PayGroup.builder()
                 .name(req.getName().trim())
                 .legalEntity(req.getLegalEntity() != null ? req.getLegalEntity().trim() : null)
+                .address(req.getAddress() != null ? req.getAddress().trim() : null)
                 .frequency(req.getFrequency())
                 .currency(req.getCurrency())
                 .cycleStartDay(req.getCycleStartDay())
@@ -65,6 +66,7 @@ public class PayGroupService {
 
         if (req.getName() != null && !req.getName().isBlank()) group.setName(req.getName().trim());
         if (req.getLegalEntity() != null) group.setLegalEntity(req.getLegalEntity().trim());
+        if (req.getAddress() != null) group.setAddress(req.getAddress().trim());
         if (req.getFrequency() != null) group.setFrequency(req.getFrequency());
         if (req.getCurrency() != null) group.setCurrency(req.getCurrency());
         if (req.getCycleStartDay() != null) group.setCycleStartDay(req.getCycleStartDay());
@@ -103,6 +105,7 @@ public class PayGroupService {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("name", g.getName());
         snapshot.put("legalEntity", g.getLegalEntity());
+        snapshot.put("address", g.getAddress());
         snapshot.put("frequency", g.getFrequency());
         snapshot.put("currency", g.getCurrency());
         snapshot.put("cycleStartDay", g.getCycleStartDay());
@@ -117,6 +120,7 @@ public class PayGroupService {
                 .id(g.getId())
                 .name(g.getName())
                 .legalEntity(g.getLegalEntity())
+                .address(g.getAddress())
                 .frequency(g.getFrequency())
                 .currency(g.getCurrency())
                 .cycleStartDay(g.getCycleStartDay())

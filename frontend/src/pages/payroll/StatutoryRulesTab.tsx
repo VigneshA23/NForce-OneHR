@@ -6,8 +6,16 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type StatutoryRuleResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtDate, EmptyRow, Modal, FormRow, labelStyle, inputStyle,
-  BtnPrimary, BtnGhost, SectionHead, StatTile,
+  BtnPrimary, BtnGhost, SectionHead, StatTile, WithFaqPanel, type FaqItem,
 } from './payrollShared';
+
+const FAQ_ITEMS: FaqItem[] = [
+  { q: 'What actually gets computed from a rule saved here?', a: 'Only PF, ESI and Professional Tax are read by payroll when building a payslip. A rule saved under any other name (e.g. a TDS or Gratuity slab) is stored but never applied — the create form warns you about this as you type.' },
+  { q: 'How do I update a rate or ceiling (e.g. the PF wage ceiling)?', a: 'Use "Add / Revise Rule" with the same country + rule type and a new "Effective From" date. The previous rule is automatically closed out as of that date, not overwritten — its full history stays visible.' },
+  { q: 'Where do I see what changed and when?', a: 'Click History on any row to see every past version of that country + rule type, each with its own effective date range and slab values.' },
+  { q: 'What goes in Slab Config?', a: 'A flat JSON object of plain numbers, e.g. {"employeeRate":0.12,"wageCeiling":25000}. There’s no fixed schema across rule types, so the table and history display it generically rather than guessing field meaning.' },
+  { q: 'Why does a card say "Not Set Up"?', a: 'No rule exists yet for that type in any country. Until one is added, payroll silently skips that deduction on every payslip — it doesn’t fail or block the run.' },
+];
 
 // Only these three are actually read by StatutoryDeductionService.computeDeductions — TDS and
 // Gratuity are explicitly out of scope (see that service's own Javadoc: TDS needs a full annual
@@ -179,6 +187,7 @@ export function StatutoryRulesTab() {
   useEffect(reload, [token]);
 
   return (
+    <WithFaqPanel items={FAQ_ITEMS} title="Statutory Rules Help">
     <div>
       {/* At-a-glance: is each statutory deduction actually configured, so a rule saved under the
           wrong country/name (or just never created) is obvious without reading the table below. */}
@@ -235,5 +244,6 @@ export function StatutoryRulesTab() {
         <HistoryModal country={historyFor.country} ruleType={historyFor.ruleType} onClose={() => setHistoryFor(null)} />
       )}
     </div>
+    </WithFaqPanel>
   );
 }

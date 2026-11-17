@@ -13,7 +13,7 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayrollRunResponse, type PayrollRunStatus, type PayGroupResponse } from '../../api/payroll';
 import {
   fmtCurrency, fmtDate, fmtDateTime, StatusBadge, StatTile, StepCard, SectionHead, Modal, FormRow,
-  labelStyle, inputStyle, BtnPrimary, BtnGhost,
+  labelStyle, inputStyle, BtnPrimary, BtnGhost, WithFaqPanel, type FaqItem,
 } from './payrollShared';
 import { PayslipsTab } from './PayslipsTab';
 import { LeaveAppliedReviewTab } from './LeaveAppliedReviewTab';
@@ -56,12 +56,12 @@ type StepKey = 'overview' | 'payslips' | 'leave-attendance' | 'joiners-exits' | 
 const STEPS: TabDef<StepKey>[] = [
   { key: 'overview', label: 'Overview', icon: <LayoutGrid size={15} /> },
   { key: 'payslips', label: 'Payslips', icon: <Receipt size={15} /> },
-  { key: 'leave-attendance', label: 'Leave, Attendance & Payable Units', icon: <CalendarCheck size={15} /> },
-  { key: 'joiners-exits', label: 'New Joinees & Exits', icon: <UserRoundPlus size={15} /> },
-  { key: 'bonus-revisions-ot', label: 'Bonus, Salary Revisions & Overtime', icon: <Gift size={15} /> },
-  { key: 'reimbursement-adhoc', label: 'Reimbursement, Adhoc Payment, Deduction', icon: <ReceiptIcon size={15} /> },
-  { key: 'holds-arrears', label: 'Salaries on Hold & Arrears', icon: <PauseCircle size={15} /> },
-  { key: 'statutory-override', label: 'Override (PF, ESI, PT)', icon: <ShieldCheck size={15} /> },
+  { key: 'leave-attendance', label: 'Leave & Attendance', icon: <CalendarCheck size={15} /> },
+  { key: 'joiners-exits', label: 'Joinees & Exits', icon: <UserRoundPlus size={15} /> },
+  { key: 'bonus-revisions-ot', label: 'Bonus & Revisions', icon: <Gift size={15} /> },
+  { key: 'reimbursement-adhoc', label: 'Reimbursements', icon: <ReceiptIcon size={15} /> },
+  { key: 'holds-arrears', label: 'Holds & Arrears', icon: <PauseCircle size={15} /> },
+  { key: 'statutory-override', label: 'Statutory Override', icon: <ShieldCheck size={15} /> },
   { key: 'cost-report', label: 'Cost Report', icon: <PieChart size={15} /> },
 ];
 
@@ -151,6 +151,15 @@ function RollbackModal({ onClose, onConfirm }: { onClose: () => void; onConfirm:
  * shape of the real workflow is visible now and each one only has to be wired up, not invented,
  * once its backend exists.
  */
+const FAQ_ITEMS: FaqItem[] = [
+  { q: 'What does Regenerate do?', a: 'Rebuilds every payslip in this run from scratch using current data — updated LOP, ad-hoc payments, statutory rules, holds and arrears. Only available in Draft; it replaces the existing draft payslips, it doesn’t add to them.' },
+  { q: 'What do Submit, Approve and Disburse actually change?', a: 'They move the run through its lifecycle: Submit sends a Draft for approval, Approve locks in the numbers as final, Disburse marks it as paid out. Which buttons you see depends on the run’s current status and your permissions.' },
+  { q: 'Can I undo an action after Approve or Disburse?', a: 'Use Rollback — it reverts the run back to Draft with a required reason, so you can fix something and regenerate. It’s available only at the stages where this app allows a reversal.' },
+  { q: 'Where do Arrears come from?', a: 'They’re never entered directly — a backdated salary revision, an LOP reversal, or releasing a salary hold automatically creates an arrears row, which the next regenerate picks up as a line item. The Arrears tab (under Holds & Arrears) is read-only, showing what’s pending or already applied.' },
+  { q: 'What’s the difference between a Processing Hold and a Payout Hold?', a: 'A Processing Hold excludes someone from this run entirely — regenerate and they’re skipped. A Payout Hold still includes them in the run’s numbers but holds back the actual disbursement for that person.' },
+  { q: 'Why can’t I edit a statutory deduction amount directly on a payslip?', a: 'Payslip line items are rebuilt on every regenerate, so a direct edit would be silently lost. Use Statutory Override instead — it persists independently of any one run and survives regeneration.' },
+];
+
 export default function PayrollRunDetailPage() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
@@ -240,14 +249,16 @@ export default function PayrollRunDetailPage() {
         </div>
       </div>
 
-      <div className="nf-pr-tiles" style={{ marginBottom: 22 }}>
+      <WithFaqPanel items={FAQ_ITEMS} title="Payroll Run Help">
+      <div>
+      <div className="nf-pr-tiles" style={{ marginBottom: 18 }}>
         <StatTile tone="var(--info)" icon={<Users size={20} />} label="Employees" value={String(run.employeeCount)} />
         <StatTile tone="var(--brand)" icon={<IndianRupee size={20} />} label="Gross Pay" value={fmtCurrency(run.totalGross)} />
         <StatTile tone="var(--warn)" icon={<MinusCircle size={20} />} label="Deductions" value={fmtCurrency(run.totalDeductions)} />
         <StatTile tone="var(--ok)" icon={<IndianRupee size={20} />} label="Net Pay" value={fmtCurrency(run.totalNet)} />
       </div>
 
-      <TabBar tabs={STEPS} active={step} onChange={setStep} ariaLabel="Payroll run steps" className="nf-pilltabs nf-pilltabs--wrap" style={{ marginBottom: 18 }} />
+      <TabBar tabs={STEPS} active={step} onChange={setStep} ariaLabel="Payroll run steps" style={{ marginBottom: 18 }} />
 
       {step === 'overview' && (
         <>
@@ -256,7 +267,7 @@ export default function PayrollRunDetailPage() {
               <StepCard key={c.key} icon={c.icon} tone={c.tone} label={c.label} caption={c.caption} onClick={() => setStep(c.key)} />
             ))}
           </div>
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 22px' }}>
+          <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 13, padding: '15px 18px' }}>
             <SectionHead title="Run Status" />
             <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, margin: 0 }}>
             <div><dt style={labelStyle}>Submitted</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{fmtDateTime(run.submittedAt)}</dd></div>
@@ -316,6 +327,8 @@ export default function PayrollRunDetailPage() {
       {step === 'statutory-override' && <StatutoryOverrideTab payGroupId={run.payGroupId} cycleStart={run.cycleStart} canConfigure={canConfigure} />}
 
       {step === 'cost-report' && <CostReportTab runId={runId} runStatus={run.status} />}
+      </div>
+      </WithFaqPanel>
 
       {showRollback && (
         <RollbackModal

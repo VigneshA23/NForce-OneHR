@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, Plus, Lock, CheckCircle2, Clock, CalendarClock } from 'lucide-react';
+import { Wallet, Lock, CheckCircle2, Clock, CalendarClock } from 'lucide-react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
@@ -248,11 +248,6 @@ export default function PayrollRunsPage() {
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Payroll Runs</h1>
           <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Generate, review and process each pay cycle's batch.</p>
         </PageTitleBlock>
-        {canConfigure && (
-          <button onClick={() => setShowGenerate({})} style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <Plus size={16} /> Generate New Run
-          </button>
-        )}
       </div>
 
       <div style={{ marginBottom: 16, maxWidth: 320 }}>

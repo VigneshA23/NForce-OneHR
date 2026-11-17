@@ -5,8 +5,15 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type SalaryStructureResponse, type SalaryComponentResponse, type SalaryComponentRequest, type SalaryComponentCatalogResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, EmptyRow, FormRow, labelStyle, inputStyle, BtnPrimary,
-  BtnGhost, SectionHead, Modal, FullScreenTask,
+  BtnGhost, SectionHead, Modal, FullScreenTask, WithFaqPanel, type FaqItem,
 } from './payrollShared';
+
+const FAQ_ITEMS: FaqItem[] = [
+  { q: 'What is a salary structure?', a: 'A named template of components (Basic, HRA, LTA, etc.) with how each one is calculated — fixed amount, a percentage of another component, or whatever remains of gross. Employees are assigned one structure at a time via Employee Compensation.' },
+  { q: 'Why are the values shown here annual, not monthly?', a: 'Every figure on a structure (and in its editor) is the yearly amount, matching how CTC is normally quoted. Payroll divides by 12 — and applies LOP proration — when it actually builds a monthly payslip.' },
+  { q: 'How do I see exactly how a component is calculated?', a: 'Click any row to open its preview, which shows the plain-language formula for every component (e.g. "50% of Gross", "₹1,600/yr fixed"). Click Edit from there to change it.' },
+  { q: 'Can I change which components are in a structure after employees are assigned to it?', a: 'Yes — editing a structure changes it for every employee currently assigned to it, going forward. It never rewrites an already-generated payslip.' },
+];
 
 // Human-readable formula for one structure component, e.g. "50% of Gross", "₹19,200 /yr", "Remainder
 // (Gross minus every other component)". Values on SalaryStructureResponse are always ANNUAL (see
@@ -337,6 +344,7 @@ export function SalaryStructuresTab({ structures, catalog, onCreated, onUpdated 
   const editingStructure = editing && editing !== 'new' ? structures.find(s => s.id === editing) ?? null : null;
 
   return (
+    <WithFaqPanel items={FAQ_ITEMS} title="Salary Structures Help">
     <div>
       <SectionHead title="Salary Structures" action={<BtnPrimary onClick={() => setEditing('new')}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Create Structure</BtnPrimary>} />
       <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 10 }}>
@@ -376,5 +384,6 @@ export function SalaryStructuresTab({ structures, catalog, onCreated, onUpdated 
         />
       )}
     </div>
+    </WithFaqPanel>
   );
 }

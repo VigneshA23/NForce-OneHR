@@ -1,19 +1,13 @@
 /* Payroll Run console — KPI tiles, table and modal presentation. Theme tokens only, so light/dark
  * and the accent setting keep working. Pattern mirrors pages/bench/bench.css + pages/assets/shared.tsx. */
 
-.nf-pr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
-.nf-pr-tile { --mk: var(--brand); box-sizing: border-box; display: flex; flex-direction: column; min-height: 86px; padding: 12px 14px 10px 16px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--mk) 22%, var(--line)); border-left: 4px solid var(--mk); background: linear-gradient(135deg, var(--panel) 42%, color-mix(in srgb, var(--mk) 11%, var(--panel)) 100%); box-shadow: 0 2px 8px rgba(16, 24, 40, .05); }
+.nf-pr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.nf-pr-tile { --mk: var(--brand); box-sizing: border-box; display: flex; flex-direction: column; min-height: 72px; padding: 10px 12px 8px 14px; border-radius: 11px; border: 1px solid color-mix(in srgb, var(--mk) 22%, var(--line)); border-left: 4px solid var(--mk); background: linear-gradient(135deg, var(--panel) 42%, color-mix(in srgb, var(--mk) 11%, var(--panel)) 100%); box-shadow: 0 2px 8px rgba(16, 24, 40, .05); }
 .nf-pr-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.nf-pr-tile-label { padding-top: 1px; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--txt-mut); }
-.nf-pr-tile-ico { flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; color: var(--mk); background: color-mix(in srgb, var(--mk) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--mk) 28%, transparent); }
-.nf-pr-tile-ico svg { width: 16px; height: 16px; }
-.nf-pr-tile-val { margin-top: auto; padding-top: 4px; font-family: Inter, sans-serif; font-size: 19px; font-weight: 800; line-height: 1; letter-spacing: -.01em; color: var(--txt); }
-
-/* Run console's step tab bar: wrap onto a second row instead of the shared .nf-tabs'
-   horizontal-scroll behavior, so every step is visible without scrolling. Scoped here (not in
-   the shared .nf-tabs rule in index.css) since other tab bars in the app intentionally scroll. */
-.nf-pilltabs--wrap { flex-wrap: wrap; overflow-x: visible; }
-.nf-pilltabs--wrap .nf-tab { flex: 0 1 auto; }
+.nf-pr-tile-label { padding-top: 1px; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--txt-mut); }
+.nf-pr-tile-ico { flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; color: var(--mk); background: color-mix(in srgb, var(--mk) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--mk) 28%, transparent); }
+.nf-pr-tile-ico svg { width: 14px; height: 14px; }
+.nf-pr-tile-val { margin-top: auto; padding-top: 3px; font-family: Inter, sans-serif; font-size: 17px; font-weight: 800; line-height: 1; letter-spacing: -.01em; color: var(--txt); }
 .nf-pr-tile-hint { margin-top: 4px; font-size: 11px; line-height: 1.3; color: var(--txt-dim); }
 
 .nf-pr-table { border-radius: 14px; overflow: hidden; }
@@ -29,13 +23,13 @@
 
 /* Overview's step-card grid — same round-icon/left-accent language as .nf-pr-tile, but each card
    is a nav link into another step rather than a KPI readout. */
-.nf-pr-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 20px; }
-.nf-pr-stepcard { --mk: var(--brand); display: flex; align-items: flex-start; gap: 14px; text-align: left; box-sizing: border-box; padding: 16px 18px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--mk) 20%, var(--line)); background: var(--panel); cursor: pointer; font: inherit; color: inherit; transition: transform .15s, box-shadow .15s; }
+.nf-pr-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.nf-pr-stepcard { --mk: var(--brand); display: flex; align-items: flex-start; gap: 12px; text-align: left; box-sizing: border-box; padding: 13px 15px; border-radius: 13px; border: 1px solid color-mix(in srgb, var(--mk) 20%, var(--line)); background: var(--panel); cursor: pointer; font: inherit; color: inherit; transition: transform .15s, box-shadow .15s; }
 .nf-pr-stepcard:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(16, 24, 40, .08); }
 .nf-pr-stepcard:disabled { cursor: not-allowed; opacity: .55; }
-.nf-pr-stepcard-ico { flex-shrink: 0; width: 40px; height: 40px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; color: var(--mk); background: color-mix(in srgb, var(--mk) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--mk) 28%, transparent); }
-.nf-pr-stepcard-title { font-size: 14px; font-weight: 700; color: var(--brand); margin-bottom: 3px; }
-.nf-pr-stepcard-caption { font-size: 12.5px; color: var(--txt-dim); line-height: 1.4; }
+.nf-pr-stepcard-ico { flex-shrink: 0; width: 36px; height: 36px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; color: var(--mk); background: color-mix(in srgb, var(--mk) 12%, var(--panel)); border: 1px solid color-mix(in srgb, var(--mk) 28%, transparent); }
+.nf-pr-stepcard-title { font-size: 13px; font-weight: 700; color: var(--brand); margin-bottom: 2px; }
+.nf-pr-stepcard-caption { font-size: 12px; color: var(--txt-dim); line-height: 1.35; }
 
 /* FilterBar — the search/filter strip that sits above a list table, matching Keka's filter-bar
    pattern (§1.4 of the restyle spec): its own rounded bar, not fused to the table below it. */

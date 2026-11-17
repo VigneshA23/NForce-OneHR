@@ -13,4 +13,6 @@ public interface ArrearsRepository extends JpaRepository<Arrears, UUID> {
     List<Arrears> findByEmployeeIdAndStatus(UUID employeeId, String status);
 
     List<Arrears> findByEmployeeIdIn(List<UUID> employeeIds);
+
+    List<Arrears> findByEmployeeIdAndAppliedToRunId(UUID employeeId, UUID appliedToRunId);
 }

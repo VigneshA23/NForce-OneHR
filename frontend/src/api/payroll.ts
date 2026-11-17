@@ -20,6 +20,7 @@ export interface PayGroupResponse {
   id: string;
   name: string;
   legalEntity: string;
+  address: string | null;
   frequency: string;
   currency: string;
   cycleStartDay: number;
@@ -66,11 +67,23 @@ export interface InvestmentDeclarationResponse {
 }
 
 // Keka restyle — Configure Payslip Settings (§3.9).
+export type PayslipFieldKey = 'dateOfJoining' | 'department' | 'designation' | 'uan' | 'esi' | 'pan';
+
 export interface PayslipSettingsResponse {
   payGroupId: string;
   passwordProtected: boolean;
   documentHeaderText: string | null;
   footerText: string | null;
+  hasLogo: boolean;
+  logoAlignment: 'LEFT' | 'RIGHT';
+  excludeNaFields: boolean;
+  earningsHeading: string | null;
+  deductionsHeading: string | null;
+  includeLeaveSummary: boolean;
+  includeArrearBreakup: boolean;
+  includeYtdColumn: boolean;
+  includeEmployerContributions: boolean;
+  payslipFields: PayslipFieldKey[];
 }
 
 export interface PtRegisteredLocationResponse {
@@ -602,10 +615,10 @@ export const payrollApi = {
     fetch(`${BASE}/runs/${runId}/arrears`, { headers: bearerOnly(token) }).then(handle<ArrearsResponse[]>),
 
   // US-C19 — Pay Groups (full CRUD; previously only wrapped for reading)
-  createPayGroup: (payload: { name: string; legalEntity?: string; frequency?: string; currency?: string; cycleStartDay: number; cycleEndDay: number; processingDay: number }, token: string) =>
+  createPayGroup: (payload: { name: string; legalEntity?: string; address?: string; frequency?: string; currency?: string; cycleStartDay: number; cycleEndDay: number; processingDay: number }, token: string) =>
     fetch(`${BASE}/pay-groups`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayGroupResponse>),
 
-  updatePayGroup: (id: string, payload: Partial<{ name: string; legalEntity: string; frequency: string; currency: string; cycleStartDay: number; cycleEndDay: number; processingDay: number; active: boolean }>, token: string) =>
+  updatePayGroup: (id: string, payload: Partial<{ name: string; legalEntity: string; address: string; frequency: string; currency: string; cycleStartDay: number; cycleEndDay: number; processingDay: number; active: boolean }>, token: string) =>
     fetch(`${BASE}/pay-groups/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayGroupResponse>),
 
   // Keka restyle — Filing Details (§3.8): Income Tax/PF/ESI, one row per pay group.
@@ -644,8 +657,29 @@ export const payrollApi = {
   getPayslipSettings: (payGroupId: string, token: string) =>
     fetch(`${BASE}/pay-groups/${payGroupId}/payslip-settings`, { headers: bearerOnly(token) }).then(handle<PayslipSettingsResponse>),
 
-  updatePayslipSettings: (payGroupId: string, payload: { passwordProtected: boolean; documentHeaderText?: string; footerText?: string }, token: string) =>
+  updatePayslipSettings: (payGroupId: string, payload: {
+    passwordProtected: boolean; documentHeaderText?: string; footerText?: string;
+    logoAlignment?: 'LEFT' | 'RIGHT'; excludeNaFields?: boolean;
+    earningsHeading?: string; deductionsHeading?: string;
+    includeLeaveSummary?: boolean; includeArrearBreakup?: boolean;
+    includeYtdColumn?: boolean; includeEmployerContributions?: boolean;
+    payslipFields?: PayslipFieldKey[];
+  }, token: string) =>
     fetch(`${BASE}/pay-groups/${payGroupId}/payslip-settings`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<PayslipSettingsResponse>),
+
+  payslipLogoUrl: (payGroupId: string) => `${BASE}/pay-groups/${payGroupId}/payslip-settings/logo`,
+
+  uploadPayslipLogo: (payGroupId: string, file: File, token: string) => {
+    const form = new FormData();
+    form.append('file', file);
+    return fetch(`${BASE}/pay-groups/${payGroupId}/payslip-settings/logo`, {
+      method: 'POST', headers: bearerOnly(token), body: form,
+    }).then(handle<PayslipSettingsResponse>);
+  },
+
+  removePayslipLogo: (payGroupId: string, token: string) =>
+    fetch(`${BASE}/pay-groups/${payGroupId}/payslip-settings/logo`, { method: 'DELETE', headers: authHeaders(token) })
+      .then(handle<PayslipSettingsResponse>),
 
   // Keka restyle — Import Financial Information (§3.4). No bulk endpoint on the backend; the
   // import wizard calls this once per valid row, same loop pattern as the salary import.

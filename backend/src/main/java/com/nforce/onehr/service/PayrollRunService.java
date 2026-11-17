@@ -667,6 +667,21 @@ public class PayrollRunService {
             totalDeductions = totalDeductions.add(deduction.amount());
         }
 
+        // Employer-side contributions (e.g. Employer PF) — informational only, never subtracted
+        // from gross/net pay; see StatutoryDeductionService#computeEmployerContributions for the
+        // "nothing configured yet" silent-skip this shares with the employee-side loop above.
+        for (StatutoryDeductionService.ComputedDeduction contribution : statutoryDeductionService.computeEmployerContributions(employee, basicAmount, window.end())) {
+            SalaryComponent catalog = contribution.component();
+            payslipLineItemRepository.save(PayslipLineItem.builder()
+                    .payslip(payslip)
+                    .componentId(catalog.getId())
+                    .componentName(catalog.getName())
+                    .componentType(catalog.getType())
+                    .amount(contribution.amount())
+                    .prorated(false)
+                    .build());
+        }
+
         // Arrears — pick up anything PENDING for this employee (see Arrears' own doc comment for
         // the three triggers that create these) and turn each into its own line item, flipping it
         // APPLIED. Left PENDING (not silently dropped) if "Arrears"/"Arrears Recovery" isn't set up

@@ -3,6 +3,7 @@ package com.nforce.onehr.dto.payroll;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -12,4 +13,14 @@ public class PayslipSettingsResponse {
     private boolean passwordProtected;
     private String documentHeaderText;
     private String footerText;
+    private boolean hasLogo;
+    private String logoAlignment;
+    private boolean excludeNaFields;
+    private String earningsHeading;
+    private String deductionsHeading;
+    private boolean includeLeaveSummary;
+    private boolean includeArrearBreakup;
+    private boolean includeYtdColumn;
+    private boolean includeEmployerContributions;
+    private List<String> payslipFields;
 }
