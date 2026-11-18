@@ -187,7 +187,7 @@ public class EmailService {
                 """.formatted(fromAddress, toEmail, jsonString(subject), jsonString(html), jsonString(fileName), base64);
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(RESEND_URL))
+                .uri(URI.create(resendUrl))
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))

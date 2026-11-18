@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Plus, History, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, History, Pencil, CheckCircle2, AlertCircle, TriangleAlert } from 'lucide-react';
 import { ActionDock } from '../../components/ActionDock';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
-import { payrollApi, type StatutoryRuleResponse } from '../../api/payroll';
+import { payrollApi, type StatutoryRuleResponse, type LocationCountryMismatchResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, fmtDate, EmptyRow, Modal, FormRow, labelStyle, inputStyle,
   BtnPrimary, BtnGhost, SectionHead, StatTile, WithFaqPanel, type FaqItem,
@@ -11,9 +11,9 @@ import {
 
 const FAQ_ITEMS: FaqItem[] = [
   { q: 'What actually gets computed from a rule saved here?', a: 'Only PF, ESI and Professional Tax are read by payroll when building a payslip. A rule saved under any other name (e.g. a TDS or Gratuity slab) is stored but never applied — the create form warns you about this as you type.' },
-  { q: 'How do I update a rate or ceiling (e.g. the PF wage ceiling)?', a: 'Use "Add / Revise Rule" with the same country + rule type and a new "Effective From" date. The previous rule is automatically closed out as of that date, not overwritten — its full history stays visible.' },
-  { q: 'Where do I see what changed and when?', a: 'Click History on any row to see every past version of that country + rule type, each with its own effective date range and slab values.' },
-  { q: 'What goes in Slab Config?', a: 'A flat JSON object of plain numbers, e.g. {"employeeRate":0.12,"wageCeiling":25000}. There’s no fixed schema across rule types, so the table and history display it generically rather than guessing field meaning.' },
+  { q: 'How do I update a rate or ceiling (e.g. the PF wage ceiling)?', a: 'Click Revise on the PF/ESI/Professional Tax row and change the number that’s changing. It creates a new version effective from the date you set — the previous one is automatically closed out, not overwritten, so its full history stays visible.' },
+  { q: 'Where do I see what changed and when?', a: 'Click History on any row to see every past version of that country + rule type, each with its own effective date range and values.' },
+  { q: 'Why does a Location show up in the warning banner?', a: 'Its Country text doesn’t exactly match the Country saved on any rule below (e.g. "India" vs "IN") — or it has no Country set at all. Payroll matches Country as plain text, so even a one-character difference means PF/ESI/Professional Tax get silently skipped for every employee at that Location. Fix the Location’s Country (People > Organization > Organization Structure > Locations) to match exactly.' },
   { q: 'Why does a card say "Not Set Up"?', a: 'No rule exists yet for that type in any country. Until one is added, payroll silently skips that deduction on every payslip — it doesn’t fail or block the run.' },
 ];
 
@@ -71,28 +71,80 @@ function SlabConfigGrid({ slabConfig }: { slabConfig: string }) {
   );
 }
 
-function ReviseRuleModal({ onClose, onCreated }: { onClose: () => void; onCreated: (r: StatutoryRuleResponse) => void }) {
+/** Percentage fields are stored in slabConfig as a plain decimal (0.12), same as
+ * StatutoryDeductionService reads them — this is the only place that fraction/percent
+ * conversion happens, so an HR admin only ever types "12", never "0.12". */
+function pctFromSlab(slab: Record<string, unknown>, key: string): string {
+  const v = slab[key];
+  return typeof v === 'number' ? String(v * 100) : '';
+}
+function numFromSlab(slab: Record<string, unknown>, key: string): string {
+  const v = slab[key];
+  return typeof v === 'number' ? String(v) : '';
+}
+
+function ReviseRuleModal({ initial, onClose, onCreated }: {
+  initial?: StatutoryRuleResponse; onClose: () => void; onCreated: (r: StatutoryRuleResponse) => void;
+}) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
-  const [country, setCountry] = useState('IN');
-  const [ruleType, setRuleType] = useState('');
-  const [slabConfig, setSlabConfig] = useState('{\n  \n}');
-  const [effectiveFrom, setEffectiveFrom] = useState('');
+  const [country, setCountry] = useState(initial?.country ?? '');
+  const [ruleType, setRuleType] = useState(initial?.ruleType ?? '');
+
+  const initialSlab: Record<string, unknown> = (() => {
+    if (!initial) return {};
+    try { const p = JSON.parse(initial.slabConfig); return p && typeof p === 'object' ? p : {}; } catch { return {}; }
+  })();
+
+  // Friendly fields for the three rule types payroll actually computes — HR never sees or types
+  // raw JSON for these. Rates are typed as plain percentages (e.g. "12"), converted to a decimal
+  // only when building the request.
+  const [employeeRatePct, setEmployeeRatePct] = useState(() => pctFromSlab(initialSlab, 'employeeRate'));
+  const [employerRatePct, setEmployerRatePct] = useState(() => pctFromSlab(initialSlab, 'employerRate'));
+  const [wageCeiling, setWageCeiling] = useState(() => numFromSlab(initialSlab, 'wageCeiling'));
+  const [ptAmount, setPtAmount] = useState(() => numFromSlab(initialSlab, 'amount'));
+
+  // Fallback for any rule type outside the known three — same raw-JSON editor as before.
+  const [rawSlabConfig, setRawSlabConfig] = useState(initial?.slabConfig ?? '{\n  \n}');
   const [jsonError, setJsonError] = useState<string | null>(null);
+
+  const [effectiveFrom, setEffectiveFrom] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   function checkJson(value: string) {
-    setSlabConfig(value);
+    setRawSlabConfig(value);
     try { JSON.parse(value); setJsonError(null); } catch { setJsonError('Not valid JSON'); }
   }
 
-  const valid = !!country.trim() && !!ruleType.trim() && !!slabConfig.trim() && !jsonError && !!effectiveFrom;
+  const isKnownType = RULE_TYPE_SUGGESTIONS.includes(ruleType);
+
+  function buildSlabConfig(): string | null {
+    if (ruleType === 'PF') {
+      if (!employeeRatePct.trim() || !wageCeiling.trim()) return null;
+      const obj: Record<string, number> = { employeeRate: Number(employeeRatePct) / 100, wageCeiling: Number(wageCeiling) };
+      if (employerRatePct.trim()) obj.employerRate = Number(employerRatePct) / 100;
+      return JSON.stringify(obj);
+    }
+    if (ruleType === 'ESI') {
+      if (!employeeRatePct.trim() || !wageCeiling.trim()) return null;
+      return JSON.stringify({ employeeRate: Number(employeeRatePct) / 100, wageCeiling: Number(wageCeiling) });
+    }
+    if (ruleType === 'PROFESSIONAL_TAX') {
+      if (!ptAmount.trim()) return null;
+      return JSON.stringify({ amount: Number(ptAmount) });
+    }
+    if (jsonError || !rawSlabConfig.trim()) return null;
+    return rawSlabConfig.trim();
+  }
+
+  const slabConfig = buildSlabConfig();
+  const valid = !!country.trim() && !!ruleType.trim() && !!effectiveFrom && !!slabConfig;
 
   async function submit() {
-    if (!valid) return;
+    if (!valid || !slabConfig) return;
     setSubmitting(true);
     try {
-      const rule = await payrollApi.createOrReviseStatutoryRule({ country: country.trim(), ruleType: ruleType.trim(), slabConfig: slabConfig.trim(), effectiveFrom }, token);
+      const rule = await payrollApi.createOrReviseStatutoryRule({ country: country.trim(), ruleType: ruleType.trim(), slabConfig, effectiveFrom }, token);
       onCreated(rule);
       onClose();
       showToast('success', 'Statutory rule saved');
@@ -105,21 +157,24 @@ function ReviseRuleModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
   return (
     <Modal
-      title="Add / Revise Statutory Rule"
-      subtitle="Creates a new version effective from the date below. An existing current rule for the same country + rule type is automatically closed out, not overwritten — its history is preserved."
+      title={initial ? `Revise ${RULE_TYPE_LABEL[initial.ruleType] ?? initial.ruleType} (${initial.country})` : 'Add / Revise Statutory Rule'}
+      subtitle="Creates a new version effective from the date below. The existing current rule for the same country + rule type is automatically closed out, not overwritten — its history is preserved."
       onClose={onClose}
     >
       <FormRow>
         <label style={labelStyle}>Country *</label>
-        <input value={country} onChange={e => setCountry(e.target.value.toUpperCase())} style={inputStyle} maxLength={2} placeholder="e.g. IN" />
+        <input value={country} onChange={e => setCountry(e.target.value)} style={inputStyle} placeholder="e.g. India" disabled={!!initial} />
+        <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4 }}>
+          Must exactly match the Country text saved on each employee's Location — e.g. "India", "USA" (case-sensitive, so "india" or "IN" won't match "India").
+        </div>
       </FormRow>
       <FormRow>
         <label style={labelStyle}>Rule Type *</label>
-        <input list="rule-type-suggestions" value={ruleType} onChange={e => setRuleType(e.target.value.toUpperCase())} style={inputStyle} placeholder="e.g. PF" />
+        <input list="rule-type-suggestions" value={ruleType} onChange={e => setRuleType(e.target.value.toUpperCase())} style={inputStyle} placeholder="e.g. PF" disabled={!!initial} />
         <datalist id="rule-type-suggestions">
           {RULE_TYPE_SUGGESTIONS.map(t => <option key={t} value={t} />)}
         </datalist>
-        {ruleType && !RULE_TYPE_SUGGESTIONS.includes(ruleType) && (
+        {ruleType && !isKnownType && (
           <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 4 }}>
             Payroll only computes PF, ESI and Professional Tax today — a rule saved under "{ruleType}" will be stored but never applied to a payslip.
           </div>
@@ -129,15 +184,54 @@ function ReviseRuleModal({ onClose, onCreated }: { onClose: () => void; onCreate
         <label style={labelStyle}>Effective From *</label>
         <input type="date" value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} style={inputStyle} />
       </FormRow>
-      <FormRow>
-        <label style={labelStyle}>Slab Config (JSON) *</label>
-        <textarea
-          value={slabConfig}
-          onChange={e => checkJson(e.target.value)}
-          style={{ ...inputStyle, minHeight: 140, resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
-        />
-        {jsonError && <div style={{ color: 'var(--risk)', fontSize: 12, marginTop: 4 }}>{jsonError}</div>}
-      </FormRow>
+
+      {ruleType === 'PF' && (
+        <>
+          <FormRow>
+            <label style={labelStyle}>Employee PF Rate (%) *</label>
+            <input type="number" step="0.01" value={employeeRatePct} onChange={e => setEmployeeRatePct(e.target.value)} style={inputStyle} placeholder="e.g. 12" />
+          </FormRow>
+          <FormRow>
+            <label style={labelStyle}>Employer PF Rate (%) <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional — prints "Employer PF" on the payslip)</span></label>
+            <input type="number" step="0.01" value={employerRatePct} onChange={e => setEmployerRatePct(e.target.value)} style={inputStyle} placeholder="e.g. 12" />
+          </FormRow>
+          <FormRow>
+            <label style={labelStyle}>Wage Ceiling (₹ per month) *</label>
+            <input type="number" value={wageCeiling} onChange={e => setWageCeiling(e.target.value)} style={inputStyle} placeholder="e.g. 25000" />
+          </FormRow>
+        </>
+      )}
+      {ruleType === 'ESI' && (
+        <>
+          <FormRow>
+            <label style={labelStyle}>Employee ESI Rate (%) *</label>
+            <input type="number" step="0.01" value={employeeRatePct} onChange={e => setEmployeeRatePct(e.target.value)} style={inputStyle} placeholder="e.g. 0.75" />
+          </FormRow>
+          <FormRow>
+            <label style={labelStyle}>Eligibility Ceiling (₹ per month gross) *</label>
+            <input type="number" value={wageCeiling} onChange={e => setWageCeiling(e.target.value)} style={inputStyle} placeholder="e.g. 21000" />
+            <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4 }}>All-or-nothing: anyone over this gross pay gets no ESI deduction at all this cycle.</div>
+          </FormRow>
+        </>
+      )}
+      {ruleType === 'PROFESSIONAL_TAX' && (
+        <FormRow>
+          <label style={labelStyle}>Amount (₹ per month) *</label>
+          <input type="number" value={ptAmount} onChange={e => setPtAmount(e.target.value)} style={inputStyle} placeholder="e.g. 200" />
+        </FormRow>
+      )}
+      {ruleType && !isKnownType && (
+        <FormRow>
+          <label style={labelStyle}>Slab Config (JSON) *</label>
+          <textarea
+            value={rawSlabConfig}
+            onChange={e => checkJson(e.target.value)}
+            style={{ ...inputStyle, minHeight: 140, resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+          />
+          {jsonError && <div style={{ color: 'var(--risk)', fontSize: 12, marginTop: 4 }}>{jsonError}</div>}
+        </FormRow>
+      )}
+
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <BtnGhost onClick={onClose}>Cancel</BtnGhost>
         <BtnPrimary onClick={submit} disabled={!valid || submitting}>{submitting ? 'Saving…' : 'Save'}</BtnPrimary>
@@ -146,7 +240,9 @@ function ReviseRuleModal({ onClose, onCreated }: { onClose: () => void; onCreate
   );
 }
 
-function HistoryModal({ country, ruleType, onClose }: { country: string; ruleType: string; onClose: () => void }) {
+function HistoryModal({ country, ruleType, otherCountryRules, onClose }: {
+  country: string; ruleType: string; otherCountryRules: StatutoryRuleResponse[]; onClose: () => void;
+}) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const [history, setHistory] = useState<StatutoryRuleResponse[]>([]);
@@ -169,6 +265,22 @@ function HistoryModal({ country, ruleType, onClose }: { country: string; ruleTyp
         ))}
         {history.length === 0 && <div style={{ color: 'var(--txt-dim)', fontSize: 13 }}>No history found.</div>}
       </div>
+
+      {otherCountryRules.length > 0 && (
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+          <div style={{ ...labelStyle, marginBottom: 10 }}>Previously configured under a different Country</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {otherCountryRules.map(r => (
+              <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 12, opacity: 0.75 }}>
+                <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 10 }}>
+                  Country "{r.country}" — effective {fmtDate(r.effectiveFrom)} — no longer matches any Location, kept for reference only
+                </div>
+                <SlabConfigGrid slabConfig={r.slabConfig} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -177,23 +289,63 @@ export function StatutoryRulesTab() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
   const [rules, setRules] = useState<StatutoryRuleResponse[]>([]);
+  const [mismatches, setMismatches] = useState<LocationCountryMismatchResponse[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [revising, setRevising] = useState<StatutoryRuleResponse | null>(null);
   const [historyFor, setHistoryFor] = useState<{ country: string; ruleType: string } | null>(null);
 
   function reload() {
     payrollApi.listStatutoryRules(token).then(setRules).catch(() => showToast('error', 'Failed to load statutory rules'));
+    payrollApi.getLocationCountryMismatches(token).then(setMismatches).catch(() => {});
   }
 
   useEffect(reload, [token]);
 
+  // One row per rule type, ever — whichever was created most recently. Rules only ever get
+  // retired by creating a new one under a different Country text (e.g. "IN" -> "India"), never
+  // deleted, so a superseded row would otherwise sit in the main table forever looking like a
+  // second live rule. It's surfaced instead inside the live row's own History modal.
+  const liveRules = useMemo(() => {
+    const byType = new Map<string, StatutoryRuleResponse>();
+    for (const r of rules) {
+      const current = byType.get(r.ruleType);
+      if (!current || new Date(r.createdAt).getTime() > new Date(current.createdAt).getTime()) {
+        byType.set(r.ruleType, r);
+      }
+    }
+    return [...byType.values()];
+  }, [rules]);
+
   return (
     <WithFaqPanel items={FAQ_ITEMS} title="Statutory Rules Help">
     <div>
+      {mismatches.length > 0 && (
+        <div style={{
+          display: 'flex', gap: 12, alignItems: 'flex-start', padding: '14px 18px', borderRadius: 12, marginBottom: 20,
+          background: 'color-mix(in srgb, var(--warn) 10%, var(--panel))', border: '1px solid color-mix(in srgb, var(--warn) 35%, transparent)',
+        }}>
+          <TriangleAlert size={18} style={{ color: 'var(--warn)', flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 13, color: 'var(--txt)' }}>
+            <strong>PF/ESI/Professional Tax will be silently skipped for {mismatches.reduce((n, m) => n + m.employeeCount, 0)} employee(s)</strong> — their Location's Country doesn't exactly match any rule below:
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+              {mismatches.map(m => (
+                <li key={m.locationId}>
+                  <strong>{m.locationName}</strong> — Country is {m.country ? `"${m.country}"` : 'not set'} ({m.employeeCount} employee{m.employeeCount === 1 ? '' : 's'})
+                </li>
+              ))}
+            </ul>
+            <div style={{ marginTop: 8, color: 'var(--txt-mut)' }}>
+              Fix each Location's Country under People &gt; Organization &gt; Organization Structure &gt; Locations so it matches a rule's Country exactly (case-sensitive).
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* At-a-glance: is each statutory deduction actually configured, so a rule saved under the
           wrong country/name (or just never created) is obvious without reading the table below. */}
       <div className="nf-pr-tiles" style={{ marginBottom: 22 }}>
         {RULE_TYPE_SUGGESTIONS.map(type => {
-          const rule = rules.find(r => r.ruleType === type);
+          const rule = liveRules.find(r => r.ruleType === type);
           return (
             <StatTile
               key={type}
@@ -220,7 +372,7 @@ export function StatutoryRulesTab() {
             <tr>{['Country', 'Rule Type', 'Current Config', 'Effective From', 'Created', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>
           <tbody>
-            {rules.map(r => (
+            {liveRules.map(r => (
               <tr key={r.id}>
                 <td style={tdStyle}>{r.country}</td>
                 <td style={tdStyle}>{r.ruleType}</td>
@@ -228,11 +380,14 @@ export function StatutoryRulesTab() {
                 <td style={tdStyle}>{fmtDate(r.effectiveFrom)}</td>
                 <td style={tdStyle}>{fmtDate(r.createdAt)}</td>
                 <td style={tdStyle}>
-                  <ActionDock items={[{ label: 'History', icon: History, onClick: () => setHistoryFor({ country: r.country, ruleType: r.ruleType }) }]} />
+                  <ActionDock items={[
+                    { label: 'Revise', icon: Pencil, onClick: () => setRevising(r) },
+                    { label: 'History', icon: History, onClick: () => setHistoryFor({ country: r.country, ruleType: r.ruleType }) },
+                  ]} />
                 </td>
               </tr>
             ))}
-            {rules.length === 0 && <EmptyRow cols={6} msg="No statutory rules configured yet." />}
+            {liveRules.length === 0 && <EmptyRow cols={6} msg="No statutory rules configured yet." />}
           </tbody>
         </table>
       </div>
@@ -240,8 +395,15 @@ export function StatutoryRulesTab() {
       {showCreate && (
         <ReviseRuleModal onClose={() => setShowCreate(false)} onCreated={() => reload()} />
       )}
+      {revising && (
+        <ReviseRuleModal initial={revising} onClose={() => setRevising(null)} onCreated={() => reload()} />
+      )}
       {historyFor && (
-        <HistoryModal country={historyFor.country} ruleType={historyFor.ruleType} onClose={() => setHistoryFor(null)} />
+        <HistoryModal
+          country={historyFor.country} ruleType={historyFor.ruleType}
+          otherCountryRules={rules.filter(r => r.ruleType === historyFor.ruleType && r.country !== historyFor.country)}
+          onClose={() => setHistoryFor(null)}
+        />
       )}
     </div>
     </WithFaqPanel>

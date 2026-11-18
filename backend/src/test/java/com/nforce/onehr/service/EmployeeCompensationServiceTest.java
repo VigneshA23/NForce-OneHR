@@ -1,9 +1,15 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.payroll.AssignCompensationRequest;
+import com.nforce.onehr.dto.payroll.CurrentSalaryStructureRowResponse;
 import com.nforce.onehr.dto.payroll.EmployeeCompensationResponse;
+import com.nforce.onehr.dto.payroll.MyCtcComponentResponse;
 import com.nforce.onehr.entity.EmployeeCompensation;
+import com.nforce.onehr.entity.SalaryCalculationType;
+import com.nforce.onehr.entity.SalaryComponent;
+import com.nforce.onehr.entity.SalaryComponentType;
 import com.nforce.onehr.entity.SalaryStructure;
+import com.nforce.onehr.entity.SalaryStructureComponent;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeCompensationRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
@@ -15,15 +21,16 @@ import com.nforce.onehr.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -46,7 +53,7 @@ class EmployeeCompensationServiceTest {
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
 
-    @InjectMocks private EmployeeCompensationService service;
+    private EmployeeCompensationService service;
 
     private final UUID actorId = UUID.randomUUID();
     private final String actorEmail = "hr.admin@test.com";
@@ -56,6 +63,13 @@ class EmployeeCompensationServiceTest {
 
     @BeforeEach
     void setUp() {
+        // Same convention as MyFinancesServiceTest: SalaryStructureResolutionService is pure
+        // computation with no dependencies, so it's used for real here rather than mocked.
+        service = new EmployeeCompensationService(employeeCompensationRepository, employeeRepository,
+                payGroupRepository, salaryStructureRepository, salaryStructureComponentRepository,
+                payslipRepository, payrollRunService, arrearsService, userRepository, auditService,
+                auditSnapshot, new SalaryStructureResolutionService());
+
         User actor = User.builder().id(actorId).email(actorEmail).build();
         lenient().when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
         lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
@@ -231,5 +245,44 @@ class EmployeeCompensationServiceTest {
         assertEquals(2, result.size());
         assertEquals(otherEmployeeId, result.get(0).getEmployeeId());
         assertEquals(employeeId, result.get(1).getEmployeeId());
+    }
+
+    @Test
+    void listAllBetween_delegatesToFindAllEffectiveBetween() {
+        LocalDate start = LocalDate.of(2026, 1, 1);
+        LocalDate end = LocalDate.of(2026, 12, 31);
+        EmployeeCompensation row = EmployeeCompensation.builder()
+                .id(UUID.randomUUID()).employeeId(employeeId).structure(structure())
+                .ctc(new BigDecimal("1500000")).effectiveFrom(LocalDate.of(2026, 4, 1)).build();
+        when(employeeCompensationRepository.findAllEffectiveBetween(start, end)).thenReturn(List.of(row));
+
+        List<EmployeeCompensationResponse> result = service.listAllBetween(start, end);
+
+        assertEquals(1, result.size());
+        assertEquals(employeeId, result.get(0).getEmployeeId());
+    }
+
+    @Test
+    void listAllCurrentBreakdown_resolvesEachRowsComponentsFromItsOwnStructure() {
+        LocalDate asOf = LocalDate.of(2026, 11, 18);
+        SalaryComponent basicCatalog = SalaryComponent.builder().id(UUID.randomUUID()).name("Basic").type(SalaryComponentType.EARNING).build();
+        SalaryStructureComponent basic = SalaryStructureComponent.builder().id(UUID.randomUUID())
+                .component(basicCatalog).calcType(SalaryCalculationType.PERCENT_OF_GROSS).value(new BigDecimal("50")).build();
+
+        EmployeeCompensation row = EmployeeCompensation.builder()
+                .id(UUID.randomUUID()).employeeId(employeeId).structure(structure())
+                .ctc(new BigDecimal("1200000")).effectiveFrom(LocalDate.of(2026, 1, 1)).build();
+        when(employeeCompensationRepository.findAllEffectiveAt(asOf)).thenReturn(List.of(row));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+
+        List<CurrentSalaryStructureRowResponse> result = service.listAllCurrentBreakdown(asOf);
+
+        assertEquals(1, result.size());
+        CurrentSalaryStructureRowResponse resp = result.get(0);
+        assertEquals(employeeId, resp.getEmployeeId());
+        assertEquals(structureId, resp.getStructureId());
+        Map<String, BigDecimal> annualByName = resp.getComponents().stream()
+                .collect(Collectors.toMap(MyCtcComponentResponse::getComponentName, MyCtcComponentResponse::getAnnualAmount));
+        assertEquals(0, new BigDecimal("600000.00").compareTo(annualByName.get("Basic")));
     }
 }

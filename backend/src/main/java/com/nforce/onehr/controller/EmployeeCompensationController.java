@@ -1,6 +1,7 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.payroll.AssignCompensationRequest;
+import com.nforce.onehr.dto.payroll.CurrentSalaryStructureRowResponse;
 import com.nforce.onehr.dto.payroll.EmployeeCompensationResponse;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
@@ -62,6 +63,24 @@ public class EmployeeCompensationController {
     public List<EmployeeCompensationResponse> getAllCurrent(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
         return employeeCompensationService.listAllCurrent(asOf != null ? asOf : LocalDate.now());
+    }
+
+    // Keka restyle — "Employee CTC Report" (§3.6), a chosen date range across every employee.
+    @GetMapping("/between")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public List<EmployeeCompensationResponse> getAllBetween(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end) {
+        return employeeCompensationService.listAllBetween(start, end);
+    }
+
+    // Keka restyle — "Current Salary Structure" report (§3.6): every employee's current per-
+    // component breakup, defaulting to today same as /current.
+    @GetMapping("/current/breakdown")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public List<CurrentSalaryStructureRowResponse> getAllCurrentBreakdown(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate asOf) {
+        return employeeCompensationService.listAllCurrentBreakdown(asOf != null ? asOf : LocalDate.now());
     }
 
     @GetMapping("/me/current")

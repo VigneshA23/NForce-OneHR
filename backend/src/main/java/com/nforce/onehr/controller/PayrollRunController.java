@@ -55,6 +55,12 @@ public class PayrollRunController {
         return payrollRunService.rollbackWholeRun(runId, req, principal.getName());
     }
 
+    @GetMapping("/{runId}/rollback-history")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public List<PayrollRunRollbackResponse> rollbackHistory(@PathVariable UUID runId) {
+        return payrollRunService.listRollbackHistory(runId);
+    }
+
     @GetMapping("/{runId}")
     @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
     public PayrollRunResponse get(@PathVariable UUID runId) {
@@ -119,6 +125,19 @@ public class PayrollRunController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(file.fileName()).build().toString())
                 .contentType(MediaType.valueOf("application/zip"))
+                .cacheControl(CacheControl.noStore())
+                .body(file.data());
+    }
+
+    /** "Export to Excel" on the Payslips tab — one Pay Register workbook covering every employee
+     * in the run. See PayrollRunService#payRegisterExcel for the column layout. */
+    @GetMapping("/{runId}/pay-register")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public ResponseEntity<byte[]> payRegisterExcel(@PathVariable UUID runId) {
+        PayslipFile file = payrollRunService.payRegisterExcel(runId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(file.fileName()).build().toString())
+                .contentType(MediaType.parseMediaType(file.contentType()))
                 .cacheControl(CacheControl.noStore())
                 .body(file.data());
     }

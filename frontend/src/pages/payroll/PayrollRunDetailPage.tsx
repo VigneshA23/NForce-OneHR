@@ -10,10 +10,10 @@ import { TabBar, type TabDef } from '../../components/TabBar';
 import { useAuthStore } from '../../store/authStore';
 import { hasPermission } from '../../lib/permissions';
 import { useToast } from '../../context/ToastContext';
-import { payrollApi, type PayrollRunResponse, type PayrollRunStatus, type PayGroupResponse } from '../../api/payroll';
+import { payrollApi, type PayrollRunResponse, type PayrollRunRollbackResponse, type PayrollRunStatus, type PayGroupResponse } from '../../api/payroll';
 import {
   fmtCurrency, fmtDate, fmtDateTime, StatusBadge, StatTile, StepCard, SectionHead, Modal, FormRow,
-  labelStyle, inputStyle, BtnPrimary, BtnGhost, WithFaqPanel, type FaqItem,
+  labelStyle, inputStyle, BtnPrimary, BtnGhost, WithFaqPanel, useEmployeeDirectory, panelStyle, thStyle, tdStyle, type FaqItem,
 } from './payrollShared';
 import { PayslipsTab } from './PayslipsTab';
 import { LeaveAppliedReviewTab } from './LeaveAppliedReviewTab';
@@ -167,6 +167,7 @@ export default function PayrollRunDetailPage() {
   const permissions = useAuthStore(s => s.permissions);
   const canConfigure = hasPermission(permissions, 'payroll', 'CONFIGURE', 'ALL');
   const { showToast } = useToast();
+  const { nameFor } = useEmployeeDirectory();
 
   const [run, setRun] = useState<PayrollRunResponse | null>(null);
   const [payGroups, setPayGroups] = useState<PayGroupResponse[]>([]);
@@ -177,10 +178,12 @@ export default function PayrollRunDetailPage() {
   const [bonusRevisionsOtSubTab, setBonusRevisionsOtSubTab] = useState<BonusRevisionsOtSubTab>('bonus-ot');
   const [busy, setBusy] = useState(false);
   const [showRollback, setShowRollback] = useState(false);
+  const [rollbackHistory, setRollbackHistory] = useState<PayrollRunRollbackResponse[]>([]);
 
   const reload = useCallback(() => {
     if (!runId) return;
     payrollApi.getRun(runId, token).then(setRun).catch(() => showToast('error', 'Failed to load this payroll run'));
+    payrollApi.rollbackHistory(runId, token).then(setRollbackHistory).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId, token]);
 
@@ -275,14 +278,28 @@ export default function PayrollRunDetailPage() {
             <div><dt style={labelStyle}>Approved</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{fmtDateTime(run.approvedAt)}</dd></div>
             <div><dt style={labelStyle}>Disbursed</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{fmtDateTime(run.disbursedAt)}</dd></div>
             <div><dt style={labelStyle}>Pending Approval Stage</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{run.pendingApprovalStage ?? '–'}</dd></div>
-            {run.lastRolledBackAt && (
-              <>
-                <div><dt style={labelStyle}>Last Rolled Back</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{fmtDateTime(run.lastRolledBackAt)}</dd></div>
-                <div><dt style={labelStyle}>Rollback Reason</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{run.lastRollbackReason}</dd></div>
-              </>
-            )}
           </dl>
           </div>
+
+          {rollbackHistory.length > 0 && (
+            <div style={{ marginTop: 18 }}>
+              <SectionHead title="Rollback History" />
+              <div style={panelStyle}>
+                <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead><tr>{['When', 'By', 'Reason'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                  <tbody>
+                    {rollbackHistory.map(h => (
+                      <tr key={h.id}>
+                        <td style={tdStyle}>{fmtDateTime(h.rolledBackAt)}</td>
+                        <td style={tdStyle}>{h.rolledBackBy ? nameFor(h.rolledBackBy) : '—'}</td>
+                        <td style={tdStyle}>{h.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
 
@@ -334,7 +351,10 @@ export default function PayrollRunDetailPage() {
       {showRollback && (
         <RollbackModal
           onClose={() => setShowRollback(false)}
-          onConfirm={async (reason) => { await act(() => payrollApi.rollbackRun(runId, reason, token), 'Run rolled back to DRAFT'); }}
+          onConfirm={async (reason) => {
+            await act(() => payrollApi.rollbackRun(runId, reason, token), 'Run rolled back to DRAFT');
+            payrollApi.rollbackHistory(runId, token).then(setRollbackHistory).catch(() => {});
+          }}
         />
       )}
     </div>

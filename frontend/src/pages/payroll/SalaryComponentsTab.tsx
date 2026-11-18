@@ -318,6 +318,7 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
       />
       <FilterBar search={search} onSearchChange={setSearch} placeholder="Search component" />
       <div style={panelStyle}>
+        <div style={{ overflowX: 'auto' }}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>{['Name', 'Type', 'Taxable', 'In CTC', 'On Payslip', 'Prorate on LOP', 'Status', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
@@ -332,7 +333,7 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
                 <td style={tdStyle}>{c.shownOnPayslip ? 'Yes' : 'No'}</td>
                 <td style={tdStyle}>{c.prorateOnLop ? 'Yes' : 'No'}</td>
                 <td style={tdStyle}>{c.active ? 'Active' : 'Inactive'}</td>
-                <td style={tdStyle}>
+                <td className="nf-dock-cell" style={tdStyle}>
                   <ActionDock items={[
                     { label: 'Edit', icon: Pencil, onClick: () => setEditing(c) },
                     { label: c.active ? 'Deactivate' : 'Activate', icon: c.active ? Ban : CheckCircle2, onClick: () => toggleActive(c) },
@@ -345,6 +346,7 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {showCreate && (

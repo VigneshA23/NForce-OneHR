@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Wallet, FileCheck2, Receipt, ClipboardList, PauseCircle, Undo2, Search, HelpCircle, ChevronDown } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -120,14 +120,71 @@ export function NoPermissionNote({ action }: { action: string }) {
 // Compensation, Salary Revision) — some scoped to the full org directory, others to just this
 // run's own employees. `options` takes whichever list the caller already has and how it wants each
 // one labelled, so this stays agnostic to that distinction rather than picking one for everybody.
+// Type-to-search instead of a native <select> — with a full org roster, scrolling a plain
+// dropdown to find one person doesn't scale. Options are filtered by substring match against
+// their label as the admin types; selecting one is the only thing that changes `value`, so typing
+// and then clicking away without picking leaves the previous selection intact rather than
+// clearing it.
 export function EmployeePicker({ value, onChange, options }: {
   value: string; onChange: (id: string) => void; options: { id: string; label: string }[];
 }) {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(0);
+
+  const selectedLabel = options.find(o => o.id === value)?.label ?? '';
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(o => o.label.toLowerCase().includes(q));
+  }, [options, query]);
+
+  function select(o: { id: string; label: string }) {
+    onChange(o.id);
+    setQuery('');
+    setOpen(false);
+  }
+
   return (
-    <select value={value} onChange={e => onChange(e.target.value)} style={inputStyle}>
-      <option value="">Select…</option>
-      {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-    </select>
+    <div style={{ position: 'relative' }}>
+      <input
+        value={open ? query : selectedLabel}
+        onFocus={() => { setQuery(''); setOpen(true); setHighlighted(0); }}
+        onChange={e => { setQuery(e.target.value); setOpen(true); setHighlighted(0); }}
+        onKeyDown={e => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setHighlighted(h => Math.min(h + 1, filtered.length - 1)); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlighted(h => Math.max(h - 1, 0)); }
+          else if (e.key === 'Enter') { e.preventDefault(); if (filtered[highlighted]) select(filtered[highlighted]); }
+          else if (e.key === 'Escape') { setOpen(false); setQuery(''); }
+        }}
+        onBlur={() => { setOpen(false); setQuery(''); }}
+        placeholder="Search employee…"
+        style={inputStyle}
+      />
+      {open && (
+        <div style={{
+          position: 'absolute', zIndex: 50, top: '100%', left: 0, right: 0, marginTop: 4, maxHeight: 260,
+          overflowY: 'auto', background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 10,
+          boxShadow: '0 8px 22px rgba(16,24,40,.16)',
+        }}>
+          {filtered.length === 0 && <div style={{ padding: '10px 12px', fontSize: 13, color: 'var(--txt-dim)' }}>No matches</div>}
+          {filtered.map((o, i) => (
+            <div
+              key={o.id}
+              onMouseDown={e => { e.preventDefault(); select(o); }}
+              onMouseEnter={() => setHighlighted(i)}
+              style={{
+                padding: '9px 12px', fontSize: 13.5, cursor: 'pointer', color: 'var(--txt)',
+                background: i === highlighted ? 'color-mix(in srgb, var(--brand) 10%, var(--panel))' : 'transparent',
+              }}
+            >
+              {o.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

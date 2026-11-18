@@ -42,4 +42,11 @@ public interface PayslipLineItemRepository extends JpaRepository<PayslipLineItem
     @Query("SELECT li.componentType, SUM(li.amount) FROM PayslipLineItem li "
          + "WHERE li.payslip.payrollRun.id = :runId GROUP BY li.componentType")
     List<Object[]> sumAmountByComponentType(@Param("runId") UUID runId);
+
+    // Pay Register export (PayrollRunService#payRegisterExcel) — every line item in the run as a
+    // flat [employeeId, componentId, componentName, componentType, amount] projection rather than
+    // loading Payslip entities, since this only ever reads employeeId off of them.
+    @Query("SELECT li.payslip.employeeId, li.componentId, li.componentName, li.componentType, li.amount " +
+         "FROM PayslipLineItem li WHERE li.payslip.payrollRun.id = :runId")
+    List<Object[]> findRowsByPayrollRunId(@Param("runId") UUID runId);
 }

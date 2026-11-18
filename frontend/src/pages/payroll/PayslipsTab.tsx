@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileText, ListChecks, Download, Send } from 'lucide-react';
+import { FileText, ListChecks, Download, Send, FileSpreadsheet } from 'lucide-react';
 import { ActionDock } from '../../components/ActionDock';
 import { PersonCellById } from '../../components/PersonCell';
 import { usePaged } from '../../components/usePaged';
@@ -208,6 +208,7 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
   const [selected, setSelected] = useState<PayslipResponse | null>(null);
   const [search, setSearch] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [showDistribute, setShowDistribute] = useState(false);
   const { nameFor } = useEmployeeDirectory();
 
@@ -239,6 +240,17 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
       showToast('error', e instanceof Error ? e.message : 'Failed to download payslips');
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function exportToExcel() {
+    setExporting(true);
+    try {
+      await payrollApi.downloadPayRegister(runId, token);
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to export pay register');
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -277,6 +289,9 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
             )}
             {canConfigure && (
               <div style={{ display: 'flex', gap: 8 }}>
+                <BtnGhost onClick={exportToExcel} disabled={exporting || payslips.length === 0}>
+                  <FileSpreadsheet size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />{exporting ? 'Exporting…' : 'Export to Excel'}
+                </BtnGhost>
                 <BtnGhost onClick={downloadAll} disabled={!viewable || downloading || payslips.length === 0}>
                   <Download size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />{downloading ? 'Downloading…' : 'Download All'}
                 </BtnGhost>

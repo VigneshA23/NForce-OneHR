@@ -1,12 +1,15 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.payroll.AssignCompensationRequest;
+import com.nforce.onehr.dto.payroll.CurrentSalaryStructureRowResponse;
 import com.nforce.onehr.dto.payroll.EmployeeCompensationResponse;
+import com.nforce.onehr.dto.payroll.MyCtcComponentResponse;
 import com.nforce.onehr.entity.ArrearsSourceType;
 import com.nforce.onehr.entity.EmployeeCompensation;
 import com.nforce.onehr.entity.Payslip;
 import com.nforce.onehr.entity.PayrollRunStatus;
 import com.nforce.onehr.entity.SalaryStructure;
+import com.nforce.onehr.entity.SalaryStructureComponent;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeCompensationRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
@@ -20,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -56,6 +60,9 @@ public class EmployeeCompensationService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
+    private final SalaryStructureResolutionService salaryStructureResolutionService;
+
+    private static final int MONTHS_PER_YEAR = 12;
 
     @Transactional
     public EmployeeCompensationResponse assign(AssignCompensationRequest req, String actorEmail) {
@@ -160,6 +167,52 @@ public class EmployeeCompensationService {
         return employeeCompensationRepository.findAllByOrderByCreatedAtDesc().stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
+    }
+
+    // Keka restyle — "Employee CTC Report" (§3.6), filtered to a chosen date range across every
+    // employee, newest first.
+    @Transactional(readOnly = true)
+    public List<EmployeeCompensationResponse> listAllBetween(LocalDate start, LocalDate end) {
+        return employeeCompensationRepository.findAllEffectiveBetween(start, end).stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    // Keka restyle — "Current Salary Structure" report (§3.6): the org-wide version of {@link
+    // MyFinancesService#getCurrentCtcBreakdown} — same resolveAnnualValues engine, one row per
+    // employee effective on the given date instead of "me" resolved from the JWT.
+    @Transactional(readOnly = true)
+    public List<CurrentSalaryStructureRowResponse> listAllCurrentBreakdown(LocalDate asOf) {
+        return employeeCompensationRepository.findAllEffectiveAt(asOf).stream()
+                .map(this::toBreakdownResponse)
+                .collect(Collectors.toList());
+    }
+
+    private CurrentSalaryStructureRowResponse toBreakdownResponse(EmployeeCompensation c) {
+        List<SalaryStructureComponent> components = salaryStructureComponentRepository.findByStructureId(c.getStructure().getId());
+        Map<UUID, BigDecimal> annualByComponentId = salaryStructureResolutionService.resolveAnnualValues(components, c.getCtc());
+
+        List<MyCtcComponentResponse> componentResponses = components.stream()
+                .map(sc -> {
+                    BigDecimal annual = annualByComponentId.get(sc.getId()).setScale(2, RoundingMode.HALF_UP);
+                    BigDecimal monthly = annual.divide(BigDecimal.valueOf(MONTHS_PER_YEAR), 2, RoundingMode.HALF_UP);
+                    return MyCtcComponentResponse.builder()
+                            .componentName(sc.getComponent().getName())
+                            .componentType(sc.getComponent().getType())
+                            .annualAmount(annual)
+                            .monthlyAmount(monthly)
+                            .build();
+                })
+                .collect(Collectors.toList());
+
+        return CurrentSalaryStructureRowResponse.builder()
+                .employeeId(c.getEmployeeId())
+                .structureId(c.getStructure().getId())
+                .structureName(c.getStructure().getName())
+                .ctc(c.getCtc())
+                .effectiveFrom(c.getEffectiveFrom())
+                .components(componentResponses)
+                .build();
     }
 
     private User requireActor(String email) {

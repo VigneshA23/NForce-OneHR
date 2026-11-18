@@ -189,6 +189,8 @@ public class PayrollRunService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final PayslipService payslipService;
+    private final PayRegisterExcelService payRegisterExcelService;
+    private final PayrollRunRollbackRepository payrollRunRollbackRepository;
 
     // Default-timeout (30s, see application.yml) is sized for this app's normal transactions,
     // which are short and single-method. This one isn't: it loops once per included employee,
@@ -461,17 +463,32 @@ public class PayrollRunService {
             adHocDeductionInstallmentRepository.delete(installment);
         }
 
+        User actor = requireActor(actorEmail);
         String before = auditSnapshot.toJson(runSnapshot(run));
         run.setStatus(PayrollRunStatus.DRAFT);
         run.setPendingApprovalStage(null);
         run.setLastRolledBackAt(LocalDateTime.now());
         run.setLastRollbackReason(req.getReason());
+        run.setLastRolledBackBy(actor.getId());
         run = payrollRunRepository.save(run);
 
-        User actor = requireActor(actorEmail);
+        payrollRunRollbackRepository.save(PayrollRunRollback.builder()
+                .payrollRunId(run.getId()).reason(req.getReason()).rolledBackBy(actor.getId())
+                .rolledBackAt(run.getLastRolledBackAt()).build());
+
         auditService.log(actor.getId(), "PAYROLL_RUN_TRANSITION", run.getId(), before, auditSnapshot.toJson(runSnapshot(run)));
 
         return toRunResponse(run);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PayrollRunRollbackResponse> listRollbackHistory(UUID runId) {
+        requireRun(runId);
+        return payrollRunRollbackRepository.findByPayrollRunIdOrderByRolledBackAtDesc(runId).stream()
+                .map(r -> PayrollRunRollbackResponse.builder()
+                        .id(r.getId()).reason(r.getReason()).rolledBackBy(r.getRolledBackBy()).rolledBackAt(r.getRolledBackAt())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
@@ -590,6 +607,56 @@ public class PayrollRunService {
         }
 
         return new PayslipService.PayslipFile(buffer.toByteArray(), "application/zip", "payslips-" + period + ".zip");
+    }
+
+    /** "Export to Excel" on the Payslips tab — one Pay Register workbook, one row per employee in
+     * the run, every distinct earning/deduction/contribution component across the whole run as its
+     * own column (blank for an employee with no line item for it). Column sets are resolved here
+     * (ordered by the catalog's own {@code displayOrder}, same convention {@link PayslipService
+     * #lines} uses) and handed to {@link PayRegisterExcelService}, which only knows how to lay out
+     * a workbook, not how to query payroll data. */
+    @Transactional(readOnly = true)
+    public PayslipService.PayslipFile payRegisterExcel(UUID runId) {
+        PayrollRun run = requireRun(runId);
+        List<Payslip> payslips = payslipRepository.findByPayrollRunId(runId);
+        List<Object[]> rows = payslipLineItemRepository.findRowsByPayrollRunId(runId);
+
+        List<UUID> employeeIds = payslips.stream().map(Payslip::getEmployeeId).toList();
+        Map<UUID, Employee> employees = employeeRepository.findAllById(employeeIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+
+        Map<String, UUID> nameToComponentId = new LinkedHashMap<>();
+        Map<String, String> nameToType = new LinkedHashMap<>();
+        Map<UUID, Map<String, BigDecimal>> amountsByEmployee = new HashMap<>();
+        for (Object[] row : rows) {
+            UUID employeeId = (UUID) row[0];
+            UUID componentId = (UUID) row[1];
+            String name = (String) row[2];
+            String type = (String) row[3];
+            BigDecimal amount = (BigDecimal) row[4];
+            nameToComponentId.putIfAbsent(name, componentId);
+            nameToType.putIfAbsent(name, type);
+            amountsByEmployee.computeIfAbsent(employeeId, k -> new HashMap<>()).merge(name, amount, BigDecimal::add);
+        }
+
+        Map<UUID, SalaryComponent> catalog = salaryComponentRepository.findAllById(nameToComponentId.values()).stream()
+                .collect(Collectors.toMap(SalaryComponent::getId, c -> c));
+        Comparator<String> byDisplayOrder = Comparator.<String>comparingInt(name -> {
+            SalaryComponent c = catalog.get(nameToComponentId.get(name));
+            return c == null ? 0 : c.getDisplayOrder();
+        }).thenComparing(Comparator.naturalOrder());
+
+        List<String> earningColumns = nameToType.entrySet().stream()
+                .filter(e -> EARNING_TYPES.contains(e.getValue())).map(Map.Entry::getKey).sorted(byDisplayOrder).toList();
+        List<String> deductionColumns = nameToType.entrySet().stream()
+                .filter(e -> DEDUCTION_TYPES.contains(e.getValue())).map(Map.Entry::getKey).sorted(byDisplayOrder).toList();
+        List<String> contributionColumns = nameToType.entrySet().stream()
+                .filter(e -> SalaryComponentType.CONTRIBUTION.equals(e.getValue())).map(Map.Entry::getKey).sorted(byDisplayOrder).toList();
+
+        byte[] xlsx = payRegisterExcelService.render(new PayRegisterExcelService.Model(
+                payslips, employees, amountsByEmployee, earningColumns, deductionColumns, contributionColumns));
+        String fileName = "pay-register-" + YearMonth.from(run.getCycleEnd()) + ".xlsx";
+        return new PayslipService.PayslipFile(xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 
     /**
@@ -1004,6 +1071,7 @@ public class PayrollRunService {
                 .disbursedAt(r.getDisbursedAt())
                 .lastRolledBackAt(r.getLastRolledBackAt())
                 .lastRollbackReason(r.getLastRollbackReason())
+                .lastRolledBackBy(r.getLastRolledBackBy())
                 .approvalStages(r.getApprovalStages() != null ? ApprovalRuleEvaluationService.parseStages(r.getApprovalStages()) : null)
                 .pendingApprovalStage(r.getPendingApprovalStage())
                 .createdAt(r.getCreatedAt())

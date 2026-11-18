@@ -11,9 +11,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Keka restyle (payroll module) — "Import Financial Information" (§3.4): a Payroll Admin editing
@@ -37,6 +39,15 @@ public class EmployeeFinancialDetailsService {
     public EmployeeFinancialDetailsResponse get(UUID employeeId) {
         Employee employee = requireEmployee(employeeId);
         return toResponse(employee);
+    }
+
+    // Keka restyle — "Financial Information" report (§3.6): every employee's bank/PAN/UAN/ESI
+    // details in one table, same unmasked admin view as the single-employee read above.
+    @Transactional(readOnly = true)
+    public List<EmployeeFinancialDetailsResponse> listAll() {
+        return employeeRepository.findAll().stream()
+                .map(this::toResponse)
+                .collect(Collectors.toList());
     }
 
     @Transactional

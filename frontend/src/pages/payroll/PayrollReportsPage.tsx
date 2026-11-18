@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Search, Star, History, IndianRupee, TrendingUp } from 'lucide-react';
+import { BarChart3, Search, Star, History, IndianRupee, TrendingUp, Layers, CalendarRange, Landmark } from 'lucide-react';
 import PageTitleBlock from '../../components/PageTitleBlock';
 import { PersonCellById } from '../../components/PersonCell';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
-import { payrollApi, type EmployeeCompensationResponse } from '../../api/payroll';
+import {
+  payrollApi, type EmployeeCompensationResponse, type CurrentSalaryStructureRowResponse,
+  type EmployeeFinancialDetailsResponse,
+} from '../../api/payroll';
 import { hasPermission } from '../../lib/permissions';
 import {
   panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, FilterBar, FullScreenTask,
-  useEmployeeDirectory, WithFaqPanel, type FaqItem,
+  useEmployeeDirectory, WithFaqPanel, labelStyle, inputStyle, BtnPrimary, type FaqItem,
 } from './payrollShared';
 import { AllChangesHistory } from './EmployeeCompensationTab';
 import './payroll.css';
@@ -32,23 +35,27 @@ function writeIds(key: string, ids: string[]) {
   try { localStorage.setItem(key, JSON.stringify(ids)); } catch { /* private window / blocked storage — fine to drop */ }
 }
 
-type ReportId = 'current-ctc' | 'salary-revision';
+type ReportId = 'current-ctc' | 'salary-revision' | 'current-salary-structure' | 'employee-ctc-range' | 'financial-information';
 
 interface ReportDef {
   id: ReportId;
   title: string;
   description: string;
-  category: 'compensation';
+  category: 'compensation' | 'financial';
 }
 
 const REPORTS: ReportDef[] = [
   { id: 'current-ctc', title: 'Current CTC Report', description: "Every employee's current salary structure and CTC, as of today.", category: 'compensation' },
+  { id: 'current-salary-structure', title: 'Current Salary Structure', description: "Every employee's current salary breakup, component by component.", category: 'compensation' },
   { id: 'salary-revision', title: 'Salary Revision Report', description: 'Every compensation assignment or revision ever made, across every employee.', category: 'compensation' },
+  { id: 'employee-ctc-range', title: 'Employee CTC Report', description: 'Compensation details for a chosen date range, across every employee.', category: 'compensation' },
+  { id: 'financial-information', title: 'Financial Information', description: "Every employee's bank, PAN, UAN and ESI details in one table.", category: 'financial' },
 ];
 
 const CATEGORIES: { key: 'all' | ReportDef['category']; label: string }[] = [
   { key: 'all', label: 'Reports Home' },
   { key: 'compensation', label: 'Compensation Reports' },
+  { key: 'financial', label: 'Financial Reports' },
 ];
 
 function CurrentCtcReport() {
@@ -90,21 +97,179 @@ function CurrentCtcReport() {
   );
 }
 
+/** Component columns vary per employee (whichever SalaryStructure they're on) — the union of
+ * every component name seen across all rows becomes the column set, in first-seen order, same
+ * "blank where that employee has no line item" idea PayRegisterExcelService uses for its own
+ * dynamic columns, just computed client-side here since this is an on-screen table, not a file. */
+function CurrentSalaryStructureReport() {
+  const token = useAuthStore(s => s.token)!;
+  const { showToast } = useToast();
+  const { nameFor } = useEmployeeDirectory();
+  const [rows, setRows] = useState<CurrentSalaryStructureRowResponse[]>([]);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    payrollApi.listAllCurrentSalaryStructure(token).then(setRows).catch(() => showToast('error', 'Failed to load the current salary structure report'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const columns = useMemo(() => {
+    const seen: string[] = [];
+    for (const r of rows) for (const c of r.components) if (!seen.includes(c.componentName)) seen.push(c.componentName);
+    return seen;
+  }, [rows]);
+
+  const filtered = rows.filter(r => nameFor(r.employeeId).toLowerCase().includes(search.trim().toLowerCase()));
+
+  return (
+    <div>
+      <FilterBar search={search} onSearchChange={setSearch} />
+      <div style={panelStyle}>
+        <div style={{ overflowX: 'auto' }}>
+        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>{['Employee', 'Structure', 'CTC', 'Effective From', ...columns].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+          <tbody>
+            {filtered.map(r => {
+              const byName = new Map(r.components.map(c => [c.componentName, c.annualAmount]));
+              return (
+                <tr key={r.employeeId}>
+                  <td style={tdStyle}><PersonCellById userId={r.employeeId} name={nameFor(r.employeeId)} /></td>
+                  <td style={tdStyle}>{r.structureName}</td>
+                  <td style={tdStyle}>{fmtCurrency(r.ctc)}</td>
+                  <td style={tdStyle}>{fmtDate(r.effectiveFrom)}</td>
+                  {columns.map(name => <td key={name} style={tdStyle}>{byName.has(name) ? fmtCurrency(byName.get(name)!) : '—'}</td>)}
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <EmptyRow cols={4 + columns.length} msg={rows.length === 0 ? 'No current compensation assigned to anyone yet.' : 'No matches for your search.'} />
+            )}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmployeeCtcRangeReport() {
+  const token = useAuthStore(s => s.token)!;
+  const { showToast } = useToast();
+  const { nameFor } = useEmployeeDirectory();
+  const [start, setStart] = useState(() => `${new Date().getFullYear()}-01-01`);
+  const [end, setEnd] = useState(() => new Date().toISOString().slice(0, 10));
+  const [rows, setRows] = useState<EmployeeCompensationResponse[]>([]);
+  const [search, setSearch] = useState('');
+
+  function load() {
+    payrollApi.listCompensationBetween(start, end, token).then(setRows).catch(() => showToast('error', 'Failed to load the employee CTC report'));
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, []);
+
+  const filtered = rows.filter(r => nameFor(r.employeeId).toLowerCase().includes(search.trim().toLowerCase()));
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div>
+          <label style={labelStyle}>From</label>
+          <input type="date" value={start} onChange={e => setStart(e.target.value)} style={inputStyle} />
+        </div>
+        <div>
+          <label style={labelStyle}>To</label>
+          <input type="date" value={end} onChange={e => setEnd(e.target.value)} style={inputStyle} />
+        </div>
+        <BtnPrimary onClick={load}>Apply</BtnPrimary>
+      </div>
+      <FilterBar search={search} onSearchChange={setSearch} />
+      <div style={panelStyle}>
+        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>{['Employee', 'Structure', 'CTC', 'Effective From', 'Effective To'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+          <tbody>
+            {filtered.map(r => (
+              <tr key={r.id}>
+                <td style={tdStyle}><PersonCellById userId={r.employeeId} name={nameFor(r.employeeId)} /></td>
+                <td style={tdStyle}>{r.structureName}</td>
+                <td style={tdStyle}>{fmtCurrency(r.ctc)}</td>
+                <td style={tdStyle}>{fmtDate(r.effectiveFrom)}</td>
+                <td style={tdStyle}>{r.effectiveTo ? fmtDate(r.effectiveTo) : 'Current'}</td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <EmptyRow cols={5} msg={rows.length === 0 ? 'No compensation rows in this date range.' : 'No matches for your search.'} />
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function FinancialInformationReport() {
+  const token = useAuthStore(s => s.token)!;
+  const { showToast } = useToast();
+  const [rows, setRows] = useState<EmployeeFinancialDetailsResponse[]>([]);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    payrollApi.listAllFinancialDetails(token).then(setRows).catch(() => showToast('error', 'Failed to load the financial information report'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const filtered = rows.filter(r => r.employeeName.toLowerCase().includes(search.trim().toLowerCase()));
+
+  return (
+    <div>
+      <FilterBar search={search} onSearchChange={setSearch} />
+      <div style={panelStyle}>
+        <div style={{ overflowX: 'auto' }}>
+        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>{['Employee', 'Employee Code', 'Bank Name', 'Bank Account', 'IFSC', 'PAN', 'UAN', 'ESI'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+          <tbody>
+            {filtered.map(r => (
+              <tr key={r.employeeId}>
+                <td style={tdStyle}><PersonCellById userId={r.employeeId} name={r.employeeName} /></td>
+                <td style={tdStyle}>{r.employeeCode}</td>
+                <td style={tdStyle}>{r.bankName ?? '—'}</td>
+                <td style={tdStyle}>{r.bankAccountNumber ?? '—'}</td>
+                <td style={tdStyle}>{r.bankIfsc ?? '—'}</td>
+                <td style={tdStyle}>{r.panNumber ?? '—'}</td>
+                <td style={tdStyle}>{r.uanNumber ?? '—'}</td>
+                <td style={tdStyle}>{r.esiNumber ?? '—'}</td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <EmptyRow cols={8} msg={rows.length === 0 ? 'No employees yet.' : 'No matches for your search.'} />
+            )}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const REPORT_ICON: Record<ReportId, React.ReactNode> = {
   'current-ctc': <IndianRupee size={18} />,
+  'current-salary-structure': <Layers size={18} />,
   'salary-revision': <TrendingUp size={18} />,
+  'employee-ctc-range': <CalendarRange size={18} />,
+  'financial-information': <Landmark size={18} />,
 };
 
-/** Keka's "Reports Home" (§3.6) — scoped to the two reports this app can genuinely back today
- * (both reuse existing data/endpoints, no new aggregation invented for this screen). Favourites/
+/** Keka's "Reports Home" (§3.6) — scoped to the reports this app can genuinely back today (all
+ * reuse existing data/endpoints, no new aggregation invented for this screen). Favourites/
  * Recently Used are a per-browser preference (localStorage), not server state. The left category
- * panel only has one real category — "Compensation Reports" — rather than Keka's full list
- * (Payroll Run Reports, YTD, Statutory Forms, Loan, F&F...), none of which this app has data for. */
+ * panel only has two real categories — "Compensation Reports" and "Financial Reports" — rather
+ * than Keka's full list (Payroll Run Reports, YTD, Statutory Forms, Loan, F&F...), none of which
+ * this app has data for. */
 const FAQ_ITEMS: FaqItem[] = [
-  { q: 'What reports are actually available today?', a: 'Two: Current CTC (every employee’s latest salary structure and CTC) and Salary Revision (every compensation assignment or revision ever made, org-wide). Both reuse existing compensation data — nothing is a separate aggregation job.' },
+  { q: 'What reports are actually available today?', a: 'Five: Current CTC, Current Salary Structure (full component-by-component breakup), Salary Revision, Employee CTC for a chosen date range, and Financial Information (bank/PAN/UAN/ESI). All reuse existing compensation/employee data — nothing is a separate aggregation job.' },
   { q: 'How do Favourites and Recently Used work?', a: 'Click the star on a report to favourite it, or just open a report to have it show up under Recently Used. Both lists are remembered on this browser only — they’re not shared with other HR users or saved on the server.' },
-  { q: 'Can I export a report?', a: 'Not yet — these open as an on-screen table (Current CTC) or list (Salary Revision), not a downloadable file.' },
-  { q: 'Why don’t I see Payroll Run Reports, YTD or Statutory Forms?', a: 'This app doesn’t have the underlying data for those yet, so they’re not listed rather than shown as empty placeholders.' },
+  { q: 'Can I export a report?', a: 'Not yet — these open as an on-screen table, not a downloadable file. The Payslips tab’s "Export to Excel" is the only downloadable export in the payroll module today.' },
+  { q: 'Why don’t I see Bonus, YTD, Loan, Full & Final Settlement, Perks or PF ECR reports?', a: 'This app doesn’t have the underlying data or concept for any of those yet — no bonus status/revision tracking, no org-wide YTD aggregation, no loans, no settlement workflow, no perquisites, no statutory e-filing. Rather than list them as empty placeholders, they’re simply not here until that data exists.' },
 ];
 
 export default function PayrollReportsPage() {
@@ -150,7 +315,7 @@ export default function PayrollReportsPage() {
     <div style={{ padding: '24px 28px' }}>
       <PageTitleBlock icon={BarChart3} style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Payroll Reports</h1>
-        <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Current CTC and salary revision history, across every employee.</p>
+        <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>CTC, salary structure, revision history and financial details, across every employee.</p>
       </PageTitleBlock>
 
       <WithFaqPanel items={FAQ_ITEMS} title="Payroll Reports Help">
@@ -210,7 +375,10 @@ export default function PayrollReportsPage() {
       {open && openDef && (
         <FullScreenTask title={openDef.title} subtitle={openDef.description} onClose={() => setOpen(null)} actions={null}>
           {open === 'current-ctc' && <CurrentCtcReport />}
+          {open === 'current-salary-structure' && <CurrentSalaryStructureReport />}
           {open === 'salary-revision' && <AllChangesHistory />}
+          {open === 'employee-ctc-range' && <EmployeeCtcRangeReport />}
+          {open === 'financial-information' && <FinancialInformationReport />}
         </FullScreenTask>
       )}
     </div>

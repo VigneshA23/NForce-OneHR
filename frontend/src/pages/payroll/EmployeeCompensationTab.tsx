@@ -15,7 +15,6 @@ import {
 import { SalaryImportWizard } from './SalaryImportWizard';
 import { FinancialDetailsImportWizard } from './FinancialDetailsImportWizard';
 import { BonusImportWizard } from './BonusImportWizard';
-import { InvestmentDeclarationImportWizard } from './InvestmentDeclarationImportWizard';
 
 /** Keka's "Revise Salary" full-screen task (§3.11), reused here for first-time assignment too —
  * same payrollApi.assignCompensation call either way, just framed as "Assign" when there's no
@@ -225,7 +224,7 @@ const FAQ_ITEMS: FaqItem[] = [
   { q: 'What’s the difference between "Assign" and "Revise" Compensation?', a: 'Same screen, same action underneath — it’s labeled "Assign" when the employee has no compensation yet, and "Revise" once they do. Both create a new compensation row effective from the date you set.' },
   { q: 'Does revising someone’s compensation change past payslips?', a: 'No. A new compensation row only affects payslips generated for cycles on or after its effective date; anything already generated stays exactly as it was.' },
   { q: 'Where do I see every change made across all employees?', a: 'Switch to the "All Changes" view at the top — it lists every compensation revision org-wide with who made it and when, pulled from the audit log.' },
-  { q: 'What are the four Import buttons for?', a: 'Bulk-upload an Excel file instead of entering rows one by one: Salaries (new compensation per employee), Financial Info (bank/PAN/UAN), Bonuses (one-off ad-hoc payments), and Investment Declaration (reference-only, not wired into any tax calculation yet). Each walks through Upload → Match Columns → Preview before writing anything.' },
+  { q: 'What are the three Import buttons for?', a: 'Bulk-upload an Excel file instead of entering rows one by one: Salaries (new compensation per employee), Financial Info (bank/PAN/UAN), and Bonuses (one-off ad-hoc payments). Each walks through Upload → Match Columns → Preview before writing anything.' },
   { q: 'Why does the employee picker clear itself after I save?', a: 'On purpose — so you don’t accidentally start revising the same person again. Search and pick the next employee from empty each time.' },
 ];
 
@@ -240,7 +239,6 @@ export function EmployeeCompensationTab({ structures, payGroups }: { structures:
   const [showImport, setShowImport] = useState(false);
   const [showFinancialImport, setShowFinancialImport] = useState(false);
   const [showBonusImport, setShowBonusImport] = useState(false);
-  const [showInvestmentImport, setShowInvestmentImport] = useState(false);
   const employee: EmployeeRecord | null = employees.find(e => e.userId === employeeId) ?? null;
 
   useEffect(() => {
@@ -264,7 +262,6 @@ export function EmployeeCompensationTab({ structures, payGroups }: { structures:
         trailing={(
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <BtnGhost onClick={() => setShowFinancialImport(true)}><Upload size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Import Financial Info</BtnGhost>
-            <BtnGhost onClick={() => setShowInvestmentImport(true)}><Upload size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Import Investment Declaration</BtnGhost>
             <BtnGhost onClick={() => setShowBonusImport(true)}><Upload size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Import Bonuses</BtnGhost>
             <BtnGhost onClick={() => setShowImport(true)}><Upload size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Import Salaries</BtnGhost>
           </div>
@@ -340,10 +337,6 @@ export function EmployeeCompensationTab({ structures, payGroups }: { structures:
 
       {showBonusImport && (
         <BonusImportWizard payGroups={payGroups} onClose={() => setShowBonusImport(false)} onImported={() => {}} />
-      )}
-
-      {showInvestmentImport && (
-        <InvestmentDeclarationImportWizard onClose={() => setShowInvestmentImport(false)} onImported={() => {}} />
       )}
     </div>
     </WithFaqPanel>

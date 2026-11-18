@@ -6,6 +6,7 @@ import com.nforce.onehr.repository.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -51,6 +52,8 @@ class PayrollRunServiceTest {
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private PayslipService payslipService;
+    @Mock private PayRegisterExcelService payRegisterExcelService;
+    @Mock private PayrollRunRollbackRepository payrollRunRollbackRepository;
 
     private PayrollRunService service;
 
@@ -75,7 +78,7 @@ class PayrollRunServiceTest {
                 adHocPaymentRepository, recurringAdHocPaymentRuleRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
                 salaryHoldRepository, payrollRunReviewService, new SalaryStructureResolutionService(),
                 statutoryDeductionService, arrearsService, salaryComponentRepository, employeeRepository,
-                userRepository, auditService, auditSnapshot, payslipService);
+                userRepository, auditService, auditSnapshot, payslipService, payRegisterExcelService, payrollRunRollbackRepository);
 
         lenient().when(recurringAdHocPaymentRuleRepository.findActiveForPayGroup(any())).thenReturn(List.of());
 
@@ -858,6 +861,7 @@ class PayrollRunServiceTest {
         assertEquals(PayrollRunStatus.DRAFT, resp.getStatus());
         assertEquals("Reconciliation error found after approval", resp.getLastRollbackReason());
         assertNotNull(resp.getLastRolledBackAt());
+        assertEquals(actorId, resp.getLastRolledBackBy());
         verify(auditService).log(eq(actorId), eq("PAYROLL_RUN_TRANSITION"), any(), any(), any());
     }
 
@@ -1081,5 +1085,41 @@ class PayrollRunServiceTest {
             while ((entry = in.getNextEntry()) != null) entryNames.add(entry.getName());
         }
         assertEquals(Set.of("payslip-EMP1.pdf", "payslip-EMP2.pdf"), entryNames);
+    }
+
+    @Test
+    void payRegisterExcel_sortsColumnsByCatalogDisplayOrder_andCapturesEachEmployeesAmounts() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId)
+                .grossPay(new BigDecimal("42000.00")).totalDeductions(new BigDecimal("3600.00")).netPay(new BigDecimal("38400.00")).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1));
+
+        UUID basicId = UUID.randomUUID();
+        UUID hraId = UUID.randomUUID();
+        UUID pfId = UUID.randomUUID();
+        when(payslipLineItemRepository.findRowsByPayrollRunId(approved.getId())).thenReturn(List.<Object[]>of(
+                new Object[]{employeeId, hraId, "HRA", SalaryComponentType.EARNING, new BigDecimal("12000.00")},
+                new Object[]{employeeId, basicId, "Basic", SalaryComponentType.EARNING, new BigDecimal("30000.00")},
+                new Object[]{employeeId, pfId, "PF", SalaryComponentType.DEDUCTION, new BigDecimal("3600.00")}));
+        when(salaryComponentRepository.findAllById(any())).thenReturn(List.of(
+                SalaryComponent.builder().id(basicId).displayOrder(0).build(),
+                SalaryComponent.builder().id(hraId).displayOrder(1).build(),
+                SalaryComponent.builder().id(pfId).displayOrder(0).build()));
+        Employee emp = Employee.builder().userId(employeeId).fullName("Asha Rao").employeeCode("EMP001").build();
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(emp));
+
+        ArgumentCaptor<PayRegisterExcelService.Model> captor = ArgumentCaptor.forClass(PayRegisterExcelService.Model.class);
+        when(payRegisterExcelService.render(captor.capture())).thenReturn(new byte[]{9, 9});
+
+        PayslipService.PayslipFile file = service.payRegisterExcel(approved.getId());
+
+        assertEquals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", file.contentType());
+        PayRegisterExcelService.Model model = captor.getValue();
+        assertEquals(List.of("Basic", "HRA"), model.earningColumns());
+        assertEquals(List.of("PF"), model.deductionColumns());
+        assertEquals(List.of(), model.contributionColumns());
+        assertEquals(new BigDecimal("30000.00"), model.amountsByEmployee().get(employeeId).get("Basic"));
+        assertEquals("Asha Rao", model.employees().get(employeeId).getFullName());
     }
 }

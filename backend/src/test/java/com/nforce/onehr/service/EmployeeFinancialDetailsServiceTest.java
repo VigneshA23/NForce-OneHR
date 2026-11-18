@@ -13,6 +13,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
@@ -81,6 +82,21 @@ class EmployeeFinancialDetailsServiceTest {
 
         assertThrows(NoSuchElementException.class, () -> service.update(employeeId, new UpdateEmployeeFinancialDetailsRequest(), actorEmail));
         verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void listAll_returnsEveryEmployeeFromTheRepository() {
+        Employee other = new Employee();
+        other.setUserId(UUID.randomUUID());
+        other.setEmployeeCode("NF-002");
+        other.setFullName("Ravi Kumar");
+        when(employeeRepository.findAll()).thenReturn(List.of(employee(), other));
+
+        List<EmployeeFinancialDetailsResponse> result = service.listAll();
+
+        assertEquals(2, result.size());
+        assertEquals("NF-001", result.get(0).getEmployeeCode());
+        assertEquals("NF-002", result.get(1).getEmployeeCode());
     }
 
     @Test

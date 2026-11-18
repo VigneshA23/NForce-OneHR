@@ -57,15 +57,6 @@ export interface EmployeeFinancialDetailsResponse {
   esiNumber: string | null;
 }
 
-// Keka restyle — Import Investment Declaration (§3.4).
-export interface InvestmentDeclarationResponse {
-  id: string;
-  employeeId: string;
-  financialYear: string;
-  section: string;
-  declaredAmount: number;
-}
-
 // Keka restyle — Configure Payslip Settings (§3.9).
 export type PayslipFieldKey = 'dateOfJoining' | 'department' | 'designation' | 'uan' | 'esi' | 'pan';
 
@@ -115,9 +106,17 @@ export interface PayrollRunResponse {
   disbursedAt: string | null;
   lastRolledBackAt: string | null;
   lastRollbackReason: string | null;
+  lastRolledBackBy: string | null;
   approvalStages: string[] | null;
   pendingApprovalStage: string | null;
   createdAt: string;
+}
+
+export interface PayrollRunRollbackResponse {
+  id: string;
+  reason: string;
+  rolledBackBy: string | null;
+  rolledBackAt: string;
 }
 
 export interface PayslipLineItemResponse {
@@ -303,6 +302,24 @@ export interface EmployeeCompensationResponse {
   createdAt: string;
 }
 
+export interface MyCtcComponentResponse {
+  componentName: string;
+  componentType: string;
+  annualAmount: number;
+  monthlyAmount: number;
+}
+
+// Keka restyle — "Current Salary Structure" report (§3.6): the org-wide version of the My
+// Finances CTC breakdown, one row per employee.
+export interface CurrentSalaryStructureRowResponse {
+  employeeId: string;
+  structureId: string;
+  structureName: string;
+  ctc: number;
+  effectiveFrom: string;
+  components: MyCtcComponentResponse[];
+}
+
 export interface SalaryComponentCatalogResponse {
   id: string;
   name: string;
@@ -417,6 +434,13 @@ export interface StatutoryRuleResponse {
   createdAt: string;
 }
 
+export interface LocationCountryMismatchResponse {
+  locationId: string;
+  locationName: string;
+  country: string | null;
+  employeeCount: number;
+}
+
 export const payrollApi = {
   // Pay groups (read-only picker for this slice)
   listPayGroups: (token: string) =>
@@ -457,6 +481,15 @@ export const payrollApi = {
   listAllCurrentCompensation: (token: string, asOf?: string) =>
     fetch(`${BASE}/employee-compensation/current${asOf ? `?asOf=${asOf}` : ''}`, { headers: bearerOnly(token) }).then(handle<EmployeeCompensationResponse[]>),
 
+  // Keka restyle — "Employee CTC Report" (§3.6), a chosen date range across every employee.
+  listCompensationBetween: (start: string, end: string, token: string) =>
+    fetch(`${BASE}/employee-compensation/between?${new URLSearchParams({ start, end }).toString()}`, { headers: bearerOnly(token) }).then(handle<EmployeeCompensationResponse[]>),
+
+  // Keka restyle — "Current Salary Structure" report (§3.6): every employee's current per-
+  // component breakup.
+  listAllCurrentSalaryStructure: (token: string, asOf?: string) =>
+    fetch(`${BASE}/employee-compensation/current/breakdown${asOf ? `?asOf=${asOf}` : ''}`, { headers: bearerOnly(token) }).then(handle<CurrentSalaryStructureRowResponse[]>),
+
   // US-C02 self-service follow-up — "me" resolved server-side from the JWT, no employeeId needed.
   // Returns null (not a thrown error) when nothing's been assigned yet — a real, expected state for
   // this endpoint specifically, unlike every other call here where a 404 means something's wrong.
@@ -491,6 +524,9 @@ export const payrollApi = {
   rollbackRun: (runId: string, reason: string, token: string) =>
     fetch(`${BASE}/runs/${runId}/rollback`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ reason }) }).then(handle<PayrollRunResponse>),
 
+  rollbackHistory: (runId: string, token: string) =>
+    fetch(`${BASE}/runs/${runId}/rollback-history`, { headers: bearerOnly(token) }).then(handle<PayrollRunRollbackResponse[]>),
+
   // Payslips
   listPayslips: (runId: string, token: string) =>
     fetch(`${BASE}/runs/${runId}/payslips`, { headers: bearerOnly(token) }).then(handle<PayslipResponse[]>),
@@ -524,6 +560,21 @@ export const payrollApi = {
     const disposition = res.headers.get('Content-Disposition') ?? '';
     const match = /filename="?([^";]+)"?/.exec(disposition);
     const fileName = match ? match[1] : 'payslips.zip';
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  },
+
+  /** "Export to Excel" — one Pay Register workbook, every employee in the run as a row. */
+  downloadPayRegister: async (runId: string, token: string) => {
+    const res = await fetch(`${BASE}/runs/${runId}/pay-register`, { headers: bearerOnly(token) });
+    if (!res.ok) throw new Error(`Failed to download pay register (${res.status})`);
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    const fileName = match ? match[1] : 'pay-register.xlsx';
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement('a');
     a.href = url;
@@ -712,8 +763,8 @@ export const payrollApi = {
     fetch(`${BASE}/pay-groups/${payGroupId}/payslip-settings/logo`, { method: 'DELETE', headers: authHeaders(token) })
       .then(handle<PayslipSettingsResponse>),
 
-  // Keka restyle — Import Financial Information (§3.4). No bulk endpoint on the backend; the
-  // import wizard calls this once per valid row, same loop pattern as the salary import.
+  // Keka restyle — Import Financial Information (§3.4). The import wizard calls the per-employee
+  // form once per valid row, same loop pattern as the salary import.
   getEmployeeFinancialDetails: (employeeId: string, token: string) =>
     fetch(`${BASE}/employees/${employeeId}/financial-details`, { headers: bearerOnly(token) }).then(handle<EmployeeFinancialDetailsResponse>),
 
@@ -722,13 +773,9 @@ export const payrollApi = {
   }>, token: string) =>
     fetch(`${BASE}/employees/${employeeId}/financial-details`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<EmployeeFinancialDetailsResponse>),
 
-  // Keka restyle — Import Investment Declaration (§3.4). Bookkeeping only — see the backend
-  // migration's own comment for why nothing reads this into a TDS computation yet.
-  upsertInvestmentDeclaration: (payload: { employeeId: string; financialYear: string; section: string; declaredAmount: number }, token: string) =>
-    fetch(`${BASE}/investment-declarations`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<InvestmentDeclarationResponse>),
-
-  listInvestmentDeclarations: (employeeId: string, token: string) =>
-    fetch(`${BASE}/investment-declarations?${new URLSearchParams({ employeeId }).toString()}`, { headers: bearerOnly(token) }).then(handle<InvestmentDeclarationResponse[]>),
+  // Keka restyle — "Financial Information" report (§3.6): every employee in one table.
+  listAllFinancialDetails: (token: string) =>
+    fetch(`${BASE}/employees/financial-details`, { headers: bearerOnly(token) }).then(handle<EmployeeFinancialDetailsResponse[]>),
 
   // US-C20 — Salary Component catalog (full CRUD; previously only wrapped for reading)
   createSalaryComponent: (payload: { name: string; type: string; taxable?: boolean; taxSection?: string; includedInCtc?: boolean; shownOnPayslip?: boolean; prorateOnLop?: boolean }, token: string) =>
@@ -751,4 +798,8 @@ export const payrollApi = {
 
   createOrReviseStatutoryRule: (payload: { country: string; ruleType: string; slabConfig: string; effectiveFrom: string }, token: string) =>
     fetch(`${BASE}/statutory-rules`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<StatutoryRuleResponse>),
+
+  // Safety check: a Location with employees whose Country doesn't match any configured rule.
+  getLocationCountryMismatches: (token: string) =>
+    fetch(`${BASE}/statutory-rules/location-mismatches`, { headers: bearerOnly(token) }).then(handle<LocationCountryMismatchResponse[]>),
 };
