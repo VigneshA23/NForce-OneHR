@@ -12,6 +12,7 @@ export const TYPE_LABELS: Record<RequestType, string> = {
   PARTIAL_DAY: 'Partial Day',
   OVERTIME: 'Overtime',
   HELP_CONTENT: 'FAQs & Guides',
+  PROFILE_CHANGE: 'Profile Change',
 };
 
 export const TYPE_COLORS: Record<RequestType, string> = {
@@ -23,6 +24,7 @@ export const TYPE_COLORS: Record<RequestType, string> = {
   PARTIAL_DAY: 'rgba(224,169,59,.18)',
   OVERTIME: 'rgba(236,72,153,.18)',
   HELP_CONTENT: 'rgba(20,184,166,.18)',
+  PROFILE_CHANGE: 'rgba(234,88,12,.18)',
 };
 
 export const TYPE_TEXT: Record<RequestType, string> = {
@@ -34,6 +36,7 @@ export const TYPE_TEXT: Record<RequestType, string> = {
   PARTIAL_DAY: '#E0A93B',
   OVERTIME: '#EC4899',
   HELP_CONTENT: '#14B8A6',
+  PROFILE_CHANGE: '#EA580C',
 };
 
 export function groupRequestsByType(requests: ApprovalItem[]): Array<{ type: RequestType; count: number }> {

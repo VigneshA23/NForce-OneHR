@@ -45,6 +45,10 @@ public class ProfileResponse {
     private String bankName;
     private String bankIfsc;
     private String nationalId;            // masked
+    /** True when the viewer lacks employee_sensitive:VIEW and sensitive fields were masked or removed, so the UI can say "Restricted" instead of showing blanks. */
+    private boolean sensitiveRestricted;
+    /** True while the employee's own bank / government-ID edit is waiting for HR approval (their own profile only). */
+    private boolean pendingSensitiveChange;
 
     // Employment — read-only, HR-managed
     private String employeeCode;

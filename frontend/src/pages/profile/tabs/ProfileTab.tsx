@@ -3,8 +3,8 @@ import { ActionDock } from '../../../components/ActionDock';
 import { Trash2, Pencil, Plus, IdCard, Mail, MapPin, GraduationCap, ShieldCheck } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
-import { profileEducationApi, type ProfileData, type EducationEntry } from '../../../api/profile';
-import { SectionHeader, ReadField } from '../shared';
+import { profileApi, profileEducationApi, type OwnSensitiveProfile, type ProfileData, type EducationEntry } from '../../../api/profile';
+import { SectionHeader, ReadField, MaskedReadField } from '../shared';
 import { PrimaryDetailsModal } from './PrimaryDetailsModal';
 import { ContactDetailsModal } from './ContactDetailsModal';
 import { AddressesModal } from './AddressesModal';
@@ -104,6 +104,16 @@ function EducationCard({ token }: { token: string }) {
 
 export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; token: string; onSaved: (p: ProfileData) => void }) {
   const [modal, setModal] = useState<'primary' | 'contact' | 'addresses' | 'identity' | null>(null);
+  // Own full values for the eye buttons: fetched on the first press (the server records that view),
+  // reused until the masked values change (an approved edit), then fetched again.
+  const [own, setOwn] = useState<OwnSensitiveProfile | null>(null);
+  useEffect(() => { setOwn(null); }, [profile.bankAccountNumber, profile.nationalId, profile.passportNumber, profile.bankIfsc]);
+  async function revealOwn(): Promise<OwnSensitiveProfile> {
+    if (own) return own;
+    const v = await profileApi.sensitive(token);
+    setOwn(v);
+    return v;
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -138,15 +148,20 @@ export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; 
 
       <EducationCard token={token} />
 
+      {profile.pendingSensitiveChange && (
+        <div role="status" style={{ fontSize: 13, color: 'var(--txt-dim)', padding: '10px 14px', border: '1px solid var(--line2)', borderRadius: 8 }}>
+          Your bank / ID changes are waiting for HR approval. Your profile keeps showing the current details until they are approved.
+        </div>
+      )}
+
       <SectionCard title="Identity & Statutory" badge="PII Masked" icon={ShieldCheck} onEdit={() => setModal('identity')}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }} className="nf-grid-2col-collapse">
-          <ReadField label="National ID" value={profile.nationalId} />
-          <ReadField label="Passport Number" value={profile.passportNumber} />
+          <MaskedReadField key={`nid-${profile.nationalId}`} label="National ID" masked={profile.nationalId} onReveal={async () => (await revealOwn()).nationalId} />
+          <MaskedReadField key={`passport-${profile.passportNumber}`} label="Passport Number" masked={profile.passportNumber} onReveal={async () => (await revealOwn()).passportNumber} />
           <ReadField label="Passport Expiry" value={profile.passportExpiry} />
-          <ReadField label="Bank Account Number" value={profile.bankAccountNumber} />
-          <div style={{ gridColumn: 'span 2' }}>
-            <ReadField label="Bank Name & IFSC" value={profile.bankName ? `${profile.bankName}${profile.bankIfsc ? ` · IFSC: ${profile.bankIfsc}` : ''}` : null} />
-          </div>
+          <MaskedReadField key={`bank-${profile.bankAccountNumber}`} label="Bank Account Number" masked={profile.bankAccountNumber} onReveal={async () => (await revealOwn()).bankAccountNumber} />
+          <ReadField label="Bank Name" value={profile.bankName} />
+          <MaskedReadField key={`ifsc-${profile.bankIfsc}`} label="IFSC Code" masked={profile.bankIfsc} onReveal={async () => (await revealOwn()).bankIfsc} />
         </div>
       </SectionCard>
 

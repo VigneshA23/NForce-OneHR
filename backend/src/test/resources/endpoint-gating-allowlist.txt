@@ -195,6 +195,8 @@ PolicyController#getAttachment | SERVICE - permission / eligibility enforced in 
 PolicyController#myPolicies | SERVICE - permission / eligibility enforced in the service
 PolicyController#pendingCount | SERVICE - permission / eligibility enforced in the service
 ProficiencyLevelController#listActive | OPEN - readable by any signed-in user (or public auth flow)
+ProfileChangeRequestController#mine | SELF - own data only (ownership checked in the service)
+ProfileController#getOwnSensitive | SELF - own data only (ownership checked in the service)
 ProfileController#getProfile | SELF - own data only (ownership checked in the service)
 ProfileController#getProfileForViewer | SERVICE - permission / eligibility enforced in the service
 ProfileController#getTimeline | SELF - own data only (ownership checked in the service)

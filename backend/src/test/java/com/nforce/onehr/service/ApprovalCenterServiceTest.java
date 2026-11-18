@@ -43,6 +43,7 @@ class ApprovalCenterServiceTest {
     @Mock private AttendanceRequestService attendanceRequestService;
     @Mock private OvertimeRequestService overtimeRequestService;
     @Mock private HelpContentService helpContentService;
+    @Mock private ProfileChangeRequestService profileChangeRequestService;
     @Mock private UserRepository userRepo;
     @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
             "CUSTOM_OVERTIME", Map.of("overtime:APPROVE", "TEAM"),
@@ -50,7 +51,8 @@ class ApprovalCenterServiceTest {
             "CUSTOM_EXPENSE_ALL", Map.of("expenses:APPROVE", "ALL"),
             "CUSTOM_NOTHING", Map.of("leave:VIEW", "ALL"),
             "CUSTOM_ASSET_TEAM", Map.of("assets:APPROVE", "TEAM"),
-            "CUSTOM_CONTENT_TEAM", Map.of("hr_help_content:APPROVE", "TEAM")));
+            "CUSTOM_CONTENT_TEAM", Map.of("hr_help_content:APPROVE", "TEAM"),
+            "CUSTOM_PROFILE_APPROVER", Map.of("employee_sensitive:APPROVE", "ALL")));
 
     @InjectMocks private ApprovalCenterService service;
 
@@ -121,6 +123,29 @@ class ApprovalCenterServiceTest {
             verify(expenseService, never()).pendingForManager(any());
             verify(helpContentService).listPendingApprovalsForApprover(EMAIL);
         }
+    }
+
+    @Test
+    void profileChangeQueue_followsEmployeeSensitiveApprove_andNothingElse() {
+        actorWith("CUSTOM_PROFILE_APPROVER");
+        when(profileChangeRequestService.listPending(EMAIL)).thenReturn(List.of(
+                com.nforce.onehr.dto.ProfileChangeRequestResponse.builder().id(UUID.randomUUID())
+                        .employeeUserId(UUID.randomUUID()).employeeName("Pat").fields(List.of()).build()));
+
+        List<com.nforce.onehr.dto.ApprovalItemDto> items = service.pendingApprovals(EMAIL);
+
+        assertEquals(1, items.size());
+        assertEquals("PROFILE_CHANGE", items.get(0).getRequestType());
+        verifyModuleQueues(false, false, false, false);
+    }
+
+    @Test
+    void withoutEmployeeSensitiveApprove_theProfileChangeQueueIsNeverQueried() {
+        actorWith("EMPLOYEE", "MANAGER");
+
+        service.pendingApprovals(EMAIL);
+
+        verify(profileChangeRequestService, never()).listPending(any());
     }
 
     @Test

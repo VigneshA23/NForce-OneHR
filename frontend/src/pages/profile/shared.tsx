@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase, Search, ChevronDown, IdCard, Mail, MapPin, GraduationCap, ShieldCheck, UserRound, FileText } from 'lucide-react';
+import { X, Sparkles, Check, Pencil, RotateCcw, Briefcase, Search, ChevronDown, IdCard, Mail, MapPin, GraduationCap, ShieldCheck, UserRound, FileText, Eye, EyeOff } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ProfileData } from '../../api/profile';
 import './profilePolish.css';
@@ -259,6 +259,57 @@ export function ReadField({ label, value }: { label: string; value: string | nul
     <div className="nf-ps-field">
       <div className="nf-ps-label">{label}</div>
       <div className={`nf-ps-value${value ? '' : ' is-empty'}`}>{value || 'Not set'}</div>
+    </div>
+  );
+}
+
+/** How long a revealed value stays on screen before it hides itself again. */
+const REVEAL_MS = 30_000;
+
+/**
+ * A read-only field that shows its value masked, with an eye button that reveals the real one. The caller supplies
+ * {@code onReveal}, which fetches the full value (and is recorded server-side); pressing the eye again, or waiting
+ * {@link REVEAL_MS}, hides it. Nothing is fetched until the eye is pressed.
+ */
+export function MaskedReadField({ label, masked, onReveal }: {
+  label: string;
+  masked: string | null | undefined;
+  onReveal: () => Promise<string | null | undefined>;
+}) {
+  const [shown, setShown] = useState<string | null>(null); // null = hidden
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (shown === null) return;
+    const t = setTimeout(() => setShown(null), REVEAL_MS);
+    return () => clearTimeout(t);
+  }, [shown]);
+
+  async function toggle() {
+    if (shown !== null) { setShown(null); return; }
+    setBusy(true); setFailed(false);
+    try { setShown((await onReveal()) ?? ''); }
+    catch { setFailed(true); }
+    finally { setBusy(false); }
+  }
+
+  const value = shown ?? masked;
+  const visible = shown !== null;
+  return (
+    <div className="nf-ps-field">
+      <div className="nf-ps-label">{label}</div>
+      <div className={`nf-ps-value${value ? '' : ' is-empty'}`} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ minWidth: 0, flex: 1 }}>{value || 'Not set'}</span>
+        {masked && (
+          <button type="button" onClick={toggle} disabled={busy} aria-pressed={visible}
+            aria-label={visible ? `Hide ${label}` : `Show ${label}`} title={visible ? 'Hide' : 'Show'}
+            style={{ background: 'none', border: 'none', padding: 4, borderRadius: 6, cursor: busy ? 'wait' : 'pointer', color: 'var(--txt-dim)', display: 'inline-flex', flexShrink: 0 }}>
+            {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        )}
+      </div>
+      {failed && <div role="alert" style={{ marginTop: 4, fontSize: 11.5, color: 'var(--risk)' }}>Couldn't load this value. Try again.</div>}
     </div>
   );
 }

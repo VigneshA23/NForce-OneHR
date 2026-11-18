@@ -41,6 +41,7 @@ public class ApprovalCenterService {
     private final AttendanceRequestService attendanceRequestService;
     private final OvertimeRequestService overtimeRequestService;
     private final HelpContentService helpContentService;
+    private final ProfileChangeRequestService profileChangeRequestService;
     private final UserRepository userRepo;
     private final EffectivePermissionService effectivePermissionService;
 
@@ -121,6 +122,11 @@ public class ApprovalCenterService {
         if (granted.contains("overtime:APPROVE:TEAM")) {
             overtimeRequestService.listPendingForApprover(email).stream()
                     .map(this::overtimeToApprovalItem).forEach(items::add);
+        }
+        // Employee bank / government-ID changes: HR approves (employee_sensitive:APPROVE:ALL); never your own.
+        if (granted.contains("employee_sensitive:APPROVE:ALL")) {
+            profileChangeRequestService.listPending(email).stream()
+                    .map(this::profileChangeToApprovalItem).forEach(items::add);
         }
         // FAQs & Guides: hr_help_content:APPROVE:TEAM (V271: Manager, HR Admin; cascaded from the
         // V238 APPROVE:ALL fallback, Super Admin by default) — the author's manager decides their own
@@ -225,6 +231,18 @@ public class ApprovalCenterService {
                 .requestedCheckIn(r.getRequestedStart())
                 .requestedCheckOut(r.getRequestedEnd())
                 .regularizationReason(r.getReason())
+                .build();
+    }
+
+    private ApprovalItemDto profileChangeToApprovalItem(com.nforce.onehr.dto.ProfileChangeRequestResponse r) {
+        return ApprovalItemDto.builder()
+                .id(r.getId().toString())
+                .requestType("PROFILE_CHANGE")
+                .employeeUserId(r.getEmployeeUserId())
+                .employeeName(r.getEmployeeName())
+                .createdAt(r.getCreatedAt() != null
+                        ? r.getCreatedAt().atZone(ZoneId.of("UTC")).toInstant() : null)
+                .profileChangeFields(r.getFields())
                 .build();
     }
 

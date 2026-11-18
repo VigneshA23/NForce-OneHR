@@ -5,6 +5,7 @@ import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Permission;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.RolePermission;
+import com.nforce.onehr.entity.RoleVersion;
 import com.nforce.onehr.entity.User;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,6 +17,7 @@ import org.springframework.data.domain.PageRequest;
 import com.nforce.onehr.repository.PermissionRepository;
 import com.nforce.onehr.repository.RolePermissionRepository;
 import com.nforce.onehr.repository.RoleRepository;
+import com.nforce.onehr.repository.RoleVersionRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.EffectivePermissionService;
 import com.nforce.onehr.security.ForceLogoutBroadcaster;
@@ -60,6 +62,7 @@ public class RoleAdminService {
     private static final String CONFIGURE_AUTHORITY = "roles:CONFIGURE:ALL";
 
     private final RoleRepository roleRepository;
+    private final RoleVersionRepository roleVersionRepository;
     private final PermissionRepository permissionRepository;
     private final RolePermissionRepository rolePermissionRepository;
     private final UserRepository userRepository;
@@ -152,52 +155,82 @@ public class RoleAdminService {
 
     // ─── History & reverse lookup ───────────────────────────────────────────────
 
-    private static final List<String> ROLE_AUDIT_ACTIONS = List.of(
-            "ROLE_CREATED", "ROLE_UPDATED", "ROLE_ACTIVATED", "ROLE_DEACTIVATED", "ROLE_PERMISSIONS_UPDATED");
-    private static final int HISTORY_SCAN = 500;
     private static final int HISTORY_LIMIT = 50;
+    private static final int MEMBERSHIP_SCAN = 500;
 
-    /** The role's audited changes, newest first, with permission edits expanded into what was added/removed. */
+    /**
+     * The role's saved versions (newest first, each diffed against the one before it) merged with
+     * membership changes from the audit log. Membership entries are informational: only versions can be
+     * restored, and a restore never touches who holds the role.
+     */
     @Transactional(readOnly = true)
     public List<RoleHistoryEntry> history(Integer roleId) {
         Role role = requireListedRole(roleId);
-        List<AuditLog> rows = auditLogRepository.findByActionInOrderByOccurredAtDesc(ROLE_AUDIT_ACTIONS, PageRequest.of(0, HISTORY_SCAN));
+        // one extra row so the oldest entry shown can still be diffed against its predecessor
+        List<RoleVersion> versions = roleVersionRepository.findByRoleIdOrderByVersionNoDesc(roleId, PageRequest.of(0, HISTORY_LIMIT + 1));
+        List<AuditLog> membership = auditLogRepository.findByActionInOrderByOccurredAtDesc(List.of("ROLE_CHANGED"), PageRequest.of(0, MEMBERSHIP_SCAN));
+
+        Set<UUID> personIds = new HashSet<>();
+        versions.stream().map(RoleVersion::getActorId).filter(Objects::nonNull).forEach(personIds::add);
         List<AuditLog> mine = new ArrayList<>();
-        Map<Long, JsonNode[]> parsed = new HashMap<>();
-        for (AuditLog row : rows) {
-            JsonNode before = json(row.getBeforeState());
-            JsonNode after = json(row.getAfterState());
-            String code = text(after, "role") != null ? text(after, "role") : text(before, "role");
-            if (!role.getCode().equals(code)) continue;
+        for (AuditLog row : membership) {
+            boolean had = strings(json(row.getBeforeState()), "roles").contains(role.getCode());
+            boolean has = strings(json(row.getAfterState()), "roles").contains(role.getCode());
+            if (had == has) continue;
             mine.add(row);
-            parsed.put(row.getId(), new JsonNode[]{before, after});
-            if (mine.size() == HISTORY_LIMIT) break;
+            if (row.getActorId() != null) personIds.add(row.getActorId());
+            if (row.getTargetId() != null) personIds.add(row.getTargetId());
         }
-        Set<UUID> actorIds = mine.stream().map(AuditLog::getActorId).filter(Objects::nonNull).collect(Collectors.toSet());
-        Map<UUID, String> names = actorIds.isEmpty() ? Map.of() : employeeRepository.findNamesByUserIds(actorIds).stream()
+        Map<UUID, String> names = personIds.isEmpty() ? Map.of() : employeeRepository.findNamesByUserIds(personIds).stream()
                 .collect(Collectors.toMap(r -> (UUID) r[0], r -> (String) r[1], (a, b) -> a));
+
         List<RoleHistoryEntry> out = new ArrayList<>();
-        for (AuditLog row : mine) {
-            JsonNode[] state = parsed.get(row.getId());
-            List<String> beforePerms = strings(state[0], "permissions");
-            List<String> afterPerms = strings(state[1], "permissions");
-            List<String> added = new ArrayList<>(afterPerms);
-            added.removeAll(beforePerms);
-            List<String> removed = new ArrayList<>(beforePerms);
-            removed.removeAll(afterPerms);
-            String summary = switch (row.getAction()) {
-                case "ROLE_CREATED" -> "Role created";
-                case "ROLE_UPDATED" -> "Details changed" + renameSuffix(state[0], state[1]);
-                case "ROLE_ACTIVATED" -> "Role activated";
-                case "ROLE_DEACTIVATED" -> "Role deactivated — holders keep it but it grants nothing";
+        for (int i = 0; i < Math.min(versions.size(), HISTORY_LIMIT); i++) {
+            RoleVersion v = versions.get(i);
+            RoleVersion prev = i + 1 < versions.size() ? versions.get(i + 1) : null;
+            List<String> added = new ArrayList<>(v.getPermissions());
+            List<String> removed = new ArrayList<>();
+            if (prev != null) {
+                added.removeAll(prev.getPermissions());
+                removed.addAll(prev.getPermissions());
+                removed.removeAll(v.getPermissions());
+            }
+            String summary = switch (v.getChangeType()) {
+                case "BASELINE" -> "Baseline: the role as it was when version history began";
+                case "CREATED" -> "Role created";
+                case "UPDATED" -> "Details changed" + renameSuffix(prev != null ? prev.getName() : null, v.getName());
+                case "ACTIVATED" -> "Role activated";
+                case "DEACTIVATED" -> "Role deactivated — holders keep it but it grants nothing";
+                case "RESTORED" -> "Restored to version " + v.getRestoredFromVersion();
                 default -> "Permissions changed";
             };
-            out.add(new RoleHistoryEntry(row.getId(), row.getOccurredAt(), row.getAction(),
-                    row.getActorId() == null ? null : names.getOrDefault(row.getActorId(), "Unknown"),
-                    summary, "ROLE_CREATED".equals(row.getAction()) ? afterPerms : added,
-                    "ROLE_PERMISSIONS_UPDATED".equals(row.getAction()) ? removed : List.of()));
+            out.add(new RoleHistoryEntry(v.getId(), v.getCreatedAt(), historyAction(v.getChangeType()),
+                    v.getActorId() == null ? null : names.getOrDefault(v.getActorId(), "Unknown"),
+                    summary, added, removed, v.getVersionNo(), v.getReason(), i > 0));
         }
-        return out;
+        for (AuditLog row : mine) {
+            boolean added = strings(json(row.getAfterState()), "roles").contains(role.getCode());
+            String who = row.getTargetId() == null ? "a user" : names.getOrDefault(row.getTargetId(), "a user");
+            // Negative ids keep membership entries from colliding with version row ids.
+            out.add(new RoleHistoryEntry(-row.getId(), row.getOccurredAt(),
+                    added ? "ROLE_MEMBER_ADDED" : "ROLE_MEMBER_REMOVED",
+                    row.getActorId() == null ? null : names.getOrDefault(row.getActorId(), "Unknown"),
+                    (added ? "Member added: " : "Member removed: ") + who, List.of(), List.of()));
+        }
+        out.sort(Comparator.comparing(RoleHistoryEntry::occurredAt).reversed());
+        return out.size() > HISTORY_LIMIT ? new ArrayList<>(out.subList(0, HISTORY_LIMIT)) : out;
+    }
+
+    private static String historyAction(String changeType) {
+        return switch (changeType) {
+            case "BASELINE" -> "ROLE_BASELINE";
+            case "CREATED" -> "ROLE_CREATED";
+            case "UPDATED" -> "ROLE_UPDATED";
+            case "ACTIVATED" -> "ROLE_ACTIVATED";
+            case "DEACTIVATED" -> "ROLE_DEACTIVATED";
+            case "RESTORED" -> "ROLE_RESTORED";
+            default -> "ROLE_PERMISSIONS_UPDATED";
+        };
     }
 
     /** Who holds {@code module:action} through an active role — the reverse of the role editor. */
@@ -230,18 +263,13 @@ public class RoleAdminService {
         try { return objectMapper.readTree(raw); } catch (Exception e) { return null; }
     }
 
-    private static String text(JsonNode n, String field) {
-        return n != null && n.hasNonNull(field) ? n.get(field).asText() : null;
-    }
-
     private static List<String> strings(JsonNode n, String field) {
         List<String> out = new ArrayList<>();
         if (n != null && n.has(field) && n.get(field).isArray()) n.get(field).forEach(x -> out.add(x.asText()));
         return out;
     }
 
-    private static String renameSuffix(JsonNode before, JsonNode after) {
-        String from = text(before, "name"), to = text(after, "name");
+    private static String renameSuffix(String from, String to) {
         return from != null && to != null && !from.equals(to) ? " (renamed “" + from + "” → “" + to + "”)" : "";
     }
 
@@ -268,6 +296,7 @@ public class RoleAdminService {
         }
         auditService.log(actor.getId(), "ROLE_CREATED", null, null,
                 auditSnapshot.toJson(Map.of("role", role.getCode(), "name", name, "permissions", authorityStrings(grantsOf(role.getId())))));
+        recordVersion(role, "CREATED", actor, null, null);
         return get(role.getId());
     }
 
@@ -289,13 +318,19 @@ public class RoleAdminService {
         after.put("role", role.getCode());
         after.put("name", name);
         after.put("description", role.getDescription());
+        withReason(after, req.reason());
         auditService.log(actor.getId(), "ROLE_UPDATED", null, auditSnapshot.toJson(before), auditSnapshot.toJson(after));
+        recordVersion(role, "UPDATED", actor, req.reason(), null);
         return get(roleId);
     }
 
     /** Deactivated roles stay assigned but grant nothing (EffectivePermissionService#activeRoles). */
-    @Transactional
     public RoleDetail setActive(Integer roleId, boolean active, int expectedVersion, String actorEmail) {
+        return setActive(roleId, active, expectedVersion, null, actorEmail);
+    }
+
+    @Transactional
+    public RoleDetail setActive(Integer roleId, boolean active, int expectedVersion, String reason, String actorEmail) {
         User actor = requireActor(actorEmail);
         Role role = requireCustomRole(roleId, active ? "activated" : "deactivated");
         requireVersion(role, expectedVersion);
@@ -304,9 +339,12 @@ public class RoleAdminService {
         role.setActive(active);
         roleRepository.save(role);
         notifyHoldersAfterCommit(roleId);
+        Map<String, Object> afterState = new LinkedHashMap<>(Map.of("role", role.getCode(), "active", active));
+        withReason(afterState, reason);
         auditService.log(actor.getId(), active ? "ROLE_ACTIVATED" : "ROLE_DEACTIVATED", null,
                 auditSnapshot.toJson(Map.of("role", role.getCode(), "active", !active)),
-                auditSnapshot.toJson(Map.of("role", role.getCode(), "active", active)));
+                auditSnapshot.toJson(afterState));
+        recordVersion(role, active ? "ACTIVATED" : "DEACTIVATED", actor, reason, null);
         return get(roleId);
     }
 
@@ -344,8 +382,12 @@ public class RoleAdminService {
     // ─── Permissions ────────────────────────────────────────────────────────────
 
     /** Replaces the role's grants in configurable modules with exactly {@code grants}. */
-    @Transactional
     public RoleDetail setPermissions(Integer roleId, List<Grant> grants, int expectedVersion, String actorEmail) {
+        return setPermissions(roleId, grants, expectedVersion, null, actorEmail);
+    }
+
+    @Transactional
+    public RoleDetail setPermissions(Integer roleId, List<Grant> grants, int expectedVersion, String reason, String actorEmail) {
         User actor = requireActor(actorEmail);
         Role role = requireListedRole(roleId);
         requireVersion(role, expectedVersion);
@@ -367,11 +409,13 @@ public class RoleAdminService {
             unchanged.retainAll(before);
             changed.removeAll(unchanged);
             List<String> highImpact = changed.stream().filter(this::isHighImpact).toList();
+            Map<String, Object> afterState = new LinkedHashMap<>(Map.of("role", role.getCode(), "permissions", after));
+            if (!highImpact.isEmpty()) afterState.put("highImpact", highImpact);
+            withReason(afterState, reason);
             auditService.log(actor.getId(), "ROLE_PERMISSIONS_UPDATED", null,
                     auditSnapshot.toJson(Map.of("role", role.getCode(), "permissions", before)),
-                    auditSnapshot.toJson(highImpact.isEmpty()
-                            ? Map.of("role", role.getCode(), "permissions", after)
-                            : Map.of("role", role.getCode(), "permissions", after, "highImpact", highImpact)));
+                    auditSnapshot.toJson(afterState));
+            recordVersion(role, "PERMISSIONS", actor, reason, null);
         }
         return get(roleId);
     }
@@ -444,6 +488,108 @@ public class RoleAdminService {
     private boolean isHighImpact(String authority) {
         String module = authority.substring(0, authority.indexOf(':'));
         return permissionCatalogue.leaf(module).map(PermissionCatalogue.Node::high).orElse(false);
+    }
+
+    // ─── Versions & restore ─────────────────────────────────────────────────────
+
+    /**
+     * Restores a role to one of its saved versions: permissions in configurable modules, plus name,
+     * description and active flag for a custom role. Membership is never touched. It goes through the
+     * same guarded path as a manual edit (optimistic lock, privilege ceiling, catalogue scope check,
+     * system-role rule, holder notification) and is saved as a NEW version of its own, so a restore
+     * can itself be undone. Only a Super Admin may restore.
+     */
+    @Transactional
+    public RoleRestoreResult restore(Integer roleId, int versionNo, int expectedVersion, String reason, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        if (EffectivePermissionService.activeRoles(actor.getRoles()).stream().noneMatch(r -> "SUPER_ADMIN".equals(r.getCode())))
+            throw new IllegalArgumentException("Only a Super Admin can restore a previous version of a role.");
+        Role role = requireListedRole(roleId);
+        requireVersion(role, expectedVersion);
+        RoleVersion target = roleVersionRepository.findByRoleIdAndVersionNo(roleId, versionNo)
+                .orElseThrow(() -> new IllegalArgumentException("Version " + versionNo + " of this role was not found."));
+
+        // Only grants that are still registered, configurable and valid at that scope can be put back;
+        // the rest are reported, never silently dropped.
+        Map<String, Permission> registered = permissionRepository.findAllWithModule().stream()
+                .collect(Collectors.toMap(p -> key(p.getModule().getCode(), p.getAction()), Function.identity()));
+        List<Grant> grants = new ArrayList<>();
+        List<String> skipped = new ArrayList<>();
+        for (String authority : target.getPermissions()) {
+            String[] parts = authority.split(":");
+            Permission p = parts.length == 3 ? registered.get(key(parts[0], parts[1])) : null;
+            if (p == null || !p.getModule().isCustomRoleReady()
+                    || permissionCatalogue.problemWith(parts[0], parts[1], parts[2]) != null) {
+                // A grant in a module that is not configurable was never part of the editable set: it stays as it is.
+                if (p == null || p.getModule().isCustomRoleReady()) skipped.add(authority);
+                continue;
+            }
+            grants.add(new Grant(parts[0], parts[1], parts[2]));
+        }
+
+        List<String> beforePerms = authorityStrings(grantsOf(roleId));
+        String beforeName = role.getDisplayName();
+        boolean beforeActive = role.isActive();
+        applyGrants(actor, role, grants);
+        boolean detailsChanged = false;
+        if (!role.isSystem()) {
+            if (!target.getName().equals(role.getDisplayName())) {
+                if (roleRepository.existsByDisplayNameIgnoreCaseAndIdNot(target.getName(), roleId))
+                    throw new IllegalArgumentException("Another role is now named '" + target.getName() + "', so this version can't be restored as it was. Rename that role first.");
+                role.setDisplayName(target.getName());
+                detailsChanged = true;
+            }
+            if (!Objects.equals(target.getDescription(), role.getDescription())) {
+                role.setDescription(target.getDescription());
+                detailsChanged = true;
+            }
+            if (target.isActive() != role.isActive()) {
+                assertRoleWithinCeiling(actor, role);
+                role.setActive(target.isActive());
+                detailsChanged = true;
+            }
+        }
+        List<String> afterPerms = authorityStrings(grantsOf(roleId));
+        if (beforePerms.equals(afterPerms) && !detailsChanged)
+            throw new IllegalArgumentException("This role already matches version " + versionNo + ".");
+
+        role.setUpdatedAt(LocalDateTime.now());
+        roleRepository.save(role);
+        notifyHoldersAfterCommit(roleId);
+
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("role", role.getCode());
+        before.put("name", beforeName);
+        before.put("active", beforeActive);
+        before.put("permissions", beforePerms);
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("role", role.getCode());
+        after.put("name", role.getDisplayName());
+        after.put("active", role.isActive());
+        after.put("permissions", afterPerms);
+        after.put("restoredFromVersion", versionNo);
+        if (!skipped.isEmpty()) after.put("skipped", skipped);
+        withReason(after, reason);
+        auditService.log(actor.getId(), "ROLE_RESTORED", null, auditSnapshot.toJson(before), auditSnapshot.toJson(after));
+        recordVersion(role, "RESTORED", actor, reason, versionNo);
+        return new RoleRestoreResult(get(roleId), skipped);
+    }
+
+    /** Saves the role's current state as its next version, in the same transaction as the change that produced it. */
+    private void recordVersion(Role role, String changeType, User actor, String reason, Integer restoredFrom) {
+        int next = roleVersionRepository.findTopByRoleIdOrderByVersionNoDesc(role.getId())
+                .map(v -> v.getVersionNo() + 1).orElse(1);
+        roleVersionRepository.save(RoleVersion.builder()
+                .roleId(role.getId()).versionNo(next)
+                .name(role.getDisplayName()).description(role.getDescription()).active(role.isActive())
+                .permissions(authorityStrings(grantsOf(role.getId())))
+                .changeType(changeType).actorId(actor.getId()).reason(blankToNull(reason))
+                .restoredFromVersion(restoredFrom).build());
+    }
+
+    private static void withReason(Map<String, Object> state, String reason) {
+        String r = blankToNull(reason);
+        if (r != null) state.put("reason", r);
     }
 
     // ─── Membership ─────────────────────────────────────────────────────────────

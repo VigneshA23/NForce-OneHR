@@ -27,11 +27,26 @@ public final class RoleDtos {
     public record UpdateRoleRequest(
             @NotBlank @Size(min = 2, max = 50) String name,
             @Size(max = 255) String description,
-            @NotNull Integer version) {}
+            @NotNull Integer version,
+            @Size(max = 500) String reason) {
+        public UpdateRoleRequest(String name, String description, Integer version) { this(name, description, version, null); }
+    }
 
-    public record UpdateRolePermissionsRequest(@NotNull @Valid List<Grant> grants, @NotNull Integer version) {}
+    /** {@code reason} is optional everywhere: it is kept on the role's version and in the audit entry when given. */
+    public record UpdateRolePermissionsRequest(@NotNull @Valid List<Grant> grants, @NotNull Integer version,
+                                               @Size(max = 500) String reason) {
+        public UpdateRolePermissionsRequest(List<Grant> grants, Integer version) { this(grants, version, null); }
+    }
 
-    public record UpdateRoleStatusRequest(@NotNull Boolean active, @NotNull Integer version) {}
+    public record UpdateRoleStatusRequest(@NotNull Boolean active, @NotNull Integer version, @Size(max = 500) String reason) {
+        public UpdateRoleStatusRequest(Boolean active, Integer version) { this(active, version, null); }
+    }
+
+    /** Restore a role to one of its saved versions. {@code version}: the RoleSummary.version loaded (stale is rejected). */
+    public record RestoreRoleVersionRequest(@NotNull Integer version, @Size(max = 500) String reason) {}
+
+    /** {@code skipped}: authorities in the restored version that no longer exist or can no longer be configured. */
+    public record RoleRestoreResult(RoleDetail role, List<String> skipped) {}
 
     public record UpdateUserRolesRequest(@NotNull List<Integer> roleIds) {}
 
@@ -45,7 +60,14 @@ public final class RoleDtos {
 
     /** One audited change to a role. {@code added}/{@code removed} are "module:ACTION:SCOPE" strings (permission edits only). */
     public record RoleHistoryEntry(Long id, java.time.Instant occurredAt, String action, String actorName,
-                                   String summary, List<String> added, List<String> removed) {}
+                                   String summary, List<String> added, List<String> removed,
+                                   Integer versionNo, String reason, boolean restorable) {
+        /** Entries that are not restore points (membership changes). */
+        public RoleHistoryEntry(Long id, java.time.Instant occurredAt, String action, String actorName,
+                                String summary, List<String> added, List<String> removed) {
+            this(id, occurredAt, action, actorName, summary, added, removed, null, null, false);
+        }
+    }
 
     /** A user who holds a permission through an active role, at the widest scope any of those roles grants. */
     public record PermissionHolder(UUID userId, String fullName, String email, boolean active, String scope,

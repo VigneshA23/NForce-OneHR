@@ -38,6 +38,7 @@ const SIDEBAR: Spec[] = [
       { label: 'Team Skill Ratings', leaves: ['skill_ratings'] },
     ] },
     { label: 'Employee Master', leaves: ['employees'] },
+    { label: 'Sensitive Employee Data', leaves: ['employee_sensitive'] },
     { label: 'Organization', children: [
       { label: 'Org Hierarchy', note: EVERYONE },
       { label: 'Organization Structure', leaves: ['organization'] },

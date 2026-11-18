@@ -248,21 +248,35 @@ function InfoCard({ icon, label, value }: { icon: React.ReactNode; label: string
 
 interface Props {
   rows: AuditLogEntry[];
+  /** An extra column after Action (the access-changes view uses it for "what changed" and the reason). */
+  extraColumn?: { header: string; render: (row: AuditLogEntry) => React.ReactNode };
 }
 
 /** Rows are clickable — opening AuditDetailModal with the event's actor/target/timestamp plus
  *  any before/after snapshot fields the backend captured (e.g. a rejection's review comment). */
-export function AuditLogTable({ rows }: Props) {
+export function AuditLogTable({ rows, extraColumn }: Props) {
   const [viewing, setViewing] = useState<AuditLogEntry | null>(null);
 
   return (
     <div style={{ overflowX: 'auto' }}>
       <table className="nf-audit-table">
         <colgroup>
-          <col style={{ width: '17%' }} />
-          <col style={{ width: '25%' }} />
-          <col style={{ width: '24%' }} />
-          <col style={{ width: '34%' }} />
+          {extraColumn ? (
+            <>
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '19%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '25%' }} />
+              <col style={{ width: '22%' }} />
+            </>
+          ) : (
+            <>
+              <col style={{ width: '17%' }} />
+              <col style={{ width: '25%' }} />
+              <col style={{ width: '24%' }} />
+              <col style={{ width: '34%' }} />
+            </>
+          )}
         </colgroup>
         <thead>
           <tr>
@@ -270,6 +284,7 @@ export function AuditLogTable({ rows }: Props) {
             <th>Affected User</th>
             <th>Performed By</th>
             <th>Action</th>
+            {extraColumn && <th>{extraColumn.header}</th>}
           </tr>
         </thead>
         <tbody>
@@ -303,6 +318,7 @@ export function AuditLogTable({ rows }: Props) {
                     <ChevronRight size={16} className="nf-audit-go" />
                   </div>
                 </td>
+                {extraColumn && <td>{extraColumn.render(r)}</td>}
               </tr>
             );
           })}
