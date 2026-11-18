@@ -21,7 +21,8 @@ import java.util.concurrent.CompletableFuture;
 @Slf4j
 public class EmailService {
 
-    private static final String RESEND_URL = "https://api.resend.com/emails";
+    /** A 429's Retry-After is honoured up to this cap — the scheduled job joins on each send, so an unbounded wait would stall it. */
+    private static final long MAX_RETRY_AFTER_SECONDS = 10;
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("h:mm a");
 
@@ -36,6 +37,9 @@ public class EmailService {
 
     @Value("${resend.from}")
     private String fromAddress;
+
+    @Value("${resend.url:https://api.resend.com/emails}")
+    private String resendUrl;
 
     @Value("${app.base-url:http://localhost:5180}")
     private String baseUrl;
@@ -183,27 +187,60 @@ public class EmailService {
                 }
                 """.formatted(fromAddress, to, ccField, subject, jsonString(html));
 
+        // Idempotency-Key = hash of the exact payload: if Resend accepted a send but our reply timed out,
+        // re-sending the identical email within Resend's 24h window is a no-op instead of a duplicate.
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(RESEND_URL))
+                .uri(URI.create(resendUrl))
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
+                .header("Idempotency-Key", "onehr-" + sha256Hex(body))
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .timeout(Duration.ofSeconds(10))
                 .build();
 
-        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(res -> {
-                    if (res.statusCode() >= 200 && res.statusCode() < 300) {
-                        log.info("Email sent to {} cc {} (subject: {})", to, cc, subject);
-                        return true;
-                    }
-                    log.error("Resend API error: status={} body={}", res.statusCode(), res.body());
-                    return false;
-                })
+        return post(request, to, cc, subject, true)
                 .exceptionally(ex -> {
                     log.error("Failed to send email to {} — underlying action was not affected: {}", to, ex.getMessage());
                     return false;
                 });
+    }
+
+    /** One POST to Resend. A 429 (rate limit) is retried once after the Retry-After Resend sends
+     * (capped, see MAX_RETRY_AFTER_SECONDS) so a single burst doesn't push the email to the next
+     * nightly run; every other refusal is final. */
+    private CompletableFuture<Boolean> post(HttpRequest request, String to, String cc, String subject, boolean mayRetry) {
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenCompose(res -> {
+                    if (res.statusCode() >= 200 && res.statusCode() < 300) {
+                        log.info("Email sent to {} cc {} (subject: {})", to, cc, subject);
+                        return CompletableFuture.completedFuture(true);
+                    }
+                    if (res.statusCode() == 429 && mayRetry) {
+                        long waitMs = retryAfterMillis(res);
+                        log.warn("Resend rate limit hit sending to {}; retrying once in {} ms", to, waitMs);
+                        return CompletableFuture.supplyAsync(() -> null, CompletableFuture.delayedExecutor(waitMs, java.util.concurrent.TimeUnit.MILLISECONDS))
+                                .thenCompose(ignored -> post(request, to, cc, subject, false));
+                    }
+                    log.error("Resend API error: status={} body={}", res.statusCode(), res.body());
+                    return CompletableFuture.completedFuture(false);
+                });
+    }
+
+    /** Retry-After header (seconds) clamped to 0..MAX_RETRY_AFTER_SECONDS; 1s when absent or unparseable. */
+    private static long retryAfterMillis(HttpResponse<?> res) {
+        long seconds = res.headers().firstValue("retry-after").map(v -> {
+            try { return Long.parseLong(v.trim()); } catch (NumberFormatException e) { return 1L; }
+        }).orElse(1L);
+        return Math.max(0, Math.min(seconds, MAX_RETRY_AFTER_SECONDS)) * 1000;
+    }
+
+    private static String sha256Hex(String s) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(s.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e); // SHA-256 is mandatory in every JRE
+        }
     }
 
     // ── HTML templates ───────────────────────────────────────────────────────────────────────
