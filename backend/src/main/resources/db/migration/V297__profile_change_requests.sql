@@ -1,5 +1,5 @@
 -- Sensitive data protection, Phase 2 — an employee's own edit of bank / government-ID fields waits
--- for HR approval (employee_sensitive:APPROVE:ALL, V293) instead of taking effect immediately.
+-- for HR approval (employee_sensitive:APPROVE:ALL, V296) instead of taking effect immediately.
 --
 -- The request holds only the fields that actually changed: old_values (raw, as they were) and
 -- new_values (raw, as submitted; a JSON null means "clear this field"). Nothing is written to

@@ -165,9 +165,9 @@ public class ProfileService {
         return hasSensitiveProfileAccess(requireUser(viewerEmail));
     }
 
-    // employee_sensitive:VIEW:ALL (V293) is its own permission: holding the employee master
+    // employee_sensitive:VIEW:ALL (V296) is its own permission: holding the employee master
     // (employees:VIEW:ALL) no longer implies seeing bank, ID, passport, DOB or personal contact.
-    // V293 copied it to every role that held employees:VIEW:ALL, so nobody lost access on rollout.
+    // V296 copied it to every role that held employees:VIEW:ALL, so nobody lost access on rollout.
     private boolean hasSensitiveProfileAccess(User viewer) {
         return effectivePermissionService.hasAuthority(viewer, "employee_sensitive:VIEW:ALL");
     }
