@@ -6,7 +6,9 @@
 -- employees until an approver accepts it — see ProfileChangeRequestService.
 -- One open request per employee: a new submission replaces the pending one's values.
 -- Rollback: DROP TABLE profile_change_requests;
-CREATE TABLE profile_change_requests (
+-- Idempotent (IF NOT EXISTS): the shared dev database's connection can drop after a migration's
+-- statements commit but before Flyway records it, and a retry must then be harmless.
+CREATE TABLE IF NOT EXISTS profile_change_requests (
     id                UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     employee_user_id  UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     old_values        JSONB        NOT NULL,
@@ -19,6 +21,6 @@ CREATE TABLE profile_change_requests (
     created_at        TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_profile_change_requests_employee ON profile_change_requests(employee_user_id);
-CREATE UNIQUE INDEX uq_profile_change_requests_one_pending
+CREATE INDEX IF NOT EXISTS idx_profile_change_requests_employee ON profile_change_requests(employee_user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_profile_change_requests_one_pending
     ON profile_change_requests(employee_user_id) WHERE status = 'PENDING';

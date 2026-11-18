@@ -10,7 +10,9 @@
 -- Every existing role gets a BASELINE version 1 holding its current state, so history starts with
 -- something to compare against and restore to.
 -- Rollback: DROP TABLE role_versions;
-CREATE TABLE role_versions (
+-- Idempotent (IF NOT EXISTS): the shared dev database's connection can drop after a migration's
+-- statements commit but before Flyway records it, and a retry must then be harmless.
+CREATE TABLE IF NOT EXISTS role_versions (
     id                     BIGSERIAL    PRIMARY KEY,
     role_id                INTEGER      NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     version_no             INTEGER      NOT NULL,
@@ -26,7 +28,7 @@ CREATE TABLE role_versions (
     created_at             TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CONSTRAINT uq_role_versions_role_no UNIQUE (role_id, version_no)
 );
-CREATE INDEX idx_role_versions_role ON role_versions(role_id, version_no DESC);
+CREATE INDEX IF NOT EXISTS idx_role_versions_role ON role_versions(role_id, version_no DESC);
 
 INSERT INTO role_versions (role_id, version_no, name, description, active, permissions, change_type)
 SELECT r.id, 1, r.display_name, r.description, r.is_active,
