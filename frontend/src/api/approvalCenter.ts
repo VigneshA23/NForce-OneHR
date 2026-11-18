@@ -16,7 +16,16 @@ async function handle<T>(res: Response): Promise<T> {
 // WebClockInService's own class Javadoc) and can never appear in this queue.
 export type RequestType =
   | 'LEAVE' | 'REGULARIZATION' | 'EXPENSE' | 'ASSET_REQUEST'
-  | 'WFH' | 'PARTIAL_DAY' | 'OVERTIME' | 'HELP_CONTENT';
+  | 'WFH' | 'PARTIAL_DAY' | 'OVERTIME' | 'HELP_CONTENT' | 'PROFILE_CHANGE';
+
+/** One changed field of an employee's bank / government-ID edit. Identifier-like values arrive masked
+ *  (XXXX-1234); the full values come from the audited detail call in profileChangeRequests.ts. */
+export interface ProfileChangeField {
+  field: string;
+  label: string;
+  oldValue: string | null;
+  newValue: string | null;
+}
 
 export interface ApprovalItem {
   id: string;
@@ -64,6 +73,9 @@ export interface ApprovalItem {
   helpContentCategory?: string;
   helpContentAttemptNumber?: number;
   helpContentModifiedSincePrevious?: boolean;
+
+  // Profile change (employee bank / government-ID edit) — `id` is the change-request id.
+  profileChangeFields?: ProfileChangeField[];
 }
 
 export const approvalCenterApi = {

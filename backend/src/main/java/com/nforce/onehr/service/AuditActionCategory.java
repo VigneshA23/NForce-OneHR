@@ -37,6 +37,10 @@ public enum AuditActionCategory {
             // who holds admin privileges is access-control-sensitive in a way a routine profile
             // edit isn't, and deserves its own filterable/queryable action.
             "ROLE_CHANGED",
+            // ProfileService — someone with employee_sensitive:VIEW opened another employee's
+            // unmasked sensitive fields (field names only are recorded, never the values). The USER_
+            // prefix keeps it in AuditActionGroup.ACCESS.
+            "USER_SENSITIVE_DATA_VIEWED",
             // HISTORICAL rows only (the automatic MANAGER grant was retired in V269): MANAGER role auto-granted/revoked as reporting lines
             // change (not an admin's own action, but still access-control-sensitive; logged
             // against the actor who triggered the underlying manager-history change).
@@ -45,6 +49,8 @@ public enum AuditActionCategory {
             // no UUID; the role code/name is in the before/after snapshot).
             "ROLE_CREATED", "ROLE_UPDATED", "ROLE_ACTIVATED", "ROLE_DEACTIVATED", "ROLE_DELETED",
             "ROLE_PERMISSIONS_UPDATED",
+            // RoleAdminService#restore — a role put back to one of its saved versions (itself saved as a new version).
+            "ROLE_RESTORED",
             // An administrator's review of a Manager whose role was converted from automatic to explicit (V280).
             "ROLE_MANAGER_CONVERSION_REVIEWED",
             // Gaining or losing the Super Admin role (logged next to ROLE_CHANGED).
@@ -65,6 +71,11 @@ public enum AuditActionCategory {
             // it's classified as Employee Management rather than access-control despite
             // originating from the same service as USER_CREATED (ACCESS_CONTROL, above).
             "USER_UPDATED",
+            // ProfileChangeRequestService — an employee's bank / government-ID edit waiting for HR
+            // approval. Field names only are recorded, never the values. HR_OPERATIONAL so the
+            // approver sees their own decisions in Audit History; the org-wide access view lists them too.
+            "PROFILE_SENSITIVE_CHANGE_REQUESTED", "PROFILE_SENSITIVE_CHANGE_APPROVED",
+            "PROFILE_SENSITIVE_CHANGE_REJECTED",
             // ExpenseService — EXPENSE_SUBMITTED (self-submitted) intentionally omitted
             "EXPENSE_MANAGER_APPROVED", "EXPENSE_MANAGER_REJECTED",
             "EXPENSE_FINAL_APPROVED", "EXPENSE_FINAL_REJECTED", "EXPENSE_MARKED_PAID",
@@ -164,6 +175,27 @@ public enum AuditActionCategory {
      */
     public static AuditActionCategory of(String action) {
         return ACCESS_CONTROL.actions.contains(action) ? ACCESS_CONTROL : HR_OPERATIONAL;
+    }
+
+    /** Sensitive-data actions that are not access-control but belong in the org-wide access view when asked for by name. */
+    private static final Set<String> SENSITIVE_DATA_ACTIONS = Set.of(
+            "PROFILE_SENSITIVE_CHANGE_REQUESTED", "PROFILE_SENSITIVE_CHANGE_APPROVED", "PROFILE_SENSITIVE_CHANGE_REJECTED");
+
+    /**
+     * What the Super Admin's org-wide "access changes" view lists by default: who changed users, roles and
+     * permissions. Excludes the high-volume {@code USER_SENSITIVE_DATA_VIEWED} reads, which are still
+     * available by choosing that action explicitly ({@link #accessViewSelectableActions()}).
+     */
+    public static Set<String> accessChangeActions() {
+        return ACCESS_CONTROL.actions.stream()
+                .filter(a -> !"USER_SENSITIVE_DATA_VIEWED".equals(a))
+                .collect(Collectors.toSet());
+    }
+
+    /** Every action the access view can be narrowed to: the defaults, sensitive-data reads and sensitive-data change decisions. */
+    public static Set<String> accessViewSelectableActions() {
+        return Stream.concat(ACCESS_CONTROL.actions.stream(), SENSITIVE_DATA_ACTIONS.stream())
+                .collect(Collectors.toSet());
     }
 
     public static Set<String> allActions() {

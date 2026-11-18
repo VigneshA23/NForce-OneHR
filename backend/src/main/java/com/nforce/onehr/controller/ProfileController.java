@@ -1,5 +1,6 @@
 package com.nforce.onehr.controller;
 
+import com.nforce.onehr.dto.OwnSensitiveProfileResponse;
 import com.nforce.onehr.dto.ProfileResponse;
 import com.nforce.onehr.dto.ProfileTimelineEvent;
 import com.nforce.onehr.dto.SetAvatarRequest;
@@ -26,6 +27,12 @@ public class ProfileController {
     @GetMapping
     public ResponseEntity<ProfileResponse> getProfile(Authentication auth) {
         return ResponseEntity.ok(profileService.getProfile(auth.getName()));
+    }
+
+    /** The eye button on the caller's own profile: their own masked values, unmasked. Audit-logged. */
+    @GetMapping("/sensitive")
+    public ResponseEntity<OwnSensitiveProfileResponse> getOwnSensitive(Authentication auth) {
+        return ResponseEntity.ok(profileService.getOwnSensitive(auth.getName()));
     }
 
     // "View Profile" from the People Directory — any other employee's About/Job detail, with

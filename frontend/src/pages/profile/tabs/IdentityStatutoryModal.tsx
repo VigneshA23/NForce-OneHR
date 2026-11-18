@@ -3,9 +3,9 @@ import { useToast } from '../../../context/ToastContext';
 import { profileApi, type ProfileData, type UpdateProfilePayload } from '../../../api/profile';
 import { EditModal, EditField, ReadField } from '../shared';
 
-// National ID and Bank Account Number are masked by the backend on read (e.g. "•••• •••• 5591")
-// — this modal trusts that masking rather than re-deriving it client-side. Editing either field
-// replaces the stored value entirely with whatever is typed here (the raw, unmasked value).
+// National ID, Bank Account Number, Passport Number and IFSC are masked by the backend on read (e.g. "•••• •••• 5591")
+// — this modal trusts that masking rather than re-deriving it client-side. Each is edited with a "Replace ..." box:
+// only a value actually typed here is sent, and it replaces the stored one once HR approves it.
 export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
   profile: ProfileData;
   token: string;
@@ -14,18 +14,18 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
 }) {
   const { showToast } = useToast();
   const [nationalId, setNationalId] = useState('');
-  const [passportNumber, setPassportNumber] = useState(profile.passportNumber ?? '');
+  const [passportNumber, setPassportNumber] = useState('');
   const [passportExpiry, setPassportExpiry] = useState(profile.passportExpiry ?? '');
   const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [bankName, setBankName] = useState(profile.bankName ?? '');
-  const [bankIfsc, setBankIfsc] = useState(profile.bankIfsc ?? '');
+  const [bankIfsc, setBankIfsc] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
     setSaving(true);
     try {
       const payload: UpdateProfilePayload = {
-        passportNumber, bankName, bankIfsc,
+        bankName,
         // A cleared field sends no passportExpiry at all, plus the explicit clear flag — see
         // UpdateProfilePayload's doc comment for why "" / omitted alone isn't enough.
         ...(passportExpiry ? { passportExpiry } : { clearPassportExpiry: true }),
@@ -33,10 +33,15 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
       // Only send if the employee actually typed a new value — otherwise leave the masked value
       // stored server-side untouched instead of overwriting it with an empty string.
       if (nationalId) payload.nationalId = nationalId;
+      if (passportNumber) payload.passportNumber = passportNumber;
+      if (bankIfsc) payload.bankIfsc = bankIfsc;
       if (bankAccountNumber) payload.bankAccountNumber = bankAccountNumber;
       const updated = await profileApi.update(token, payload);
       onSaved(updated);
-      showToast('success', 'Identity & Statutory details updated');
+      // Bank and ID changes don't apply on save: HR approves them first, so say so.
+      showToast('success', updated.pendingSensitiveChange
+        ? 'Sent for HR approval. Your bank and ID changes take effect once approved.'
+        : 'Identity & Statutory details updated');
       onClose();
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Save failed');
@@ -60,12 +65,20 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
             <EditField label="Replace Bank Account Number" value={bankAccountNumber} onChange={setBankAccountNumber} placeholder="Enter new value…" />
           </div>
         </div>
-        <EditField label="Passport Number" value={passportNumber} onChange={setPassportNumber} />
-        <EditField label="Passport Expiry" value={passportExpiry} onChange={setPassportExpiry} type="date" />
-        <div style={{ gridColumn: '1/-1' }}>
-          <EditField label="Bank Name & IFSC" value={bankName} onChange={setBankName} placeholder="Bank name" />
+        <div>
+          <ReadField label="Passport Number (current)" value={profile.passportNumber} />
+          <div style={{ marginTop: 8 }}>
+            <EditField label="Replace Passport Number" value={passportNumber} onChange={setPassportNumber} placeholder="Enter new value…" />
+          </div>
         </div>
-        <EditField label="IFSC Code" value={bankIfsc} onChange={v => setBankIfsc(v.toUpperCase())} />
+        <EditField label="Passport Expiry" value={passportExpiry} onChange={setPassportExpiry} type="date" />
+        <EditField label="Bank Name" value={bankName} onChange={setBankName} placeholder="Bank name" />
+        <div>
+          <ReadField label="IFSC Code (current)" value={profile.bankIfsc} />
+          <div style={{ marginTop: 8 }}>
+            <EditField label="Replace IFSC Code" value={bankIfsc} onChange={v => setBankIfsc(v.toUpperCase())} placeholder="Enter new value…" />
+          </div>
+        </div>
       </div>
     </EditModal>
   );

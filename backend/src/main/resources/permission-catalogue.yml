@@ -32,6 +32,11 @@ modules:
         name: Onboarding
         description: New-joiner checklists. Approve completes an onboarding flow.
         actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, APPROVE: ALL }
+      - code: employee_sensitive
+        name: Sensitive Employee Data
+        description: Bank details, government IDs, passport, date of birth, personal contact and addresses. Without View these are masked everywhere; every unmasked view is audit-logged.
+        sensitivity: HIGH
+        actions: { VIEW: ALL, EDIT: ALL, APPROVE: ALL }
 
   - code: mod.attendance
     name: Attendance
@@ -260,7 +265,7 @@ modules:
 # backend still enforces every endpoint on its own.
 routes:
   - path: /approvals
-    requires: [regularization:APPROVE:TEAM, attendance_requests:APPROVE:TEAM, overtime:APPROVE:TEAM, leave:APPROVE:TEAM, expenses:APPROVE:TEAM, assets:APPROVE:TEAM, hr_help_content:APPROVE:TEAM]
+    requires: [regularization:APPROVE:TEAM, attendance_requests:APPROVE:TEAM, overtime:APPROVE:TEAM, leave:APPROVE:TEAM, expenses:APPROVE:TEAM, assets:APPROVE:TEAM, hr_help_content:APPROVE:TEAM, employee_sensitive:APPROVE:ALL]
   - path: /exceptions
     requires: [exceptions:VIEW:TEAM]
   - path: /employees

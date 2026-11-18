@@ -22,9 +22,13 @@ class MigrationNoExpansionTest {
     /** role -> authority ("module:ACTION:SCOPE") that is intentionally new since the baseline. */
     private static final Map<String, Set<String>> APPROVED = Map.of(
             // V277: editing a project used to need no permission at all; now an explicit HR/SA permission.
-            "HR_ADMIN", Set.of("projects:EDIT:ALL"),
-            // V277 (projects:EDIT) and V279 (audit_security — copied from user_management:VIEW:ALL, SA-only).
-            "SUPER_ADMIN", Set.of("projects:EDIT:ALL", "audit_security:VIEW:ALL"),
+            // V296: employee_sensitive splits the sensitive profile fields out of employees:VIEW:ALL. HR_ADMIN
+            // already saw and entered them, so it gets all three actions; nothing new is reachable.
+            "HR_ADMIN", Set.of("projects:EDIT:ALL", "employee_sensitive:VIEW:ALL", "employee_sensitive:EDIT:ALL",
+                    "employee_sensitive:APPROVE:ALL"),
+            // V277 (projects:EDIT), V279 (audit_security — copied from user_management:VIEW:ALL, SA-only), V296 (employee_sensitive).
+            "SUPER_ADMIN", Set.of("projects:EDIT:ALL", "audit_security:VIEW:ALL", "employee_sensitive:VIEW:ALL",
+                    "employee_sensitive:EDIT:ALL", "employee_sensitive:APPROVE:ALL"),
             "MANAGER", Set.of(),
             "EMPLOYEE", Set.of());
 

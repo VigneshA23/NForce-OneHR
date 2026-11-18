@@ -71,7 +71,38 @@ function buildQuery(filters: AuditLogFilters, extra?: Record<string, string | nu
   return qs ? `?${qs}` : '';
 }
 
+/** Filters of the Super Admin's org-wide "access changes" view. Without `from` the server uses the last 30 days. */
+export interface AccessChangeFilters {
+  actorSearch?: string;
+  targetSearch?: string;
+  action?: string;
+  from?: string; // yyyy-MM-dd
+  to?: string;   // yyyy-MM-dd
+}
+
+function accessChangeQuery(filters: AccessChangeFilters, extra?: Record<string, string | number>): string {
+  const params = new URLSearchParams();
+  if (filters.actorSearch)  params.set('actorSearch', filters.actorSearch);
+  if (filters.targetSearch) params.set('targetSearch', filters.targetSearch);
+  if (filters.action)       params.set('action', filters.action);
+  if (filters.from)         params.set('from', `${filters.from}T00:00:00`);
+  if (filters.to)           params.set('to', `${filters.to}T23:59:59`);
+  if (extra) for (const [k, v] of Object.entries(extra)) params.set(k, String(v));
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
 export const auditApi = {
+  /** Org-wide role / permission / user-account changes by anyone (audit_security:VIEW:ALL). */
+  accessChanges: (filters: AccessChangeFilters, page: number, size: number, token: string) =>
+    fetch(`${BASE}/access-changes${accessChangeQuery(filters, { page, size })}`, { headers: authHeaders(token) })
+      .then(handle<PagedAuditLogs>),
+
+  /** Same filters, unpaginated (server-capped) — backs the export of exactly what is on screen. */
+  exportAccessChanges: (filters: AccessChangeFilters, token: string) =>
+    fetch(`${BASE}/access-changes/export${accessChangeQuery(filters)}`, { headers: authHeaders(token) })
+      .then(handle<AuditLogEntry[]>),
+
   list: (filters: AuditLogFilters, page: number, size: number, token: string) =>
     fetch(`${BASE}${buildQuery(filters, { page, size })}`, { headers: authHeaders(token) })
       .then(handle<PagedAuditLogs>),

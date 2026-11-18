@@ -77,6 +77,36 @@ public class AuditLogController {
     }
 
     /**
+     * Org-wide "who changed access" view for the Super Admin (audit_security:VIEW:ALL): role, permission and
+     * user-account changes by anyone, last 30 days unless {@code from} is given. {@code action} may also pick
+     * sensitive-data reads or bank/ID change decisions. Unlike the endpoints above, rows are not limited to the caller's own.
+     */
+    @GetMapping("/access-changes")
+    @PreAuthorize("hasAuthority('audit_security:VIEW:ALL')")
+    public Page<AuditLogEntryDto> accessChanges(
+            @RequestParam(required = false) String actorSearch,
+            @RequestParam(required = false) String targetSearch,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return auditQueryService.searchAccessChanges(actorSearch, targetSearch, action, from, to, page, size);
+    }
+
+    /** Same filters as {@link #accessChanges}, unpaginated (capped) — backs the export of what is on screen. */
+    @GetMapping("/access-changes/export")
+    @PreAuthorize("hasAuthority('audit_security:VIEW:ALL')")
+    public List<AuditLogEntryDto> exportAccessChanges(
+            @RequestParam(required = false) String actorSearch,
+            @RequestParam(required = false) String targetSearch,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return auditQueryService.accessChangesAll(actorSearch, targetSearch, action, from, to);
+    }
+
+    /**
      * Whether the caller may see ACCESS_CONTROL actions (user/role administration events): the
      * audit_security:VIEW:ALL permission (V279, copied from whoever held user_management:VIEW:ALL, so
      * nobody gained or lost it). The audit module's own permissions can't express it: they're

@@ -81,6 +81,68 @@ public class AuditQueryService {
         return rows.stream().map(mapper).collect(Collectors.toList());
     }
 
+    /** Default window of the org-wide access-changes view when the caller gives no start date. */
+    static final int ACCESS_CHANGES_DEFAULT_DAYS = 30;
+    /** Safety cap on one export so an unbounded date range can't pull the whole table. */
+    static final int ACCESS_CHANGES_MAX_EXPORT_ROWS = 10_000;
+
+    /**
+     * Org-wide "who changed access" view, newest first. Unlike {@link #search} it is NOT limited to the
+     * caller's own rows (the actor-scoped {@link #buildSpec} is deliberately left as it is); the controller
+     * gates it on audit_security:VIEW:ALL. Without a start date it covers the last 30 days.
+     */
+    @Transactional(readOnly = true)
+    public Page<AuditLogEntryDto> searchAccessChanges(String actorSearch, String targetSearch, String action,
+            LocalDateTime from, LocalDateTime to, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "occurredAt"));
+        Optional<Specification<AuditLog>> spec = buildAccessChangeSpec(actorSearch, targetSearch, action, from, to);
+        if (spec.isEmpty()) return Page.empty(pageable);
+        Page<AuditLog> rows = auditLogRepository.findAll(spec.get(), pageable);
+        return rows.map(buildRowMapper(rows.getContent()));
+    }
+
+    /** Every row matching the current access-changes filters (capped), for the export. */
+    @Transactional(readOnly = true)
+    public List<AuditLogEntryDto> accessChangesAll(String actorSearch, String targetSearch, String action,
+            LocalDateTime from, LocalDateTime to) {
+        Optional<Specification<AuditLog>> spec = buildAccessChangeSpec(actorSearch, targetSearch, action, from, to);
+        if (spec.isEmpty()) return List.of();
+        List<AuditLog> rows = auditLogRepository.findAll(spec.get(),
+                PageRequest.of(0, ACCESS_CHANGES_MAX_EXPORT_ROWS, Sort.by(Sort.Direction.DESC, "occurredAt"))).getContent();
+        Function<AuditLog, AuditLogEntryDto> mapper = buildRowMapper(rows);
+        return rows.stream().map(mapper).collect(Collectors.toList());
+    }
+
+    /** Empty when the filters can prove nothing matches (an action outside the access view, or a search with no hits). */
+    Optional<Specification<AuditLog>> buildAccessChangeSpec(String actorSearch, String targetSearch, String action,
+            LocalDateTime from, LocalDateTime to) {
+        Set<String> allowed;
+        if (action != null && !action.isBlank()) {
+            if (!AuditActionCategory.accessViewSelectableActions().contains(action)) return Optional.empty();
+            allowed = Set.of(action);
+        } else {
+            allowed = AuditActionCategory.accessChangeActions();
+        }
+        Specification<AuditLog> spec = Specification.where(actionIn(allowed))
+                .and(occurredBetween(accessChangesFrom(from, Instant.now()), to != null ? to.toInstant(ZoneOffset.UTC) : null));
+        if (actorSearch != null && !actorSearch.isBlank()) {
+            Set<UUID> actorIds = targetResolver.resolveTargetIdsMatching(actorSearch);
+            if (actorIds.isEmpty()) return Optional.empty();
+            spec = spec.and(actorIdIn(actorIds));
+        }
+        if (targetSearch != null && !targetSearch.isBlank()) {
+            Set<UUID> targetIds = targetResolver.resolveTargetIdsMatching(targetSearch);
+            if (targetIds.isEmpty()) return Optional.empty();
+            spec = spec.and(targetIdIn(targetIds));
+        }
+        return Optional.of(spec);
+    }
+
+    /** The start of the window: the caller's date, else 30 days before {@code now}. UTC, like every audit timestamp. */
+    static Instant accessChangesFrom(LocalDateTime from, Instant now) {
+        return from != null ? from.toInstant(ZoneOffset.UTC) : now.minus(java.time.Duration.ofDays(ACCESS_CHANGES_DEFAULT_DAYS));
+    }
+
     @Transactional(readOnly = true)
     public AuditLogStatsDto stats(String targetSearch, String action,
             LocalDateTime from, LocalDateTime to, boolean isSuperAdmin, String callerEmail) {

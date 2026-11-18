@@ -743,6 +743,19 @@ class UserManagementServiceTest {
             verifyNoInteractions(employeeShiftAssignmentRepository);
         }
 
+        // Sensitive profile data entered for someone else needs employee_sensitive:EDIT, on top of
+        // user_management:CREATE — the actor in this fixture holds neither employee_sensitive grant.
+        @Test
+        void sensitiveFieldsWithoutEditPermission_areRefused_andNothingIsSaved() {
+            req.setPhone("555-0100");
+
+            org.junit.jupiter.api.Assertions.assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                    () -> userManagementService.createUser(req, actorEmail));
+
+            org.mockito.Mockito.verify(userRepository, org.mockito.Mockito.never()).save(any());
+            org.mockito.Mockito.verify(employeeRepository, org.mockito.Mockito.never()).save(any());
+        }
+
         // Four-step wizard, Step 1 (Basic Information) — optional fields map straight onto the
         // same Employee columns ProfileService/My Profile already read/write; fullName stays
         // exactly as submitted (see CreateUserRequest's own comment on why it's never derived
@@ -760,6 +773,8 @@ class UserManagementServiceTest {
             req.setEmergencyContactName("John Smith");
             req.setEmergencyContactPhone("555-0101");
             req.setEmergencyContactRelationship("Spouse");
+            when(effectivePermissionService.hasAuthority(any(), org.mockito.ArgumentMatchers.eq("employee_sensitive:EDIT:ALL")))
+                    .thenReturn(true);
             when(employeeCodeGenerator.claim(req.getEmployeeCode())).thenReturn("NF-2026-0057");
 
             userManagementService.createUser(req, actorEmail);

@@ -15,7 +15,7 @@ import java.util.UUID;
  * no other page may issue approval decisions.
  *
  * requestType discriminator: LEAVE | REGULARIZATION | WEB_CLOCK_IN | EXPENSE | ASSET_REQUEST |
- * WFH | PARTIAL_DAY | OVERTIME | HELP_CONTENT
+ * WFH | PARTIAL_DAY | OVERTIME | HELP_CONTENT | PROFILE_CHANGE
  */
 @Data
 @Builder
@@ -61,6 +61,10 @@ public class ApprovalItemDto {
     private String requestedCategoryName;
     private String assetRequestReason;
     private String assetRequestStatus; // PENDING | APPROVED — drives Approval Center button set
+
+    // ── Profile change (employee bank / government-ID edit) — identifier-like values arrive masked;
+    //    the Approval Center fetches raw values from the audited detail endpoint on demand ──
+    private java.util.List<ProfileChangeFieldDto> profileChangeFields;
 
     // ── Help Content (FAQ/Guide) — id above is the *attempt* id (what Approve/Reject act on),
     //    not the content id, since a content row may accumulate several attempts over time ──
