@@ -3,7 +3,7 @@ import { EmpCode } from '../components/EmpCode';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Archive, Check, ExternalLink, FileSpreadsheet, Paperclip, Plus, Package, Repeat, Search, Trash2, Undo2, UserPlus } from 'lucide-react';
 import { PersonAvatar } from '../components/PersonCell';
 import { ActionDock } from '../components/ActionDock';
@@ -65,7 +65,11 @@ function EmployeeView({ token }: { token: string }) {
   const [expCategories, setExpCategories] = useState<ExpenseCategory[]>([]);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showExpModal, setShowExpModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'assets' | 'requests' | 'claims'>('assets');
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<'assets' | 'requests' | 'claims'>(tabParam === 'claims' ? 'claims' : 'assets');
+  // Notification links (/assets?tab=claims) can land while this page is already mounted.
+  useEffect(() => { if (tabParam === 'claims') setActiveTab('claims'); }, [tabParam]);
   const [ackConfirmId, setAckConfirmId] = useState<number | null>(null);
   const [assetCatFilter, setAssetCatFilter] = useState('');
   const [reqStatusFilter, setReqStatusFilter] = useState('');
