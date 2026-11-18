@@ -168,8 +168,8 @@ class MyAllocationServiceTest {
     // ── the allocation follows its project (active / on hold / closed) ──
 
     @Test
-    void closedProject_stillAppears_labelledClosed_withTheAllocationsOwnDates() {
-        Project closed = project("AI", clientId, ProjectStatus.CLOSED, LocalDate.of(2026, 11, 10));
+    void closedProject_stillAppears_labelledClosed() {
+        Project closed = project("AI", clientId, ProjectStatus.CLOSED, LocalDate.of(2027, 6, 30));
         stubAllocations(alloc(closed, 100, "2026-11-16", "2026-11-30", null));
         stubLookups(closed);
 
@@ -177,8 +177,92 @@ class MyAllocationServiceTest {
 
         assertEquals(1, result.size());
         assertEquals(ProjectStatus.CLOSED, result.get(0).getProjectStatus());
-        assertEquals(LocalDate.of(2026, 11, 16), result.get(0).getStartDate());
-        assertEquals(LocalDate.of(2026, 11, 30), result.get(0).getEndDate());
+    }
+
+    // ── the dates shown follow the project's current dates (what the manager sees) ──
+
+    @Test
+    void closedProject_editedToEndBeforeTheAllocationStarts_showsTheProjectsOwnDates() {
+        // The reported case: the AI project was edited to 2026-11-10 .. 2026-11-15 and closed, but the allocation
+        // (made earlier) still reads 16 Nov .. 30 Nov. The employee must see the project dates the manager sees.
+        Project ai = projectWithDates("AI", ProjectStatus.CLOSED, "2026-11-10", "2026-11-15");
+        stubAllocations(alloc(ai, 100, "2026-11-16", "2026-11-30", null));
+        stubLookups(ai);
+
+        MyAllocationResponse r = service.myCurrentAndUpcoming("emp@x.com", today).get(0);
+
+        assertEquals(LocalDate.of(2026, 11, 10), r.getStartDate());
+        assertEquals(LocalDate.of(2026, 11, 15), r.getEndDate());
+        assertEquals(ProjectStatus.CLOSED, r.getProjectStatus());
+    }
+
+    @Test
+    void projectEndingBeforeTheAllocationEnds_showsTheProjectsEnd_open_or_closed() {
+        Project open = projectWithDates("Open", ProjectStatus.ACTIVE, "2026-09-01", "2026-12-15");
+        Project closed = projectWithDates("Closed", ProjectStatus.CLOSED, "2026-09-01", "2026-12-15");
+        stubAllocations(alloc(open, 50, "2026-10-01", "2027-03-31", null), alloc(closed, 50, "2026-10-01", "2027-03-31", null));
+        stubLookups(open, closed);
+
+        List<MyAllocationResponse> result = service.myCurrentAndUpcoming("emp@x.com", today);
+
+        assertTrue(result.stream().allMatch(r -> r.getEndDate().equals(LocalDate.of(2026, 12, 15))));
+        assertTrue(result.stream().allMatch(r -> r.getStartDate().equals(LocalDate.of(2026, 10, 1))));
+    }
+
+    @Test
+    void projectStartingAfterTheAllocationStarts_clipsTheShownStart() {
+        Project p = projectWithDates("AI", ProjectStatus.ACTIVE, "2026-11-01", "2027-03-31");
+        stubAllocations(alloc(p, 100, "2026-10-01", "2027-03-31", null));
+        stubLookups(p);
+
+        assertEquals(LocalDate.of(2026, 11, 1), service.myCurrentAndUpcoming("emp@x.com", today).get(0).getStartDate());
+    }
+
+    @Test
+    void projectWindowWiderThanTheAllocation_keepsTheAllocationsOwnDates() {
+        Project p = projectWithDates("AI", ProjectStatus.ACTIVE, "2026-01-01", "2027-12-31");
+        stubAllocations(alloc(p, 100, "2026-10-01", "2027-03-31", null));
+        stubLookups(p);
+
+        MyAllocationResponse r = service.myCurrentAndUpcoming("emp@x.com", today).get(0);
+
+        assertEquals(LocalDate.of(2026, 10, 1), r.getStartDate());
+        assertEquals(LocalDate.of(2027, 3, 31), r.getEndDate());
+    }
+
+    @Test
+    void projectWithNoEndDate_keepsTheAllocationsOwnDates() {
+        Project ongoing = project("AI", clientId, ProjectStatus.ACTIVE, null);
+        stubAllocations(alloc(ongoing, 100, "2026-10-01", "2027-03-31", null));
+        stubLookups(ongoing);
+
+        MyAllocationResponse r = service.myCurrentAndUpcoming("emp@x.com", today).get(0);
+
+        assertEquals(LocalDate.of(2026, 10, 1), r.getStartDate());
+        assertEquals(LocalDate.of(2027, 3, 31), r.getEndDate());
+    }
+
+    @Test
+    void allocationReleasedEarly_isClippedByTheEarlierOfItsActualEndAndTheProjectEnd() {
+        Project p = projectWithDates("AI", ProjectStatus.ACTIVE, "2026-09-01", "2027-03-31");
+        stubAllocations(alloc(p, 100, "2026-10-01", "2027-03-31", "2026-12-20"));
+        stubLookups(p);
+
+        assertEquals(LocalDate.of(2026, 12, 20), service.myCurrentAndUpcoming("emp@x.com", today).get(0).getEndDate());
+    }
+
+    @Test
+    void listing_andCurrentVsUpcoming_stillFollowTheAllocationsOwnDates_notTheShownRange() {
+        // Project edited to end before the allocation starts: the shown dates are the project's, but the
+        // allocation is still listed, and is still UPCOMING because its own start is in the future.
+        Project ai = projectWithDates("AI", ProjectStatus.CLOSED, "2026-11-10", "2026-11-15");
+        stubAllocations(alloc(ai, 100, "2026-12-01", "2026-12-31", null));
+        stubLookups(ai);
+
+        MyAllocationResponse r = service.myCurrentAndUpcoming("emp@x.com", today).get(0);
+
+        assertEquals(Status.UPCOMING, r.getStatus());
+        assertEquals(LocalDate.of(2026, 11, 15), r.getEndDate());
     }
 
     @Test
@@ -382,6 +466,11 @@ class MyAllocationServiceTest {
 
     private Project project(String name, UUID client) {
         return Project.builder().id(UUID.randomUUID()).name(name).code(name.toUpperCase()).clientId(client).build();
+    }
+
+    private Project projectWithDates(String name, ProjectStatus status, String start, String end) {
+        return Project.builder().id(UUID.randomUUID()).name(name).code(name.toUpperCase()).clientId(clientId)
+                .status(status).startDate(LocalDate.parse(start)).endDate(LocalDate.parse(end)).build();
     }
 
     private Project project(String name, UUID client, ProjectStatus status, LocalDate endDate) {
