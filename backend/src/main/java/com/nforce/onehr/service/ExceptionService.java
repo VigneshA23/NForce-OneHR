@@ -61,6 +61,8 @@ public class ExceptionService {
     // How far back notifyUnnotifiedExceptions looks for rows still waiting on an email — i.e. how
     // long a failed send keeps being retried (once per nightly run) before it's given up on.
     private static final int NOTIFY_RETRY_WINDOW_DAYS = 7;
+    /** Pause after each scheduled email so the job stays under Resend's 10 requests/second limit. */
+    private static final long EMAIL_SEND_GAP_MS = 120;
 
     private static final Set<String> SCHEDULED_EMAIL_TYPES = Set.of(
             ExceptionType.LATE_ARRIVAL, ExceptionType.MISSING_PUNCH,
@@ -720,6 +722,15 @@ public class ExceptionService {
                 failed++;
                 log.error("Notification for exception {} ({} on {}) failed — will retry on the next run",
                         exception.getId(), exception.getExceptionType(), exception.getExceptionDate(), e);
+            }
+            // Resend allows 10 requests/s. Sends are sequential at ~40 ms each, so without a gap this ran
+            // ~20/s and was 429'd. 120 ms + send time keeps it near 6/s.
+            // ponytail: fixed gap is fine up to ~1,000 emails a night; beyond that, drain in small chunks on a short schedule.
+            try {
+                Thread.sleep(EMAIL_SEND_GAP_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break; // the rest stay un-notified and retry on the next run
             }
         }
         if (failed > 0) {
