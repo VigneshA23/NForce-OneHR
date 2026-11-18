@@ -6,6 +6,7 @@ import { useAuthStore } from '../../store/authStore';
 import { consumeSessionMessage } from '../../lib/authFetch';
 import wordmarkUrl from '../../assets/nforce-wordmark.png';
 import { DiwaliBurst } from './DiwaliBurst';
+import { refreshIfStale } from '../../lib/versionCheck';
 import '../login.css';
 
 // "NForce One" in the surrounding text colour, "HR" in brand red.
@@ -140,6 +141,8 @@ export default function Login() {
       }, rememberMe);
       setSignedIn(true);
       await new Promise((resolve) => window.setTimeout(resolve, 1900));
+      // If a newer build was deployed since this tab loaded, open the next page with the latest code.
+      if (await refreshIfStale(data.mustChangePassword ? '/change-password' : '/dashboard')) return;
       if (data.mustChangePassword) {
         // Not `replace: true` — keeps /login in history so the browser back
         // button can return the user to sign-in from the password-setup page.

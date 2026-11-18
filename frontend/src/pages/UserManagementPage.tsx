@@ -657,7 +657,7 @@ export default function UserManagementPage() {
   // Reset to page 1 when filters change
   useEffect(() => { setPage(1); }, [search, statusFilter, deptFilter, roleFilter]);
 
-  const thStyle: React.CSSProperties = { padding: '13px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '.06em', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap', background: 'var(--raised)' };
+  const thStyle: React.CSSProperties = { padding: '13px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', whiteSpace: 'nowrap', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
   const tdStyle: React.CSSProperties = { padding: '13px 16px', fontSize: 13, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
   const filterSelect: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 8, padding: '9px 12px', color: 'var(--txt-mut)', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', outline: 'none' };
 

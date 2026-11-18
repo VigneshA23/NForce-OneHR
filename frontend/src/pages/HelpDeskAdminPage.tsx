@@ -66,10 +66,10 @@ function Person({ name, fallback, large, userId }: { name?: string | null; fallb
   return (
     <div className="nf-rq-person">
       <span className={`nf-rq-avatar${large ? ' nf-rq-avatar--lg' : ''}${name ? '' : ' nf-rq-avatar--muted'}`} aria-hidden="true">
-        {name ? initials(name) : '–'}
+        {name ? initials(name) : '-'}
       </span>
       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '–'}</span>
+        <span className={name ? 'nf-rq-strong' : 'nf-rq-dim'}>{name ?? fallback ?? '-'}</span>
         {userId && <EmpCode userId={userId} />}
       </span>
     </div>
@@ -88,7 +88,7 @@ function PageHeader({ subtitle }: { subtitle?: string }) {
 }
 
 function fmtDateTime(s?: string | null) {
-  if (!s) return '–';
+  if (!s) return '-';
   return new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -501,7 +501,7 @@ function TicketPreview({ ticketId, token, agents, onBack, onOpenWorkspace, onCha
                 )}
                 {canStartWorking && (
                   <div style={{ textAlign: 'center', marginTop: 4 }}>
-                    <button onClick={() => onOpenWorkspace(ticketId)} className="nf-rq-link">View conversation without starting work →</button>
+                    <button onClick={() => onOpenWorkspace(ticketId)} className="nf-rq-link">View conversation without starting work</button>
                   </div>
                 )}
               </div>
@@ -641,7 +641,8 @@ export default function HelpDeskAdminPage() {
       <div className="nf-rq-card">
         <TabBar
           ariaLabel="Filter by ticket status"
-          style={{ padding: '0 14px' }}
+          className="nf-tabs-card"
+          style={{ margin: '14px 14px 6px' }}
           active={statusFilter}
           onChange={setStatusFilter}
           tabs={QUEUE_FILTERS}
@@ -713,7 +714,7 @@ export default function HelpDeskAdminPage() {
                     <td data-label="Employee"><Person name={t.employeeName} userId={t.employeeUserId} /></td>
                     <td data-label="Topic">{t.categoryName}</td>
                     <td data-label="Status"><StatusBadge status={t.status} /></td>
-                    <td data-label="Assigned To">{t.assignedToName ? <Person name={t.assignedToName} /> : <span className="nf-rq-dim">–</span>}</td>
+                    <td data-label="Assigned To">{t.assignedToName ? <Person name={t.assignedToName} /> : <span className="nf-rq-dim">-</span>}</td>
                     <td data-label="Last Update" className="nf-rq-nowrap">{fmtDateTime(t.updatedAt)}</td>
                     <td className="nf-rq-td-actions">
                       {/* Same action as clicking the row — opens the read-only preview. */}

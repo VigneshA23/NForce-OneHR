@@ -3,8 +3,8 @@ import { EmpCode } from '../components/EmpCode';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
 import PageTitleBlock from '../components/PageTitleBlock';
-import { useNavigate } from 'react-router-dom';
-import { Archive, Check, ExternalLink, Paperclip, Plus, Package, Repeat, Search, Trash2, Undo2, UserPlus } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Archive, Check, ExternalLink, FileSpreadsheet, Paperclip, Plus, Package, Repeat, Search, Trash2, Undo2, UserPlus } from 'lucide-react';
 import { PersonAvatar } from '../components/PersonCell';
 import { ActionDock } from '../components/ActionDock';
 import { TabBar } from '../components/TabBar';
@@ -38,6 +38,7 @@ import {
 } from './assets/shared';
 import { useEmployeeAssetsData } from './assets/useEmployeeAssetsData';
 import { RequestAssetModal } from './assets/RequestAssetModal';
+import { BulkAddAssetsModal } from './assets/BulkAddAssetsModal';
 
 export function todayIsoDate(): string {
   const d = new Date();
@@ -64,7 +65,11 @@ function EmployeeView({ token }: { token: string }) {
   const [expCategories, setExpCategories] = useState<ExpenseCategory[]>([]);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showExpModal, setShowExpModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'assets' | 'requests' | 'claims'>('assets');
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<'assets' | 'requests' | 'claims'>(tabParam === 'claims' ? 'claims' : 'assets');
+  // Notification links (/assets?tab=claims) can land while this page is already mounted.
+  useEffect(() => { if (tabParam === 'claims') setActiveTab('claims'); }, [tabParam]);
   const [ackConfirmId, setAckConfirmId] = useState<number | null>(null);
   const [assetCatFilter, setAssetCatFilter] = useState('');
   const [reqStatusFilter, setReqStatusFilter] = useState('');
@@ -683,6 +688,7 @@ export function HRView({ token, hideTiles }: { token: string; hideTiles?: boolea
   const [activeTab, setActiveTab] = useState<'inventory' | 'requests' | 'categories' | 'payroll'>('inventory');
 
   const [showAddAsset, setShowAddAsset] = useState(false);
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState<AssetResponse | null>(null);
   const [showReassignModal, setShowReassignModal] = useState<AssetResponse | null>(null);
   const [showReturnModal, setShowReturnModal] = useState<AssetResponse | null>(null);
@@ -776,9 +782,14 @@ This can only be done for an asset that was never assigned. An asset with assign
         <SectionHead
           title="Company Asset Inventory"
           action={!canCreateAsset ? undefined : (
-            <button onClick={() => setShowAddAsset(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 30%, transparent)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              <Plus size={13} /> Add Asset
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => setShowBulkAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--panel)', color: 'var(--brand)', border: '1px solid color-mix(in srgb, var(--brand) 40%, var(--line2))', borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                <FileSpreadsheet size={13} /> Bulk Add
+              </button>
+              <button onClick={() => setShowAddAsset(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000))', boxShadow: '0 6px 14px color-mix(in srgb, var(--brand) 30%, transparent)', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                <Plus size={13} /> Add Asset
+              </button>
+            </div>
           )}
         />
         <div className="nf-filterbar">
@@ -972,6 +983,7 @@ This can only be done for an asset that was never assigned. An asset with assign
 
       {/* Modals — always rendered regardless of active tab */}
       {showAddAsset && <AddAssetModal token={token} onClose={() => setShowAddAsset(false)} onCreated={a => { setInventory(prev => [a, ...prev]); showToast('success', 'Asset added'); }} />}
+      {showBulkAdd && <BulkAddAssetsModal token={token} onClose={() => setShowBulkAdd(false)} onImported={() => reload()} />}
       {showAssignModal && <AssignAssetModal asset={showAssignModal} token={token} mode="assign" onClose={() => setShowAssignModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); reload(); showToast('success', 'Asset assigned'); setShowAssignModal(null); }} />}
       {showReassignModal && <AssignAssetModal asset={showReassignModal} token={token} mode="reassign" onClose={() => setShowReassignModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); reload(); showToast('success', 'Asset reassigned'); setShowReassignModal(null); }} />}
       {showReturnModal && <MarkReturnedModal asset={showReturnModal} token={token} onClose={() => setShowReturnModal(null)} onDone={a => { setInventory(prev => prev.map(x => x.id === a.id ? a : x)); reload(); setShowReturnModal(null); showToast('success', 'Asset marked returned'); }} />}

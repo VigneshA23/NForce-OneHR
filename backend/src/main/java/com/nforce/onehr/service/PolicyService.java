@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 public class PolicyService {
 
     // Audience targeting (who a policy is addressed to / must acknowledge it), not access control.
-    private static final Set<String> ALL_ROLE_CODES = Set.of("EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN");
+    static final Set<String> ALL_ROLE_CODES = Set.of("EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN");
 
     // Policy notification "Open Related Page" destination — every recipient, regardless of
     // role, lands on their own self-scoped My Documents & Policies → Policies tab, never the
@@ -122,6 +122,30 @@ public class PolicyService {
                 "Please review and acknowledge version " + p.getVersion() + ".");
 
         return PolicyResponse.from(p);
+    }
+
+    /** Gate for the bulk-import endpoints (template / validate / import) — same permission as single publish. */
+    public void requireCanCreate(String actorEmail) {
+        requireAuthority(actorEmail, "policies:CREATE:ALL");
+    }
+
+    // ── HR/SA: Bulk Add — publish already-validated rows through publish(), all or nothing ──
+    // One transaction around every publish() call (they join it): any failure rolls back every new
+    // policy, its acknowledgment rows, the same-title supersede, and the POLICY_PUBLISHED
+    // notifications — those are plain rows written by NotificationService.send in this same
+    // transaction (no email/push), so employees only ever see them once the whole batch commits.
+
+    @Transactional
+    public int bulkPublish(String actorEmail, List<PublishPolicyRequest> reqs) {
+        requireAuthority(actorEmail, "policies:CREATE:ALL");
+        for (PublishPolicyRequest req : reqs) {
+            try {
+                publish(actorEmail, req, null);
+            } catch (IOException e) {
+                throw new IllegalStateException(e); // unreachable: IOException only comes from an attachment
+            }
+        }
+        return reqs.size();
     }
 
     // ── HR/SA: attach a document (image/PDF/Word) to a policy ──

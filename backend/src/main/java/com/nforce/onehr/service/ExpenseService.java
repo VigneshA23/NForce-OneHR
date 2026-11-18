@@ -270,7 +270,7 @@ public class ExpenseService {
             notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
                     "Expense Claim Approved",
                     "Your " + catName + " claim for " + amountStr + " was approved " + approverPhrase + ".",
-                    "/assets");
+                    "/assets?tab=claims");
         } else {
             // No HR/final stage required for this claim — Manager approval was the only approval
             // needed, so tell the employee it's fully cleared rather than "approved by your
@@ -278,7 +278,7 @@ public class ExpenseService {
             notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_APPROVED",
                     "Expense Cleared for Payroll",
                     "Your " + catName + " claim for " + amountStr + " was approved " + approverPhrase + " and cleared for payroll — no further approval required.",
-                    "/assets");
+                    "/assets?tab=claims");
         }
         return toClaimResponse(claim, catName);
     }
@@ -302,7 +302,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_MANAGER_REJECTED",
                 "Expense Claim Rejected",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was rejected. Reason: " + reason.trim(),
-                "/assets");
+                "/assets?tab=claims");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
@@ -371,7 +371,7 @@ public class ExpenseService {
                     "Expense Claim Approved",
                     "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount())
                             + " was approved and is now awaiting " + stageLabel(next) + " approval.",
-                    "/assets");
+                    "/assets?tab=claims");
             return toClaimResponse(claim, categoryName(claim.getCategoryId()));
         }
 
@@ -386,7 +386,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_FINAL_APPROVED",
                 "Expense Cleared for Payroll",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " has been cleared for payroll.",
-                "/assets");
+                "/assets?tab=claims");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
@@ -412,7 +412,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_FINAL_REJECTED",
                 "Expense Claim Rejected",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " was rejected by HR. Reason: " + reason.trim(),
-                "/assets");
+                "/assets?tab=claims");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
@@ -439,7 +439,7 @@ public class ExpenseService {
         notificationService.send(claim.getEmployeeUserId(), "EXPENSE_PAID",
                 "Expense Paid",
                 "Your " + categoryName(claim.getCategoryId()) + " claim for " + String.format("₹%.2f", claim.getAmount()) + " has been paid.",
-                "/assets");
+                "/assets?tab=claims");
         return toClaimResponse(claim, categoryName(claim.getCategoryId()));
     }
 
