@@ -183,7 +183,7 @@ class PageRegistryParityTest {
             if (!key.contains("/")) frontend.put(key, new TreeSet<>(route.requires()));
         }
         assertThat(frontend).as("catalogue routes").containsKey("approvals").hasSizeGreaterThan(10);
-        assertThat(frontend.get("approvals")).hasSize(7);
+        assertThat(frontend.get("approvals")).hasSize(8);
 
         Map<String, Set<String>> registered = new TreeMap<>();
         for (ShellRole role : ShellRole.values()) {
