@@ -68,9 +68,12 @@ export default function PayrollSetupPage() {
     return <div style={{ padding: '24px 28px', color: 'var(--txt-mut)' }}>You don't have permission to configure payroll setup.</div>;
   }
 
-  // Salary Structures' own component picker only ever offers active earning/deduction/
-  // reimbursement components — ad-hoc types and inactive ones aren't structure material.
-  const structureableCatalog = catalog.filter(c => ['EARNING', 'REIMBURSEMENT', 'DEDUCTION'].includes(c.type) && c.active);
+  // Salary Structures' own component picker offers active earning/deduction/reimbursement/
+  // contribution components — ad-hoc types and inactive ones aren't structure material. CONTRIBUTION
+  // (Employer PF, Gratuity) added 2026-11-19: SalaryStructureResolutionService now carves these out
+  // of Gross before resolving Basic/HRA/etc — see that service's own class doc — so they have to be
+  // selectable here too, not just a catalog entry nothing can actually attach to a structure.
+  const structureableCatalog = catalog.filter(c => ['EARNING', 'REIMBURSEMENT', 'DEDUCTION', 'CONTRIBUTION'].includes(c.type) && c.active);
 
   return (
     <div style={{ padding: '24px 28px' }}>

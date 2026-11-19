@@ -16,8 +16,14 @@ public interface PayslipLineItemRepository extends JpaRepository<PayslipLineItem
 
     List<PayslipLineItem> findByPayslipId(UUID payslipId);
 
+    // Rewritten from `li.payslip.payrollRun.id = :runId` (2026-11-19): that 2-hop association path
+    // can't be a direct single-table DELETE, so Hibernate translated it into a correlated
+    // `EXISTS(SELECT 1 FROM (VALUES(0)) d_ JOIN payslips ...)` subquery per PayslipLineItem row —
+    // confirmed via a live Postgres `statement timeout` on exactly this query during a regenerate,
+    // on an endpoint whose own config already documents being latency-sensitive. An IN-subquery
+    // against the handful of this run's own payslip ids is the standard, index-friendly shape.
     @Modifying
-    @Query("DELETE FROM PayslipLineItem li WHERE li.payslip.payrollRun.id = :runId")
+    @Query("DELETE FROM PayslipLineItem li WHERE li.payslip.id IN (SELECT p.id FROM Payslip p WHERE p.payrollRun.id = :runId)")
     void deleteByPayrollRunId(@Param("runId") UUID runId);
 
     // US-C17 YTD — [component name, component type, SUM(amount)] per component for one employee over the
@@ -33,8 +39,10 @@ public interface PayslipLineItemRepository extends JpaRepository<PayslipLineItem
 
     // US-C27 — scoped version for PayrollRunService#rollbackEmployeePayslip, same bulk-delete
     // reasoning as deleteByPayrollRunId.
+    // Same IN-subquery rewrite as deleteByPayrollRunId above, scoped to one employee.
     @Modifying
-    @Query("DELETE FROM PayslipLineItem li WHERE li.payslip.payrollRun.id = :runId AND li.payslip.employeeId = :employeeId")
+    @Query("DELETE FROM PayslipLineItem li WHERE li.payslip.id IN "
+         + "(SELECT p.id FROM Payslip p WHERE p.payrollRun.id = :runId AND p.employeeId = :employeeId)")
     void deleteByPayrollRunIdAndEmployeeId(@Param("runId") UUID runId, @Param("employeeId") UUID employeeId);
 
     // US-C10 reconciliation — SUM(amount) per component type across every line item in the run,

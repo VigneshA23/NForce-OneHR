@@ -51,7 +51,7 @@ function describeDraftCalc(c: DraftComponent): string {
 }
 
 const GROUP_LABEL: Record<string, string> = {
-  EARNING: 'Earnings', DEDUCTION: 'Deductions', REIMBURSEMENT: 'Reimbursements',
+  EARNING: 'Earnings', DEDUCTION: 'Deductions', REIMBURSEMENT: 'Reimbursements', CONTRIBUTION: 'Contributions',
 };
 
 function emptyComponent(defaultName: string): DraftComponent {

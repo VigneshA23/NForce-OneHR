@@ -200,7 +200,12 @@ public class PayrollRunService {
     // employees were enough to trip the 30s ceiling on an ordinary (not even unusually slow)
     // round-trip pace. Overridden here rather than raising the global default, which would blunt
     // real-stall protection for every other, genuinely short, transaction in the app.
-    @Transactional(timeout = 180)
+    // Bumped 180->600 (2026-11-19): even 180s was observed timing out mid-regenerate for just 11
+    // employees against this endpoint on a slow day — this is a stopgap to unblock testing, not a
+    // real fix. The real fix is batching this loop's per-employee round trips (bulk-fetch LOP/
+    // proration/structure data for every included employee up front, outside the loop) so the
+    // round-trip count stops scaling with employee count at all; worth doing if this recurs.
+    @Transactional(timeout = 600)
     public PayrollRunResponse generateDraft(GenerateDraftRequest req, String actorEmail) {
         PayGroup payGroup = payGroupRepository.findById(req.getPayGroupId())
                 .orElseThrow(() -> new NoSuchElementException("Pay group not found: " + req.getPayGroupId()));
@@ -784,14 +789,23 @@ public class PayrollRunService {
             boolean prorated = catalog.isProrateOnLop();
             BigDecimal amount = (prorated ? monthlyBase.multiply(prorationFactor) : monthlyBase).setScale(2, RoundingMode.HALF_UP);
 
-            payslipLineItemRepository.save(PayslipLineItem.builder()
-                    .payslip(payslip)
-                    .componentId(catalog.getId())
-                    .componentName(catalog.getName())
-                    .componentType(catalog.getType())
-                    .amount(amount)
-                    .prorated(prorated)
-                    .build());
+            // CONTRIBUTION-type structure components (Employer PF, Gratuity) exist here only so
+            // SalaryStructureResolutionService can carve them out of Gross when resolving Basic —
+            // see that service's own class doc. They never become a payslip line item: Gratuity is
+            // explicitly never one (StatutoryDeductionService's own doc comment), and Employer PF
+            // already gets its own, properly-prorated line item below via
+            // statutoryDeductionService.computeEmployerContributions — adding this one too would
+            // double it up on the payslip.
+            if (!SalaryComponentType.CONTRIBUTION.equals(catalog.getType())) {
+                payslipLineItemRepository.save(PayslipLineItem.builder()
+                        .payslip(payslip)
+                        .componentId(catalog.getId())
+                        .componentName(catalog.getName())
+                        .componentType(catalog.getType())
+                        .amount(amount)
+                        .prorated(prorated)
+                        .build());
+            }
 
             if (EARNING_TYPES.contains(catalog.getType())) {
                 grossPay = grossPay.add(amount);
