@@ -191,6 +191,7 @@ OrgHierarchyController#getRoots | OPEN - readable by any signed-in user (or publ
 OvertimeRequestController#mine | SELF - own data only (ownership checked in the service)
 OvertimeRequestController#submit | SELF - own data only (ownership checked in the service)
 PayrollYtdController#myYtd | SELF - own data only (ownership checked in the service)
+PayslipController#myLatest | SELF - own data only (ownership checked in the service)
 PayslipController#myPayslip | SELF - own data only (ownership checked in the service)
 PayslipController#myPeriods | SELF - own data only (ownership checked in the service)
 PolicyController#acknowledge | SERVICE - permission / eligibility enforced in the service

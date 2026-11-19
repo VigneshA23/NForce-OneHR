@@ -124,6 +124,20 @@ public class PayslipService {
                 .toList();
     }
 
+    /** US-F02 — latest released payslip of the caller (same released + APPROVED/DISBURSED gate as
+     * {@link #listMyPeriods}, so drafts never show); empty when none. workingDays = days employed in the cycle. */
+    public record LatestPayslipSummary(String period, LocalDate cycleStart, LocalDate cycleEnd,
+                                       int workingDays, BigDecimal lopDays) {}
+
+    @Transactional(readOnly = true)
+    public java.util.Optional<LatestPayslipSummary> getMyLatestSummary(String actorEmail) {
+        return payslipRepository.findReleasedForEmployee(resolveUser(actorEmail).getId(), VISIBLE_RUN_STATUSES)
+                .stream().findFirst()
+                .map(p -> new LatestPayslipSummary(YearMonth.from(p.getPayrollRun().getCycleEnd()).toString(),
+                        p.getPayrollRun().getCycleStart(), p.getPayrollRun().getCycleEnd(),
+                        p.getEmployedDays(), p.getLopDays()));
+    }
+
     @Transactional(readOnly = true)
     public PayslipFile getMyPayslipPdf(String actorEmail, String period) {
         return getPayslipPdf(actorEmail, resolveUser(actorEmail).getId(), period);

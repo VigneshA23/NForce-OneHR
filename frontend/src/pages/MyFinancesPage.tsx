@@ -5,7 +5,7 @@ import PageTitleBlock from '../components/PageTitleBlock';
 import { TabBar, type TabDef } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
 import { useToast } from '../context/ToastContext';
-import { payslipsApi } from '../api/payslips';
+import { payslipsApi, type LatestPayslipSummary } from '../api/payslips';
 import { payrollApi, type EmployeeCompensationResponse } from '../api/payroll';
 import { profileApi, type ProfileData } from '../api/profile';
 import { ReadField } from './profile/shared';
@@ -58,6 +58,7 @@ interface FinanceData {
   history: EmployeeCompensationResponse[];
   periods: string[];
   profile: ProfileData | null;
+  latest: LatestPayslipSummary | null;
 }
 
 /**
@@ -68,10 +69,10 @@ interface FinanceData {
 export default function MyFinancesPage() {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const [downloading, setDownloading] = useState<string | null>(null);
-  const [data, setData] = useState<FinanceData>({ loaded: false, current: null, history: [], periods: [], profile: null });
+  const [data, setData] = useState<FinanceData>({ loaded: false, current: null, history: [], periods: [], profile: null, latest: null });
 
   useEffect(() => {
     let cancelled = false;
@@ -82,7 +83,8 @@ export default function MyFinancesPage() {
       payrollApi.getMyCompensationHistory(token),
       payslipsApi.listMyPeriods(token),
       profileApi.get(token),
-    ]).then(([current, history, periods, profile]) => {
+      payslipsApi.latestSummary(token),
+    ]).then(([current, history, periods, profile, latest]) => {
       if (cancelled) return;
       setData({
         loaded: true,
@@ -90,6 +92,7 @@ export default function MyFinancesPage() {
         history: history.status === 'fulfilled' ? history.value : [],
         periods: periods.status === 'fulfilled' ? periods.value : [],
         profile: profile.status === 'fulfilled' ? profile.value : null,
+        latest: latest.status === 'fulfilled' ? latest.value : null,
       });
     });
     return () => { cancelled = true; };
@@ -115,9 +118,10 @@ export default function MyFinancesPage() {
   let body: ReactNode;
   if (!data.loaded) body = <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading your finances…</div>;
   else if (noPayrollRecord) body = <NoPayrollRecord />;
-  else if (tab === 'summary') body = <SummaryPanel data={data} onRequestChange={() => navigate('/profile')} />;
+  else if (tab === 'summary') body = <SummaryPanel data={data} onRequestChange={() => navigate('/profile')}
+    onViewPayslip={p => navigate(`${BASE}/pay/payslips?period=${p}`)} />;
   else if (sub === 'salary') body = <SalaryPanel current={data.current} history={data.history} />;
-  else if (sub === 'payslips') body = <PayslipsPanel periods={data.periods} downloading={downloading} onDownload={download} />;
+  else if (sub === 'payslips') body = <PayslipsPanel periods={data.periods} selected={new URLSearchParams(search).get('period')} downloading={downloading} onDownload={download} />;
   else body = <ComingSoon title={[...PAY_TABS, ...TAX_TABS].find(t => t.key === sub)?.label ?? 'This section'} />;
 
   return (
@@ -161,11 +165,30 @@ function ComingSoon({ title }: { title: ReactNode }) {
   );
 }
 
-function SummaryPanel({ data, onRequestChange }: { data: FinanceData; onRequestChange: () => void }) {
-  const { current, profile } = data;
+function SummaryPanel({ data, onRequestChange, onViewPayslip }: { data: FinanceData; onRequestChange: () => void; onViewPayslip: (period: string) => void }) {
+  const { current, profile, latest } = data;
   const hasStatutory = profile && (profile.bankAccountNumber || profile.panNumber || profile.uanNumber || profile.esiNumber);
   return (
     <>
+      <div style={{ marginBottom: 22 }}>
+        <SectionHead title="Payroll Summary" action={latest && <BtnGhost onClick={() => onViewPayslip(latest.period)}>View payslip</BtnGhost>} />
+        <div style={{ ...panelStyle, padding: '18px 22px' }}>
+          {latest ? (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{formatPeriod(latest.period)}</div>
+              <div style={{ fontSize: 12, color: 'var(--txt-mut)', margin: '2px 0 14px' }}>
+                {fmtDate(latest.cycleStart)} – {fmtDate(latest.cycleEnd)}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
+                <ReadField label="Working Days" value={String(latest.workingDays)} />
+                <ReadField label="LOP Days" value={String(latest.lopDays)} />
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>No payroll processed yet</div>
+          )}
+        </div>
+      </div>
       {current && (
         <div className="nf-pr-tiles" style={{ marginBottom: 22 }}>
           <StatTile tone="var(--brand)" icon={<IndianRupee size={20} />} label="Current CTC" value={fmtCurrency(current.ctc)} />
@@ -228,7 +251,7 @@ function SalaryPanel({ current, history }: { current: EmployeeCompensationRespon
   );
 }
 
-function PayslipsPanel({ periods, downloading, onDownload }: { periods: string[]; downloading: string | null; onDownload: (period: string) => void }) {
+function PayslipsPanel({ periods, selected, downloading, onDownload }: { periods: string[]; selected: string | null; downloading: string | null; onDownload: (period: string) => void }) {
   return (
     <>
       <SectionHead title="Payslips" />
@@ -239,7 +262,7 @@ function PayslipsPanel({ periods, downloading, onDownload }: { periods: string[]
           </thead>
           <tbody>
             {periods.map(period => (
-              <tr key={period}>
+              <tr key={period} aria-selected={period === selected} style={period === selected ? { background: 'var(--brand-soft, rgba(99,102,241,.1))' } : undefined}>
                 <td style={tdStyle}>{formatPeriod(period)}</td>
                 <td style={tdStyle}>
                   <BtnGhost onClick={() => onDownload(period)} disabled={downloading === period}>
