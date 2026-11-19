@@ -433,3 +433,11 @@
   .mt-table .mt-col-today { width: 104px; min-width: 0; padding: 0 6px !important; }
   .mt-table td.mt-col-today .mt-pill { width: 88px; }
 }
+
+/* Attendance summary: 4 across when the card is wide enough, otherwise a clean 2x2, so 3-digit values never collide with labels. */
+.mt-card[aria-label="Attendance summary"] { container-type: inline-size; }
+.mt-sumgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }
+@container (min-width: 520px) { .mt-sumgrid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.mt-sum, .mt-sum:first-child, .mt-sum:nth-child(3) { padding: 12px; border-left: 1px solid var(--line); }
+.mt-sum-num { flex-wrap: wrap; row-gap: 4px; min-width: 0; line-height: 1.1; }
+.mt-sum-lbl { overflow-wrap: break-word; }
