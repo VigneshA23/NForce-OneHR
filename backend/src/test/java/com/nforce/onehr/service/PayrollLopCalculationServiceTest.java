@@ -41,6 +41,8 @@ class PayrollLopCalculationServiceTest {
     @Mock private WorkingDayService workingDayService;
     @Mock private LeaveBalanceAvailabilityService leaveBalanceAvailabilityService;
     @Mock private PayrollRunReviewItemRepository payrollRunReviewItemRepository;
+    @Mock private PayslipRepository payslipRepository;
+    @Mock private ArrearsService arrearsService;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -64,7 +66,11 @@ class PayrollLopCalculationServiceTest {
         service = new PayrollLopCalculationService(payrollLopCalculationRepository, employeeRepository,
                 payGroupRepository, attendanceRepository, attendancePenaltyRepository, leaveRequestRepository,
                 leaveTypeRepository, workingDayService, leaveBalanceAvailabilityService, payrollRunReviewItemRepository,
-                userRepository, objectMapper, auditService, auditSnapshot);
+                payslipRepository, arrearsService, userRepository, objectMapper, auditService, auditSnapshot);
+
+        // Arrears trigger 1 default: this cycle isn't part of any already-closed (APPROVED/
+        // DISBURSED) run — individual override tests that care about the trigger override this.
+        lenient().when(payslipRepository.findVisibleForEmployeeBetween(any(), any(), any(), any())).thenReturn(List.of());
 
         User actor = User.builder().id(actorId).email(actorEmail).build();
         lenient().when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));

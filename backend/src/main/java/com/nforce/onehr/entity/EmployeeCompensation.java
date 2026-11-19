@@ -25,6 +25,12 @@ public class EmployeeCompensation {
     @Column(name = "employee_id", nullable = false)
     private UUID employeeId;
 
+    // Which PayGroup this CTC/structure assignment belongs to — there's still no separate
+    // employee-to-pay-group assignment mechanism elsewhere (see PayrollRunService#generateDraft's
+    // own note), so this is the first place that relationship is actually recorded.
+    @Column(name = "pay_group_id", nullable = false)
+    private UUID payGroupId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "structure_id", nullable = false)
     private SalaryStructure structure;

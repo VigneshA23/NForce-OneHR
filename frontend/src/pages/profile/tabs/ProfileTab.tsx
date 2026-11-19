@@ -162,6 +162,9 @@ export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; 
           <MaskedReadField key={`bank-${profile.bankAccountNumber}`} label="Bank Account Number" masked={profile.bankAccountNumber} onReveal={async () => (await revealOwn()).bankAccountNumber} />
           <ReadField label="Bank Name" value={profile.bankName} />
           <MaskedReadField key={`ifsc-${profile.bankIfsc}`} label="IFSC Code" masked={profile.bankIfsc} onReveal={async () => (await revealOwn()).bankIfsc} />
+          <ReadField label="PAN" value={profile.panNumber} />
+          <ReadField label="UAN" value={profile.uanNumber} />
+          <ReadField label="ESI Number" value={profile.esiNumber} />
         </div>
       </SectionCard>
 

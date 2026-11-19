@@ -23,7 +23,7 @@ import PageTitleBlock from '../../components/PageTitleBlock';
 import { PersonCell } from '../../components/PersonCell';
 import { SidebarNav } from '../../components/SidebarNav';
 import { NAV, type Role } from '../../lib/nav.config';
-import { TabBar } from '../../components/TabBar';
+import { TabBar, ChipGroup as MtChipGroup } from '../../components/TabBar';
 import { useEffect, useState } from 'react';
 import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/accentColor';
 import { KpiCard } from '../talent/DashboardTab';
@@ -49,8 +49,8 @@ import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
 import '../login.css';
 import '../myTeamTabs.css';
-import { DiwaliBurst } from '../auth/DiwaliBurst';
-import { MemberCard as MtMemberCard, Pill as MtPill } from '../my-team/MyTeamRedesign';
+import { SignInConfetti } from '../auth/SignInConfetti';
+import { MemberCard as MtMemberCard, MemberGrid as MtMemberGrid, MemberGridSection as MtMemberGridSection, Pill as MtPill } from '../my-team/MyTeamRedesign';
 import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTab as MtPenaltiesTab, AssignmentsTab as MtAssignmentsTab, SkillsGrowthTab as MtGrowthTab, AttentionPanel, LeaveBalanceLine as MtLeaveBalanceLine, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
@@ -109,7 +109,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'onboarding-page', label: 'Onboarding (full page)', title: 'Onboarding', subtitle: 'All four tabs, the checklist detail view and its popups, with sample data. Changes here only affect this preview.' },
   { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
-  { key: 'login-diwali', label: 'Login: cracker lights', title: 'Login: cracker lights', subtitle: 'Click Sign in to play the effect inside the card (sample only).' },
+  { key: 'login-effect', label: 'Login: sign-in effect', title: 'Login: sign-in effect', subtitle: 'Click Sign in to see the green tick and confetti burst (sample only, nothing is submitted).' },
   { key: 'team-tabs', label: 'My Team: Section tabs', title: 'My Team: Section tabs', subtitle: 'The section tabs inside a card container.' },
   { key: 'team-member-cards', label: 'My Team: Member cards', title: 'My Team: Member cards', subtitle: 'Roster cards with the compact leave balance. Click it to see the breakdown.' },
   { key: 'team-effort', label: 'My Team: Efforts / Punctuality', title: 'My Team: Efforts and Punctuality', subtitle: 'The real tab, fed with sample data.' },
@@ -752,8 +752,8 @@ function TeamTabMock({ tab }: { tab: 'effort' | 'negligence' | 'penalties' | 'as
   return tab === 'effort' ? <MtEffortTab token="mock-token" /> : tab === 'negligence' ? <MtNegligenceTab token="mock-token" /> : tab === 'penalties' ? <MtPenaltiesTab token="mock-token" /> : tab === 'assignments' ? <MtAssignmentsTab token="mock-token" /> : <MtGrowthTab token="mock-token" />;
 }
 
-function LoginDiwaliMock() {
-  // Mock only: click Sign in to play the cracker-lights effect; nothing is submitted anywhere.
+function LoginEffectMock() {
+  // Mock only: click Sign in to play the sign-in effect (green tick + confetti); nothing is submitted anywhere.
   const [signedIn, setSignedIn] = useState(false);
   useEffect(() => {
     if (!signedIn) return;
@@ -761,10 +761,10 @@ function LoginDiwaliMock() {
     return () => window.clearTimeout(t);
   }, [signedIn]);
   return (
-    <div style={{ display: 'grid', placeItems: 'center', padding: '24px 0 40px', background: 'linear-gradient(135deg, #0b0b0f, #2a0a0a)', borderRadius: 16 }}>
+    <div style={{ display: 'grid', placeItems: 'center', padding: '24px 0 40px', background: '#f1f3f7', borderRadius: 16 }}>
       <div className="nf-lg-card">
         <h2 className="nf-lg-title">Welcome back</h2>
-        <p className="nf-lg-sub">Click Sign in to see the effect (sample only, nothing is submitted).</p>
+        <p className="nf-lg-lead">Click Sign in to see the effect (sample only, nothing is submitted).</p>
         <form onSubmit={e => { e.preventDefault(); if (!signedIn) setSignedIn(true); }}>
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#334155' }}>Email address</label>
@@ -774,10 +774,20 @@ function LoginDiwaliMock() {
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#334155' }}>Password</label>
             <input type="password" defaultValue="password" style={{ width: '100%', boxSizing: 'border-box', height: 44, padding: '0 12px', borderRadius: 10, border: '1px solid #e2e8f0' }} />
           </div>
-          {signedIn && <DiwaliBurst />}
-          <button type="submit" className={`nf-lg-submit${signedIn ? ' is-done' : ''}`} disabled={signedIn}>
-            {signedIn ? 'Signed in' : 'Sign in'}
-          </button>
+          <div className="nf-lg-btnwrap">
+            <button type="submit" className={`nf-lg-submit${signedIn ? ' is-done' : ''}`} disabled={signedIn}>
+              {signedIn ? (
+                <>
+                  <svg className="nf-lg-tick" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle className="nf-lg-tick-ring" cx="12" cy="12" r="10" />
+                    <path className="nf-lg-tick-mark" d="M7 12.5l3.2 3.2L17 9" />
+                  </svg>
+                  Signed in
+                </>
+              ) : 'Sign in'}
+            </button>
+            {signedIn && <SignInConfetti />}
+          </div>
         </form>
       </div>
     </div>
@@ -785,25 +795,40 @@ function LoginDiwaliMock() {
 }
 
 function TeamMemberCardsMock() {
-  // Mock only: roster cards with the compact leave balance line (click it to open the breakdown).
-  const people = [['Test', 'Automation QA Engineer', 'NF-202613574', 'Quality Engineering'], ['Test', 'Junior Sales Engineer', 'NF-202613567', 'Sales'], ['Test', 'Software Engineer', 'NF-202613571', 'Engineering']];
+  // Mock only: the roster section exactly as My Team lays it out (scrolling card grid beside the 340px
+  // side column), with the compact leave balance line (click it to open the breakdown).
+  const people = [['Rohit Reddy', 'QA Engineer II', 'NF-202613574', 'Engineering'], ['Sanjukta Senapati', 'QA Engineer III', 'NF-202613567', 'Operations & Sales'], ['LahariG', 'No designation', 'NF-202613571', 'Quality Engineering'], ['Vyshnavi Guthala', 'Senior Software Engineer', 'NF-202613572', 'Finance'], ['Venkat Narsimha Reddy', 'Software Developer', 'NF-202613573', 'Sales'], ['Sheetal Richie', 'HR Administrator', 'NF-202613575', 'Marketing']];
   const bal = [
     { leaveTypeCode: 'AL', leaveTypeName: 'Annual Leave', remainingDays: 15, totalDays: 15 },
     { leaveTypeCode: 'PL', leaveTypeName: 'Paid Leave', remainingDays: 20, totalDays: 20 },
     { leaveTypeCode: 'TL', leaveTypeName: 'Test Leave', remainingDays: 20, totalDays: 20 },
   ] as unknown as Parameters<typeof MtLeaveBalanceLine>[0]['balances'];
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('all');
   return (
     <div className="mt-root">
-      <div className="mt-members" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-        {people.map(([n, d, code, dept], i) => (
-          <MtMemberCard key={i} avatar={<span className="mt-avatar" style={{ width: 52, height: 52, borderRadius: '50%', background: 'color-mix(in srgb, var(--brand) 14%, var(--panel))', color: 'var(--brand)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>TE</span>} name={n} designation={d} active status="NOT_IN_YET" 
-            tags={<><MtPill>{dept}</MtPill><MtPill tone="ok">Full time</MtPill></>}
-            extras={<>
-              <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, marginTop: -4 }}>{code}</div>
-              <MtLeaveBalanceLine balances={bal} />
-            </>}
-            onViewProfile={() => undefined} />
-        ))}
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'flex-start' }}>
+        <div style={{ minWidth: 0 }}>
+          <MtMemberGridSection title="Team Members" subtitle="Your direct reports and their details" search={search} onSearch={setSearch} searchPlaceholder="Search by name or employee code…"
+            chips={(<>
+              <select aria-label="Filter by project" style={{ background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13 }}><option>All projects</option></select>
+              <MtChipGroup ariaLabel="Roster status" value={status} onChange={setStatus} options={[{ key: 'all', label: 'All' }, { key: 'IN', label: 'In' }, { key: 'OUT', label: 'Out' }, { key: 'NOT_IN_YET', label: 'Not in yet' }, { key: 'LEAVE', label: 'On leave' }]} />
+            </>)}>
+            <MtMemberGrid scroll>
+              {people.map(([n, d, code, dept], i) => (
+                <MtMemberCard key={i} avatar={<span className="mt-avatar" style={{ width: 52, height: 52, flexShrink: 0, borderRadius: '50%', background: 'color-mix(in srgb, var(--brand) 14%, var(--panel))', color: 'var(--brand)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>{n.split(' ').map(w => w[0]).slice(0, 2).join('')}</span>} name={n} designation={d} active status="NOT_IN_YET"
+                  tags={<><MtPill>{dept}</MtPill><MtPill tone="ok">Full time</MtPill></>}
+                  extras={<>
+                    <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, marginTop: -4 }}>{code}</div>
+                    <MtLeaveBalanceLine balances={bal} />
+                  </>}
+                  secondaryAction={<button type="button" className="mt-link">Appreciate</button>}
+                  onViewProfile={() => undefined} />
+              ))}
+            </MtMemberGrid>
+          </MtMemberGridSection>
+        </div>
+        <div style={{ minHeight: 200, borderRadius: 12, border: '1px solid var(--line)', background: 'var(--panel)', padding: 16, color: 'var(--txt-mut)', fontSize: 13 }}>Side column (Needs your attention)</div>
       </div>
     </div>
   );
@@ -1155,7 +1180,7 @@ function CreateEmployeeStepsPreview() {
           {step === 3 && (
             <div className="nf-ce-sec" style={{ padding: 20 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>Jane Smith has been created successfully.</div>
-              <CompensationFollowUp />
+              <CompensationFollowUp employeeId="mock-employee-id" employeeName="Jane Smith" />
               <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 10 }}>
                 Compensation is optional and can be configured later, it won't affect this employee's account, onboarding, or access.
               </div>
@@ -2136,8 +2161,8 @@ function Tiles({ page }: { page: string }) {
       return <EmployeeMasterMock />;
     case 'team-tabs':
       return <TeamTabsMock />;
-    case 'login-diwali':
-      return <LoginDiwaliMock />;
+    case 'login-effect':
+      return <LoginEffectMock />;
     case 'team-effort':
       return <TeamTabMock tab="effort" />;
     case 'team-negligence':

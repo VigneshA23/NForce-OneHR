@@ -40,4 +40,18 @@ public interface EmployeeCompensationRepository extends JpaRepository<EmployeeCo
     @Query("SELECT c FROM EmployeeCompensation c JOIN FETCH c.structure "
          + "WHERE c.employeeId = :employeeId AND c.effectiveFrom <= :date AND (c.effectiveTo IS NULL OR c.effectiveTo > :date)")
     Optional<EmployeeCompensation> findByEmployeeIdAndEffectiveAt(@Param("employeeId") UUID employeeId, @Param("date") LocalDate date);
+
+    // Every compensation row ever created, across every employee — the org-wide "who was revised
+    // when" admin view (Keka's own Employee Compensation screen has no equivalent of this; it was
+    // asked for directly). Newest first, same JOIN FETCH rationale as the other queries here.
+    @Query("SELECT c FROM EmployeeCompensation c JOIN FETCH c.structure ORDER BY c.createdAt DESC")
+    List<EmployeeCompensation> findAllByOrderByCreatedAtDesc();
+
+    // Keka restyle — "Employee CTC Report" (§3.6), a chosen date range across every employee: any
+    // row whose own effective window overlaps [start, end] at all (not just rows starting inside
+    // it), same overlap test findAllEffectiveAt uses for a single instant.
+    @Query("SELECT c FROM EmployeeCompensation c JOIN FETCH c.structure "
+         + "WHERE c.effectiveFrom <= :end AND (c.effectiveTo IS NULL OR c.effectiveTo >= :start) "
+         + "ORDER BY c.effectiveFrom DESC")
+    List<EmployeeCompensation> findAllEffectiveBetween(@Param("start") LocalDate start, @Param("end") LocalDate end);
 }

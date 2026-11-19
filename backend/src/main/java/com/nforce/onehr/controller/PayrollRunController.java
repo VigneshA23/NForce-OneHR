@@ -2,8 +2,14 @@ package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.payroll.*;
 import com.nforce.onehr.service.PayrollRunService;
+import com.nforce.onehr.service.PayslipService.PayslipFile;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -49,6 +55,12 @@ public class PayrollRunController {
         return payrollRunService.rollbackWholeRun(runId, req, principal.getName());
     }
 
+    @GetMapping("/{runId}/rollback-history")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public List<PayrollRunRollbackResponse> rollbackHistory(@PathVariable UUID runId) {
+        return payrollRunService.listRollbackHistory(runId);
+    }
+
     @GetMapping("/{runId}")
     @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
     public PayrollRunResponse get(@PathVariable UUID runId) {
@@ -78,5 +90,55 @@ public class PayrollRunController {
     public PayslipResponse rollbackEmployeePayslip(@PathVariable UUID runId, @PathVariable UUID employeeId,
             @Valid @RequestBody RollbackEmployeePayslipRequest req, Principal principal) {
         return payrollRunService.rollbackEmployeePayslip(runId, employeeId, req, principal.getName());
+    }
+
+    /** Admin "view payslip" — the same rendered PDF the employee would see under My Finances, just
+     * reachable from the run console without switching into that employee's own view. Only
+     * readable once the run (and therefore the payslip) is APPROVED/DISBURSED — see PayslipService. */
+    @GetMapping("/{runId}/payslips/{employeeId}/pdf")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public ResponseEntity<byte[]> getPayslipPdf(@PathVariable UUID runId, @PathVariable UUID employeeId, Principal principal) {
+        PayslipFile file = payrollRunService.getPayslipPdf(runId, employeeId, principal.getName());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline().filename(file.fileName()).build().toString())
+                .contentType(MediaType.APPLICATION_PDF)
+                .cacheControl(CacheControl.noStore())
+                .body(file.data());
+    }
+
+    /** Centralized "Distribute Payslips" — one call for the whole run (or an explicit subset),
+     * never a per-employee send button. See PayrollRunService#distributePayslips for what each
+     * channel actually does. */
+    @PostMapping("/{runId}/payslips/distribute")
+    @PreAuthorize("hasAuthority('payroll:CONFIGURE:ALL')")
+    public DistributePayslipsResponse distributePayslips(@PathVariable UUID runId,
+            @Valid @RequestBody DistributePayslipsRequest req, Principal principal) {
+        return payrollRunService.distributePayslips(runId, req, principal.getName());
+    }
+
+    /** "Download All" on the Payslips tab — every payslip in the run, zipped. Independent of
+     * distribution state; HR can always pull its own copies. */
+    @GetMapping("/{runId}/payslips/bulk-pdf")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public ResponseEntity<byte[]> bulkPayslipPdf(@PathVariable UUID runId, Principal principal) {
+        PayslipFile file = payrollRunService.bulkPayslipPdf(runId, principal.getName());
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(file.fileName()).build().toString())
+                .contentType(MediaType.valueOf("application/zip"))
+                .cacheControl(CacheControl.noStore())
+                .body(file.data());
+    }
+
+    /** "Export to Excel" on the Payslips tab — one Pay Register workbook covering every employee
+     * in the run. See PayrollRunService#payRegisterExcel for the column layout. */
+    @GetMapping("/{runId}/pay-register")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public ResponseEntity<byte[]> payRegisterExcel(@PathVariable UUID runId) {
+        PayslipFile file = payrollRunService.payRegisterExcel(runId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(file.fileName()).build().toString())
+                .contentType(MediaType.parseMediaType(file.contentType()))
+                .cacheControl(CacheControl.noStore())
+                .body(file.data());
     }
 }

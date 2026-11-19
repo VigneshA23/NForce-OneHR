@@ -39,4 +39,10 @@ public class SalaryStructureController {
     public SalaryStructureResponse get(@PathVariable UUID id) {
         return salaryStructureService.get(id);
     }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('payroll:CONFIGURE:ALL')")
+    public SalaryStructureResponse update(@PathVariable UUID id, @Valid @RequestBody CreateSalaryStructureRequest req, Principal principal) {
+        return salaryStructureService.update(id, req, principal.getName());
+    }
 }

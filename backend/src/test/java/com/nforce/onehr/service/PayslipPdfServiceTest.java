@@ -2,7 +2,10 @@ package com.nforce.onehr.service;
 
 import com.lowagie.text.pdf.PdfReader;
 import com.lowagie.text.pdf.parser.PdfTextExtractor;
+import com.nforce.onehr.service.PayslipPdfService.ArrearLine;
+import com.nforce.onehr.service.PayslipPdfService.LeaveLine;
 import com.nforce.onehr.service.PayslipPdfService.Line;
+import com.nforce.onehr.service.PayslipPdfService.PayslipExtras;
 import com.nforce.onehr.service.PayslipPdfService.PayslipPdfModel;
 import org.junit.jupiter.api.Test;
 
@@ -40,7 +43,8 @@ class PayslipPdfServiceTest {
 
     @Test
     void render_neverPrintsCtc() throws IOException {
-        // The model has no CTC/employer-contribution field at all; assert the output reflects that.
+        // The model has no CTC field at all, and no employer contribution is configured in this
+        // test's extras; assert the output reflects that.
         String text = text(service.render(model(List.of(new Line("Basic", bd("100.00"))), List.of(),
                 bd("100.00"), bd("0"), bd("100.00"))));
 
@@ -84,7 +88,8 @@ class PayslipPdfServiceTest {
     void render_toleratesMissingOptionalHeaderFields() {
         PayslipPdfModel m = new PayslipPdfModel(null, "INR", "November 2026",
                 LocalDate.of(2026, 10, 26), LocalDate.of(2026, 11, 25), "Asha Rao", "EMP001",
-                null, null, null, 31, 31, bd("0"), List.of(), List.of(), bd("0"), bd("0"), bd("0"));
+                null, null, null, 31, 31, bd("0"), List.of(), List.of(), bd("0"), bd("0"), bd("0"), null, null, null,
+                PayslipExtras.none(), null);
 
         assertDoesNotThrow(() -> service.render(m));
     }
@@ -94,7 +99,7 @@ class PayslipPdfServiceTest {
         PayslipPdfModel m = new PayslipPdfModel("NForce", "INR", "November 2026",
                 LocalDate.of(2026, 10, 26), LocalDate.of(2026, 11, 25), "Asha Rao", "EMP001",
                 "Engineering", "Engineer", LocalDate.of(2024, 1, 1), 31, 20, bd("25"),
-                List.of(), List.of(), bd("0"), bd("0"), bd("0"));
+                List.of(), List.of(), bd("0"), bd("0"), bd("0"), null, null, null, PayslipExtras.none(), null);
 
         String text = text(service.render(m));
 
@@ -102,12 +107,241 @@ class PayslipPdfServiceTest {
         assertFalse(text.contains("-5"), text);
     }
 
+    @Test
+    void render_withCustomHeaderAndFooterText_usesThemInsteadOfDefaults() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipPdfModel withText = new PayslipPdfModel(base.companyName(), base.currency(), base.periodLabel(),
+                base.cycleStart(), base.cycleEnd(), base.employeeName(), base.employeeCode(), base.department(),
+                base.designation(), base.joiningDate(), base.cycleDays(), base.employedDays(), base.lopDays(),
+                base.earnings(), base.deductions(), base.grossPay(), base.totalDeductions(), base.netPay(),
+                "PAYSLIP", "Custom footer note.", null, PayslipExtras.none(), null);
+
+        String text = text(service.render(withText));
+
+        assertTrue(text.contains("PAYSLIP November 2026"), text);
+        assertTrue(text.contains("Custom footer note."), text);
+        assertFalse(text.contains(DEFAULT_FOOTER_FOR_TEST), text);
+    }
+
+    @Test
+    void render_withALogo_embedsItWithoutBreakingTheRestOfThePayslip() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipPdfModel withLogo = withLogo(base, ONE_PIXEL_PNG);
+
+        byte[] pdf = service.render(withLogo);
+
+        assertEquals("%PDF", new String(pdf, 0, 4));
+        assertTrue(text(pdf).contains("Basic"));
+    }
+
+    @Test
+    void render_withCorruptLogoBytes_stillRendersThePayslip() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipPdfModel withBadLogo = withLogo(base, new byte[] {1, 2, 3});
+
+        byte[] pdf = service.render(withBadLogo);
+
+        assertEquals("%PDF", new String(pdf, 0, 4));
+        assertTrue(text(pdf).contains("Basic"));
+    }
+
+    // 1x1 transparent PNG — just enough bytes for Image.getInstance to decode successfully.
+    private static final byte[] ONE_PIXEL_PNG = java.util.Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=");
+
+    private PayslipPdfModel withLogo(PayslipPdfModel base, byte[] logo) {
+        return new PayslipPdfModel(base.companyName(), base.currency(), base.periodLabel(),
+                base.cycleStart(), base.cycleEnd(), base.employeeName(), base.employeeCode(), base.department(),
+                base.designation(), base.joiningDate(), base.cycleDays(), base.employedDays(), base.lopDays(),
+                base.earnings(), base.deductions(), base.grossPay(), base.totalDeductions(), base.netPay(),
+                base.documentHeaderText(), base.footerText(), logo, base.extras(), base.companyAddress());
+    }
+
+    @Test
+    void render_withCustomSectionHeadings_replacesEarningsAndDeductionsLabels() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(new Line("PT", bd("10.00"))), bd("100.00"), bd("10.00"), bd("90.00"));
+        PayslipExtras extras = extras(false, "Income", "Outgoings", PayslipFields.DEFAULT_KEYS, null, null, null, "RIGHT", List.of(), List.of());
+        PayslipPdfModel withHeadings = withExtras(base, extras);
+
+        String text = text(service.render(withHeadings));
+
+        assertTrue(text.contains("Income"), text);
+        assertTrue(text.contains("Outgoings"), text);
+        assertTrue(text.contains("Gross Income"), text);
+        assertTrue(text.contains("Total Outgoings"), text);
+        assertFalse(text.contains("Earnings"), text);
+    }
+
+    @Test
+    void render_payslipFields_showsOnlyTheConfiguredIdentityFields() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipExtras extras = extras(false, null, null, List.of("uan", "pan"), "UAN999", null, "ABCDE1234F", "RIGHT", List.of(), List.of());
+        PayslipPdfModel withFields = withExtras(base, extras);
+
+        String text = text(service.render(withFields));
+
+        assertTrue(text.contains("UAN999"), text);
+        assertTrue(text.contains("ABCDE1234F"), text);
+        assertFalse(text.contains("Department"), text);
+        assertFalse(text.contains("Designation"), text);
+    }
+
+    @Test
+    void render_excludeNaFields_dropsABlankFieldInsteadOfPrintingADash() throws IOException {
+        PayslipPdfModel base = new PayslipPdfModel("NForce One Pvt Ltd", "INR", "November 2026",
+                LocalDate.of(2026, 10, 26), LocalDate.of(2026, 11, 25),
+                "Asha Rao", "EMP001", null, null, null,
+                31, 31, bd("0"), List.of(), List.of(), bd("0"), bd("0"), bd("0"), null, null, null,
+                PayslipExtras.none(), null);
+        PayslipExtras extras = extras(true, null, null, List.of("department", "pan"), null, null, "ABCDE1234F", "RIGHT", List.of(), List.of());
+        PayslipPdfModel withExclude = withExtras(base, extras);
+
+        String text = text(service.render(withExclude));
+
+        assertTrue(text.contains("PAN Number"), text);
+        assertTrue(text.contains("ABCDE1234F"), text);
+        assertFalse(text.contains("Department"), text);
+    }
+
+    @Test
+    void render_includeLeaveSummary_printsTheBalances() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipExtras extras = extras(false, null, null, PayslipFields.DEFAULT_KEYS, null, null, null, "RIGHT",
+                List.of(new LeaveLine("Earned Leave", bd("12.5")), new LeaveLine("Sick Leave", bd("3"))), List.of());
+        PayslipPdfModel withLeave = withExtras(base, extras);
+
+        String text = text(service.render(withLeave));
+
+        assertTrue(text.contains("Leave Summary"), text);
+        assertTrue(text.contains("Earned Leave"), text);
+        assertTrue(text.contains("12.5"), text);
+        assertTrue(text.contains("Sick Leave"), text);
+    }
+
+    @Test
+    void render_includeArrearBreakup_printsReasonPeriodAndAmount() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipExtras extras = extras(false, null, null, PayslipFields.DEFAULT_KEYS, null, null, null, "RIGHT",
+                List.of(), List.of(new ArrearLine("Backdated salary revision", LocalDate.of(2026, 9, 26), LocalDate.of(2026, 10, 25), bd("5000.00"))));
+        PayslipPdfModel withArrears = withExtras(base, extras);
+
+        String text = text(service.render(withArrears));
+
+        assertTrue(text.contains("Arrears Breakup"), text);
+        assertTrue(text.contains("Backdated salary revision"), text);
+        assertTrue(text.contains("5,000.00"), text);
+    }
+
+    @Test
+    void render_logoAlignment_leftOrRight_bothRenderWithoutError() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipPdfModel withLogo = withLogo(base, ONE_PIXEL_PNG);
+
+        PayslipPdfModel left = withExtras(withLogo, extras(false, null, null, PayslipFields.DEFAULT_KEYS, null, null, null, "LEFT", List.of(), List.of()));
+        PayslipPdfModel right = withExtras(withLogo, extras(false, null, null, PayslipFields.DEFAULT_KEYS, null, null, null, "RIGHT", List.of(), List.of()));
+
+        assertTrue(text(service.render(left)).contains("Basic"));
+        assertTrue(text(service.render(right)).contains("Basic"));
+    }
+
+    @Test
+    void render_companyAddress_printsUnderTheCompanyName_withAndWithoutALogo() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipPdfModel withAddress = withAddress(base, "4th Floor, Example Towers, Hyderabad 500081");
+
+        assertTrue(text(service.render(withAddress)).contains("4th Floor, Example Towers, Hyderabad 500081"));
+        assertTrue(text(service.render(withLogo(withAddress, ONE_PIXEL_PNG))).contains("4th Floor, Example Towers, Hyderabad 500081"));
+    }
+
+    @Test
+    void render_includeYtd_addsAYtdColumnWithEachLinesCumulativeTotal() throws IOException {
+        PayslipPdfModel base = model(
+                List.of(new Line("Basic", bd("100.00"), bd("1200.00"))),
+                List.of(new Line("Professional Tax", bd("10.00"), bd("120.00"))),
+                bd("100.00"), bd("10.00"), bd("90.00"));
+        PayslipExtras withYtd = extras(false, null, null, PayslipFields.DEFAULT_KEYS, null, null, null, "RIGHT", List.of(), List.of(), true, List.of());
+        PayslipPdfModel m = withExtras(base, withYtd);
+
+        String text = text(service.render(m));
+
+        assertTrue(text.contains("YTD"), text);
+        assertTrue(text.contains("1,200.00"), text);
+        assertTrue(text.contains("120.00"), text);
+    }
+
+    @Test
+    void render_employerContributions_pairWithEarnings_andDeductionsGetTheirOwnTable() throws IOException {
+        PayslipPdfModel base = model(
+                List.of(new Line("Basic", bd("40000.00"))),
+                List.of(new Line("Provident Fund", bd("3000.00"))),
+                bd("40000.00"), bd("3000.00"), bd("37000.00"));
+        PayslipExtras withContributions = extras(false, null, null, PayslipFields.DEFAULT_KEYS, null, null, null, "RIGHT",
+                List.of(), List.of(), false, List.of(new Line("Employer PF", bd("3000.00"))));
+        PayslipPdfModel m = withExtras(base, withContributions);
+
+        String text = text(service.render(m));
+
+        assertTrue(text.contains("Contributions"), text);
+        assertTrue(text.contains("Employer PF"), text);
+        assertTrue(text.contains("Total Contributions"), text);
+        assertTrue(text.contains("Provident Fund"), text);
+    }
+
+    @Test
+    void render_netPayInWords_alwaysPrints() throws IOException {
+        String text = text(service.render(model(List.of(new Line("Basic", bd("37216.00"))), List.of(),
+                bd("37216.00"), bd("0.00"), bd("37216.00"))));
+
+        assertTrue(text.contains("Thirty Seven Thousand Two Hundred and Sixteen Rupees Only"), text);
+    }
+
+    private PayslipExtras extras(boolean excludeNaFields, String earningsHeading, String deductionsHeading,
+                                 List<String> identityFields, String uan, String esi, String pan, String logoAlignment,
+                                 List<LeaveLine> leaveSummary, List<ArrearLine> arrearBreakup) {
+        return extras(excludeNaFields, earningsHeading, deductionsHeading, identityFields, uan, esi, pan, logoAlignment,
+                leaveSummary, arrearBreakup, false, List.of());
+    }
+
+    private PayslipExtras extras(boolean excludeNaFields, String earningsHeading, String deductionsHeading,
+                                 List<String> identityFields, String uan, String esi, String pan, String logoAlignment,
+                                 List<LeaveLine> leaveSummary, List<ArrearLine> arrearBreakup, boolean includeYtd, List<Line> contributions) {
+        return new PayslipExtras(excludeNaFields, earningsHeading, deductionsHeading, identityFields, uan, esi, pan,
+                logoAlignment, leaveSummary, arrearBreakup, includeYtd, contributions);
+    }
+
+    private PayslipPdfModel withExtras(PayslipPdfModel base, PayslipExtras extras) {
+        return new PayslipPdfModel(base.companyName(), base.currency(), base.periodLabel(),
+                base.cycleStart(), base.cycleEnd(), base.employeeName(), base.employeeCode(), base.department(),
+                base.designation(), base.joiningDate(), base.cycleDays(), base.employedDays(), base.lopDays(),
+                base.earnings(), base.deductions(), base.grossPay(), base.totalDeductions(), base.netPay(),
+                base.documentHeaderText(), base.footerText(), base.logo(), extras, base.companyAddress());
+    }
+
+    private PayslipPdfModel withAddress(PayslipPdfModel base, String companyAddress) {
+        return new PayslipPdfModel(base.companyName(), base.currency(), base.periodLabel(),
+                base.cycleStart(), base.cycleEnd(), base.employeeName(), base.employeeCode(), base.department(),
+                base.designation(), base.joiningDate(), base.cycleDays(), base.employedDays(), base.lopDays(),
+                base.earnings(), base.deductions(), base.grossPay(), base.totalDeductions(), base.netPay(),
+                base.documentHeaderText(), base.footerText(), base.logo(), base.extras(), companyAddress);
+    }
+
+    @Test
+    void render_withPassword_producesAPdfThatRequiresItToOpen() {
+        byte[] pdf = service.render(model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00")), "ABCDE1234F");
+
+        assertThrows(Exception.class, () -> new PdfReader(pdf)); // no password supplied
+        assertDoesNotThrow(() -> new PdfReader(pdf, "ABCDE1234F".getBytes()));
+    }
+
+    private static final String DEFAULT_FOOTER_FOR_TEST = "This is a computer-generated payslip and does not require a signature.";
+
     private PayslipPdfModel model(List<Line> earnings, List<Line> deductions,
                                   BigDecimal gross, BigDecimal totalDeductions, BigDecimal net) {
         return new PayslipPdfModel("NForce One Pvt Ltd", "INR", "November 2026",
                 LocalDate.of(2026, 10, 26), LocalDate.of(2026, 11, 25),
                 "Asha Rao", "EMP001", "Engineering", "Senior Engineer", LocalDate.of(2024, 4, 1),
-                31, 31, bd("1.5"), earnings, deductions, gross, totalDeductions, net);
+                31, 31, bd("1.5"), earnings, deductions, gross, totalDeductions, net, null, null, null,
+                PayslipExtras.none(), null);
     }
 
     private static BigDecimal bd(String v) {
