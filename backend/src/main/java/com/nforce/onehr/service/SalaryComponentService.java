@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,6 +86,7 @@ public class SalaryComponentService {
         if (req.getShownOnPayslip() != null) component.setShownOnPayslip(req.getShownOnPayslip());
         if (req.getProrateOnLop() != null) component.setProrateOnLop(req.getProrateOnLop());
         if (req.getActive() != null) component.setActive(req.getActive());
+        if (req.getAccountingCode() != null) component.setAccountingCode(req.getAccountingCode().trim());
         component = salaryComponentRepository.save(component);
 
         User actor = requireActor(actorEmail);
@@ -96,9 +98,39 @@ public class SalaryComponentService {
 
     @Transactional(readOnly = true)
     public List<SalaryComponentCatalogResponse> list() {
-        return salaryComponentRepository.findAllByOrderByNameAsc().stream()
+        return salaryComponentRepository.findAllByOrderByDisplayOrderAscNameAsc().stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
+    }
+
+    // Keka's "Order of components" screen (§3.8) — assigns displayOrder = position in the given
+    // list, one transaction, one audit entry covering the whole reorder rather than one per row
+    // (same "batch write, single log entry" convention as the rest of this module's bulk ops).
+    // An id in the catalog but left out of orderedIds keeps its current position unchanged rather
+    // than being pushed to the end — the UI always sends the full list, so this only matters for
+    // a row created by someone else between this screen loading and the save.
+    @Transactional
+    public List<SalaryComponentCatalogResponse> reorder(List<UUID> orderedIds, String actorEmail) {
+        List<SalaryComponent> components = salaryComponentRepository.findAllById(orderedIds);
+        Map<UUID, SalaryComponent> byId = components.stream()
+                .collect(Collectors.toMap(SalaryComponent::getId, c -> c));
+
+        List<SalaryComponent> toSave = new ArrayList<>();
+        for (int i = 0; i < orderedIds.size(); i++) {
+            SalaryComponent component = byId.get(orderedIds.get(i));
+            if (component == null) continue; // id no longer exists — skip rather than fail the whole reorder
+            if (component.getDisplayOrder() != i) {
+                component.setDisplayOrder(i);
+                toSave.add(component);
+            }
+        }
+        salaryComponentRepository.saveAll(toSave);
+
+        User actor = requireActor(actorEmail);
+        auditService.log(actor.getId(), "SALARY_COMPONENTS_REORDERED", null, null,
+                auditSnapshot.toJson(Map.of("reorderedCount", toSave.size())));
+
+        return list();
     }
 
     private User requireActor(String email) {
@@ -116,6 +148,7 @@ public class SalaryComponentService {
         snapshot.put("shownOnPayslip", c.isShownOnPayslip());
         snapshot.put("prorateOnLop", c.isProrateOnLop());
         snapshot.put("active", c.isActive());
+        snapshot.put("accountingCode", c.getAccountingCode());
         return snapshot;
     }
 
@@ -130,6 +163,8 @@ public class SalaryComponentService {
                 .shownOnPayslip(c.isShownOnPayslip())
                 .prorateOnLop(c.isProrateOnLop())
                 .active(c.isActive())
+                .displayOrder(c.getDisplayOrder())
+                .accountingCode(c.getAccountingCode())
                 .build();
     }
 }

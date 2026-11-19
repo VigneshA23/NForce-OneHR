@@ -13,6 +13,7 @@ import java.util.UUID;
 public class EmployeeCompensationResponse {
     private UUID id;
     private UUID employeeId;
+    private UUID payGroupId;
     private UUID structureId;
     private String structureName;
     private BigDecimal ctc;

@@ -1,6 +1,7 @@
 package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.payroll.CreateStatutoryRuleRequest;
+import com.nforce.onehr.dto.payroll.LocationCountryMismatchResponse;
 import com.nforce.onehr.dto.payroll.StatutoryRuleResponse;
 import com.nforce.onehr.service.StatutoryRuleService;
 import jakarta.validation.Valid;
@@ -37,5 +38,12 @@ public class StatutoryRuleController {
     @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
     public List<StatutoryRuleResponse> history(@RequestParam String country, @RequestParam String ruleType) {
         return statutoryRuleService.history(country, ruleType);
+    }
+
+    // Safety check: a Location with employees whose Country doesn't match any configured rule.
+    @GetMapping("/location-mismatches")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public List<LocationCountryMismatchResponse> locationMismatches() {
+        return statutoryRuleService.findLocationCountryMismatches();
     }
 }

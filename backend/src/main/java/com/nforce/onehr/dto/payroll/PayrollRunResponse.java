@@ -26,6 +26,7 @@ public class PayrollRunResponse {
     private LocalDateTime disbursedAt;
     private LocalDateTime lastRolledBackAt;
     private String lastRollbackReason;
+    private UUID lastRolledBackBy;
     // US-C09 — the snapshotted approval chain and which stage is currently pending; both null
     // before submission or once APPROVED.
     private List<String> approvalStages;

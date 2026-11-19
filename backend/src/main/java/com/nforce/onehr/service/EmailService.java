@@ -8,6 +8,7 @@ import org.springframework.web.util.HtmlUtils;
 
 import java.math.BigDecimal;
 import java.net.URI;
+import java.util.Base64;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -165,6 +166,55 @@ public class EmailService {
         String subject = "Attendance Penalty Applied: " + DATE_FMT.format(date);
         String html = buildPenaltyHtml(fullName, date, reason, deductionDays, lopDays, leaveDeductionDays);
         sendAsync(toEmail, ccEmail, subject, html);
+    }
+
+    /** Admin-triggered "Email Payslip" action — attaches the already-rendered PDF (password
+     * protection, if any, was already baked in by PayslipPdfService before this is called) rather
+     * than linking back into the app, since payslips are routinely shared outside it (personal
+     * email, accountants). Resend's attachments field takes raw base64, no further escaping. */
+    public CompletableFuture<Boolean> sendPayslipEmail(String toEmail, String fullName, String periodLabel, byte[] pdfBytes, String fileName) {
+        String subject = "Your payslip for " + periodLabel;
+        String html = buildPayslipHtml(fullName, periodLabel);
+        String base64 = Base64.getEncoder().encodeToString(pdfBytes);
+        String body = """
+                {
+                  "from": "%s",
+                  "to": ["%s"],
+                  "subject": %s,
+                  "html": %s,
+                  "attachments": [{"filename": %s, "content": "%s"}]
+                }
+                """.formatted(fromAddress, toEmail, jsonString(subject), jsonString(html), jsonString(fileName), base64);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(resendUrl))
+                .header("Authorization", "Bearer " + apiKey)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .timeout(Duration.ofSeconds(20))
+                .build();
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(res -> {
+                    if (res.statusCode() >= 200 && res.statusCode() < 300) {
+                        log.info("Payslip email sent to {} (period: {})", toEmail, periodLabel);
+                        return true;
+                    }
+                    log.error("Resend API error sending payslip to {}: status={} body={}", toEmail, res.statusCode(), res.body());
+                    return false;
+                })
+                .exceptionally(ex -> {
+                    log.error("Failed to email payslip to {} — underlying action was not affected: {}", toEmail, ex.getMessage());
+                    return false;
+                });
+    }
+
+    private String buildPayslipHtml(String fullName, String periodLabel) {
+        return layout("Your payslip is ready",
+                "Hi " + esc(fullName) + ", your payslip for " + esc(periodLabel) + " is attached to this email as a PDF.",
+                "",
+                null, null,
+                "If your payslip is password protected, use your PAN (in capitals) to open it. Contact your HR administrator with any questions.");
     }
 
     private void sendAsync(String to, String subject, String html) {

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -69,6 +70,8 @@ public class PayrollLopCalculationService {
     private final WorkingDayService workingDayService;
     private final LeaveBalanceAvailabilityService leaveBalanceAvailabilityService;
     private final PayrollRunReviewItemRepository payrollRunReviewItemRepository;
+    private final PayslipRepository payslipRepository;
+    private final ArrearsService arrearsService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final AuditService auditService;
@@ -161,6 +164,7 @@ public class PayrollLopCalculationService {
                         "No LOP calculation for this employee/cycle yet — recompute before overriding"));
 
         String before = auditSnapshot.toJson(overrideSnapshot(calc));
+        BigDecimal oldEffectiveLopDays = calc.getOverrideLopDays() != null ? calc.getOverrideLopDays() : calc.getComputedLopDays();
 
         User actor = requireActor(actorEmail);
         calc.setOverrideLopDays(req.getOverrideLopDays());
@@ -172,7 +176,33 @@ public class PayrollLopCalculationService {
         String after = auditSnapshot.toJson(overrideSnapshot(calc));
         auditService.log(actor.getId(), "PAYROLL_LOP_OVERRIDDEN", calc.getId(), before, after);
 
+        raiseArrearsIfCycleAlreadyClosed(calc, oldEffectiveLopDays, actorEmail);
+
         return toResponse(calc);
+    }
+
+    // Arrears trigger 1 ("LOP Reversal") — see Arrears' own doc comment. Only matters once the
+    // cycle this override touches has already left DRAFT: a DRAFT run's own next regenerate will
+    // simply read the new effectiveLopDays itself, no correction needed.
+    private void raiseArrearsIfCycleAlreadyClosed(PayrollLopCalculation calc, BigDecimal oldEffectiveLopDays, String actorEmail) {
+        List<Payslip> closedCyclePayslip = payslipRepository.findVisibleForEmployeeBetween(
+                calc.getEmployeeId(), calc.getCycleEnd(), calc.getCycleEnd(),
+                Set.of(PayrollRunStatus.APPROVED, PayrollRunStatus.DISBURSED));
+        if (closedCyclePayslip.isEmpty()) {
+            return;
+        }
+        Payslip historical = closedCyclePayslip.get(0);
+        BigDecimal newEffectiveLopDays = calc.getOverrideLopDays() != null ? calc.getOverrideLopDays() : calc.getComputedLopDays();
+        BigDecimal lopDaysDelta = oldEffectiveLopDays.subtract(newEffectiveLopDays); // fewer LOP days now => positive => owed
+        if (lopDaysDelta.signum() == 0 || historical.getCycleDays() == 0) {
+            return;
+        }
+        BigDecimal dailyRate = historical.getGrossPay().divide(BigDecimal.valueOf(historical.getCycleDays()), 10, RoundingMode.HALF_UP);
+        BigDecimal amount = lopDaysDelta.multiply(dailyRate).setScale(2, RoundingMode.HALF_UP);
+        arrearsService.createPending(calc.getEmployeeId(), historical.getPayrollRun().getPayGroupId(), amount,
+                "LOP reversal on cycle " + calc.getCycleStart() + "-" + calc.getCycleEnd()
+                        + " (effective LOP days " + oldEffectiveLopDays + " -> " + newEffectiveLopDays + ")",
+                ArrearsSourceType.LOP_REVERSAL, calc.getCycleStart(), calc.getCycleEnd(), actorEmail);
     }
 
     @Transactional(readOnly = true)

@@ -72,6 +72,8 @@ EmployeeCertificateController#create | SELF - own data only (ownership checked i
 EmployeeCertificateController#delete | SELF - own data only (ownership checked in the service)
 EmployeeCertificateController#list | SELF - own data only (ownership checked in the service)
 EmployeeCertificateController#update | SELF - own data only (ownership checked in the service)
+EmployeeCompensationController#getMyCurrent | SELF - own data only (resolves employeeId from the JWT principal)
+EmployeeCompensationController#getMyHistory | SELF - own data only (resolves employeeId from the JWT principal)
 EmployeeController#birthdays | OPEN - readable by any signed-in user (or public auth flow)
 EmployeeController#directory | OPEN - readable by any signed-in user (or public auth flow)
 EmployeeController#myManager | OPEN - readable by any signed-in user (or public auth flow)
@@ -189,6 +191,7 @@ OrgHierarchyController#getRoots | OPEN - readable by any signed-in user (or publ
 OvertimeRequestController#mine | SELF - own data only (ownership checked in the service)
 OvertimeRequestController#submit | SELF - own data only (ownership checked in the service)
 PayrollYtdController#myYtd | SELF - own data only (ownership checked in the service)
+PayslipController#myLatest | SELF - own data only (ownership checked in the service)
 PayslipController#myPayslip | SELF - own data only (ownership checked in the service)
 PayslipController#myPeriods | SELF - own data only (ownership checked in the service)
 PolicyController#acknowledge | SERVICE - permission / eligibility enforced in the service

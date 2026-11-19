@@ -32,6 +32,11 @@ public class PayGroup {
     @Column(name = "legal_entity", length = 100)
     private String legalEntity;
 
+    // Printed under the company name on the payslip header — free text, HR enters it however
+    // they want it to read (including line breaks).
+    @Column(columnDefinition = "text")
+    private String address;
+
     // MONTHLY only for now — see chk_pay_groups_frequency.
     @Column(nullable = false, length = 20)
     @Builder.Default

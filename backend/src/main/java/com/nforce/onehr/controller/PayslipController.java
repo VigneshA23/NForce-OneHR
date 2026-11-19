@@ -35,6 +35,13 @@ public class PayslipController {
         return payslipService.listMyPeriods(principal.getName());
     }
 
+    /** US-F02 summary card: 204 when nothing has been processed/released yet. */
+    @GetMapping("/me/latest")
+    public ResponseEntity<PayslipService.LatestPayslipSummary> myLatest(Principal principal) {
+        return payslipService.getMyLatestSummary(principal.getName())
+                .map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
     @GetMapping("/me/{period}")
     public ResponseEntity<byte[]> myPayslip(@PathVariable String period, Principal principal) {
         PayslipFile file = payslipService.getMyPayslipPdf(principal.getName(), period);

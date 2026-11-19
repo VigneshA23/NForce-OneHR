@@ -44,4 +44,11 @@ public class PayrollRunReviewController {
             @Valid @RequestBody DecideNoAttendanceReviewRequest req, Principal principal) {
         return payrollRunReviewService.decideNoAttendance(runId, itemId, req, principal.getName());
     }
+
+    @PostMapping("/no-attendance/decide")
+    @PreAuthorize("hasAuthority('payroll:CONFIGURE:ALL')")
+    public List<PayrollRunReviewItemResponse> bulkDecideNoAttendance(@PathVariable UUID runId,
+            @Valid @RequestBody BulkDecideNoAttendanceRequest req, Principal principal) {
+        return payrollRunReviewService.bulkDecideNoAttendance(runId, req, principal.getName());
+    }
 }

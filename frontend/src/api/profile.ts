@@ -45,6 +45,9 @@ export interface ProfileData {
   bankName: string | null;
   bankIfsc: string | null;
   nationalId: string | null;            // masked
+  panNumber: string | null;             // masked
+  uanNumber: string | null;             // masked
+  esiNumber: string | null;             // masked
   /** True when the viewer lacks employee_sensitive:VIEW, so sensitive fields were masked or removed. */
   sensitiveRestricted?: boolean;
   /** True while this employee's own bank / government-ID edit is waiting for HR approval. */
@@ -93,6 +96,9 @@ export interface UpdateProfilePayload {
   bankName?: string;
   bankIfsc?: string;
   nationalId?: string;
+  panNumber?: string;
+  uanNumber?: string;
+  esiNumber?: string;
 }
 
 export interface EducationEntry {

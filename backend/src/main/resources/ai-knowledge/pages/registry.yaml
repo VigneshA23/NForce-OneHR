@@ -94,6 +94,50 @@ pages:
         route: /assets
         description: "Your own assets and expense claims, plus your direct reports' asset requests and expense claims awaiting your approval."
 
+  - pageId: myfinances
+    module: payroll
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "My Finances"
+        route: /myfinances
+        description: "Your own finances in three tabs: Summary (current CTC, bank/statutory details read-only with a Request change action), My Pay (My Salary with revision history, Payslips with PDF download, Income Tax) and Manage Tax (Declaration, Previous Income, Forms, Tax Filing, Tax Saving Investment). Always your own data, for every role."
+
+  - pageId: payroll-runs
+    module: payroll
+    permissions: ["payroll:VIEW:ALL"]
+    variants:
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Payroll Runs"
+        route: /payroll-runs
+        description: "Generate and manage each pay cycle's payroll run: review Leave Applied and No Attendance items, submit, approve and disburse, override LOP, add ad-hoc payments and deductions, place salary holds, and roll back a run or a single employee's payslip."
+
+  - pageId: payroll-setup
+    module: payroll
+    permissions: ["payroll:CONFIGURE:ALL"]
+    variants:
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Payroll Setup"
+        route: /payroll-setup
+        description: "Create salary structures (Basic, HRA and other components with their calculation rules) and assign a structure plus CTC to an employee — the data a payroll run needs before it can generate payslips."
+
+  - pageId: statutory-compliance
+    module: payroll
+    permissions: ["payroll:CONFIGURE:ALL"]
+    variants:
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Statutory Compliance"
+        route: /statutory-compliance
+        description: "Configure and version-date PF, ESI and Professional Tax rules by country — the slab config every payslip's statutory deductions are computed from."
+
+  - pageId: payroll-reports
+    module: payroll
+    permissions: ["payroll:VIEW:ALL"]
+    variants:
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Payroll Reports"
+        route: /payroll-reports
+        description: "Current CTC Report (every employee's current salary structure and CTC) and Salary Revision Report (every compensation assignment or revision ever made)."
+
   - pageId: my-documents
     module: documents
     variants:

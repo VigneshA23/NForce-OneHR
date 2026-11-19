@@ -16,6 +16,8 @@ public class UpdatePayGroupRequest {
     @Size(max = 100)
     private String legalEntity;
 
+    private String address;
+
     @Pattern(regexp = "MONTHLY", message = "frequency must be MONTHLY")
     private String frequency;
 

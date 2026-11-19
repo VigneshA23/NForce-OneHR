@@ -19,6 +19,9 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
   const [bankAccountNumber, setBankAccountNumber] = useState('');
   const [bankName, setBankName] = useState(profile.bankName ?? '');
   const [bankIfsc, setBankIfsc] = useState('');
+  const [panNumber, setPanNumber] = useState('');
+  const [uanNumber, setUanNumber] = useState('');
+  const [esiNumber, setEsiNumber] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
@@ -36,6 +39,9 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
       if (passportNumber) payload.passportNumber = passportNumber;
       if (bankIfsc) payload.bankIfsc = bankIfsc;
       if (bankAccountNumber) payload.bankAccountNumber = bankAccountNumber;
+      if (panNumber) payload.panNumber = panNumber;
+      if (uanNumber) payload.uanNumber = uanNumber;
+      if (esiNumber) payload.esiNumber = esiNumber;
       const updated = await profileApi.update(token, payload);
       onSaved(updated);
       // Bank and ID changes don't apply on save: HR approves them first, so say so.
@@ -77,6 +83,24 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
           <ReadField label="IFSC Code (current)" value={profile.bankIfsc} />
           <div style={{ marginTop: 8 }}>
             <EditField label="Replace IFSC Code" value={bankIfsc} onChange={v => setBankIfsc(v.toUpperCase())} placeholder="Enter new value…" />
+          </div>
+        </div>
+        <div>
+          <ReadField label="PAN (current)" value={profile.panNumber} />
+          <div style={{ marginTop: 8 }}>
+            <EditField label="Replace PAN" value={panNumber} onChange={v => setPanNumber(v.toUpperCase())} placeholder="ABCDE1234F" />
+          </div>
+        </div>
+        <div>
+          <ReadField label="UAN (current)" value={profile.uanNumber} />
+          <div style={{ marginTop: 8 }}>
+            <EditField label="Replace UAN" value={uanNumber} onChange={setUanNumber} placeholder="12-digit UAN" />
+          </div>
+        </div>
+        <div style={{ gridColumn: '1/-1' }}>
+          <ReadField label="ESI Number (current)" value={profile.esiNumber} />
+          <div style={{ marginTop: 8 }}>
+            <EditField label="Replace ESI Number" value={esiNumber} onChange={setEsiNumber} placeholder="Enter new value…" />
           </div>
         </div>
       </div>

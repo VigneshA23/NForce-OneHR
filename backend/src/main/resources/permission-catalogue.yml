@@ -300,3 +300,13 @@ routes:
     requires: [ai_assistant:VIEW:ALL]
   - path: /attendance/regularization/all
     requires: [regularization:EXPORT:ALL]
+  - path: /payroll-runs
+    requires: [payroll:VIEW:ALL]
+  - path: /payroll-setup
+    requires: [payroll:CONFIGURE:ALL]
+  - path: /statutory-compliance
+    requires: [payroll:CONFIGURE:ALL]
+  - path: /payroll-reports
+    requires: [payroll:VIEW:ALL]
+  # /myfinances is deliberately absent — genuinely self-service (own CTC/payslips/statutory IDs
+  # only), same as /attendance or /my-documents above.

@@ -22,11 +22,17 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * US-C33 (ONEHR-579) slice — "My Finances": the one part of this batch buildable without US-C12
- * (payslip PDF) or US-C21/C15 (statutory info, bank details), which the rest of the story needs
- * and this codebase doesn't have yet. No special authority on either endpoint — any authenticated
- * employee sees only their OWN data, resolved from the JWT principal, never from a path/query
- * employeeId (the exact mistake that would leak one employee's CTC to another).
+ * US-C33 (ONEHR-579) slice — "My Finances": originally the one part of this batch buildable
+ * without US-C12 (payslip PDF) or US-C21/C15 (statutory info, bank details) — both have since
+ * landed (payslip PDF as its own PayslipService/PayslipPdfService; statutory info/bank details as
+ * ProfileService's existing self-service, masked fields, now including panNumber/uanNumber/
+ * esiNumber alongside the pre-existing nationalId/bankAccountNumber). The frontend composes all
+ * three (this service + PayslipService + ProfileService) into one page rather than this service
+ * re-fetching data ProfileService already owns and masks correctly.
+ *
+ * <p>No special authority on either endpoint here — any authenticated employee sees only their
+ * OWN data, resolved from the JWT principal, never from a path/query employeeId (the exact mistake
+ * that would leak one employee's CTC to another).
  *
  * <p>The "salary revision timeline" half is already fully served by {@link
  * EmployeeCompensationService#getHistory} — this just wraps it with the "resolve my own
@@ -81,6 +87,21 @@ public class MyFinancesService {
     @Transactional(readOnly = true)
     public List<EmployeeCompensationResponse> getCompensationHistory(String actorEmail) {
         return employeeCompensationService.getHistory(requireEmployeeId(actorEmail));
+    }
+
+    /**
+     * US-F01: My Finances data always comes from the login token. A request that also names a user
+     * ({@code userId}/{@code employeeId}) is allowed only when it names the caller, otherwise 403 —
+     * the admin view of other people's finances is a separate route/API (US-F15).
+     */
+    @Transactional(readOnly = true)
+    public void requireSelf(String actorEmail, UUID... requestedIds) {
+        UUID self = requireEmployeeId(actorEmail);
+        for (UUID requested : requestedIds) {
+            if (requested != null && !requested.equals(self)) {
+                throw new org.springframework.security.access.AccessDeniedException("My Finances is only available for your own account");
+            }
+        }
     }
 
     private UUID requireEmployeeId(String email) {

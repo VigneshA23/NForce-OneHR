@@ -41,6 +41,13 @@ public class BenchStatusController {
         return service.start(principal.getName(), req);
     }
 
+    /** Employees eligible to be marked on bench (active, not already benched). */
+    @GetMapping("/eligible-employees")
+    @PreAuthorize("hasAuthority('bench:CREATE:ALL')")
+    public List<com.nforce.onehr.dto.bench.BenchDtos.EligibleEmployee> eligibleEmployees() {
+        return service.eligibleEmployees();
+    }
+
     /** US-A06: end a bench episode — with an allocation, or with a close-out reason. */
     @PatchMapping("/{id}/end")
     @PreAuthorize("hasAuthority('bench:EDIT:ALL')")
