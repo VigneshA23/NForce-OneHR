@@ -308,5 +308,5 @@ routes:
     requires: [payroll:CONFIGURE:ALL]
   - path: /payroll-reports
     requires: [payroll:VIEW:ALL]
-  # /my-finances is deliberately absent — genuinely self-service (own CTC/payslips/statutory IDs
+  # /myfinances is deliberately absent — genuinely self-service (own CTC/payslips/statutory IDs
   # only), same as /attendance or /my-documents above.

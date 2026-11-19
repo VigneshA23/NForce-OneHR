@@ -89,6 +89,21 @@ public class MyFinancesService {
         return employeeCompensationService.getHistory(requireEmployeeId(actorEmail));
     }
 
+    /**
+     * US-F01: My Finances data always comes from the login token. A request that also names a user
+     * ({@code userId}/{@code employeeId}) is allowed only when it names the caller, otherwise 403 —
+     * the admin view of other people's finances is a separate route/API (US-F15).
+     */
+    @Transactional(readOnly = true)
+    public void requireSelf(String actorEmail, UUID... requestedIds) {
+        UUID self = requireEmployeeId(actorEmail);
+        for (UUID requested : requestedIds) {
+            if (requested != null && !requested.equals(self)) {
+                throw new org.springframework.security.access.AccessDeniedException("My Finances is only available for your own account");
+            }
+        }
+    }
+
     private UUID requireEmployeeId(String email) {
         User actor = userRepository.findByEmail(email)
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));

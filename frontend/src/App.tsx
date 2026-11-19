@@ -213,7 +213,10 @@ export default function App() {
           <Route path="/payroll-setup" element={<PayrollSetupPage />} />
           <Route path="/statutory-compliance" element={<StatutoryCompliancePage />} />
           <Route path="/payroll-reports" element={<PayrollReportsPage />} />
-          <Route path="/my-finances"  element={<MyFinancesPage />} />
+          {/* US-F01: self-service for every role. Tabs live in the URL (/myfinances/pay/payslips ...); the
+              Super Admin "Employee Finances" view (US-F15) will be a separate /finances/:userId route. */}
+          <Route path="/myfinances/*"  element={<MyFinancesPage />} />
+          <Route path="/my-finances/*" element={<Navigate to="/myfinances/summary" replace />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
           <Route path="/exceptions"   element={<ExceptionDashboardPage />} />

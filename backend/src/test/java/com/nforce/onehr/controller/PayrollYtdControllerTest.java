@@ -33,13 +33,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PayrollYtdControllerTest {
 
     @Mock private PayrollYtdService ytdService;
+    @Mock private com.nforce.onehr.service.MyFinancesService myFinancesService;
 
     private MockMvc mvc;
     private final UUID employeeId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.standaloneSetup(new PayrollYtdController(ytdService))
+        mvc = MockMvcBuilders.standaloneSetup(new PayrollYtdController(ytdService, myFinancesService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -52,6 +53,16 @@ class PayrollYtdControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fiscalYear").value("FY 2026-27"))
                 .andExpect(jsonPath("$.payslipCount").value(3));
+    }
+
+    @Test
+    void myYtd_withAnotherUsersId_is403() throws Exception {
+        UUID other = UUID.randomUUID();
+        org.mockito.Mockito.doThrow(new org.springframework.security.access.AccessDeniedException("no"))
+                .when(myFinancesService).requireSelf("emp@x.com", other, null);
+
+        mvc.perform(get("/api/me/finances/ytd").param("userId", other.toString()).principal(() -> "emp@x.com"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -73,14 +84,14 @@ class PayrollYtdControllerTest {
     @Test
     void theHrEndpointIsGatedByPayrollViewAll_andTheSelfEndpointHasNoGate() throws Exception {
         Method hr = PayrollYtdController.class.getMethod("ytdFor", UUID.class);
-        Method self = PayrollYtdController.class.getMethod("myYtd", java.security.Principal.class);
+        Method self = PayrollYtdController.class.getMethod("myYtd", UUID.class, UUID.class, java.security.Principal.class);
 
         PreAuthorize gate = hr.getAnnotation(PreAuthorize.class);
         assertNotNull(gate);
         assertEquals("hasAuthority('payroll:VIEW:ALL')", gate.value());
         assertNull(self.getAnnotation(PreAuthorize.class));
-        // The self endpoint can only ever be "me": its parameter list has no employee id.
-        assertEquals(1, self.getParameterCount());
+        // The self endpoint can only ever be "me": the optional ids are only checked against the caller
+        // (MyFinancesService#requireSelf), never used to look anyone up.
     }
 
     private YtdResponse response(UUID id) {
