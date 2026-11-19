@@ -151,7 +151,7 @@ function NoPayrollRecord() {
   );
 }
 
-function ComingSoon({ title }: { title: string }) {
+function ComingSoon({ title }: { title: ReactNode }) {
   return (
     <div style={{ ...panelStyle, padding: '40px 24px', textAlign: 'center' }}>
       <FileText size={28} style={{ color: 'var(--txt-dim)', marginBottom: 10 }} />
