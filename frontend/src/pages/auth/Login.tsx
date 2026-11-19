@@ -5,7 +5,7 @@ import { authApi, LoginLockedError } from '../../api/auth';
 import { useAuthStore } from '../../store/authStore';
 import { consumeSessionMessage } from '../../lib/authFetch';
 import wordmarkUrl from '../../assets/nforce-wordmark.png';
-import { DiwaliBurst } from './DiwaliBurst';
+import { SignInConfetti } from './SignInConfetti';
 import { refreshIfStale } from '../../lib/versionCheck';
 import '../login.css';
 
@@ -71,7 +71,7 @@ export default function Login() {
   // message here for this exact banner to pick up on first render.
   const [error,      setError]      = useState<string | null>(() => consumeSessionMessage());
   const [submitting, setSubmitting] = useState(false);
-  // Brief "signed in" celebration (Diwali firework burst) shown before moving on to the app.
+  // Brief "signed in" confirmation (green tick + confetti) shown on the button before moving on to the app.
   const [signedIn, setSignedIn] = useState(false);
   const [lock,       setLock]       = useState<StoredLock | null>(() => readStoredLock());
   const emailRef = useRef<HTMLInputElement>(null);
@@ -140,7 +140,7 @@ export default function Login() {
         role: data.role,
       }, rememberMe);
       setSignedIn(true);
-      await new Promise((resolve) => window.setTimeout(resolve, 1900));
+      await new Promise((resolve) => window.setTimeout(resolve, 1300));
       // If a newer build was deployed since this tab loaded, open the next page with the latest code.
       if (await refreshIfStale(data.mustChangePassword ? '/change-password' : '/dashboard')) return;
       if (data.mustChangePassword) {
@@ -281,10 +281,14 @@ export default function Login() {
               <span>Remember me</span>
             </label>
 
-            {signedIn && <DiwaliBurst />}
+            <div className="nf-lg-btnwrap">
             <button type="submit" className={`nf-lg-submit${signedIn ? ' is-done' : ''}`} disabled={submitting || locked || signedIn}>
               {signedIn ? (
                 <>
+                  <svg className="nf-lg-tick" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle className="nf-lg-tick-ring" cx="12" cy="12" r="10" />
+                    <path className="nf-lg-tick-mark" d="M7 12.5l3.2 3.2L17 9" />
+                  </svg>
                   Signed in
                 </>
               ) : submitting ? (
@@ -296,6 +300,8 @@ export default function Login() {
                 <>Sign in <ArrowRight size={16} aria-hidden="true" /></>
               )}
             </button>
+            {signedIn && <SignInConfetti />}
+            </div>
           </form>
 
           <div className="nf-lg-help">
