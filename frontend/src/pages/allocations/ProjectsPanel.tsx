@@ -12,7 +12,11 @@ import './allocations.css';
 
 const STATUS_TONE: Record<ProjectStatus, string> = { ACTIVE: 'is-ok', ON_HOLD: 'is-warn', CLOSED: 'is-off' };
 
-const EMPTY_FORM: ProjectPayload = {
+// Letters first, then letters/spaces and . ' & - only (no digits or other special characters). Mirrors ClientRequest.java.
+const CLIENT_NAME_RE = /^\p{L}[\p{L} .'&-]*$/u;
+const CLIENT_NAME_MSG = "Client name may contain only letters, spaces and . ' & -";
+
+const EMPTY_FORM:ProjectPayload = {
   code: '', name: '', startDate: '', endDate: null, ownerEmployeeId: null, departmentId: null, clientId: null, status: 'ACTIVE',
 };
 
@@ -36,6 +40,7 @@ export default function ProjectsPanel({ token, projects, onSaved }: Props) {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<ProjectPayload>(EMPTY_FORM);
   const [newClientName, setNewClientName] = useState('');
+  const [clientNameError, setClientNameError] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -82,6 +87,7 @@ export default function ProjectsPanel({ token, projects, onSaved }: Props) {
   async function handleAddClient() {
     const name = newClientName.trim();
     if (!name) return;
+    if (!CLIENT_NAME_RE.test(name)) { setClientNameError(CLIENT_NAME_MSG); return; }
     try {
       const created = await projectsApi.createClient(token, name);
       setClients(prev => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)));
@@ -237,8 +243,9 @@ export default function ProjectsPanel({ token, projects, onSaved }: Props) {
               </select>
               {can('projects', 'CREATE') && (
               <div className="nf-pa-addrow">
-                <input placeholder="New client / cost center" value={newClientName} onChange={e => setNewClientName(e.target.value)} className="nf-pa-input" />
+                <input placeholder="New client / cost center" value={newClientName} onChange={e => { setNewClientName(e.target.value); setClientNameError(''); }} className="nf-pa-input" aria-invalid={!!clientNameError} />
                 <button type="button" onClick={handleAddClient} disabled={!newClientName.trim()} className="nf-pa-ghost">Add</button>
+                {clientNameError && <small role="alert" style={{ color: 'var(--nf-danger, #c62828)' }}>{clientNameError}</small>}
               </div>
               )}
             </div>
