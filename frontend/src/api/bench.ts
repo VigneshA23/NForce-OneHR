@@ -106,7 +106,12 @@ export interface EndBenchPayload {
 export interface CompensationBand { id: string; bandLabel: string; avgCtc: number }
 export interface BandAssignment { employeeId: string; employeeName: string; bandId: string; bandLabel: string }
 
+export interface EligibleEmployee { userId: string; fullName: string; employeeCode: string; }
+
 export const benchApi = {
+  eligibleEmployees: (token: string) =>
+    send<EligibleEmployee[]>(token, '/api/bench-status/eligible-employees', 'GET'),
+
   start: (token: string, payload: { employeeId: string; reasonCode: BenchReasonCode; startDate?: string }) =>
     send<BenchStatusRecord>(token, '/api/bench-status', 'POST', payload),
 
