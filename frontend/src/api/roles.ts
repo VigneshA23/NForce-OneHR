@@ -71,7 +71,17 @@ export interface ConvertedManager {
 export interface RoleRef { id: number; code: string; name: string; system: boolean; active: boolean; /** @deprecated MANAGER is no longer granted automatically; always false. */ autoGranted?: boolean; }
 
 /** One audited change to a role; `added`/`removed` are "module:ACTION:SCOPE" strings (permission edits only). */
-export interface RoleHistoryEntry { id: number; occurredAt: string; action: string; actorName: string | null; summary: string; added: string[]; removed: string[]; }
+export interface RoleHistoryEntry {
+  id: number; occurredAt: string; action: string; actorName: string | null; summary: string; added: string[]; removed: string[];
+  /** Set on saved versions only; null for membership changes, which are audited but not restore points. */
+  versionNo: number | null;
+  reason: string | null;
+  /** True for every saved version except the newest (restoring the current state would change nothing). */
+  restorable: boolean;
+}
+
+/** `skipped`: authorities in the restored version that no longer exist or can no longer be configured. */
+export interface RoleRestoreResult { role: RoleDetail; skipped: string[]; }
 
 /** A user who holds a permission through an active role, at the widest scope any of those roles grants. */
 export interface PermissionHolder { userId: string; fullName: string; email: string; active: boolean; scope: string; roles: string[]; }
@@ -105,11 +115,15 @@ export const rolesApi = {
   create: (payload: { name: string; description?: string; grants: Grant[] }, token: string) =>
     fetch(`${BASE}/roles`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<RoleDetail>),
 
-  update: (id: number, payload: { name: string; description?: string; version: number }, token: string) =>
+  update: (id: number, payload: { name: string; description?: string; version: number; reason?: string }, token: string) =>
     fetch(`${BASE}/roles/${id}`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<RoleDetail>),
 
-  setPermissions: (id: number, grants: Grant[], version: number, token: string) =>
-    fetch(`${BASE}/roles/${id}/permissions`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify({ grants, version }) }).then(handle<RoleDetail>),
+  setPermissions: (id: number, grants: Grant[], version: number, token: string, reason?: string) =>
+    fetch(`${BASE}/roles/${id}/permissions`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify({ grants, version, reason }) }).then(handle<RoleDetail>),
+
+  /** Puts the role back to a saved version (Super Admin only). Saved as a new version; membership is untouched. */
+  restore: (id: number, versionNo: number, version: number, reason: string | undefined, token: string) =>
+    fetch(`${BASE}/roles/${id}/versions/${versionNo}/restore`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ version, reason }) }).then(handle<RoleRestoreResult>),
 
   setStatus: (id: number, active: boolean, version: number, token: string) =>
     fetch(`${BASE}/roles/${id}/status`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify({ active, version }) }).then(handle<RoleDetail>),

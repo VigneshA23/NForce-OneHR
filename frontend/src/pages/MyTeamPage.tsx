@@ -3527,6 +3527,7 @@ export default function MyTeamPage() {
       {/* Sub-tabs — Overview is the original page; the rest are ONEHR-106/107/108/109. */}
       <TabBar
         ariaLabel="My Team sections"
+        className="nf-tabs-card"
         style={{ marginBottom: 20 }}
         active={tab}
         onChange={setTab}

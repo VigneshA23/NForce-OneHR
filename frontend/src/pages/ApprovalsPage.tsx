@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { useSearchParams } from 'react-router-dom';
 import {
-  CalendarClock, CalendarDays, Check, CheckCircle2, ClipboardCheck, Clock, FileText, Hourglass, Home, Package, Search, Wallet, X,
+  CalendarClock, CalendarDays, Check, CheckCircle2, ClipboardCheck, Clock, FileText, Hourglass, Home, Package, Search, ShieldCheck, Wallet, X,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -10,7 +10,7 @@ import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { useEmployeeCodes } from '../lib/useEmployeeCodes';
 import { useCan } from '../lib/access';
 import { TablePagination, clampPage, paginate } from '../components/TablePagination';
-import { approvalCenterApi, type ApprovalItem, type RequestType } from '../api/approvalCenter';
+import { approvalCenterApi, type ApprovalItem, type ProfileChangeField, type RequestType } from '../api/approvalCenter';
 import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApproval';
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
 import { ReceiptViewerModal } from '../components/expenses/ReceiptViewerModal';
@@ -20,6 +20,7 @@ import { expensesApi } from '../api/expenses';
 import { assetsApi } from '../api/assets';
 import { attendanceRequestApi } from '../api/attendanceRequests';
 import { overtimeRequestApi } from '../api/overtimeRequests';
+import { profileChangeRequestApi } from '../api/profileChangeRequests';
 import { useToast } from '../context/ToastContext';
 import { formatDurationMinutes } from '../context/TimeFormatContext';
 import './ApprovalsPage.css';
@@ -38,6 +39,7 @@ const TYPE_LABELS: Record<RequestType, string> = {
   PARTIAL_DAY: 'Partial Day',
   OVERTIME: 'Overtime',
   HELP_CONTENT: 'FAQs & Guides',
+  PROFILE_CHANGE: 'Profile Change',
 };
 
 // Full-length labels for the "No pending ... requests" empty state, which has room to spell
@@ -57,6 +59,7 @@ const TYPE_COLORS: Record<RequestType, string> = {
   PARTIAL_DAY: 'rgba(224,169,59,.18)',
   OVERTIME: 'rgba(236,72,153,.18)',
   HELP_CONTENT: 'rgba(20,184,166,.18)',
+  PROFILE_CHANGE: 'rgba(234,88,12,.18)',
 };
 
 const TYPE_TEXT: Record<RequestType, string> = {
@@ -68,6 +71,7 @@ const TYPE_TEXT: Record<RequestType, string> = {
   PARTIAL_DAY: '#E0A93B',
   OVERTIME: '#EC4899',
   HELP_CONTENT: '#14B8A6',
+  PROFILE_CHANGE: '#EA580C',
 };
 
 const TYPE_ICONS: Record<RequestType, LucideIcon> = {
@@ -79,9 +83,10 @@ const TYPE_ICONS: Record<RequestType, LucideIcon> = {
   PARTIAL_DAY: Hourglass,
   OVERTIME: Clock,
   HELP_CONTENT: FileText,
+  PROFILE_CHANGE: ShieldCheck,
 };
 
-const EMPTY_VALUE = '–';
+const EMPTY_VALUE = '-';
 
 type ReviewMode = 'approve' | 'reject';
 /** 'review' = opened by clicking the row itself: details first, with both decisions available. */
@@ -108,6 +113,7 @@ function approveItem(item: ApprovalItem, token: string) {
   if (item.requestType === 'ASSET_REQUEST') return assetsApi.approveRequest(Number(item.id), token);
   if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') return attendanceRequestApi.approve(item.id, token);
   if (item.requestType === 'OVERTIME') return overtimeRequestApi.approve(item.id, token);
+  if (item.requestType === 'PROFILE_CHANGE') return profileChangeRequestApi.approve(item.id, token);
   return helpContentApprovalApi.approve(item.id, token);
 }
 
@@ -123,6 +129,7 @@ function rejectItem(item: ApprovalItem, reason: string, token: string) {
   if (item.requestType === 'ASSET_REQUEST') return assetsApi.rejectRequest(Number(item.id), reason, token);
   if (item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY') return attendanceRequestApi.reject(item.id, reason, token);
   if (item.requestType === 'OVERTIME') return overtimeRequestApi.reject(item.id, reason, token);
+  if (item.requestType === 'PROFILE_CHANGE') return profileChangeRequestApi.reject(item.id, reason, token);
   return helpContentApprovalApi.reject(item.id, reason, token);
 }
 
@@ -162,7 +169,7 @@ function fmtOvertimeHours(startIso?: string | null, endIso?: string | null) {
 function getRequestedDates(item: ApprovalItem) {
   if (item.requestType === 'LEAVE') {
     if (!item.leaveStartDate) return EMPTY_VALUE;
-    return `${item.leaveStartDate}${item.leaveEndDate && item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`;
+    return `${item.leaveStartDate}${item.leaveEndDate && item.leaveStartDate !== item.leaveEndDate ? ` to ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`;
   }
   if (item.requestType === 'REGULARIZATION' || item.requestType === 'WFH' || item.requestType === 'PARTIAL_DAY' || item.requestType === 'OVERTIME') {
     return item.attendanceDate ?? EMPTY_VALUE;
@@ -175,7 +182,7 @@ function getRequestedDates(item: ApprovalItem) {
   // fall back to the submission date, which is a real, already-captured date for every request
   // (item.createdAt is always populated). Sliced to a plain date to match the un-formatted
   // ISO date strings the other branches above show in this same column.
-  if (item.requestType === 'ASSET_REQUEST') {
+  if (item.requestType === 'ASSET_REQUEST' || item.requestType === 'PROFILE_CHANGE') {
     return item.createdAt.slice(0, 10);
   }
   return EMPTY_VALUE;
@@ -185,6 +192,9 @@ function getReason(item: ApprovalItem) {
   if (item.requestType === 'LEAVE') return item.leaveReason ?? EMPTY_VALUE;
   if (item.requestType === 'EXPENSE') return item.businessPurpose ?? EMPTY_VALUE;
   if (item.requestType === 'ASSET_REQUEST') return item.assetRequestReason ?? EMPTY_VALUE;
+  if (item.requestType === 'PROFILE_CHANGE') {
+    return (item.profileChangeFields ?? []).map(f => f.label).join(', ') || EMPTY_VALUE;
+  }
   if (
     item.requestType === 'REGULARIZATION' ||
     item.requestType === 'WFH' ||
@@ -265,8 +275,8 @@ function ChangesModal({ diff, onClose }: { diff: ApprovalDiff; onClose: () => vo
                   <strong style={{ color: 'var(--txt)' }}>{c.changeType}:</strong>{' '}
                   {c.changeType === 'ADDED' && c.fileName}
                   {c.changeType === 'REMOVED' && c.previousFileName}
-                  {c.changeType === 'REPLACED' && `${c.previousFileName} → ${c.fileName}`}
-                  {c.changeType === 'REORDERED' && `${c.fileName} (position ${(c.previousDisplayOrder ?? 0) + 1} → ${(c.displayOrder ?? 0) + 1})`}
+                  {c.changeType === 'REPLACED' && `${c.previousFileName} to ${c.fileName}`}
+                  {c.changeType === 'REORDERED' && `${c.fileName} (position ${(c.previousDisplayOrder ?? 0) + 1} to ${(c.displayOrder ?? 0) + 1})`}
                 </div>
               ))}
             </>
@@ -411,7 +421,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
             <div className="apv-detail-grid">
               <Row label="Type" value={item.leaveTypeName} />
               <Row label="Days" value={String(item.leaveTotalDays)} />
-              <Row label="Dates" value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` → ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} span />
+              <Row label="Dates" value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` to ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} span />
               <Row label="Reason" value={item.leaveReason} span />
             </div>
           )}
@@ -471,6 +481,8 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
           )}
 
           {item.requestType === 'HELP_CONTENT' && <HelpContentReviewSection item={item} token={token} />}
+
+          {item.requestType === 'PROFILE_CHANGE' && <ProfileChangeSection item={item} token={token} />}
 
           {activeMode === 'reject' && (
             <div style={{ marginTop: 18 }}>
@@ -628,6 +640,50 @@ function rowIcon(label: string): LucideIcon {
   return FileText;
 }
 
+/** What the employee asked to change. Identifier-like values show masked; "Show full values" fetches the
+ *  raw ones from the audited detail endpoint, so opening them is recorded in the audit log. */
+function ProfileChangeSection({ item, token }: { item: ApprovalItem; token: string }) {
+  const { showToast } = useToast();
+  const [revealed, setRevealed] = useState<ProfileChangeField[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const fields = revealed ?? item.profileChangeFields ?? [];
+
+  async function reveal() {
+    setLoading(true);
+    try {
+      setRevealed((await profileChangeRequestApi.detail(item.id, token)).fields);
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Could not load the full values');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="apv-detail-grid">
+        {fields.map(f => (
+          <Row key={f.field} label={f.label} value={`${f.oldValue || EMPTY_VALUE}  →  ${f.newValue ?? 'Cleared'}`} span />
+        ))}
+      </div>
+      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {!revealed && (
+          <button
+            onClick={reveal}
+            disabled={loading}
+            style={{ background: 'none', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12.5, color: 'var(--brand)', cursor: 'pointer' }}
+          >
+            {loading ? 'Loading…' : 'Show full values'}
+          </button>
+        )}
+        <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>
+          {revealed ? 'Full values shown. This view was recorded in the audit log.' : 'Identifiers are masked. Showing the full values is recorded in the audit log.'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function Row({ label, value, span }: { label: string; value?: string | null; span?: boolean }) {
   const Icon = rowIcon(label);
   return (
@@ -641,7 +697,7 @@ function Row({ label, value, span }: { label: string; value?: string | null; spa
   );
 }
 
-const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST', 'WFH', 'PARTIAL_DAY', 'OVERTIME', 'HELP_CONTENT'];
+const ALL_TYPES: RequestType[] = ['LEAVE', 'REGULARIZATION', 'EXPENSE', 'ASSET_REQUEST', 'WFH', 'PARTIAL_DAY', 'OVERTIME', 'HELP_CONTENT', 'PROFILE_CHANGE'];
 
 // The permission that lets a user approve each request type (TEAM scope or wider).
 const APPROVE_PERMISSION: Record<RequestType, [string, string]> = {
@@ -653,6 +709,7 @@ const APPROVE_PERMISSION: Record<RequestType, [string, string]> = {
   PARTIAL_DAY: ['attendance_requests', 'APPROVE'],
   OVERTIME: ['overtime', 'APPROVE'],
   HELP_CONTENT: ['hr_help_content', 'APPROVE'],
+  PROFILE_CHANGE: ['employee_sensitive', 'APPROVE'],
 };
 
 export default function ApprovalsPage() {

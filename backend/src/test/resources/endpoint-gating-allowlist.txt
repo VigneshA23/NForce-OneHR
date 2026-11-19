@@ -13,6 +13,9 @@ AssetController#acknowledge | SELF - own data only (ownership checked in the ser
 AssetController#approveRequest | SERVICE - permission / eligibility enforced in the service
 AssetController#assignAsset | SERVICE - permission / eligibility enforced in the service
 AssetController#availableByCategory | SERVICE - permission / eligibility enforced in the service
+AssetController#bulkImport | SERVICE - permission / eligibility enforced in the service
+AssetController#bulkTemplate | SERVICE - permission / eligibility enforced in the service
+AssetController#bulkValidate | SERVICE - permission / eligibility enforced in the service
 AssetController#countAssets | SERVICE - permission / eligibility enforced in the service
 AssetController#createAsset | SERVICE - permission / eligibility enforced in the service
 AssetController#deleteAsset | SERVICE - permission / eligibility enforced in the service
@@ -132,6 +135,7 @@ LeaveController#submitRequest | SELF - own data only (ownership checked in the s
 LeaveController#updateRequest | SELF - own data only (ownership checked in the service)
 MeController#accessCatalogue | OPEN - page requirements carry no user data; every signed-in user needs them
 MeController#myPermissions | SELF - own data only (ownership checked in the service)
+MyAllocationController#myAllocations | SELF - own data only (ownership checked in the service)
 MyFinancesController#compensationHistory | SELF - own data only (ownership checked in the service)
 MyFinancesController#ctcBreakdown | SELF - own data only (ownership checked in the service)
 MyRequestsController#myRequests | SELF - own data only (ownership checked in the service)
@@ -192,6 +196,8 @@ PolicyController#getAttachment | SERVICE - permission / eligibility enforced in 
 PolicyController#myPolicies | SERVICE - permission / eligibility enforced in the service
 PolicyController#pendingCount | SERVICE - permission / eligibility enforced in the service
 ProficiencyLevelController#listActive | OPEN - readable by any signed-in user (or public auth flow)
+ProfileChangeRequestController#mine | SELF - own data only (ownership checked in the service)
+ProfileController#getOwnSensitive | SELF - own data only (ownership checked in the service)
 ProfileController#getProfile | SELF - own data only (ownership checked in the service)
 ProfileController#getProfileForViewer | SERVICE - permission / eligibility enforced in the service
 ProfileController#getTimeline | SELF - own data only (ownership checked in the service)

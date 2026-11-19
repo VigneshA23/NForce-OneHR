@@ -13,8 +13,9 @@ import java.util.UUID;
  * carrying only what the My Project Allocations section shows. Deliberately has no employee id/name
  * (it is always the caller), no capacity totals and no warning fields.
  *
- * <p>{@code endDate} is the effective end: the {@code actualEndDate} when the allocation was released
- * early, otherwise the planned end date. {@code projectName}/{@code clientName} are null when the
+ * <p>{@code startDate}/{@code endDate} are the dates in force: the allocation's range (its end being the
+ * {@code actualEndDate} when released early), clipped to the project's current dates, or the project's own
+ * dates when the allocation no longer overlaps them — the same dates a manager sees for the project. {@code projectName}/{@code clientName} are null when the
  * project or its client is missing or untagged — the UI renders a placeholder, never an error.
  */
 @Getter

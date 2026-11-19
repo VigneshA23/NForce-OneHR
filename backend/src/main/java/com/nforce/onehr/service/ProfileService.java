@@ -1,5 +1,6 @@
 package com.nforce.onehr.service;
 
+import com.nforce.onehr.dto.OwnSensitiveProfileResponse;
 import com.nforce.onehr.dto.ProfileResponse;
 import com.nforce.onehr.dto.ProfileTimelineEvent;
 import com.nforce.onehr.dto.SetAvatarRequest;
@@ -11,6 +12,7 @@ import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.EffectivePermissionService;
+import com.nforce.onehr.security.SensitiveDataMasker;
 import com.nforce.onehr.util.RoleUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -22,7 +24,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -40,6 +44,9 @@ public class ProfileService {
     private final EmployeeManagerHistoryRepository historyRepository;
     private final AttendanceService attendanceService;
     private final EffectivePermissionService effectivePermissionService;
+    private final AuditService auditService;
+    private final AuditSnapshotSerializer auditSnapshot;
+    private final ProfileChangeRequestService profileChangeRequestService;
 
     // Not readOnly: isClockedIn() below can trigger a real write (flagging a stale open attendance
     // session as MISSING_CHECKOUT) — the same write AttendanceService#getToday already relies on,
@@ -48,9 +55,9 @@ public class ProfileService {
     @Transactional
     public ProfileResponse getProfile(String email) {
         User user = requireUser(email);
-        return employeeRepository.findById(user.getId())
+        return withPendingFlag(user, employeeRepository.findById(user.getId())
                 .map(emp -> toResponse(user, emp))
-                .orElse(toMinimalResponse(user));
+                .orElse(toMinimalResponse(user)));
     }
 
     // Read-only "View Profile" from the People Directory — any authenticated employee can look up
@@ -65,27 +72,88 @@ public class ProfileService {
         User viewer = requireUser(viewerEmail);
         User target = userRepository.findById(targetUserId)
                 .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
-        ProfileResponse response = employeeRepository.findById(target.getId())
-                .map(emp -> toResponse(target, emp))
-                .orElse(toMinimalResponse(target));
+        Employee emp = employeeRepository.findById(target.getId()).orElse(null);
+        ProfileResponse response = emp != null ? toResponse(target, emp) : toMinimalResponse(target);
 
         if (!hasSensitiveProfileAccess(viewer)) {
-            response.setDateOfBirth(null);
-            response.setPersonalEmail(null);
-            response.setAddress(null);
-            response.setPermanentAddress(null);
-            response.setEmergencyContactName(null);
-            response.setEmergencyContactPhone(null);
-            response.setEmergencyContactRelationship(null);
-            response.setMaritalStatus(null);
-            response.setPassportNumber(null);
-            response.setPassportExpiry(null);
-            response.setBankAccountNumber(null);
-            response.setBankName(null);
-            response.setBankIfsc(null);
-            response.setNationalId(null);
+            restrictSensitive(response, emp);
+        } else {
+            // Holders of employee_sensitive:VIEW see these two in full (the person's own profile masks them behind an eye button).
+            if (emp != null) {
+                response.setPassportNumber(emp.getPassportNumber());
+                response.setBankIfsc(emp.getBankIfsc());
+            }
+            // An unmasked view of someone else's sensitive data is itself an auditable event.
+            if (!viewer.getId().equals(target.getId())) auditSensitiveView(viewer, target, emp);
         }
         return response;
+    }
+
+    /**
+     * The caller's own bank account number, national ID, passport number and IFSC, unmasked: what the eye button on their profile
+     * reveals. It is the person's own data, but it is still an unmasked view of sensitive fields, so it is
+     * recorded in the audit log like any other (field names only, never values).
+     */
+    @Transactional(readOnly = true)
+    public OwnSensitiveProfileResponse getOwnSensitive(String email) {
+        User user = requireUser(email);
+        Employee emp = employeeRepository.findById(user.getId()).orElse(null);
+        if (emp == null) return new OwnSensitiveProfileResponse(null, null, null, null);
+        List<String> fields = new ArrayList<>();
+        addIfPresent(fields, "bankAccountNumber", emp.getBankAccountNumber());
+        addIfPresent(fields, "nationalId", emp.getNationalId());
+        addIfPresent(fields, "passportNumber", emp.getPassportNumber());
+        addIfPresent(fields, "bankIfsc", emp.getBankIfsc());
+        if (!fields.isEmpty()) {
+            auditService.log(user.getId(), "USER_SENSITIVE_DATA_VIEWED", user.getId(),
+                    null, auditSnapshot.toJson(Map.of("fields", fields)));
+        }
+        return new OwnSensitiveProfileResponse(emp.getBankAccountNumber(), emp.getNationalId(), emp.getPassportNumber(), emp.getBankIfsc());
+    }
+
+    /** Masks identifier-like values (last 4 kept) and removes the rest; the raw values come from the entity, never the already-masked response.
+     * {@code phone} is deliberately left alone: the directory shows it to every colleague as "Work Phone". */
+    private void restrictSensitive(ProfileResponse response, Employee emp) {
+        response.setSensitiveRestricted(true);
+        response.setDateOfBirth(null);
+        response.setPersonalEmail(null);
+        response.setAddress(null);
+        response.setPermanentAddress(null);
+        response.setEmergencyContactName(null);
+        response.setEmergencyContactPhone(null);
+        response.setEmergencyContactRelationship(null);
+        response.setMaritalStatus(null);
+        response.setPassportExpiry(null);
+        response.setBankName(null);
+        response.setBankIfsc(null);
+        response.setPassportNumber(emp != null ? SensitiveDataMasker.maskId(emp.getPassportNumber()) : null);
+        response.setBankAccountNumber(emp != null ? SensitiveDataMasker.maskId(emp.getBankAccountNumber()) : null);
+        response.setNationalId(emp != null ? SensitiveDataMasker.maskId(emp.getNationalId()) : null);
+    }
+
+    /** Field names only — the audit trail must never hold the sensitive values themselves. */
+    private void auditSensitiveView(User viewer, User target, Employee emp) {
+        if (emp == null) return;
+        List<String> fields = new ArrayList<>();
+        addIfPresent(fields, "dateOfBirth", emp.getDateOfBirth());
+        addIfPresent(fields, "personalEmail", emp.getPersonalEmail());
+        addIfPresent(fields, "address", emp.getAddress());
+        addIfPresent(fields, "permanentAddress", emp.getPermanentAddress());
+        addIfPresent(fields, "emergencyContact", emp.getEmergencyContactName());
+        addIfPresent(fields, "maritalStatus", emp.getMaritalStatus());
+        addIfPresent(fields, "passportNumber", emp.getPassportNumber());
+        addIfPresent(fields, "passportExpiry", emp.getPassportExpiry());
+        addIfPresent(fields, "bankAccountNumber", emp.getBankAccountNumber());
+        addIfPresent(fields, "bankName", emp.getBankName());
+        addIfPresent(fields, "bankIfsc", emp.getBankIfsc());
+        addIfPresent(fields, "nationalId", emp.getNationalId());
+        if (fields.isEmpty()) return;
+        auditService.log(viewer.getId(), "USER_SENSITIVE_DATA_VIEWED", target.getId(),
+                null, auditSnapshot.toJson(Map.of("fields", fields)));
+    }
+
+    private static void addIfPresent(List<String> fields, String name, Object value) {
+        if (value != null && !(value instanceof String s && s.isBlank())) fields.add(name);
     }
 
     // Exposed separately (not inferred from field nullness on the client) because a legitimate
@@ -97,10 +165,11 @@ public class ProfileService {
         return hasSensitiveProfileAccess(requireUser(viewerEmail));
     }
 
-    // employees:VIEW:ALL is seeded to exactly HR_ADMIN + SUPER_ADMIN (V225) — the roles this used
-    // to check by code — and is the authority that already gates the full employee master.
+    // employee_sensitive:VIEW:ALL (V296) is its own permission: holding the employee master
+    // (employees:VIEW:ALL) no longer implies seeing bank, ID, passport, DOB or personal contact.
+    // V296 copied it to every role that held employees:VIEW:ALL, so nobody lost access on rollout.
     private boolean hasSensitiveProfileAccess(User viewer) {
-        return effectivePermissionService.hasAuthority(viewer, "employees:VIEW:ALL");
+        return effectivePermissionService.hasAuthority(viewer, "employee_sensitive:VIEW:ALL");
     }
 
     @Transactional(readOnly = true)
@@ -171,13 +240,25 @@ public class ProfileService {
         if (req.getEmergencyContactRelationship() != null)
                                                 emp.setEmergencyContactRelationship(req.getEmergencyContactRelationship().trim());
         if (req.getPermanentAddress() != null) emp.setPermanentAddress(req.getPermanentAddress().trim());
-        if (req.getPassportNumber() != null)   emp.setPassportNumber(req.getPassportNumber().trim());
-        if (req.isClearPassportExpiry())       emp.setPassportExpiry(null);
-        else if (req.getPassportExpiry() != null) emp.setPassportExpiry(req.getPassportExpiry());
-        if (req.getBankAccountNumber() != null) emp.setBankAccountNumber(req.getBankAccountNumber().trim());
-        if (req.getBankName() != null)         emp.setBankName(req.getBankName().trim());
-        if (req.getBankIfsc() != null)         emp.setBankIfsc(req.getBankIfsc().trim());
-        if (req.getNationalId() != null)       emp.setNationalId(req.getNationalId().trim());
+        // Bank and government-ID fields never save directly: whatever actually differs from the
+        // current value is queued for HR approval (ProfileChangeRequestService) and written to the
+        // employee only when approved. Unchanged values are ignored, since the edit form resends them.
+        Map<String, String> sensitiveOld = new LinkedHashMap<>();
+        Map<String, String> sensitiveNew = new LinkedHashMap<>();
+        queueIfChanged(sensitiveOld, sensitiveNew, "passportNumber", emp.getPassportNumber(), req.getPassportNumber());
+        if (req.isClearPassportExpiry()) {
+            if (emp.getPassportExpiry() != null) {
+                sensitiveOld.put("passportExpiry", emp.getPassportExpiry().toString());
+                sensitiveNew.put("passportExpiry", null);
+            }
+        } else if (req.getPassportExpiry() != null && !req.getPassportExpiry().equals(emp.getPassportExpiry())) {
+            sensitiveOld.put("passportExpiry", emp.getPassportExpiry() != null ? emp.getPassportExpiry().toString() : null);
+            sensitiveNew.put("passportExpiry", req.getPassportExpiry().toString());
+        }
+        queueIfChanged(sensitiveOld, sensitiveNew, "bankAccountNumber", emp.getBankAccountNumber(), req.getBankAccountNumber());
+        queueIfChanged(sensitiveOld, sensitiveNew, "bankName", emp.getBankName(), req.getBankName());
+        queueIfChanged(sensitiveOld, sensitiveNew, "bankIfsc", emp.getBankIfsc(), req.getBankIfsc());
+        queueIfChanged(sensitiveOld, sensitiveNew, "nationalId", emp.getNationalId(), req.getNationalId());
 
         // fullName is derived, never client-set: join non-blank first/middle/last with single spaces.
         if (nameChanged) {
@@ -185,7 +266,24 @@ public class ProfileService {
         }
 
         employeeRepository.save(emp);
-        return toResponse(user, emp);
+        if (!sensitiveNew.isEmpty()) {
+            profileChangeRequestService.submit(user.getId(), sensitiveOld, sensitiveNew);
+        }
+        return withPendingFlag(user, toResponse(user, emp));
+    }
+
+    private static void queueIfChanged(Map<String, String> oldValues, Map<String, String> newValues,
+                                       String field, String current, String submitted) {
+        if (submitted == null) return;
+        String next = submitted.trim();
+        if (next.equals(current == null ? "" : current.trim())) return;
+        oldValues.put(field, current);
+        newValues.put(field, next);
+    }
+
+    private ProfileResponse withPendingFlag(User user, ProfileResponse response) {
+        response.setPendingSensitiveChange(profileChangeRequestService.hasPending(user.getId()));
+        return response;
     }
 
     private String deriveFullName(Employee emp) {
@@ -342,11 +440,11 @@ public class ProfileService {
                 .maritalStatus(emp.getMaritalStatus())
                 .emergencyContactRelationship(emp.getEmergencyContactRelationship())
                 .permanentAddress(emp.getPermanentAddress())
-                .passportNumber(emp.getPassportNumber())
+                .passportNumber(maskTrailing4(emp.getPassportNumber()))
                 .passportExpiry(emp.getPassportExpiry())
                 .bankAccountNumber(maskTrailing4(emp.getBankAccountNumber()))
                 .bankName(emp.getBankName())
-                .bankIfsc(emp.getBankIfsc())
+                .bankIfsc(maskTrailing4(emp.getBankIfsc()))
                 .nationalId(maskTrailing4(emp.getNationalId()))
                 .employeeCode(emp.getEmployeeCode())
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)

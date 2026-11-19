@@ -11,7 +11,7 @@ export const inputStyle: CSSProperties = {
   width: '100%', boxSizing: 'border-box',
 };
 export const labelStyle: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.08em' };
-export const th: CSSProperties = { textAlign: 'left', padding: '11px 16px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em', color: 'var(--txt-dim)', textTransform: 'uppercase', background: 'var(--raised)', borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap' };
+export const th: CSSProperties = { textAlign: 'left', padding: '11px 16px', fontSize: 10.5, fontWeight: 800, letterSpacing: '.09em', color: 'var(--brand)', textTransform: 'uppercase', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', whiteSpace: 'nowrap', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
 export const td: CSSProperties = { padding: '12px 16px', fontSize: 13, color: 'var(--txt)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 
 export const primaryBtn = (disabled = false): CSSProperties => ({

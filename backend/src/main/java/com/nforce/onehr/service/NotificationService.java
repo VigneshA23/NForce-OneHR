@@ -39,6 +39,7 @@ public class NotificationService {
         m.put("OVERTIME_REJECTED",                "HIGH");
         m.put("REGULARIZATION_REJECTED",          "HIGH");
         m.put("HELP_CONTENT_REJECTED",            "HIGH");
+        m.put("PROFILE_CHANGE_REJECTED",          "HIGH");
         // MEDIUM — attention needed, not urgent (routine approvals-pending and routine approved/
         // informational items both land here; neither is a red-flag event)
         m.put("EXPENSE_SUBMITTED",                "MEDIUM");  // goes to manager: action needed, routine
@@ -47,6 +48,8 @@ public class NotificationService {
         m.put("REGULARIZATION_SUBMITTED",         "MEDIUM");  // goes to approver: action needed, routine
         m.put("LEAVE_REQUEST_SUBMITTED",          "MEDIUM");  // goes to manager/HR/Super Admin: action needed, routine
         m.put("HELP_CONTENT_SUBMITTED",           "MEDIUM");  // goes to approver: action needed, routine
+        m.put("PROFILE_CHANGE_SUBMITTED",         "MEDIUM");  // goes to HR approver: action needed, routine
+        m.put("PROFILE_CHANGE_APPROVED",          "MEDIUM");
         m.put("HELPDESK_TICKET_CREATED",          "MEDIUM");  // goes to HR: action needed, routine
         m.put("HELPDESK_TICKET_REOPENED",         "MEDIUM");  // goes to HR/assignee: action needed, routine
         m.put("SKILL_REQUEST_SUBMITTED",          "MEDIUM");  // goes to HR: action needed, routine

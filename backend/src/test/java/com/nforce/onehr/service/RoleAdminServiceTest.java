@@ -45,6 +45,7 @@ class RoleAdminServiceTest {
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private com.nforce.onehr.security.ForceLogoutBroadcaster forceLogoutBroadcaster;
     @Mock private AuditLogRepository auditLogRepository;
+    @Mock private com.nforce.onehr.repository.RoleVersionRepository roleVersionRepository;
     @Spy private com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     // The real catalogue file: scope validation must be exercised against what production loads.
@@ -467,26 +468,173 @@ class RoleAdminServiceTest {
                 .beforeState(before).afterState(after).occurredAt(java.time.Instant.parse("2026-11-10T10:00:00Z")).build();
     }
 
+    private final UUID versionActor = UUID.randomUUID();
+
+    private com.nforce.onehr.entity.RoleVersion version(int no, String changeType, String name, java.util.List<String> perms,
+                                                        String createdAt, String reason) {
+        return com.nforce.onehr.entity.RoleVersion.builder().id(100L + no).roleId(custom.getId()).versionNo(no)
+                .changeType(changeType).actorId(versionActor).name(name).active(true).permissions(perms).reason(reason)
+                .createdAt(java.time.Instant.parse(createdAt)).build();
+    }
+
+    /** The fixture's table only answers reads; make the repository mock apply saveAll/deleteAll so a change is visible to the next read. */
+    @SuppressWarnings("unchecked")
+    private void persistGrantChanges() {
+        lenient().when(rolePermissionRepository.saveAll(any())).thenAnswer(inv -> {
+            for (RolePermission rp : (Iterable<RolePermission>) inv.getArgument(0)) if (!f.rows.contains(rp)) f.rows.add(rp);
+            return List.of();
+        });
+        lenient().doAnswer(inv -> {
+            ((Iterable<RolePermission>) inv.getArgument(0)).forEach(f.rows::remove);
+            return null;
+        }).when(rolePermissionRepository).deleteAll(any());
+    }
+
+    private com.nforce.onehr.entity.RoleVersion savedVersion() {
+        ArgumentCaptor<com.nforce.onehr.entity.RoleVersion> c = ArgumentCaptor.forClass(com.nforce.onehr.entity.RoleVersion.class);
+        verify(roleVersionRepository).save(c.capture());
+        return c.getValue();
+    }
+
     @Test
-    void history_expandsPermissionEdits_intoAddedAndRemoved_andOnlyForThisRole() {
-        UUID actor = UUID.randomUUID();
-        when(employeeRepository.findNamesByUserIds(any())).thenReturn(List.<Object[]>of(new Object[]{actor, "Asha Rao"}));
+    void history_isBuiltFromVersions_eachDiffedAgainstTheOneBefore_withMembershipChangesMergedIn() {
+        UUID actor = versionActor;
+        UUID member = UUID.randomUUID();
+        when(employeeRepository.findNamesByUserIds(any())).thenReturn(List.<Object[]>of(
+                new Object[]{actor, "Asha Rao"}, new Object[]{member, "Casey Lee"}));
+        when(roleVersionRepository.findByRoleIdOrderByVersionNoDesc(eq(custom.getId()), any())).thenReturn(List.of(
+                version(3, "PERMISSIONS", "Payroll", List.of("employees:VIEW:ALL", "roles:VIEW:ALL"), "2026-11-12T10:00:00Z", "Audit follow-up"),
+                version(2, "UPDATED", "Payroll", List.of("employees:VIEW:ALL", "leave:VIEW:ALL"), "2026-11-02T10:00:00Z", null),
+                version(1, "BASELINE", "Old", List.of("employees:VIEW:ALL", "leave:VIEW:ALL"), "2026-11-01T10:00:00Z", null)));
         when(auditLogRepository.findByActionInOrderByOccurredAtDesc(any(), any())).thenReturn(List.of(
-                audit(3, "ROLE_PERMISSIONS_UPDATED", actor,
-                        "{\"role\":\"CUSTOM_PAYROLL\",\"permissions\":[\"employees:VIEW:ALL\",\"leave:VIEW:ALL\"]}",
-                        "{\"role\":\"CUSTOM_PAYROLL\",\"permissions\":[\"employees:VIEW:ALL\",\"roles:VIEW:ALL\"]}"),
-                audit(2, "ROLE_PERMISSIONS_UPDATED", actor, "{\"role\":\"CUSTOM_OTHER\",\"permissions\":[]}",
-                        "{\"role\":\"CUSTOM_OTHER\",\"permissions\":[\"leave:VIEW:ALL\"]}"),
-                audit(1, "ROLE_UPDATED", actor, "{\"name\":\"Old\",\"description\":null}",
-                        "{\"role\":\"CUSTOM_PAYROLL\",\"name\":\"Payroll\",\"description\":null}")));
+                com.nforce.onehr.entity.AuditLog.builder().id(7L).action("ROLE_CHANGED").actorId(actor).targetId(member)
+                        .beforeState("{\"roles\":[\"EMPLOYEE\"]}").afterState("{\"roles\":[\"EMPLOYEE\",\"CUSTOM_PAYROLL\"]}")
+                        .occurredAt(java.time.Instant.parse("2026-11-10T10:00:00Z")).build(),
+                com.nforce.onehr.entity.AuditLog.builder().id(6L).action("ROLE_CHANGED").actorId(actor).targetId(member)
+                        .beforeState("{\"roles\":[\"EMPLOYEE\"]}").afterState("{\"roles\":[\"EMPLOYEE\",\"CUSTOM_OTHER\"]}")
+                        .occurredAt(java.time.Instant.parse("2026-11-09T10:00:00Z")).build()));
 
         var history = service.history(custom.getId());
 
-        assertEquals(2, history.size(), "another role's change must not leak in");
+        assertEquals(4, history.size(), "another role's membership change must not leak in");
+        // newest first: v3, the membership change, v2, v1
+        assertEquals(3, history.get(0).versionNo());
         assertEquals(List.of("roles:VIEW:ALL"), history.get(0).added());
         assertEquals(List.of("leave:VIEW:ALL"), history.get(0).removed());
+        assertEquals("Audit follow-up", history.get(0).reason());
         assertEquals("Asha Rao", history.get(0).actorName());
-        assertTrue(history.get(1).summary().contains("renamed"));
+        assertFalse(history.get(0).restorable(), "restoring the current state would be a no-op");
+        assertEquals("Member added: Casey Lee", history.get(1).summary());
+        assertNull(history.get(1).versionNo());
+        assertFalse(history.get(1).restorable(), "membership is audited, never restored");
+        assertTrue(history.get(2).summary().contains("renamed"));
+        assertTrue(history.get(2).restorable());
+        assertTrue(history.get(3).summary().startsWith("Baseline"));
+        assertEquals(List.of("employees:VIEW:ALL", "leave:VIEW:ALL"), history.get(3).added());
+    }
+
+    @Test
+    void aPermissionChange_isSavedAsANewVersion_withItsReason() {
+        persistGrantChanges();
+        when(roleVersionRepository.findTopByRoleIdOrderByVersionNoDesc(custom.getId()))
+                .thenReturn(Optional.of(version(3, "PERMISSIONS", "Payroll", List.of(), "2026-11-01T10:00:00Z", null)));
+
+        service.setPermissions(custom.getId(), List.of(new Grant("employees", "VIEW", "ALL")), 0, "Needed for payroll audit", "sa@test.com");
+
+        var saved = savedVersion();
+        assertEquals(4, saved.getVersionNo());
+        assertEquals("PERMISSIONS", saved.getChangeType());
+        assertEquals("Needed for payroll audit", saved.getReason());
+        assertEquals(List.of("employees:VIEW:ALL"), saved.getPermissions());
+        verify(auditService).log(any(), eq("ROLE_PERMISSIONS_UPDATED"), isNull(), anyString(), anyString());
+    }
+
+    @Test
+    void aChangeThatChangesNothing_savesNoVersion() {
+        persistGrantChanges();
+
+        service.setPermissions(custom.getId(), List.of(), 0, "no-op", "sa@test.com");
+
+        verify(roleVersionRepository, never()).save(any());
+    }
+
+    @Test
+    void restore_putsThePermissionsBack_andIsItselfANewAuditedVersion() {
+        persistGrantChanges();
+        f.grant(custom, "employees", "VIEW", "ALL");
+        f.grant(custom, "roles", "VIEW", "ALL"); // granted later; the restore must remove it
+        when(roleVersionRepository.findByRoleIdAndVersionNo(custom.getId(), 1)).thenReturn(Optional.of(
+                version(1, "BASELINE", "Payroll", List.of("employees:VIEW:ALL"), "2026-11-01T10:00:00Z", null)));
+        when(roleVersionRepository.findTopByRoleIdOrderByVersionNoDesc(custom.getId()))
+                .thenReturn(Optional.of(version(2, "PERMISSIONS", "Payroll", List.of("employees:VIEW:ALL", "roles:VIEW:ALL"), "2026-11-02T10:00:00Z", null)));
+
+        var result = service.restore(custom.getId(), 1, 0, "Rolling back a bad change", "sa@test.com");
+
+        assertTrue(result.skipped().isEmpty());
+        var saved = savedVersion();
+        assertEquals(3, saved.getVersionNo(), "a restore is a new version, history is never rewritten");
+        assertEquals("RESTORED", saved.getChangeType());
+        assertEquals(1, saved.getRestoredFromVersion());
+        assertEquals(List.of("employees:VIEW:ALL"), saved.getPermissions());
+        assertEquals("Rolling back a bad change", saved.getReason());
+        verify(auditService).log(any(), eq("ROLE_RESTORED"), isNull(), anyString(), anyString());
+        verify(auditService, never()).log(any(), eq("ROLE_PERMISSIONS_UPDATED"), any(), any(), any());
+    }
+
+    @Test
+    void restore_reportsGrantsThatNoLongerExist_andStillRestoresTheRest() {
+        persistGrantChanges();
+        when(roleVersionRepository.findByRoleIdAndVersionNo(custom.getId(), 1)).thenReturn(Optional.of(
+                version(1, "BASELINE", "Payroll", List.of("employees:VIEW:ALL", "retired_module:VIEW:ALL"), "2026-11-01T10:00:00Z", null)));
+        when(roleVersionRepository.findTopByRoleIdOrderByVersionNoDesc(custom.getId())).thenReturn(Optional.empty());
+
+        var result = service.restore(custom.getId(), 1, 0, null, "sa@test.com");
+
+        assertEquals(List.of("retired_module:VIEW:ALL"), result.skipped());
+        assertEquals(List.of("employees:VIEW:ALL"), savedVersion().getPermissions());
+    }
+
+    @Test
+    void restore_isSuperAdminOnly_evenForSomeoneWhoCanConfigureRoles() {
+        assertThrows(IllegalArgumentException.class, () -> service.restore(custom.getId(), 1, 0, null, "ua@test.com"));
+
+        verify(roleVersionRepository, never()).save(any());
+        verify(rolePermissionRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void restore_toTheStateTheRoleAlreadyHas_isRefused_soNoEmptyVersionIsCreated() {
+        f.grant(custom, "employees", "VIEW", "ALL");
+        when(roleVersionRepository.findByRoleIdAndVersionNo(custom.getId(), 1)).thenReturn(Optional.of(
+                version(1, "BASELINE", "Payroll", List.of("employees:VIEW:ALL"), "2026-11-01T10:00:00Z", null)));
+
+        assertThrows(IllegalArgumentException.class, () -> service.restore(custom.getId(), 1, 0, null, "sa@test.com"));
+        verify(roleVersionRepository, never()).save(any());
+    }
+
+    @Test
+    void restore_withAStaleRoleVersion_isRejected() {
+        custom.setVersion(3);
+
+        assertThrows(IllegalStateException.class, () -> service.restore(custom.getId(), 1, 2, null, "sa@test.com"));
+        verify(roleVersionRepository, never()).save(any());
+    }
+
+    @Test
+    void restore_ofAnUnknownVersion_isRejected() {
+        when(roleVersionRepository.findByRoleIdAndVersionNo(custom.getId(), 9)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalArgumentException.class, () -> service.restore(custom.getId(), 9, 0, null, "sa@test.com"));
+    }
+
+    @Test
+    void restore_cannotTouchSuperAdmin() {
+        when(roleVersionRepository.findByRoleIdAndVersionNo(f.superAdmin.getId(), 1)).thenReturn(Optional.of(
+                com.nforce.onehr.entity.RoleVersion.builder().roleId(f.superAdmin.getId()).versionNo(1).name("Super Admin")
+                        .active(true).permissions(List.of()).changeType("BASELINE").createdAt(java.time.Instant.now()).build()));
+
+        assertThrows(IllegalArgumentException.class, () -> service.restore(f.superAdmin.getId(), 1, 0, null, "sa@test.com"));
+        verify(roleVersionRepository, never()).save(any());
     }
 
     @Test

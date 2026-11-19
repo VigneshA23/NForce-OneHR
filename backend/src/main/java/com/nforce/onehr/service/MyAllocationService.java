@@ -47,6 +47,10 @@ import java.util.stream.Collectors;
  * labelled CLOSED, and sorted after the ACTIVE ones (then ON_HOLD, then CLOSED; within a status, CURRENT
  * before UPCOMING, then by start date). An ACTIVE project whose end date has passed already counts as
  * CLOSED, since the daily auto-close may not have run yet.
+ *
+ * <p>The dates shown follow the project's current dates, as a manager sees them on the Projects screen
+ * (open or closed): the allocation's range is clipped to the project's window, or the project's own
+ * window is shown when the two no longer overlap. See {@link #displayedRange}.
  */
 @Service
 @RequiredArgsConstructor
@@ -102,6 +106,36 @@ public class MyAllocationService {
         return a.getActualEndDate() != null ? a.getActualEndDate() : a.getEndDate();
     }
 
+    /** The dates to show on the card. */
+    record DateRange(LocalDate start, LocalDate end) {}
+
+    /**
+     * The dates to SHOW, kept in step with the project dates a manager sees on the Projects screen (a manager
+     * can move a project's dates after allocations were made). The allocation's own range (its end being the
+     * actualEndDate when released early) is clipped to the project's window; if the two do not overlap at all
+     * — e.g. the project was edited to end before the allocation starts — the project's own window is shown,
+     * exactly as the manager sees it. With no project end date the allocation's own dates are shown.
+     * Display only: whether an allocation is listed, and Current vs Upcoming, still follow the allocation's
+     * own dates, so a closed project's allocation stays visible.
+     */
+    static DateRange displayedRange(ProjectAllocation a, Project project) {
+        LocalDate start = a.getStartDate();
+        LocalDate end = effectiveEnd(a);
+        if (project == null || project.getEndDate() == null) {
+            return new DateRange(start, end);
+        }
+        LocalDate projectStart = project.getStartDate();
+        LocalDate projectEnd = project.getEndDate();
+        LocalDate clippedStart = projectStart != null && projectStart.isAfter(start) ? projectStart : start;
+        LocalDate clippedEnd = projectEnd.isBefore(end) ? projectEnd : end;
+        if (!clippedStart.isAfter(clippedEnd)) {
+            return new DateRange(clippedStart, clippedEnd);
+        }
+        return projectStart != null && !projectStart.isAfter(projectEnd)
+                ? new DateRange(projectStart, projectEnd)
+                : new DateRange(start, end);
+    }
+
     /**
      * The project's status as it should be shown today. An ACTIVE project whose end date has already
      * passed counts as CLOSED, because the daily sweep that actually flips it may not have run yet.
@@ -129,13 +163,14 @@ public class MyAllocationService {
     private static MyAllocationResponse toResponse(ProjectAllocation a, Project project,
                                                    Map<UUID, Client> clientsById, LocalDate today) {
         Client client = project != null && project.getClientId() != null ? clientsById.get(project.getClientId()) : null;
+        DateRange shown = displayedRange(a, project);
         return MyAllocationResponse.builder()
                 .id(a.getId())
                 .projectName(project != null ? project.getName() : null)
                 .clientName(client != null ? client.getName() : null)
                 .capacityPercent(a.getCapacityPercent())
-                .startDate(a.getStartDate())
-                .endDate(effectiveEnd(a))
+                .startDate(shown.start())
+                .endDate(shown.end())
                 .projectStatus(effectiveProjectStatus(project, today))
                 .status(a.getStartDate().isAfter(today) ? Status.UPCOMING : Status.CURRENT)
                 .build();

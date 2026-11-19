@@ -29,7 +29,7 @@ import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/acc
 import { KpiCard } from '../talent/DashboardTab';
 import { KpiTile } from '../LeavePage';
 import { AccessStatTiles } from '../UserManagementPage';
-import { Kpi } from '../HelpDeskAdminPage';
+import HelpDeskAdminPage, { Kpi } from '../HelpDeskAdminPage';
 import MyRequestsPage, { StatRing } from '../MyRequestsPage';
 import { Tile } from '../assets/shared';
 import { PolicyStatTiles } from '../PoliciesPage';
@@ -48,6 +48,7 @@ import ProfilePage from '../ProfilePage';
 import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
 import '../login.css';
+import '../myTeamTabs.css';
 import { DiwaliBurst } from '../auth/DiwaliBurst';
 import { MemberCard as MtMemberCard, Pill as MtPill } from '../my-team/MyTeamRedesign';
 import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTab as MtPenaltiesTab, AssignmentsTab as MtAssignmentsTab, SkillsGrowthTab as MtGrowthTab, AttentionPanel, LeaveBalanceLine as MtLeaveBalanceLine, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
@@ -79,7 +80,7 @@ import DirectoryPage from '../DirectoryPage';
 import UserManagementPage, { EditModal as UserEditModal } from '../UserManagementPage';
 import OrgSetupPage from '../OrgSetupPage';
 import HolidaysPage, { HolidayMonthCalendar } from '../HolidaysPage';
-import { EditModal as EmployeeEditModal } from '../EmployeeMasterPage';
+import EmployeeMasterPage, { EditModal as EmployeeEditModal } from '../EmployeeMasterPage';
 import type { EmployeeRecord } from '../../api/employees';
 
 const PAGES: { key: string; label: string; title: string; subtitle: string }[] = [
@@ -109,6 +110,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
   { key: 'login-diwali', label: 'Login: cracker lights', title: 'Login: cracker lights', subtitle: 'Click Sign in to play the effect inside the card (sample only).' },
+  { key: 'team-tabs', label: 'My Team: Section tabs', title: 'My Team: Section tabs', subtitle: 'The section tabs inside a card container.' },
   { key: 'team-member-cards', label: 'My Team: Member cards', title: 'My Team: Member cards', subtitle: 'Roster cards with the compact leave balance. Click it to see the breakdown.' },
   { key: 'team-effort', label: 'My Team: Efforts / Punctuality', title: 'My Team: Efforts and Punctuality', subtitle: 'The real tab, fed with sample data.' },
   { key: 'team-negligence', label: 'My Team: Negligence', title: 'My Team: Negligence', subtitle: 'The real tab, fed with sample data.' },
@@ -121,6 +123,8 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'bench-page', label: 'Bench Management (full page)', title: 'Bench Management', subtitle: 'All five tabs with sample data (HR view). Saving, marking and ending bench only change this preview.' },
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
+  { key: 'employee-master-page', label: 'Employee Master (full page)', title: 'Employee Master', subtitle: 'The real page with sample employees and the themed table header.' },
+  { key: 'hr-requests-page', label: 'HR Service Requests (full page)', title: 'HR Service Requests', subtitle: 'The real page with sample tickets, the themed tab card and header.' },
   { key: 'user-edit', label: 'Edit User popup (Access)', title: 'User Management: Edit popup', subtitle: 'Open the popup for an active or an inactive user. Saving only changes this preview.' },
   { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
   { key: 'create-employee-steps', label: 'Create Employee (all 4 steps)', title: 'Create Employee: all four steps', subtitle: 'Pick any step, and the result screen, to see the layout with sample values. Nothing is saved, and the real wizard still checks each step before moving on.' },
@@ -805,6 +809,13 @@ function TeamMemberCardsMock() {
   );
 }
 
+function TeamTabsMock() {
+  // Mock only: the My Team section tabs inside their card container.
+  const tabs = ['Overview', 'Efforts / Punctuality', 'Negligence', 'Regularize & Cancel Penalties', 'Employee Assignments', 'Performance', 'Capacity', 'Reports'].map(l => ({ key: l, label: l }));
+  const [active, setActive] = useState('Overview');
+  return <TabBar ariaLabel="My Team sections" className="nf-tabs-card" style={{ marginBottom: 20 }} tabs={tabs} active={active} onChange={setActive} />;
+}
+
 function AttentionMock() {
   const [items, setItems] = useState<ApprovalItem[]>([]);
   const [ready, setReady] = useState(false);
@@ -1250,6 +1261,70 @@ function EmployeeEditMock() {
   );
 }
 
+function EmployeeMasterMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample employee list and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const names = ['Aanuj Reddy K', 'Abbas DarubaiGari', 'Abuzar Siddiqui', 'Anil Kumar Ramtenki', 'Meera Iyer', 'Rohith Reddy', 'Sneha Priya', 'Vikram Singh', 'Ananya Das', 'Karthik V', 'Priya Sharma', 'Sumanth G'];
+    const depts = ['Engineering', 'Engineering', 'Finance', 'Engineering', 'Design', 'Sales'];
+    const list = names.map((n, i) => ({
+      userId: 'u' + i, employeeCode: 'NF-2026' + (1030 - i), fullName: n, email: n.toLowerCase().replace(/[^a-z]/g, '.') + '@nforceone.com', role: 'EMPLOYEE', active: i !== 7,
+      businessUnitId: 'b1', businessUnitName: 'Technology', departmentId: 'd' + (i % 6), departmentName: depts[i % 6], designationId: i === 1 ? null : 'g1', designationName: i === 1 ? null : ['Junior Sales Engineer', 'Software Engineer', 'Backend Developer', 'QA Engineer'][i % 4],
+      locationId: 'l1', locationName: ['Hyderabad', 'Bangalore', 'Vishakhapatnam'][i % 3], shiftId: null, shiftName: null, employmentType: 'FULL_TIME', workMode: ['ONSITE', 'HYBRID', 'ONSITE'][i % 3], joiningDate: '2026-04-12',
+      currentManager: i % 4 === 0 ? null : { userId: 'm1', fullName: ['Vignesh Appani', 'Narendra Reddy', 'Rohit Shivramwar'][i % 3] },
+    }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input).split('?')[0];
+      if (url.endsWith('/employees') && (!init?.method || init.method === 'GET')) return json(list);
+      if (/\/(business-units|departments|designations|locations)$/.test(url)) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <EmployeeMasterPage /> : null;
+}
+
+function HrRequestsMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample HR Help Desk tickets and a Super Admin session; everything is restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString(); };
+    const names = ['Ramesh A', 'Lalith Kumar Ratnala', 'Abuzar Siddiqui', 'Sri vidya', 'Praveen Gurram', 'Sanjukta', 'Vyshnavi Guthala'];
+    const cats = ['Payroll query', 'Leave policy', 'Laptop issue', 'ID card', 'Benefits', 'Attendance correction', 'Other'];
+    const st = ['OPEN', 'IN_PROGRESS', 'OPEN', 'RESOLVED', 'IN_PROGRESS', 'CLOSED', 'OPEN'];
+    const tickets = names.map((n, i) => ({
+      id: 't' + i, ticketNumber: 'HD-' + (1001 + i), categoryName: cats[i], status: st[i], priority: 'MEDIUM', employeeUserId: 'u' + i, employeeName: n,
+      assignedTo: i % 2 ? 'a1' : null, assignedToName: i % 2 ? 'Hr Admin' : null, replyCount: i, satisfactionRating: null, createdAt: day(i + 2), updatedAt: day(i),
+    }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const path = url.split('?')[0];
+      if (path.endsWith('/api/hr/helpdesk/dashboard')) return json({ openCount: 3, inProgressCount: 2, resolvedCount: 1, closedCount: 1 });
+      if (path.endsWith('/api/hr/helpdesk/agents')) return json([{ userId: 'a1', name: 'Hr Admin', active: true }]);
+      if (path.endsWith('/api/hr/helpdesk')) return json({ content: tickets, totalElements: tickets.length, totalPages: 1, number: 0, size: 10 });
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    setReady(true);
+    return () => {
+      window.fetch = prevFetch;
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+    };
+  }, []);
+  return ready ? <HelpDeskAdminPage /> : null;
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -1577,7 +1652,7 @@ function ApprovalsMock() {
       if (url.endsWith('/org-dashboard')) return json({ directReportCount: people.length, teamJoiners: [], directReports: people.map(([userId, fullName, employeeCode]) => ({ userId, fullName, employeeCode, designationName: null, departmentName: null, active: true })) });
       return prevFetch(input, init);
     }) as typeof window.fetch;
-    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' } });
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'hr@example.com', mustChangePassword: false, role: 'HR_ADMIN' }, permissions: { permissions: { leave: { APPROVE: ['TEAM'] }, regularization: { APPROVE: ['TEAM'] }, expenses: { APPROVE: ['TEAM'] }, assets: { APPROVE: ['TEAM'] }, attendance_requests: { APPROVE: ['TEAM'] }, overtime: { APPROVE: ['TEAM'] }, hr_help_content: { APPROVE: ['TEAM'] } } } as never });
     setReady(true);
     return () => {
       window.fetch = prevFetch;
@@ -2055,6 +2130,12 @@ function Tiles({ page }: { page: string }) {
       return <TeamTodayMock />;
     case 'team-member-cards':
       return <TeamMemberCardsMock />;
+    case 'hr-requests-page':
+      return <HrRequestsMock />;
+    case 'employee-master-page':
+      return <EmployeeMasterMock />;
+    case 'team-tabs':
+      return <TeamTabsMock />;
     case 'login-diwali':
       return <LoginDiwaliMock />;
     case 'team-effort':

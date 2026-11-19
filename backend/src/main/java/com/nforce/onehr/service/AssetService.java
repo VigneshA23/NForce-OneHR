@@ -218,6 +218,35 @@ public class AssetService {
         if (assetRepo.existsByAssetTag(req.getAssetTag())) {
             throw new IllegalArgumentException("Asset tag already exists: " + req.getAssetTag());
         }
+        Asset asset = assetRepo.save(newAvailableAsset(req));
+        UUID actorId = requireActor(actorEmail).getId();
+        auditService.log(actorId, "ASSET_CREATED", actorId);
+        return toAssetResponse(asset);
+    }
+
+    /** Gate for the bulk-import endpoints (template / validate / import) — same permission as single create. */
+    public void requireCanCreate(String actorEmail) {
+        requireAuthority(actorEmail, CREATE_ALL);
+    }
+
+    /**
+     * Bulk Add: inserts every already-validated request in ONE transaction (any failure — including a
+     * concurrent insert tripping the asset_tag unique constraint — rolls the whole batch back) and
+     * writes a single bulk audit event instead of one ASSET_CREATED per row.
+     */
+    @Transactional
+    public int bulkCreateAssets(List<CreateAssetRequest> reqs, String actorEmail) {
+        requireAuthority(actorEmail, CREATE_ALL);
+        List<Asset> saved = assetRepo.saveAll(reqs.stream().map(this::newAvailableAsset).toList());
+        UUID actorId = requireActor(actorEmail).getId();
+        auditService.log(actorId, "ASSETS_BULK_CREATED", actorId, null, auditSnapshot.toJson(Map.of(
+                "count", saved.size(),
+                "assetTags", saved.stream().map(Asset::getAssetTag).toList())));
+        return saved.size();
+    }
+
+    // Shared by createAsset and bulkCreateAssets so both follow the same persistence rules.
+    private Asset newAvailableAsset(CreateAssetRequest req) {
         AssetCategory category = categoryRepo.findById(req.getCategoryId())
                 .orElseThrow(() -> new IllegalArgumentException("Unknown asset category"));
         Location location = req.getLocationId() != null
@@ -225,7 +254,7 @@ public class AssetService {
                         .orElseThrow(() -> new IllegalArgumentException("Unknown location"))
                 : null;
 
-        Asset asset = Asset.builder()
+        return Asset.builder()
                 .assetTag(req.getAssetTag())
                 .category(category)
                 .brand(req.getBrand())
@@ -238,10 +267,6 @@ public class AssetService {
                 .status("AVAILABLE")
                 .location(location)
                 .build();
-        asset = assetRepo.save(asset);
-        UUID actorId = requireActor(actorEmail).getId();
-        auditService.log(actorId, "ASSET_CREATED", actorId);
-        return toAssetResponse(asset);
     }
 
     @Transactional

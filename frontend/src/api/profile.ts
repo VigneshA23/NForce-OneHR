@@ -45,6 +45,10 @@ export interface ProfileData {
   bankName: string | null;
   bankIfsc: string | null;
   nationalId: string | null;            // masked
+  /** True when the viewer lacks employee_sensitive:VIEW, so sensitive fields were masked or removed. */
+  sensitiveRestricted?: boolean;
+  /** True while this employee's own bank / government-ID edit is waiting for HR approval. */
+  pendingSensitiveChange?: boolean;
 
   // Job tab — read-only, HR-managed
   jobCode: string | null;
@@ -126,7 +130,15 @@ async function handle<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+/** The caller's own values that the profile shows masked, unmasked. Fetched on demand by the eye button; audit-logged server-side. */
+export interface OwnSensitiveProfile { bankAccountNumber: string | null; nationalId: string | null; passportNumber: string | null; bankIfsc: string | null; }
+
 export const profileApi = {
+  /** Own bank account number, national ID, passport number and IFSC in full (recorded in the audit log). */
+  sensitive: (token: string) =>
+    fetch(`${BASE}/sensitive`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(handle<OwnSensitiveProfile>),
+
   get: (token: string) =>
     fetch(BASE, { headers: { Authorization: `Bearer ${token}` } })
       .then(handle<ProfileData>),

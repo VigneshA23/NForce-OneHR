@@ -23,7 +23,7 @@
 /* ── tables ── */
 .nf-ob-card { overflow: hidden; border-radius: 18px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 6px 22px rgba(16, 24, 40, .06); }
 .nf-ob-table { width: 100%; border-collapse: separate; border-spacing: 0; }
-.nf-ob-table th { padding: 12px 18px; text-align: left; white-space: nowrap; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-dim); background: var(--raised); border-bottom: 1px solid var(--line); }
+.nf-ob-table th { padding: 13px 18px; text-align: left; white-space: nowrap; font-size: 10.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--brand); background: color-mix(in srgb, var(--brand) 7%, var(--raised)); border-bottom: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line)); }
 .nf-ob-table td { padding: 12px 18px; font-size: 13px; color: var(--txt-mut); border-bottom: 1px solid var(--line); vertical-align: middle; transition: background .15s; }
 .nf-ob-table tbody tr:last-child td { border-bottom: none; }
 .nf-ob-table tbody tr.is-click { cursor: pointer; }

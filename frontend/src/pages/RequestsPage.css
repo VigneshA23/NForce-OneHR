@@ -359,14 +359,14 @@
 .nf-rq-table th {
   padding: 12px 16px;
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .06em;
+  font-weight: 800;
+  letter-spacing: .09em;
   text-transform: uppercase;
   text-align: left;
   white-space: nowrap;
-  color: var(--txt-mut);
-  background: var(--rq-head-bg);
-  border-bottom: 1px solid var(--line);
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 7%, var(--raised));
+  border-bottom: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
 }
 .nf-rq-table th.nf-rq-th-actions { width: 1%; text-align: right; }
 .nf-rq-table td {
@@ -389,7 +389,7 @@
   background: var(--panel);
   box-shadow: -8px 0 8px -8px rgba(0, 0, 0, .12);
 }
-.nf-rq-table th.nf-rq-th-actions { background: var(--rq-head-bg); box-shadow: none; }
+.nf-rq-table th.nf-rq-th-actions { background: color-mix(in srgb, var(--brand) 7%, var(--raised)); box-shadow: none; }
 .nf-rq-table tbody tr:hover td.nf-rq-td-actions { background: color-mix(in srgb, var(--brand) 4%, var(--panel)); }
 .nf-rq-row-actions { display: inline-flex; align-items: center; gap: 6px; }
 .nf-rq-table tbody tr { cursor: pointer; transition: background-color .12s; }
