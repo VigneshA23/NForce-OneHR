@@ -8,12 +8,18 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /**
  * US-C08 (ONEHR-614), Phase 3 — the payroll run: generates a DRAFT batch of payslips for a pay
@@ -98,13 +104,36 @@ import java.util.stream.Collectors;
  *       from CTC, live outside the structure's own component list — US-C29's gratuity provision is
  *       a separate ledger, not a payslip line item). BALANCING_REMAINDER = {@code annual CTC −
  *       sum(every other EARNING-type component computed so far)}.</li>
- *   <li><b>PF, Gratuity, Professional Tax and TDS are deliberately NOT computed here</b> — confirmed
- *       why, not just deferred on a guess: the real PF formula is conditional/capped
- *       ({@code IF CTC<180000, (CTC−HRA)×12%, else a flat capped amount}), which none of US-C01's
- *       four calc types can express, and Gratuity/PT/TDS have their own separate mechanisms. This
- *       is exactly Decision #5 (which mechanism owns each statutory deduction) still being open —
- *       this story correctly stops at the four calc types' reach rather than guessing a formula
- *       for something it structurally can't represent yet.</li>
+ *   <li><b>PF, ESI and Professional Tax ARE computed, as of US-C13 Phase 3</b> — by
+ *       {@link StatutoryDeductionService}, called right after the ad-hoc deduction installment loop
+ *       below, reading whichever {@link StatutoryRule} version was effective for this cycle's own
+ *       end date. PF Employee = {@code 12% × Basic} (this payslip's own, already-prorated Basic —
+ *       read back from the structure component literally named "Basic", not re-derived from annual
+ *       CTC), flat-capped at 12% of a wage ceiling that itself changed mid-2026 (₹15,000 before 17
+ *       Sep 2026 per the Code on Social Security 2020 notification, ₹25,000 from the employee's
+ *       October 2026 payslip onward — confirmed to the rupee against a real payslip: ₹19,058 Basic
+ *       × 12% = ₹2,286.96 → ₹2,287). This supersedes an earlier, wrong {@code (CTC−HRA)×12%}
+ *       reading (from a Keka screenshot, under the OLD ceiling) that real post-revision payslips
+ *       disproved. The one-cycle-lag question this note used to flag as "observed but not yet
+ *       HR-confirmed" IS resolved — Rohit confirmed directly it was a one-off manual override
+ *       ("we did the override thats why this had happened, going forward it will consider the
+ *       actual basic"), not a standing rule, so PF reads the CURRENT cycle's Basic. ESI uses an
+ *       industry-standard default (0.75% employee, ₹21,000 monthly eligibility ceiling — below it,
+ *       {@code grossPay × rate}; above it, not deducted at all) flagged as a best-effort default,
+ *       not yet HR-confirmed. Professional Tax is country-level only, not per-state, because
+ *       {@code Location.state} is null on every real location today — a real data gap, not a design
+ *       choice. <b>Gratuity and TDS remain deliberately NOT computed</b>: Gratuity is an
+ *       employer-side accrual that's never a payslip line item (needs its own provision ledger,
+ *       US-C29, unbuilt); TDS needs full annual income-tax slab computation across other income and
+ *       exemptions (Phase 5/US-C14, unbuilt) — {@code cap}/{@code useLowerOfCap} below were reserved
+ *       for it and still aren't applied to anything.
+ *       <p><b>None of PF/ESI/PT's numbers — rates, ceilings, the flat PT amount — are hardcoded as
+ *       Java constants.</b> They live in {@link StatutoryRule} (US-C13): HR edits them (rate,
+ *       ceiling, whatever else a slab needs) through that story's admin UI as effective-dated,
+ *       versioned {@code slabConfig} JSON, and the computation reads the row effective for the
+ *       payslip's own period — the same way a {@link com.nforce.onehr.entity.SalaryStructureComponent}'s
+ *       percentage is an HR-entered value, never a constant in this class. A rate change must be a
+ *       data change HR makes through the UI, never a deploy.</li>
  *   <li><b>cap/useLowerOfCap are NOT applied to the paid amount in this story.</b> They read as
  *       exemption-calculation fields for TDS (a Phase 5/US-C14 concern, unbuilt), not as a ceiling
  *       on take-home pay — applying them here risked silently underpaying someone on a guessed
@@ -146,16 +175,37 @@ public class PayrollRunService {
     private final PayrollProrationService payrollProrationService;
     private final ApprovalRuleEvaluationService approvalRuleEvaluationService;
     private final AdHocPaymentRepository adHocPaymentRepository;
+    private final RecurringAdHocPaymentRuleRepository recurringAdHocPaymentRuleRepository;
     private final AdHocDeductionRepository adHocDeductionRepository;
     private final AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     private final SalaryHoldRepository salaryHoldRepository;
     private final PayrollRunReviewService payrollRunReviewService;
     private final SalaryStructureResolutionService salaryStructureResolutionService;
+    private final StatutoryDeductionService statutoryDeductionService;
+    private final ArrearsService arrearsService;
+    private final SalaryComponentRepository salaryComponentRepository;
+    private final EmployeeRepository employeeRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
+    private final PayslipService payslipService;
+    private final PayRegisterExcelService payRegisterExcelService;
+    private final PayrollRunRollbackRepository payrollRunRollbackRepository;
 
-    @Transactional
+    // Default-timeout (30s, see application.yml) is sized for this app's normal transactions,
+    // which are short and single-method. This one isn't: it loops once per included employee,
+    // and each iteration makes ~10-15 sequential round trips (LOP recompute, review-item
+    // generation, proration, structure/line-item writes) against the same shared Neon pooled
+    // endpoint — so its real cost scales with employee count, not with "one request." Even two
+    // employees were enough to trip the 30s ceiling on an ordinary (not even unusually slow)
+    // round-trip pace. Overridden here rather than raising the global default, which would blunt
+    // real-stall protection for every other, genuinely short, transaction in the app.
+    // Bumped 180->600 (2026-11-19): even 180s was observed timing out mid-regenerate for just 11
+    // employees against this endpoint on a slow day — this is a stopgap to unblock testing, not a
+    // real fix. The real fix is batching this loop's per-employee round trips (bulk-fetch LOP/
+    // proration/structure data for every included employee up front, outside the loop) so the
+    // round-trip count stops scaling with employee count at all; worth doing if this recurs.
+    @Transactional(timeout = 600)
     public PayrollRunResponse generateDraft(GenerateDraftRequest req, String actorEmail) {
         PayGroup payGroup = payGroupRepository.findById(req.getPayGroupId())
                 .orElseThrow(() -> new NoSuchElementException("Pay group not found: " + req.getPayGroupId()));
@@ -202,17 +252,50 @@ public class PayrollRunService {
         // regenerate to apply. PAYOUT-type holds do NOT exclude — they're processed normally and
         // only intercepted later, at disburse() time.
         Set<UUID> heldEmployeeIds = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(run.getId(), SalaryHoldType.PROCESSING);
-        List<EmployeeCompensation> included = compensations.stream()
-                .filter(comp -> !heldEmployeeIds.contains(comp.getEmployeeId()))
-                .collect(Collectors.toList());
 
-        // US-C22/US-C23: a held employee never goes through buildPayslip this regenerate, so their
-        // review items (from a PRIOR regenerate, before the hold existed) would otherwise linger
-        // forever as stale PENDING rows — permanently blocking submit() for a step that no longer
-        // even applies to them. Wiped explicitly; harmless no-op when there's nothing to delete.
-        for (UUID heldEmployeeId : heldEmployeeIds) {
-            payrollRunReviewService.deleteItemsForEmployee(run.getId(), heldEmployeeId);
+        // A compensation row effective-dated at window.end() doesn't guarantee the employee was
+        // actually employed THROUGH this window — their joining date can sit after it (comp set up
+        // ahead of a future start) or their last working day before it (comp never closed out after
+        // exit). Either way buildPayslip's own PayrollProrationService#recompute call would throw
+        // IllegalArgumentException for them — and since generateDraft is one @Transactional method,
+        // that one employee rolled back payslip generation for EVERY employee in the run. Excluded
+        // up front instead, the same way heldEmployeeIds already is, rather than letting it blow up.
+        Map<UUID, Employee> employeesById = employeeRepository
+                .findAllById(compensations.stream().map(EmployeeCompensation::getEmployeeId).collect(Collectors.toList()))
+                .stream().collect(Collectors.toMap(Employee::getUserId, e -> e));
+        List<EmployeeCompensation> included = new ArrayList<>();
+        Set<UUID> excludedByWindowIds = new HashSet<>();
+        for (EmployeeCompensation comp : compensations) {
+            if (heldEmployeeIds.contains(comp.getEmployeeId())) continue;
+            Employee employee = employeesById.get(comp.getEmployeeId());
+            LocalDate joiningDate = employee == null ? null : employee.getJoiningDate();
+            LocalDate exitDate = employee == null ? null : employee.getLastWorkingDay();
+            boolean employedThroughWindow = employee != null
+                    && !joiningDate.isAfter(window.end()) && (exitDate == null || !exitDate.isBefore(window.start()));
+            if (employedThroughWindow) {
+                included.add(comp);
+            } else {
+                excludedByWindowIds.add(comp.getEmployeeId());
+            }
         }
+
+        // US-C22/US-C23: a held or not-actually-employed-this-cycle employee never goes through
+        // buildPayslip this regenerate, so their review items (from a PRIOR regenerate, before the
+        // hold existed or before their exit date was recorded) would otherwise linger forever as
+        // stale PENDING rows — permanently blocking submit() for a step that no longer even applies
+        // to them. Wiped explicitly; harmless no-op when there's nothing to delete.
+        for (UUID excludedEmployeeId : Stream.concat(heldEmployeeIds.stream(), excludedByWindowIds.stream()).collect(Collectors.toSet())) {
+            payrollRunReviewService.deleteItemsForEmployee(run.getId(), excludedEmployeeId);
+        }
+
+        // Recurring ad-hoc payment rules (e.g. a standing monthly Food Allowance) — applied BEFORE
+        // the buildPayslip loop below, which is what actually turns an AdHocPayment row into a
+        // payslip line item by reading adHocPaymentRepository.findByPayrollRunIdAndEmployeeId per
+        // employee. Safe on a regenerate: skips employees who already have this exact component in
+        // this run (AdHocPayment rows aren't wiped on regenerate — see that class's own Javadoc),
+        // so it can never double an employee up across repeated regenerates of the same run.
+        applyActiveRecurringAdHocPaymentRules(run, payGroup.getId(),
+                included.stream().map(EmployeeCompensation::getEmployeeId).collect(Collectors.toList()));
 
         BigDecimal totalGross = BigDecimal.ZERO;
         BigDecimal totalDeductions = BigDecimal.ZERO;
@@ -232,6 +315,39 @@ public class PayrollRunService {
         auditService.log(actor.getId(), "PAYROLL_RUN_DRAFT_GENERATED", run.getId(), null, auditSnapshot.toJson(runSnapshot(run)));
 
         return toRunResponse(run);
+    }
+
+    /** One {@code findEmployeeIdsByPayrollRunIdAndComponentName} and one {@code saveAll} per
+     *  active rule — not a per-employee round trip — same batching discipline as {@code
+     *  AdHocPaymentService#bulkAdd}, which this mirrors (that one is actor-triggered from the Run
+     *  console; this one is system-triggered from every generateDraft call). */
+    private void applyActiveRecurringAdHocPaymentRules(PayrollRun run, UUID payGroupId, List<UUID> employeeIds) {
+        List<RecurringAdHocPaymentRule> rules = recurringAdHocPaymentRuleRepository.findActiveForPayGroup(payGroupId);
+        if (rules.isEmpty() || employeeIds.isEmpty()) return;
+
+        LocalDateTime addedAt = LocalDateTime.now();
+        List<AdHocPayment> toCreate = new ArrayList<>();
+        for (RecurringAdHocPaymentRule rule : rules) {
+            Set<UUID> alreadyCovered = new HashSet<>(
+                    adHocPaymentRepository.findEmployeeIdsByPayrollRunIdAndComponentName(run.getId(), rule.getComponentName()));
+            for (UUID employeeId : employeeIds) {
+                if (alreadyCovered.contains(employeeId)) continue;
+                toCreate.add(AdHocPayment.builder()
+                        .payrollRun(run)
+                        .employeeId(employeeId)
+                        .componentId(rule.getComponentId())
+                        .componentName(rule.getComponentName())
+                        .componentType(rule.getComponentType())
+                        .amount(rule.getAmount())
+                        .reason(rule.getReason())
+                        .addedBy(rule.getCreatedBy())
+                        .addedAt(addedAt)
+                        .build());
+            }
+        }
+        if (!toCreate.isEmpty()) {
+            adHocPaymentRepository.saveAll(toCreate);
+        }
     }
 
     @Transactional
@@ -352,17 +468,32 @@ public class PayrollRunService {
             adHocDeductionInstallmentRepository.delete(installment);
         }
 
+        User actor = requireActor(actorEmail);
         String before = auditSnapshot.toJson(runSnapshot(run));
         run.setStatus(PayrollRunStatus.DRAFT);
         run.setPendingApprovalStage(null);
         run.setLastRolledBackAt(LocalDateTime.now());
         run.setLastRollbackReason(req.getReason());
+        run.setLastRolledBackBy(actor.getId());
         run = payrollRunRepository.save(run);
 
-        User actor = requireActor(actorEmail);
+        payrollRunRollbackRepository.save(PayrollRunRollback.builder()
+                .payrollRunId(run.getId()).reason(req.getReason()).rolledBackBy(actor.getId())
+                .rolledBackAt(run.getLastRolledBackAt()).build());
+
         auditService.log(actor.getId(), "PAYROLL_RUN_TRANSITION", run.getId(), before, auditSnapshot.toJson(runSnapshot(run)));
 
         return toRunResponse(run);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PayrollRunRollbackResponse> listRollbackHistory(UUID runId) {
+        requireRun(runId);
+        return payrollRunRollbackRepository.findByPayrollRunIdOrderByRolledBackAtDesc(runId).stream()
+                .map(r -> PayrollRunRollbackResponse.builder()
+                        .id(r.getId()).reason(r.getReason()).rolledBackBy(r.getRolledBackBy()).rolledBackAt(r.getRolledBackAt())
+                        .build())
+                .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
@@ -391,6 +522,146 @@ public class PayrollRunService {
         Payslip payslip = payslipRepository.findByPayrollRunIdAndEmployeeId(runId, employeeId)
                 .orElseThrow(() -> new NoSuchElementException("No payslip for employee " + employeeId + " in run " + runId));
         return toPayslipResponse(payslip, payslipLineItemRepository.findByPayslipId(payslip.getId()));
+    }
+
+    /** A period is the {@code yyyy-MM} of the cycle's END date — same convention {@link
+     * PayslipService} itself uses, so this run's own cycleEnd is all that's needed to find the
+     * matching self-service payslip for this run's own employee. */
+    @Transactional(readOnly = true)
+    public PayslipService.PayslipFile getPayslipPdf(UUID runId, UUID employeeId, String actorEmail) {
+        PayrollRun run = requireRun(runId);
+        return payslipService.getPayslipPdf(actorEmail, employeeId, YearMonth.from(run.getCycleEnd()).toString());
+    }
+
+    /**
+     * Centralized "Distribute Payslips" action on the Payslips tab — one call covers every
+     * payslip in the run (or an explicit subset), never a per-employee send button. Only valid
+     * once the run is APPROVED or DISBURSED — the same visibility floor {@link PayslipService}
+     * itself enforces, so distribution can never run ahead of what's actually renderable.
+     *
+     * <p>PORTAL sets {@link Payslip#isReleased()} true in bulk — the real gate {@link
+     * com.nforce.onehr.repository.PayslipRepository#findVisibleForEmployee} reads, so this is what
+     * actually makes a payslip appear under My Finance (nothing does that automatically anymore).
+     * EMAIL loops the same {@link PayslipService#sendPayslipEmail} a single-employee send always
+     * used, one employee at a time inside its own try/catch, so one bad email address can't abort
+     * the rest of the batch.
+     */
+    @Transactional
+    public DistributePayslipsResponse distributePayslips(UUID runId, DistributePayslipsRequest req, String actorEmail) {
+        PayrollRun run = requireRun(runId);
+        if (!PayrollRunStatus.APPROVED.equals(run.getStatus()) && !PayrollRunStatus.DISBURSED.equals(run.getStatus())) {
+            throw new IllegalStateException("Payslips can only be distributed for an Approved or Disbursed run (currently " + run.getStatus() + ")");
+        }
+
+        List<UUID> targetIds = (req.getEmployeeIds() != null && !req.getEmployeeIds().isEmpty())
+                ? req.getEmployeeIds()
+                : payslipRepository.findByPayrollRunId(runId).stream().map(Payslip::getEmployeeId).toList();
+
+        int releasedCount = 0;
+        if (req.getChannels().contains("PORTAL") && !targetIds.isEmpty()) {
+            payslipRepository.releaseByPayrollRunIdAndEmployeeIdIn(runId, targetIds);
+            releasedCount = targetIds.size();
+        }
+
+        int emailedCount = 0;
+        int emailFailedCount = 0;
+        if (req.getChannels().contains("EMAIL")) {
+            String period = YearMonth.from(run.getCycleEnd()).toString();
+            for (UUID employeeId : targetIds) {
+                try {
+                    if (payslipService.sendPayslipEmail(actorEmail, employeeId, period)) {
+                        emailedCount++;
+                    } else {
+                        emailFailedCount++;
+                    }
+                } catch (Exception e) {
+                    emailFailedCount++;
+                }
+            }
+        }
+
+        User actor = requireActor(actorEmail);
+        auditService.log(actor.getId(), "PAYROLL_PAYSLIPS_DISTRIBUTED", run.getId(), null,
+                auditSnapshot.toJson(Map.of("channels", req.getChannels(), "released", releasedCount, "emailed", emailedCount, "emailFailed", emailFailedCount)));
+
+        return DistributePayslipsResponse.builder()
+                .releasedCount(releasedCount).emailedCount(emailedCount).emailFailedCount(emailFailedCount)
+                .build();
+    }
+
+    /** "Download All" on the Payslips tab — every payslip in the run, zipped, regardless of
+     * distribution state (HR can always pull its own copies). Reuses {@link
+     * PayslipService#getPayslipPdf} per employee, same rendering every other admin/self-service
+     * download already uses, just packed into one archive instead of N separate downloads. */
+    @Transactional(readOnly = true)
+    public PayslipService.PayslipFile bulkPayslipPdf(UUID runId, String actorEmail) {
+        PayrollRun run = requireRun(runId);
+        String period = YearMonth.from(run.getCycleEnd()).toString();
+        List<UUID> employeeIds = payslipRepository.findByPayrollRunId(runId).stream().map(Payslip::getEmployeeId).toList();
+
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(buffer)) {
+            for (UUID employeeId : employeeIds) {
+                PayslipService.PayslipFile file = payslipService.getPayslipPdf(actorEmail, employeeId, period);
+                zip.putNextEntry(new ZipEntry(file.fileName()));
+                zip.write(file.data());
+                zip.closeEntry();
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to build payslips archive", e);
+        }
+
+        return new PayslipService.PayslipFile(buffer.toByteArray(), "application/zip", "payslips-" + period + ".zip");
+    }
+
+    /** "Export to Excel" on the Payslips tab — one Pay Register workbook, one row per employee in
+     * the run, every distinct earning/deduction/contribution component across the whole run as its
+     * own column (blank for an employee with no line item for it). Column sets are resolved here
+     * (ordered by the catalog's own {@code displayOrder}, same convention {@link PayslipService
+     * #lines} uses) and handed to {@link PayRegisterExcelService}, which only knows how to lay out
+     * a workbook, not how to query payroll data. */
+    @Transactional(readOnly = true)
+    public PayslipService.PayslipFile payRegisterExcel(UUID runId) {
+        PayrollRun run = requireRun(runId);
+        List<Payslip> payslips = payslipRepository.findByPayrollRunId(runId);
+        List<Object[]> rows = payslipLineItemRepository.findRowsByPayrollRunId(runId);
+
+        List<UUID> employeeIds = payslips.stream().map(Payslip::getEmployeeId).toList();
+        Map<UUID, Employee> employees = employeeRepository.findAllById(employeeIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+
+        Map<String, UUID> nameToComponentId = new LinkedHashMap<>();
+        Map<String, String> nameToType = new LinkedHashMap<>();
+        Map<UUID, Map<String, BigDecimal>> amountsByEmployee = new HashMap<>();
+        for (Object[] row : rows) {
+            UUID employeeId = (UUID) row[0];
+            UUID componentId = (UUID) row[1];
+            String name = (String) row[2];
+            String type = (String) row[3];
+            BigDecimal amount = (BigDecimal) row[4];
+            nameToComponentId.putIfAbsent(name, componentId);
+            nameToType.putIfAbsent(name, type);
+            amountsByEmployee.computeIfAbsent(employeeId, k -> new HashMap<>()).merge(name, amount, BigDecimal::add);
+        }
+
+        Map<UUID, SalaryComponent> catalog = salaryComponentRepository.findAllById(nameToComponentId.values()).stream()
+                .collect(Collectors.toMap(SalaryComponent::getId, c -> c));
+        Comparator<String> byDisplayOrder = Comparator.<String>comparingInt(name -> {
+            SalaryComponent c = catalog.get(nameToComponentId.get(name));
+            return c == null ? 0 : c.getDisplayOrder();
+        }).thenComparing(Comparator.naturalOrder());
+
+        List<String> earningColumns = nameToType.entrySet().stream()
+                .filter(e -> EARNING_TYPES.contains(e.getValue())).map(Map.Entry::getKey).sorted(byDisplayOrder).toList();
+        List<String> deductionColumns = nameToType.entrySet().stream()
+                .filter(e -> DEDUCTION_TYPES.contains(e.getValue())).map(Map.Entry::getKey).sorted(byDisplayOrder).toList();
+        List<String> contributionColumns = nameToType.entrySet().stream()
+                .filter(e -> SalaryComponentType.CONTRIBUTION.equals(e.getValue())).map(Map.Entry::getKey).sorted(byDisplayOrder).toList();
+
+        byte[] xlsx = payRegisterExcelService.render(new PayRegisterExcelService.Model(
+                payslips, employees, amountsByEmployee, earningColumns, deductionColumns, contributionColumns));
+        String fileName = "pay-register-" + YearMonth.from(run.getCycleEnd()) + ".xlsx";
+        return new PayslipService.PayslipFile(xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 
     /**
@@ -506,6 +777,11 @@ public class PayrollRunService {
 
         BigDecimal grossPay = BigDecimal.ZERO;
         BigDecimal totalDeductions = BigDecimal.ZERO;
+        // US-C13 Phase 3: PF is 12% of this payslip's own, already-prorated Basic — read back from
+        // whichever structure component is literally named "Basic" (same name-matching convention
+        // this class already uses throughout), not re-derived from annual CTC, so proration is
+        // reflected exactly once, by construction.
+        BigDecimal basicAmount = BigDecimal.ZERO;
         for (SalaryStructureComponent sc : components) {
             SalaryComponent catalog = sc.getComponent();
             BigDecimal monthlyBase = annualByComponentId.get(sc.getId())
@@ -513,19 +789,31 @@ public class PayrollRunService {
             boolean prorated = catalog.isProrateOnLop();
             BigDecimal amount = (prorated ? monthlyBase.multiply(prorationFactor) : monthlyBase).setScale(2, RoundingMode.HALF_UP);
 
-            payslipLineItemRepository.save(PayslipLineItem.builder()
-                    .payslip(payslip)
-                    .componentId(catalog.getId())
-                    .componentName(catalog.getName())
-                    .componentType(catalog.getType())
-                    .amount(amount)
-                    .prorated(prorated)
-                    .build());
+            // CONTRIBUTION-type structure components (Employer PF, Gratuity) exist here only so
+            // SalaryStructureResolutionService can carve them out of Gross when resolving Basic —
+            // see that service's own class doc. They never become a payslip line item: Gratuity is
+            // explicitly never one (StatutoryDeductionService's own doc comment), and Employer PF
+            // already gets its own, properly-prorated line item below via
+            // statutoryDeductionService.computeEmployerContributions — adding this one too would
+            // double it up on the payslip.
+            if (!SalaryComponentType.CONTRIBUTION.equals(catalog.getType())) {
+                payslipLineItemRepository.save(PayslipLineItem.builder()
+                        .payslip(payslip)
+                        .componentId(catalog.getId())
+                        .componentName(catalog.getName())
+                        .componentType(catalog.getType())
+                        .amount(amount)
+                        .prorated(prorated)
+                        .build());
+            }
 
             if (EARNING_TYPES.contains(catalog.getType())) {
                 grossPay = grossPay.add(amount);
             } else if (DEDUCTION_TYPES.contains(catalog.getType())) {
                 totalDeductions = totalDeductions.add(amount);
+            }
+            if ("Basic".equalsIgnoreCase(catalog.getName())) {
+                basicAmount = amount;
             }
         }
 
@@ -562,6 +850,71 @@ public class PayrollRunService {
             totalDeductions = totalDeductions.add(installment.getAmount());
         }
 
+        // US-C13 Phase 3 — PF/ESI/Professional Tax, read from whichever StatutoryRule version was
+        // effective for this cycle. Silently computes nothing for a rule type that isn't configured
+        // yet (no catalog component, no effective rule, or no Location on the employee) — see
+        // StatutoryDeductionService's own Javadoc for why that's deliberate, not a bug.
+        Employee employee = employeeRepository.findById(comp.getEmployeeId())
+                .orElseThrow(() -> new NoSuchElementException("Employee not found: " + comp.getEmployeeId()));
+        for (StatutoryDeductionService.ComputedDeduction deduction : statutoryDeductionService.computeDeductions(employee, basicAmount, grossPay, window.start(), window.end())) {
+            SalaryComponent catalog = deduction.component();
+            payslipLineItemRepository.save(PayslipLineItem.builder()
+                    .payslip(payslip)
+                    .componentId(catalog.getId())
+                    .componentName(catalog.getName())
+                    .componentType(catalog.getType())
+                    .amount(deduction.amount())
+                    .prorated(false)
+                    .build());
+            totalDeductions = totalDeductions.add(deduction.amount());
+        }
+
+        // Employer-side contributions (e.g. Employer PF) — informational only, never subtracted
+        // from gross/net pay; see StatutoryDeductionService#computeEmployerContributions for the
+        // "nothing configured yet" silent-skip this shares with the employee-side loop above.
+        for (StatutoryDeductionService.ComputedDeduction contribution : statutoryDeductionService.computeEmployerContributions(employee, basicAmount, window.end())) {
+            SalaryComponent catalog = contribution.component();
+            payslipLineItemRepository.save(PayslipLineItem.builder()
+                    .payslip(payslip)
+                    .componentId(catalog.getId())
+                    .componentName(catalog.getName())
+                    .componentType(catalog.getType())
+                    .amount(contribution.amount())
+                    .prorated(false)
+                    .build());
+        }
+
+        // Arrears — pick up anything PENDING for this employee (see Arrears' own doc comment for
+        // the three triggers that create these) and turn each into its own line item, flipping it
+        // APPLIED. Left PENDING (not silently dropped) if "Arrears"/"Arrears Recovery" isn't set up
+        // in the catalog yet — unlike a statutory deduction's "nothing configured" steady state,
+        // this represents real money already owed from a real triggering event, so it waits for
+        // the next regenerate once HR adds the component rather than vanishing.
+        for (Arrears pending : arrearsService.findPendingFor(comp.getEmployeeId())) {
+            boolean isRecovery = pending.getAmount().signum() < 0;
+            String componentName = isRecovery ? "Arrears Recovery" : "Arrears";
+            Optional<SalaryComponent> catalogOpt = salaryComponentRepository.findByNameIgnoreCase(componentName).filter(SalaryComponent::isActive);
+            if (catalogOpt.isEmpty()) {
+                continue;
+            }
+            SalaryComponent catalog = catalogOpt.get();
+            BigDecimal amount = pending.getAmount().abs();
+            payslipLineItemRepository.save(PayslipLineItem.builder()
+                    .payslip(payslip)
+                    .componentId(catalog.getId())
+                    .componentName(catalog.getName())
+                    .componentType(catalog.getType())
+                    .amount(amount)
+                    .prorated(false)
+                    .build());
+            if (isRecovery) {
+                totalDeductions = totalDeductions.add(amount);
+            } else {
+                grossPay = grossPay.add(amount);
+            }
+            arrearsService.markApplied(pending, run.getId());
+        }
+
         payslip.setGrossPay(grossPay);
         payslip.setTotalDeductions(totalDeductions);
         payslip.setNetPay(grossPay.subtract(totalDeductions));
@@ -571,6 +924,50 @@ public class PayrollRunService {
         result.grossPay = grossPay;
         result.totalDeductions = totalDeductions;
         return result;
+    }
+
+    /**
+     * Arrears triggers 2 (backdated salary revision) and 3 (salary hold release) both need "what
+     * would this ALREADY-CLOSED cycle's net pay be under {@code comp} instead of whatever was
+     * actually used" — without touching the real, already-persisted {@link Payslip} for that
+     * cycle. Deliberately NOT a reuse of {@link #buildPayslip}: that method recomputes LOP (a live
+     * side-effecting write to {@link PayrollLopCalculation}) and regenerates US-C22/US-C23 review
+     * items — both wrong here, since a closed cycle's LOP/attendance facts are frozen, not up for
+     * re-derivation. This reuses the historical payslip's own already-frozen {@code
+     * prorationFactor} instead, and otherwise mirrors buildPayslip's structure-component +
+     * statutory-deduction math exactly (same two collaborators, same formulas) so the two never
+     * drift apart. No {@link Payslip}/{@link PayslipLineItem} is created or saved.
+     */
+    public BigDecimal previewNetPay(EmployeeCompensation comp, LocalDate cycleStart, LocalDate cycleEnd, BigDecimal prorationFactor) {
+        List<SalaryStructureComponent> components = salaryStructureComponentRepository.findByStructureId(comp.getStructure().getId());
+        Map<UUID, BigDecimal> annualByComponentId = salaryStructureResolutionService.resolveAnnualValues(components, comp.getCtc());
+
+        BigDecimal grossPay = BigDecimal.ZERO;
+        BigDecimal totalDeductions = BigDecimal.ZERO;
+        BigDecimal basicAmount = BigDecimal.ZERO;
+        for (SalaryStructureComponent sc : components) {
+            SalaryComponent catalog = sc.getComponent();
+            BigDecimal monthlyBase = annualByComponentId.get(sc.getId())
+                    .divide(BigDecimal.valueOf(MONTHS_PER_YEAR), 6, RoundingMode.HALF_UP);
+            boolean prorated = catalog.isProrateOnLop();
+            BigDecimal amount = (prorated ? monthlyBase.multiply(prorationFactor) : monthlyBase).setScale(2, RoundingMode.HALF_UP);
+            if (EARNING_TYPES.contains(catalog.getType())) {
+                grossPay = grossPay.add(amount);
+            } else if (DEDUCTION_TYPES.contains(catalog.getType())) {
+                totalDeductions = totalDeductions.add(amount);
+            }
+            if ("Basic".equalsIgnoreCase(catalog.getName())) {
+                basicAmount = amount;
+            }
+        }
+
+        Employee employee = employeeRepository.findById(comp.getEmployeeId())
+                .orElseThrow(() -> new NoSuchElementException("Employee not found: " + comp.getEmployeeId()));
+        for (StatutoryDeductionService.ComputedDeduction deduction : statutoryDeductionService.computeDeductions(employee, basicAmount, grossPay, cycleStart, cycleEnd)) {
+            totalDeductions = totalDeductions.add(deduction.amount());
+        }
+
+        return grossPay.subtract(totalDeductions);
     }
 
     /**
@@ -688,6 +1085,7 @@ public class PayrollRunService {
                 .disbursedAt(r.getDisbursedAt())
                 .lastRolledBackAt(r.getLastRolledBackAt())
                 .lastRollbackReason(r.getLastRollbackReason())
+                .lastRolledBackBy(r.getLastRolledBackBy())
                 .approvalStages(r.getApprovalStages() != null ? ApprovalRuleEvaluationService.parseStages(r.getApprovalStages()) : null)
                 .pendingApprovalStage(r.getPendingApprovalStage())
                 .createdAt(r.getCreatedAt())

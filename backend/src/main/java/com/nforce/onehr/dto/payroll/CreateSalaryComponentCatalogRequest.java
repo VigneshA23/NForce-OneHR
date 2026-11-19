@@ -13,8 +13,8 @@ public class CreateSalaryComponentCatalogRequest {
     private String name;
 
     @NotBlank
-    @Pattern(regexp = "EARNING|AD_HOC_EARNING|DEDUCTION|AD_HOC_DEDUCTION|REIMBURSEMENT",
-            message = "type must be EARNING, AD_HOC_EARNING, DEDUCTION, AD_HOC_DEDUCTION or REIMBURSEMENT")
+    @Pattern(regexp = "EARNING|AD_HOC_EARNING|DEDUCTION|AD_HOC_DEDUCTION|REIMBURSEMENT|CONTRIBUTION",
+            message = "type must be EARNING, AD_HOC_EARNING, DEDUCTION, AD_HOC_DEDUCTION, REIMBURSEMENT or CONTRIBUTION")
     private String type;
 
     private boolean taxable = true;

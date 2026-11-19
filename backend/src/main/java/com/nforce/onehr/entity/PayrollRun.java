@@ -80,6 +80,9 @@ public class PayrollRun {
     @Column(name = "last_rollback_reason", columnDefinition = "TEXT")
     private String lastRollbackReason;
 
+    @Column(name = "last_rolled_back_by")
+    private UUID lastRolledBackBy;
+
     // US-C09 — snapshotted at submit() time from whichever ApprovalRule is active for PAYROLL_RUN,
     // same convention as ExpenseClaim.approvalStages: comma-separated role codes, e.g.
     // "HR_ADMIN,SUPER_ADMIN". Null for a run submitted before this story (no chain to walk —

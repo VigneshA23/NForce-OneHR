@@ -17,4 +17,9 @@ public interface AdHocPaymentRepository extends JpaRepository<AdHocPayment, UUID
 
     @Query("SELECT p FROM AdHocPayment p WHERE p.payrollRun.id = :runId AND p.employeeId = :employeeId ORDER BY p.addedAt")
     List<AdHocPayment> findByPayrollRunIdAndEmployeeId(@Param("runId") UUID runId, @Param("employeeId") UUID employeeId);
+
+    // Bulk-add's "already covered" check (AdHocPaymentService#bulkAdd) — one query for every
+    // employee already given this exact component in this run, not a per-employee existsBy lookup.
+    @Query("SELECT p.employeeId FROM AdHocPayment p WHERE p.payrollRun.id = :runId AND LOWER(p.componentName) = LOWER(:componentName)")
+    List<UUID> findEmployeeIdsByPayrollRunIdAndComponentName(@Param("runId") UUID runId, @Param("componentName") String componentName);
 }

@@ -68,6 +68,18 @@ public class SalaryComponent {
     @Builder.Default
     private boolean active = true;
 
+    // Explicit display order — the single source of truth everywhere a component list is shown
+    // (payslip, pay register, reports, salary breakup). Set only via SalaryComponentService#reorder,
+    // never inferred from name/type, matching Keka's "Order of components" screen (§3.8).
+    @Column(name = "display_order", nullable = false)
+    @Builder.Default
+    private int displayOrder = 0;
+
+    // Optional ledger/GL code, admin-entered — never computed or validated against an external
+    // chart of accounts (no such integration exists), matching Keka's "Accounting code" screen.
+    @Column(name = "accounting_code", length = 30)
+    private String accountingCode;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

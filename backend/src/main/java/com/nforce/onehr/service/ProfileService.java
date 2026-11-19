@@ -129,6 +129,9 @@ public class ProfileService {
         response.setPassportNumber(emp != null ? SensitiveDataMasker.maskId(emp.getPassportNumber()) : null);
         response.setBankAccountNumber(emp != null ? SensitiveDataMasker.maskId(emp.getBankAccountNumber()) : null);
         response.setNationalId(emp != null ? SensitiveDataMasker.maskId(emp.getNationalId()) : null);
+        response.setPanNumber(null);
+        response.setUanNumber(null);
+        response.setEsiNumber(null);
     }
 
     /** Field names only — the audit trail must never hold the sensitive values themselves. */
@@ -259,6 +262,13 @@ public class ProfileService {
         queueIfChanged(sensitiveOld, sensitiveNew, "bankName", emp.getBankName(), req.getBankName());
         queueIfChanged(sensitiveOld, sensitiveNew, "bankIfsc", emp.getBankIfsc(), req.getBankIfsc());
         queueIfChanged(sensitiveOld, sensitiveNew, "nationalId", emp.getNationalId(), req.getNationalId());
+        // PAN/UAN/ESI aren't wired into ProfileChangeRequestService's approval-apply switch yet
+        // (merge of 2026-11-19), so these stay direct-write rather than being queued into an
+        // approval path that doesn't know how to apply them — avoids silently stranding an edit as
+        // "pending forever". Revisit if/when HR approval should also gate these three.
+        if (req.getPanNumber() != null)        emp.setPanNumber(req.getPanNumber().trim().toUpperCase());
+        if (req.getUanNumber() != null)        emp.setUanNumber(req.getUanNumber().trim());
+        if (req.getEsiNumber() != null)         emp.setEsiNumber(req.getEsiNumber().trim());
 
         // fullName is derived, never client-set: join non-blank first/middle/last with single spaces.
         if (nameChanged) {
@@ -446,6 +456,9 @@ public class ProfileService {
                 .bankName(emp.getBankName())
                 .bankIfsc(maskTrailing4(emp.getBankIfsc()))
                 .nationalId(maskTrailing4(emp.getNationalId()))
+                .panNumber(maskTrailing4(emp.getPanNumber()))
+                .uanNumber(maskTrailing4(emp.getUanNumber()))
+                .esiNumber(maskTrailing4(emp.getEsiNumber()))
                 .employeeCode(emp.getEmployeeCode())
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                 .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)

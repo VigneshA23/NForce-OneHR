@@ -17,4 +17,6 @@ public class SalaryComponentCatalogResponse {
     private boolean shownOnPayslip;
     private boolean prorateOnLop;
     private boolean active;
+    private int displayOrder;
+    private String accountingCode;
 }

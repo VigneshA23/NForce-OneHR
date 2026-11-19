@@ -71,7 +71,7 @@ const SA: Grants = {
 };
 
 const BASELINE = ['dashboard', 'my-team', 'directory', 'hierarchy', 'attendance', 'leave', 'requests', 'assets',
-  'my-skills', 'bench-opportunities', 'my-documents', 'help'];
+  'my-finances', 'my-skills', 'bench-opportunities', 'my-documents', 'help'];
 const keys = (p: MyPermissionsResponse) => visibleNavItems(p, catalogue).map((i) => i.key).sort();
 
 describe('sidebar is decided by permissions alone', () => {

@@ -6,6 +6,7 @@ import com.nforce.onehr.repository.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -38,13 +39,21 @@ class PayrollRunServiceTest {
     @Mock private PayrollProrationService payrollProrationService;
     @Mock private ApprovalRuleEvaluationService approvalRuleEvaluationService;
     @Mock private AdHocPaymentRepository adHocPaymentRepository;
+    @Mock private RecurringAdHocPaymentRuleRepository recurringAdHocPaymentRuleRepository;
     @Mock private AdHocDeductionRepository adHocDeductionRepository;
     @Mock private AdHocDeductionInstallmentRepository adHocDeductionInstallmentRepository;
     @Mock private SalaryHoldRepository salaryHoldRepository;
     @Mock private PayrollRunReviewService payrollRunReviewService;
+    @Mock private StatutoryDeductionService statutoryDeductionService;
+    @Mock private ArrearsService arrearsService;
+    @Mock private SalaryComponentRepository salaryComponentRepository;
+    @Mock private EmployeeRepository employeeRepository;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
+    @Mock private PayslipService payslipService;
+    @Mock private PayRegisterExcelService payRegisterExcelService;
+    @Mock private PayrollRunRollbackRepository payrollRunRollbackRepository;
 
     private PayrollRunService service;
 
@@ -66,9 +75,28 @@ class PayrollRunServiceTest {
         service = new PayrollRunService(payrollRunRepository, payslipRepository, payslipLineItemRepository,
                 payGroupRepository, employeeCompensationRepository, salaryStructureComponentRepository,
                 payrollLopCalculationService, payrollProrationService, approvalRuleEvaluationService,
-                adHocPaymentRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
-                salaryHoldRepository, payrollRunReviewService, new SalaryStructureResolutionService(), userRepository,
-                auditService, auditSnapshot);
+                adHocPaymentRepository, recurringAdHocPaymentRuleRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
+                salaryHoldRepository, payrollRunReviewService, new SalaryStructureResolutionService(),
+                statutoryDeductionService, arrearsService, salaryComponentRepository, employeeRepository,
+                userRepository, auditService, auditSnapshot, payslipService, payRegisterExcelService, payrollRunRollbackRepository);
+
+        lenient().when(recurringAdHocPaymentRuleRepository.findActiveForPayGroup(any())).thenReturn(List.of());
+
+        // US-C13 Phase 3 default: no statutory deductions, no Location — every existing test in
+        // this class predates the statutory engine and asserts totals/line-items without it: it
+        // may compute to "nothing" in them, never throw. Tests exercising the engine itself live in
+        // StatutoryDeductionServiceTest; tests here that care about the integration point override
+        // this stub explicitly.
+        // Joined well before any test's cycle window, never exited — every existing test's
+        // employee passes generateDraft's own "actually employed through this window" filter by
+        // default; the filter's own exclusion behavior is covered by its dedicated tests below.
+        Employee defaultEmployee = Employee.builder().userId(employeeId).joiningDate(LocalDate.of(2000, 1, 1)).build();
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(defaultEmployee));
+        lenient().when(employeeRepository.findAllById(any())).thenReturn(List.of(defaultEmployee));
+        lenient().when(statutoryDeductionService.computeDeductions(any(), any(), any(), any(), any())).thenReturn(List.of());
+        // Arrears default: nothing PENDING — tests exercising the trigger/apply integration
+        // override this stub explicitly.
+        lenient().when(arrearsService.findPendingFor(any())).thenReturn(List.of());
 
         // Default actor holds HR_ADMIN — matches this app's one real approver role before US-C09,
         // and the legacy single-HR_ADMIN-stage default evaluatePayrollRun falls back to below.
@@ -208,6 +236,121 @@ class PayrollRunServiceTest {
     }
 
     @Test
+    void generateDraft_statutoryDeductions_addedAsLineItemsAndToTotalDeductions() {
+        // US-C13 Phase 3 — PayrollRunService doesn't compute PF/ESI/PT itself, it just passes this
+        // payslip's own Basic/grossPay to StatutoryDeductionService and turns whatever comes back
+        // into line items; the formulas themselves are covered by StatutoryDeductionServiceTest.
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.PERCENT_OF_GROSS, new BigDecimal("50"), null);
+
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        SalaryComponent pfCatalog = SalaryComponent.builder().id(UUID.randomUUID()).name("PF").type(SalaryComponentType.DEDUCTION).build();
+        when(statutoryDeductionService.computeDeductions(any(), any(), any(), any(), eq(cycleEnd)))
+                .thenReturn(List.of(new StatutoryDeductionService.ComputedDeduction(pfCatalog, new BigDecimal("6000.00"))));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        org.mockito.ArgumentCaptor<PayslipLineItem> captor = org.mockito.ArgumentCaptor.forClass(PayslipLineItem.class);
+        verify(payslipLineItemRepository, times(2)).save(captor.capture());
+        PayslipLineItem pfLine = captor.getAllValues().stream().filter(i -> "PF".equals(i.getComponentName())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("6000.00").compareTo(pfLine.getAmount()));
+        assertFalse(pfLine.isProrated());
+
+        // Gross (50% of 100,000 CTC-monthly = 50,000) unaffected; deduction subtracted into net.
+        assertEquals(0, new BigDecimal("50000.00").compareTo(resp.getTotalGross()));
+        assertEquals(0, new BigDecimal("6000.00").compareTo(resp.getTotalDeductions()));
+        assertEquals(0, new BigDecimal("44000.00").compareTo(resp.getTotalNet()));
+    }
+
+    @Test
+    void generateDraft_noStatutoryRulesConfigured_behavesExactlyAsBeforeThisPhase() {
+        // The default stub (empty list) from setUp — an unconfigured tenant must still generate
+        // payroll with zero statutory line items, not fail.
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.PERCENT_OF_GROSS, new BigDecimal("50"), null);
+
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        verify(payslipLineItemRepository, times(1)).save(any(PayslipLineItem.class));
+        assertEquals(0, BigDecimal.ZERO.compareTo(resp.getTotalDeductions()));
+    }
+
+    @Test
+    void generateDraft_pendingPositiveArrears_becomesAnEarningLineItem_andIsMarkedApplied() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.PERCENT_OF_GROSS, new BigDecimal("50"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        Arrears pending = Arrears.builder().id(UUID.randomUUID()).employeeId(employeeId).amount(new BigDecimal("4000.00")).build();
+        when(arrearsService.findPendingFor(employeeId)).thenReturn(List.of(pending));
+        SalaryComponent arrearsCatalog = SalaryComponent.builder().id(UUID.randomUUID()).name("Arrears").type(SalaryComponentType.AD_HOC_EARNING).active(true).build();
+        when(salaryComponentRepository.findByNameIgnoreCase("Arrears")).thenReturn(Optional.of(arrearsCatalog));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        org.mockito.ArgumentCaptor<PayslipLineItem> captor = org.mockito.ArgumentCaptor.forClass(PayslipLineItem.class);
+        verify(payslipLineItemRepository, times(2)).save(captor.capture());
+        PayslipLineItem arrearsLine = captor.getAllValues().stream().filter(i -> "Arrears".equals(i.getComponentName())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("4000.00").compareTo(arrearsLine.getAmount()));
+        assertFalse(arrearsLine.isProrated());
+
+        // 50,000 (50% of CTC-monthly) + 4,000 arrears = 54,000 gross; no deductions.
+        assertEquals(0, new BigDecimal("54000.00").compareTo(resp.getTotalGross()));
+        verify(arrearsService).markApplied(pending, resp.getId());
+    }
+
+    @Test
+    void generateDraft_pendingNegativeArrears_becomesARecoveryDeduction() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.PERCENT_OF_GROSS, new BigDecimal("50"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        Arrears pending = Arrears.builder().id(UUID.randomUUID()).employeeId(employeeId).amount(new BigDecimal("-1500.00")).build();
+        when(arrearsService.findPendingFor(employeeId)).thenReturn(List.of(pending));
+        SalaryComponent recoveryCatalog = SalaryComponent.builder().id(UUID.randomUUID()).name("Arrears Recovery").type(SalaryComponentType.AD_HOC_DEDUCTION).active(true).build();
+        when(salaryComponentRepository.findByNameIgnoreCase("Arrears Recovery")).thenReturn(Optional.of(recoveryCatalog));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        org.mockito.ArgumentCaptor<PayslipLineItem> captor = org.mockito.ArgumentCaptor.forClass(PayslipLineItem.class);
+        verify(payslipLineItemRepository, times(2)).save(captor.capture());
+        PayslipLineItem recoveryLine = captor.getAllValues().stream().filter(i -> "Arrears Recovery".equals(i.getComponentName())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("1500.00").compareTo(recoveryLine.getAmount())); // stored as a positive deduction amount
+
+        assertEquals(0, new BigDecimal("1500.00").compareTo(resp.getTotalDeductions()));
+        verify(arrearsService).markApplied(pending, resp.getId());
+    }
+
+    @Test
+    void generateDraft_pendingArrearsWithNoCatalogComponent_isLeftPendingNotSilentlyDropped() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.PERCENT_OF_GROSS, new BigDecimal("50"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        Arrears pending = Arrears.builder().id(UUID.randomUUID()).employeeId(employeeId).amount(new BigDecimal("4000.00")).build();
+        when(arrearsService.findPendingFor(employeeId)).thenReturn(List.of(pending));
+        when(salaryComponentRepository.findByNameIgnoreCase("Arrears")).thenReturn(Optional.empty());
+
+        service.generateDraft(generateReq(), actorEmail);
+
+        verify(payslipLineItemRepository, times(1)).save(any(PayslipLineItem.class)); // just Basic, no arrears line
+        verify(arrearsService, never()).markApplied(any(), any());
+    }
+
+    @Test
     void generateDraft_prorationReducesOnlyProrateOnLopComponents() {
         SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
         SalaryComponent conveyanceCatalog = catalogComponent("Conveyance Allowance", SalaryComponentType.EARNING, false);
@@ -266,6 +409,52 @@ class PayrollRunServiceTest {
         assertEquals(0, new BigDecimal("5000.00").compareTo(bonusItem.getAmount()));
         // Basic: 28,000 * (26/28 rounded) = 26,000.80 (prorated); + 5,000.00 ad-hoc (not prorated).
         assertEquals(0, new BigDecimal("31000.80").compareTo(resp.getTotalGross()));
+    }
+
+    @Test
+    void generateDraft_activeRecurringRule_createsAdHocPaymentForIncludedEmployee() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.FIXED, new BigDecimal("336000"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        UUID ruleComponentId = UUID.randomUUID();
+        RecurringAdHocPaymentRule rule = RecurringAdHocPaymentRule.builder().id(UUID.randomUUID())
+                .componentId(ruleComponentId).componentName("Food Allowance").componentType(SalaryComponentType.AD_HOC_EARNING)
+                .amount(new BigDecimal("1100.00")).reason("Monthly food allowance").active(true).createdBy(actorId).build();
+        when(recurringAdHocPaymentRuleRepository.findActiveForPayGroup(payGroupId)).thenReturn(List.of(rule));
+        when(adHocPaymentRepository.findEmployeeIdsByPayrollRunIdAndComponentName(any(), eq("Food Allowance"))).thenReturn(List.of());
+
+        service.generateDraft(generateReq(), actorEmail);
+
+        org.mockito.ArgumentCaptor<List<AdHocPayment>> captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(adHocPaymentRepository).saveAll(captor.capture());
+        List<AdHocPayment> created = captor.getValue();
+        assertEquals(1, created.size());
+        assertEquals(employeeId, created.get(0).getEmployeeId());
+        assertEquals("Food Allowance", created.get(0).getComponentName());
+        assertEquals(0, new BigDecimal("1100.00").compareTo(created.get(0).getAmount()));
+    }
+
+    @Test
+    void generateDraft_recurringRule_skipsEmployeeAlreadyCoveredInThisRun() {
+        SalaryComponent basicCatalog = catalogComponent("Basic", SalaryComponentType.EARNING, true);
+        SalaryStructureComponent basic = structureComponent(basicCatalog, SalaryCalculationType.FIXED, new BigDecimal("336000"), null);
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(salaryStructureComponentRepository.findByStructureId(structureId)).thenReturn(List.of(basic));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+
+        RecurringAdHocPaymentRule rule = RecurringAdHocPaymentRule.builder().id(UUID.randomUUID())
+                .componentId(UUID.randomUUID()).componentName("Food Allowance").componentType(SalaryComponentType.AD_HOC_EARNING)
+                .amount(new BigDecimal("1100.00")).reason("Monthly food allowance").active(true).createdBy(actorId).build();
+        when(recurringAdHocPaymentRuleRepository.findActiveForPayGroup(payGroupId)).thenReturn(List.of(rule));
+        // Already has this exact component in this run — e.g. HR manually added it first.
+        when(adHocPaymentRepository.findEmployeeIdsByPayrollRunIdAndComponentName(any(), eq("Food Allowance"))).thenReturn(List.of(employeeId));
+
+        service.generateDraft(generateReq(), actorEmail);
+
+        verify(adHocPaymentRepository, never()).saveAll(any());
     }
 
     @Test
@@ -432,6 +621,38 @@ class PayrollRunServiceTest {
 
         verify(payrollRunReviewService).deleteItemsForEmployee(any(), eq(employeeId));
         verify(payrollRunReviewService, never()).generateItemsForEmployee(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void generateDraft_employeeJoinsAfterThisCycleEnds_excludedEntirely_doesNotRollBackTheWholeRun() {
+        // A compensation row effective-dated at window.end() doesn't mean the employee was actually
+        // employed through the window — e.g. comp set up ahead of a future joining date. Before this
+        // guard, buildPayslip's own PayrollProrationService#recompute would throw for them and roll
+        // back payslip generation for every OTHER employee in the same @Transactional run too.
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+        when(employeeRepository.findAllById(any())).thenReturn(
+                List.of(Employee.builder().userId(employeeId).joiningDate(cycleEnd.plusDays(1)).build()));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        assertEquals(0, resp.getEmployeeCount());
+        verify(payslipRepository, never()).save(any());
+        verify(payrollProrationService, never()).recompute(any(), any());
+    }
+
+    @Test
+    void generateDraft_employeeExitedBeforeThisCycleStarts_excludedEntirely() {
+        when(employeeCompensationRepository.findAllEffectiveAt(cycleEnd)).thenReturn(List.of(compensation(new BigDecimal("1200000"))));
+        when(payrollRunRepository.findByPayGroupIdAndCycleStartAndCycleEnd(payGroupId, cycleStart, cycleEnd)).thenReturn(Optional.empty());
+        when(employeeRepository.findAllById(any())).thenReturn(
+                List.of(Employee.builder().userId(employeeId).joiningDate(LocalDate.of(2000, 1, 1))
+                        .lastWorkingDay(cycleStart.minusDays(1)).build()));
+
+        PayrollRunResponse resp = service.generateDraft(generateReq(), actorEmail);
+
+        assertEquals(0, resp.getEmployeeCount());
+        verify(payslipRepository, never()).save(any());
     }
 
     @Test
@@ -640,6 +861,7 @@ class PayrollRunServiceTest {
         assertEquals(PayrollRunStatus.DRAFT, resp.getStatus());
         assertEquals("Reconciliation error found after approval", resp.getLastRollbackReason());
         assertNotNull(resp.getLastRolledBackAt());
+        assertEquals(actorId, resp.getLastRolledBackBy());
         verify(auditService).log(eq(actorId), eq("PAYROLL_RUN_TRANSITION"), any(), any(), any());
     }
 
@@ -759,5 +981,145 @@ class PayrollRunServiceTest {
         when(payrollRunRepository.findById(missing)).thenReturn(Optional.empty());
 
         assertThrows(NoSuchElementException.class, () -> service.get(missing));
+    }
+
+    private DistributePayslipsRequest distributeReq(Set<String> channels) {
+        DistributePayslipsRequest req = new DistributePayslipsRequest();
+        req.setChannels(channels);
+        return req;
+    }
+
+    @Test
+    void distributePayslips_draftRun_rejected() {
+        PayrollRun draft = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(draft.getId())).thenReturn(Optional.of(draft));
+
+        assertThrows(IllegalStateException.class, () -> service.distributePayslips(draft.getId(), distributeReq(Set.of("PORTAL")), actorEmail));
+    }
+
+    @Test
+    void distributePayslips_portalOnly_releasesEveryEmployeeInRun_sendsNoEmail() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        UUID otherEmployeeId = UUID.randomUUID();
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        Payslip p2 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(otherEmployeeId).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1, p2));
+
+        DistributePayslipsResponse resp = service.distributePayslips(approved.getId(), distributeReq(Set.of("PORTAL")), actorEmail);
+
+        assertEquals(2, resp.getReleasedCount());
+        assertEquals(0, resp.getEmailedCount());
+        verify(payslipRepository).releaseByPayrollRunIdAndEmployeeIdIn(approved.getId(), List.of(employeeId, otherEmployeeId));
+        verifyNoInteractions(payslipService);
+    }
+
+    @Test
+    void distributePayslips_emailOnly_doesNotRelease_emailsEveryEmployee() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1));
+        when(payslipService.sendPayslipEmail(eq(actorEmail), eq(employeeId), any())).thenReturn(true);
+
+        DistributePayslipsResponse resp = service.distributePayslips(approved.getId(), distributeReq(Set.of("EMAIL")), actorEmail);
+
+        assertEquals(0, resp.getReleasedCount());
+        assertEquals(1, resp.getEmailedCount());
+        assertEquals(0, resp.getEmailFailedCount());
+        verify(payslipRepository, never()).releaseByPayrollRunIdAndEmployeeIdIn(any(), any());
+    }
+
+    @Test
+    void distributePayslips_emailFailsForOneEmployee_othersStillCounted() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        UUID otherEmployeeId = UUID.randomUUID();
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        Payslip p2 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(otherEmployeeId).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1, p2));
+        when(payslipService.sendPayslipEmail(eq(actorEmail), eq(employeeId), any())).thenReturn(true);
+        when(payslipService.sendPayslipEmail(eq(actorEmail), eq(otherEmployeeId), any()))
+                .thenThrow(new IllegalStateException("This employee has no email address on file"));
+
+        DistributePayslipsResponse resp = service.distributePayslips(approved.getId(), distributeReq(Set.of("EMAIL")), actorEmail);
+
+        assertEquals(1, resp.getEmailedCount());
+        assertEquals(1, resp.getEmailFailedCount());
+    }
+
+    @Test
+    void distributePayslips_bothChannels_releasesAndEmails() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1));
+        when(payslipService.sendPayslipEmail(eq(actorEmail), eq(employeeId), any())).thenReturn(true);
+
+        DistributePayslipsResponse resp = service.distributePayslips(approved.getId(), distributeReq(Set.of("PORTAL", "EMAIL")), actorEmail);
+
+        assertEquals(1, resp.getReleasedCount());
+        assertEquals(1, resp.getEmailedCount());
+        verify(payslipRepository).releaseByPayrollRunIdAndEmployeeIdIn(approved.getId(), List.of(employeeId));
+    }
+
+    @Test
+    void bulkPayslipPdf_zipsOnePdfPerPayslipInRun() throws Exception {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        UUID otherEmployeeId = UUID.randomUUID();
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId).build();
+        Payslip p2 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(otherEmployeeId).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1, p2));
+        when(payslipService.getPayslipPdf(eq(actorEmail), eq(employeeId), any()))
+                .thenReturn(new PayslipService.PayslipFile(new byte[]{1, 2, 3}, "application/pdf", "payslip-EMP1.pdf"));
+        when(payslipService.getPayslipPdf(eq(actorEmail), eq(otherEmployeeId), any()))
+                .thenReturn(new PayslipService.PayslipFile(new byte[]{4, 5, 6}, "application/pdf", "payslip-EMP2.pdf"));
+
+        PayslipService.PayslipFile zip = service.bulkPayslipPdf(approved.getId(), actorEmail);
+
+        assertEquals("application/zip", zip.contentType());
+        java.util.Set<String> entryNames = new java.util.HashSet<>();
+        try (java.util.zip.ZipInputStream in = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(zip.data()))) {
+            java.util.zip.ZipEntry entry;
+            while ((entry = in.getNextEntry()) != null) entryNames.add(entry.getName());
+        }
+        assertEquals(Set.of("payslip-EMP1.pdf", "payslip-EMP2.pdf"), entryNames);
+    }
+
+    @Test
+    void payRegisterExcel_sortsColumnsByCatalogDisplayOrder_andCapturesEachEmployeesAmounts() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).payrollRun(approved).employeeId(employeeId)
+                .grossPay(new BigDecimal("42000.00")).totalDeductions(new BigDecimal("3600.00")).netPay(new BigDecimal("38400.00")).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1));
+
+        UUID basicId = UUID.randomUUID();
+        UUID hraId = UUID.randomUUID();
+        UUID pfId = UUID.randomUUID();
+        when(payslipLineItemRepository.findRowsByPayrollRunId(approved.getId())).thenReturn(List.<Object[]>of(
+                new Object[]{employeeId, hraId, "HRA", SalaryComponentType.EARNING, new BigDecimal("12000.00")},
+                new Object[]{employeeId, basicId, "Basic", SalaryComponentType.EARNING, new BigDecimal("30000.00")},
+                new Object[]{employeeId, pfId, "PF", SalaryComponentType.DEDUCTION, new BigDecimal("3600.00")}));
+        when(salaryComponentRepository.findAllById(any())).thenReturn(List.of(
+                SalaryComponent.builder().id(basicId).displayOrder(0).build(),
+                SalaryComponent.builder().id(hraId).displayOrder(1).build(),
+                SalaryComponent.builder().id(pfId).displayOrder(0).build()));
+        Employee emp = Employee.builder().userId(employeeId).fullName("Asha Rao").employeeCode("EMP001").build();
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(emp));
+
+        ArgumentCaptor<PayRegisterExcelService.Model> captor = ArgumentCaptor.forClass(PayRegisterExcelService.Model.class);
+        when(payRegisterExcelService.render(captor.capture())).thenReturn(new byte[]{9, 9});
+
+        PayslipService.PayslipFile file = service.payRegisterExcel(approved.getId());
+
+        assertEquals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", file.contentType());
+        PayRegisterExcelService.Model model = captor.getValue();
+        assertEquals(List.of("Basic", "HRA"), model.earningColumns());
+        assertEquals(List.of("PF"), model.deductionColumns());
+        assertEquals(List.of(), model.contributionColumns());
+        assertEquals(new BigDecimal("30000.00"), model.amountsByEmployee().get(employeeId).get("Basic"));
+        assertEquals("Asha Rao", model.employees().get(employeeId).getFullName());
     }
 }

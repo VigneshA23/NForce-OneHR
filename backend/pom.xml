@@ -116,6 +116,16 @@
             <version>2.0.3</version>
         </dependency>
 
+        <!-- Required at runtime by OpenPDF's PdfWriter#setEncryption (Keka restyle's "password
+             protect a payslip" setting, §3.9) — PdfEncryption's constructor references BouncyCastle
+             classes unconditionally even for the classic RC4/AES standard security handler, so
+             encryption throws NoClassDefFoundError without this on the classpath. -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>1.78.1</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
