@@ -23,7 +23,7 @@ import PageTitleBlock from '../../components/PageTitleBlock';
 import { PersonCell } from '../../components/PersonCell';
 import { SidebarNav } from '../../components/SidebarNav';
 import { NAV, type Role } from '../../lib/nav.config';
-import { TabBar } from '../../components/TabBar';
+import { TabBar, ChipGroup as MtChipGroup } from '../../components/TabBar';
 import { useEffect, useState } from 'react';
 import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/accentColor';
 import { KpiCard } from '../talent/DashboardTab';
@@ -50,7 +50,7 @@ import ChangePasswordPage from '../ChangePasswordPage';
 import '../login.css';
 import '../myTeamTabs.css';
 import { SignInConfetti } from '../auth/SignInConfetti';
-import { MemberCard as MtMemberCard, Pill as MtPill } from '../my-team/MyTeamRedesign';
+import { MemberCard as MtMemberCard, MemberGrid as MtMemberGrid, MemberGridSection as MtMemberGridSection, Pill as MtPill } from '../my-team/MyTeamRedesign';
 import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTab as MtPenaltiesTab, AssignmentsTab as MtAssignmentsTab, SkillsGrowthTab as MtGrowthTab, AttentionPanel, LeaveBalanceLine as MtLeaveBalanceLine, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
@@ -795,25 +795,40 @@ function LoginEffectMock() {
 }
 
 function TeamMemberCardsMock() {
-  // Mock only: roster cards with the compact leave balance line (click it to open the breakdown).
-  const people = [['Test', 'Automation QA Engineer', 'NF-202613574', 'Quality Engineering'], ['Test', 'Junior Sales Engineer', 'NF-202613567', 'Sales'], ['Test', 'Software Engineer', 'NF-202613571', 'Engineering']];
+  // Mock only: the roster section exactly as My Team lays it out (scrolling card grid beside the 340px
+  // side column), with the compact leave balance line (click it to open the breakdown).
+  const people = [['Rohit Reddy', 'QA Engineer II', 'NF-202613574', 'Engineering'], ['Sanjukta Senapati', 'QA Engineer III', 'NF-202613567', 'Operations & Sales'], ['LahariG', 'No designation', 'NF-202613571', 'Quality Engineering'], ['Vyshnavi Guthala', 'Senior Software Engineer', 'NF-202613572', 'Finance'], ['Venkat Narsimha Reddy', 'Software Developer', 'NF-202613573', 'Sales'], ['Sheetal Richie', 'HR Administrator', 'NF-202613575', 'Marketing']];
   const bal = [
     { leaveTypeCode: 'AL', leaveTypeName: 'Annual Leave', remainingDays: 15, totalDays: 15 },
     { leaveTypeCode: 'PL', leaveTypeName: 'Paid Leave', remainingDays: 20, totalDays: 20 },
     { leaveTypeCode: 'TL', leaveTypeName: 'Test Leave', remainingDays: 20, totalDays: 20 },
   ] as unknown as Parameters<typeof MtLeaveBalanceLine>[0]['balances'];
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('all');
   return (
     <div className="mt-root">
-      <div className="mt-members" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-        {people.map(([n, d, code, dept], i) => (
-          <MtMemberCard key={i} avatar={<span className="mt-avatar" style={{ width: 52, height: 52, borderRadius: '50%', background: 'color-mix(in srgb, var(--brand) 14%, var(--panel))', color: 'var(--brand)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>TE</span>} name={n} designation={d} active status="NOT_IN_YET" 
-            tags={<><MtPill>{dept}</MtPill><MtPill tone="ok">Full time</MtPill></>}
-            extras={<>
-              <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, marginTop: -4 }}>{code}</div>
-              <MtLeaveBalanceLine balances={bal} />
-            </>}
-            onViewProfile={() => undefined} />
-        ))}
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'flex-start' }}>
+        <div style={{ minWidth: 0 }}>
+          <MtMemberGridSection title="Team Members" subtitle="Your direct reports and their details" search={search} onSearch={setSearch} searchPlaceholder="Search by name or employee code…"
+            chips={(<>
+              <select aria-label="Filter by project" style={{ background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13 }}><option>All projects</option></select>
+              <MtChipGroup ariaLabel="Roster status" value={status} onChange={setStatus} options={[{ key: 'all', label: 'All' }, { key: 'IN', label: 'In' }, { key: 'OUT', label: 'Out' }, { key: 'NOT_IN_YET', label: 'Not in yet' }, { key: 'LEAVE', label: 'On leave' }]} />
+            </>)}>
+            <MtMemberGrid scroll>
+              {people.map(([n, d, code, dept], i) => (
+                <MtMemberCard key={i} avatar={<span className="mt-avatar" style={{ width: 52, height: 52, flexShrink: 0, borderRadius: '50%', background: 'color-mix(in srgb, var(--brand) 14%, var(--panel))', color: 'var(--brand)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>{n.split(' ').map(w => w[0]).slice(0, 2).join('')}</span>} name={n} designation={d} active status="NOT_IN_YET"
+                  tags={<><MtPill>{dept}</MtPill><MtPill tone="ok">Full time</MtPill></>}
+                  extras={<>
+                    <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, marginTop: -4 }}>{code}</div>
+                    <MtLeaveBalanceLine balances={bal} />
+                  </>}
+                  secondaryAction={<button type="button" className="mt-link">Appreciate</button>}
+                  onViewProfile={() => undefined} />
+              ))}
+            </MtMemberGrid>
+          </MtMemberGridSection>
+        </div>
+        <div style={{ minHeight: 200, borderRadius: 12, border: '1px solid var(--line)', background: 'var(--panel)', padding: 16, color: 'var(--txt-mut)', fontSize: 13 }}>Side column (Needs your attention)</div>
       </div>
     </div>
   );
