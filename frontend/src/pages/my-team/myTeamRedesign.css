@@ -92,7 +92,7 @@
 
 .mt-legend-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 0 18px 12px; }
 
-.mt-scroll { overflow-x: auto; border-top: 1px solid var(--line); }
+.mt-scroll { overflow-x: auto; border-top: 1px solid var(--line); container-type: inline-size; }
 .mt-table { border-collapse: separate; border-spacing: 0; width: 100%; }
 .mt-table th, .mt-table td { border-bottom: 1px solid var(--line); }
 .mt-table thead th {
@@ -204,24 +204,22 @@
 .mt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; padding: 0 18px 18px; }
 /* Scrollable 3-column roster: vertical scroll only; equal-height rows so "two rows" is well defined. */
 .mt-grid--scroll {
-  grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); grid-auto-rows: 1fr;
   overflow-y: auto; overflow-x: hidden; padding-top: 4px; overscroll-behavior: contain;
 }
-@media (max-width: 1100px) { .mt-grid--scroll { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .mt-grid--scroll { grid-template-columns: minmax(0, 1fr); } }
 .mt-member {
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px;
   display: flex; flex-direction: column; gap: 10px; min-width: 0; transition: border-color .15s, box-shadow .15s;
 }
 .mt-member:hover { border-color: color-mix(in srgb, var(--brand-bright) 45%, var(--line)); box-shadow: 0 4px 14px rgba(16, 24, 40, .08); }
 .mt-member-top { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.mt-member-name { font-size: 13.5px; font-weight: 700; color: var(--txt); line-height: 1.25; overflow-wrap: anywhere; }
-.mt-member-role { font-size: 11.5px; color: var(--txt-mut); line-height: 1.3; overflow-wrap: anywhere; }
+.mt-member-name { font-size: 13.5px; font-weight: 700; color: var(--txt); line-height: 1.25; overflow-wrap: break-word; }
+.mt-member-role { font-size: 11.5px; color: var(--txt-mut); line-height: 1.3; overflow-wrap: break-word; }
 .mt-member-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .mt-member-foot { display: flex; flex-direction: column; align-items: stretch; gap: 10px; border-top: 1px solid var(--line); padding-top: 10px; margin-top: auto; }
 .mt-live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.mt-foot-actions { display: flex; align-items: stretch; gap: 8px; }
-.mt-foot-actions > * { flex: 1 1 0; justify-content: center; white-space: nowrap; }
+.mt-foot-actions { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.mt-foot-actions > * { flex: 1 1 104px; justify-content: center; white-space: nowrap; }
 .mt-member-foot > .mt-pill { align-self: flex-start; }
 .mt-link {
   display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 11.5px; font-weight: 600; font-family: inherit;
@@ -411,8 +409,7 @@
 /* ── Team calendar fits the card on desktop: no sideways scrolling. Name, team, tally and Today
    columns get compact fixed widths and the 28 to 31 day columns share the rest equally. Narrower
    screens keep the old horizontal scroll. ── */
-@media (min-width: 1100px) {
-  .mt-scroll { overflow-x: visible; }
+@container (min-width: 1240px) {
   .mt-table { table-layout: fixed; }
   .mt-table thead th:first-child { width: 196px; min-width: 0 !important; }
   .mt-table thead th:nth-child(2) { width: 92px; min-width: 0 !important; }
