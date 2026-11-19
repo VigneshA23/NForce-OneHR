@@ -6,6 +6,9 @@ describe('richText display helpers', () => {
     expect(tidyDashes('Closed \u2014 Diwali')).toBe('Closed - Diwali');
     expect(tidyDashes('10\u201320 Oct')).toBe('10-20 Oct');
   });
+  it('turns menu-path arrows into a plain ">"', () => {
+    expect(tidyDashes('Go to My Profile → Security → "Change"')).toBe('Go to My Profile > Security > "Change"');
+  });
   it('strips bold markers from previews', () => {
     expect(plainText('**Office closed** \u2014 plan ahead')).toBe('Office closed - plan ahead');
     expect(plainText('a ** b')).toBe('a  b');

@@ -6,7 +6,12 @@ import type { ReactNode } from 'react';
  * **bold** markers are removed (the popup renders them as real bold instead).
  */
 export function tidyDashes(s: string): string {
-  return s.replace(/\s*[\u2014\u2013]\s*/g, ' - ').replace(/ - (?=\d)/g, '-');
+  return s
+    .replace(/\s*[\u2014\u2013]\s*/g, ' - ')
+    .replace(/ - (?=\d)/g, '-')
+    // Arrows used as a menu path ("Profile \u2192 Security") render in a fallback font; show a plain ">" instead.
+    .replace(/\s*[\u2192\u279c\u27f6\u21d2]\s*/g, ' > ')
+    .replace(/\s*[\u2190\u27f5]\s*/g, ' ');
 }
 
 /** One line of preview text: no Markdown markers, no long dashes. */

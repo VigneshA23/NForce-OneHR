@@ -134,6 +134,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'my-requests-page', label: 'My Requests (full page)', title: 'My Requests', subtitle: 'Employee view with sample requests. Click View Details on any row to see the redesigned popup (leave, regularization, WFH, partial day, overtime; pending, approved, rejected).' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
+  { key: 'help-page-employee', label: 'Help & Guidance (employee view)', title: 'Help & Guidance (employee)', subtitle: 'What an employee sees: published FAQs and guides only, no admin buttons.' },
   { key: 'workflows-page', label: 'Workflow Studio (full page)', title: 'Workflow Studio', subtitle: 'Sample rules: themed table, stage flow pills, condition chips and the action dock.' },
   { key: 'talent-page', label: 'Performance tabs (full page)', title: 'Performance', subtitle: 'Sample data. Add &tab=search, &tab=directory or &tab=settings to the URL to open that tab.' },
   { key: 'leave-page', label: 'Leave (full page)', title: 'Leave', subtitle: 'Employee view with sample data: KPIs, balance cards, filters, history table and the Manage dock on pending requests.' },
@@ -1500,7 +1501,7 @@ function MyRequestsMock() {
   return ready ? <MyRequestsPage /> : null;
 }
 
-function HelpMock() {
+function HelpMock({ employee = false }: { employee?: boolean } = {}) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     // Mock only: sample data and an HR/Super Admin session; everything is restored on leave.
@@ -1510,14 +1511,16 @@ function HelpMock() {
     const item = (id: string, type: string, title: string, description: string, status: string, attachmentCount = 0) => ({
       id, type, title, description, category: null, status, featured: false, displayOrder: 0, viewCount: 0, attachmentCount, audience: [], rejectionReason: null, createdAt: '', updatedAt: '',
     });
-    const all = [
-      item('f1', 'FAQ', 'test faq', 'A short answer to a test question.', 'PENDING_APPROVAL'),
+    const every = [
+      item('f1', 'FAQ', 'How do I change my password?', 'Go to My Profile → Security → "Change Password", enter your current password and a new one meeting the strength requirements shown live, and confirm. If your password was just reset by an admin you will be taken here automatically.', 'PUBLISHED'),
       item('f2', 'FAQ', "How do I respond to an employee's HR Service Request ticket?", 'Open the ticket from HR Service Requests, read the thread and reply or change the status.', 'PUBLISHED'),
       item('f3', 'FAQ', "Who approves my Help & Guidance content before it's published?", 'Super Admins approve content that HR submits for approval.', 'PENDING_APPROVAL'),
       item('g1', 'GUIDE', 'This a new fact for Test', 'This a new fact for Test', 'PENDING_APPROVAL'),
       item('g2', 'GUIDE', 'Test Guide to testdefect', 'This is a test guide', 'PUBLISHED', 1),
       item('g3', 'QUICK_HELP', "Forgot to Check In or Check Out? Here's What to Do", "Missed a punch? Don't try to log a new entry — use Attendance regularization.", 'DRAFT'),
     ];
+    // Employees only ever see published content, with no admin controls.
+    const all = employee ? every.filter(x => x.status === 'PUBLISHED') : every;
     window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input).split('?')[0];
       if (url.endsWith('/api/hr/help-content') || url.endsWith('/api/help-content')) {
@@ -1532,7 +1535,8 @@ function HelpMock() {
       if (url.includes('/api/helpdesk')) return json([]);
       return prevFetch(input, init);
     }) as typeof window.fetch;
-    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { permissions: { hr_help_content: { VIEW: ['ALL'], CREATE: ['ALL'], EDIT: ['ALL'], DELETE: ['ALL'] } } } as never });
+    if (employee) useAuthStore.setState({ token: 'mock-token', user: { email: 'employee@example.com', mustChangePassword: false, role: 'EMPLOYEE' }, permissions: { permissions: {} } as never });
+    else useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { permissions: { hr_help_content: { VIEW: ['ALL'], CREATE: ['ALL'], EDIT: ['ALL'], DELETE: ['ALL'] } } } as never });
     setReady(true);
     return () => {
       window.fetch = prevFetch;
@@ -2207,6 +2211,8 @@ function Tiles({ page }: { page: string }) {
       return <DocumentsMock />;
     case 'help-page':
       return <HelpMock />;
+    case 'help-page-employee':
+      return <HelpMock employee />;
     case 'my-requests-page':
       return <MyRequestsMock />;
     case 'workflows-page':

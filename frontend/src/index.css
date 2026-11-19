@@ -1854,7 +1854,9 @@ select, input, textarea, button { touch-action: manipulation; }
 .nf-faq-ico { flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 11%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 26%, transparent); }
 .nf-faq-chev { flex-shrink: 0; color: var(--txt-dim); transition: transform .2s, color .2s; }
 .nf-faq-item.is-open .nf-faq-chev { transform: rotate(180deg); color: var(--brand); }
-.nf-faq-a { padding: 0 18px 16px 66px; font-size: 13.5px; color: var(--txt-mut); line-height: 1.65; }
+.nf-faq-a { padding: 0 18px 16px 66px; font-size: 13.5px; color: var(--txt-mut); line-height: 1.65; font-family: inherit; font-weight: 400; overflow-wrap: break-word; text-wrap: pretty; }
+.nf-faq-a strong { color: var(--txt); font-weight: 700; }
+.nf-faq-q > span:nth-child(2) { min-width: 0; overflow-wrap: break-word; line-height: 1.35; }
 .nf-dock-btn--publish { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 68%, #000)); box-shadow: 0 5px 12px color-mix(in srgb, var(--brand) 30%, transparent); }
 .nf-dock-btn--publish:hover { color: #fff; background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 60%, #000)); }
 
