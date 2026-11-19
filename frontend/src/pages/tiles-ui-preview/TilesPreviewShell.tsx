@@ -55,6 +55,7 @@ import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTa
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
+import { SkillModal } from '../profile/tabs/SkillModal';
 import { WizardSteps } from '../user-management/WizardSteps';
 import { BasicInfoStep } from '../user-management/steps/BasicInfoStep';
 import { EmploymentStep } from '../user-management/steps/EmploymentStep';
@@ -124,6 +125,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
   { key: 'employee-master-page', label: 'Employee Master (full page)', title: 'Employee Master', subtitle: 'The real page with sample employees and the themed table header.' },
+  { key: 'skill-modal', label: 'Add Skill dialog', title: 'Add Skill', subtitle: 'The real dialog with the search icon clear of the placeholder text.' },
   { key: 'hr-requests-page', label: 'HR Service Requests (full page)', title: 'HR Service Requests', subtitle: 'The real page with sample tickets, the themed tab card and header.' },
   { key: 'user-edit', label: 'Edit User popup (Access)', title: 'User Management: Edit popup', subtitle: 'Open the popup for an active or an inactive user. Saving only changes this preview.' },
   { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
@@ -1350,6 +1352,28 @@ function HrRequestsMock() {
   return ready ? <HelpDeskAdminPage /> : null;
 }
 
+function SkillModalMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample skill and proficiency lists; fetch is restored on leave.
+    const prevFetch = window.fetch;
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).split('?')[0];
+      if (path.endsWith('/skills/active')) return json([
+        { id: 's1', name: 'React', category: 'Frontend' }, { id: 's2', name: 'Java', category: 'Backend' }, { id: 's3', name: 'SQL', category: 'Data' },
+      ]);
+      if (path.endsWith('/proficiency-levels/active')) return json([
+        { id: 'l1', name: 'Beginner', rank: 1 }, { id: 'l2', name: 'Intermediate', rank: 2 }, { id: 'l3', name: 'Expert', rank: 3 },
+      ]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    setReady(true);
+    return () => { window.fetch = prevFetch; };
+  }, []);
+  return ready ? <SkillModal token="mock" existing={null} onClose={() => {}} onSaved={() => {}} /> : null;
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -2157,6 +2181,8 @@ function Tiles({ page }: { page: string }) {
       return <TeamMemberCardsMock />;
     case 'hr-requests-page':
       return <HrRequestsMock />;
+    case 'skill-modal':
+      return <SkillModalMock />;
     case 'employee-master-page':
       return <EmployeeMasterMock />;
     case 'team-tabs':

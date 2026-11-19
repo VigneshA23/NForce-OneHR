@@ -522,9 +522,10 @@ export function SearchableSelectField({ label, value, onChange, options, placeho
           onFocus={() => !disabled && setOpen(true)}
           placeholder={placeholder}
           disabled={disabled}
+          className="nf-ss-input"
           style={{ ...INPUT_STYLE, paddingLeft: 30, paddingRight: 28, opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'text' }}
         />
-        <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} aria-hidden />
+        <ChevronDown className="nf-ss-chev" size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--txt-dim)', pointerEvents: 'none' }} aria-hidden />
       </div>
       {open && anchorRect && createPortal(
         <div ref={listRef} style={dropdownPlacement(anchorRect)}>
