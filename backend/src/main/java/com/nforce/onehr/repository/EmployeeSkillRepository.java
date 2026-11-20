@@ -27,4 +27,9 @@ public interface EmployeeSkillRepository extends JpaRepository<EmployeeSkill, UU
 
     // Backs the one-time migration scan: every row not yet matched to the master list.
     List<EmployeeSkill> findBySkillIdIsNull();
+
+    // My Skills duplicate guard — same employee, same skill, same proficiency level.
+    boolean existsByEmployeeUserIdAndSkillIdAndProficiencyLevelId(UUID employeeUserId, UUID skillId, UUID proficiencyLevelId);
+
+    boolean existsByEmployeeUserIdAndSkillIdAndProficiencyLevelIdAndIdNot(UUID employeeUserId, UUID skillId, UUID proficiencyLevelId, UUID id);
 }

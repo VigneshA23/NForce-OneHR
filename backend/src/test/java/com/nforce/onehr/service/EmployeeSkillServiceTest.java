@@ -59,6 +59,21 @@ class EmployeeSkillServiceTest {
     }
 
     @Test
+    void create_rejectsTheSameSkillAtTheSameProficiencyTwice() {
+        when(userRepository.findByEmail("actor@test.com")).thenReturn(Optional.of(User.builder().id(ACTOR_ID).build()));
+        SkillMaster skill = SkillMaster.builder().id(UUID.randomUUID()).name("Cucumber").active(true).build();
+        ProficiencyLevel level = ProficiencyLevel.builder().id(UUID.randomUUID()).name("Intermediate").active(true).build();
+        when(skillMasterRepo.findById(skill.getId())).thenReturn(Optional.of(skill));
+        when(proficiencyLevelRepo.findById(level.getId())).thenReturn(Optional.of(level));
+        when(repository.existsByEmployeeUserIdAndSkillIdAndProficiencyLevelId(ACTOR_ID, skill.getId(), level.getId())).thenReturn(true);
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> service.create("actor@test.com", req(skill.getId(), level.getId())));
+        assertTrue(e.getMessage().contains("Cucumber"));
+        org.mockito.Mockito.verify(repository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
     void create_rejectsAnInactiveSkill() {
         when(userRepository.findByEmail("actor@test.com")).thenReturn(Optional.of(User.builder().id(ACTOR_ID).build()));
         SkillMaster inactive = SkillMaster.builder().id(UUID.randomUUID()).name("COBOL").active(false).build();
