@@ -826,6 +826,10 @@ export const payrollApi = {
     fetch(`${BASE}/employees/${employeeId}/financial-details`, { method: 'PUT', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<EmployeeFinancialDetailsResponse>),
 
   // Keka restyle — "Financial Information" report (§3.6): every employee in one table.
+  /** US-F03 — "Missing bank details" list (Super Admin). */
+  listMissingBankDetails: (token: string) =>
+    fetch(`${BASE}/employees/missing-bank-details`, { headers: bearerOnly(token) }).then(handle<EmployeeFinancialDetailsResponse[]>),
+
   listAllFinancialDetails: (token: string) =>
     fetch(`${BASE}/employees/financial-details`, { headers: bearerOnly(token) }).then(handle<EmployeeFinancialDetailsResponse[]>),
 

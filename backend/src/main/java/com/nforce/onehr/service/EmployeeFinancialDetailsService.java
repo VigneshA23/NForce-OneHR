@@ -51,15 +51,33 @@ public class EmployeeFinancialDetailsService {
                 .collect(Collectors.toList());
     }
 
+    /** US-F03 — employees whose payroll bank details are incomplete. */
+    @Transactional(readOnly = true)
+    public List<EmployeeFinancialDetailsResponse> listMissingBank() {
+        return employeeRepository.findAll().stream()
+                .filter(e -> blank(e.getBankAccountNumber()) || blank(e.getBankName()) || blank(e.getBankIfsc()))
+                .map(this::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    private static boolean blank(String s) { return s == null || s.isBlank(); }
+
+    // 4 letters, literal 0, 6 alphanumerics.
+    private static final java.util.regex.Pattern IFSC = java.util.regex.Pattern.compile("[A-Z]{4}0[A-Z0-9]{6}");
+
     @Transactional
     public EmployeeFinancialDetailsResponse update(UUID employeeId, UpdateEmployeeFinancialDetailsRequest req, String actorEmail) {
+        if (req.getBankIfsc() != null && !req.getBankIfsc().isBlank()
+                && !IFSC.matcher(req.getBankIfsc().trim().toUpperCase()).matches()) {
+            throw new IllegalArgumentException("IFSC must be 11 characters with 0 as the 5th character");
+        }
         Employee employee = requireEmployee(employeeId);
         String before = auditSnapshot.toJson(snapshot(employee));
 
         if (req.getBankAccountNumber() != null) employee.setBankAccountNumber(req.getBankAccountNumber().trim());
         if (req.getBankName() != null) employee.setBankName(req.getBankName().trim());
-        if (req.getBankIfsc() != null) employee.setBankIfsc(req.getBankIfsc().trim());
         if (req.getAccountHolderName() != null) employee.setAccountHolderName(req.getAccountHolderName().trim());
+        if (req.getBankIfsc() != null) employee.setBankIfsc(req.getBankIfsc().trim().toUpperCase());
         if (req.getPanNumber() != null) employee.setPanNumber(req.getPanNumber().trim().toUpperCase());
         if (req.getUanNumber() != null) employee.setUanNumber(req.getUanNumber().trim());
         if (req.getEsiNumber() != null) employee.setEsiNumber(req.getEsiNumber().trim());

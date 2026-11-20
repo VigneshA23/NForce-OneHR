@@ -100,6 +100,41 @@ class EmployeeFinancialDetailsServiceTest {
     }
 
     @Test
+    void update_rejectsBadIfsc_andNeverLogs() {
+        for (String bad : new String[]{"HDFC1234567", "HDFC012345", "HDFC01234567"}) { // 5th char not 0 / 10 chars / 12 chars
+            UpdateEmployeeFinancialDetailsRequest req = new UpdateEmployeeFinancialDetailsRequest();
+            req.setBankIfsc(bad);
+            assertThrows(IllegalArgumentException.class, () -> service.update(employeeId, req, actorEmail));
+        }
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void update_acceptsValidIfsc_uppercased() {
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee()));
+        when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(User.builder().id(actorId).email(actorEmail).build()));
+        UpdateEmployeeFinancialDetailsRequest req = new UpdateEmployeeFinancialDetailsRequest();
+        req.setBankIfsc("hdfc0001234");
+
+        assertEquals("HDFC0001234", service.update(employeeId, req, actorEmail).getBankIfsc());
+    }
+
+    @Test
+    void listMissingBank_returnsOnlyIncomplete() {
+        Employee complete = new Employee();
+        complete.setUserId(UUID.randomUUID());
+        complete.setBankAccountNumber("123456789");
+        complete.setBankName("HDFC Bank");
+        complete.setBankIfsc("HDFC0001234");
+        when(employeeRepository.findAll()).thenReturn(List.of(employee(), complete));
+
+        List<EmployeeFinancialDetailsResponse> result = service.listMissingBank();
+
+        assertEquals(1, result.size());
+        assertEquals("NF-001", result.get(0).getEmployeeCode());
+    }
+
+    @Test
     void update_leavesFieldsUntouchedWhenRequestOmitsThem() {
         Employee existing = employee();
         existing.setBankName("HDFC Bank");

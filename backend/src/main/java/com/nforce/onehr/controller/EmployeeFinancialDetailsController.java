@@ -30,6 +30,13 @@ public class EmployeeFinancialDetailsController {
         return employeeFinancialDetailsService.listAll();
     }
 
+    // US-F03 — "Missing bank details" list for the Super Admin.
+    @GetMapping("/missing-bank-details")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public List<EmployeeFinancialDetailsResponse> missingBank() {
+        return employeeFinancialDetailsService.listMissingBank();
+    }
+
     @GetMapping("/{employeeId}/financial-details")
     @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
     public EmployeeFinancialDetailsResponse get(@PathVariable UUID employeeId) {
