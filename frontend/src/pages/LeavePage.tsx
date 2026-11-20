@@ -60,7 +60,7 @@ function isAnnualBalanceLeaveType(code: string): boolean {
   return ANNUAL_BALANCE_GROUP_CODES.has(code);
 }
 
-const STATUS_COLOR: Record<string, string> = { PENDING: 'var(--warn)', APPROVED: 'var(--ok)', REJECTED: 'var(--risk)' };
+const STATUS_COLOR: Record<string, string> = { PENDING: 'var(--warn)', APPROVED: 'var(--ok)', REJECTED: 'var(--risk)', PENALIZED: 'var(--risk)' };
 
 function StatusBadge({ status }: { status: string }) {
   const color = STATUS_COLOR[status] ?? 'var(--txt-dim)';
@@ -518,6 +518,7 @@ export default function LeavePage() {
               <option value="PENDING">Pending</option>
               <option value="APPROVED">Approved</option>
               <option value="REJECTED">Rejected</option>
+              <option value="PENALIZED">Penalized</option>
             </select>
           </div>
         )}
@@ -573,7 +574,7 @@ export default function LeavePage() {
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                           <span style={{ fontSize: 10.5, fontWeight: 700, color: r.status === 'APPROVED' ? 'var(--ok)' : 'var(--risk)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                            {r.status === 'APPROVED' ? 'Approved by' : 'Rejected by'}
+                            {r.status === 'APPROVED' ? 'Approved by' : r.status === 'PENALIZED' ? 'Deducted by' : 'Rejected by'}
                           </span>
                           <span style={{ color: 'var(--txt)', fontWeight: 600 }}>{r.decidedByName}</span>
                           {r.decidedAt && <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{formatDecisionTimestamp(r.decidedAt)}</span>}
