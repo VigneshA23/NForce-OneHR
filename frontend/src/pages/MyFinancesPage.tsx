@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { Wallet, Download, IndianRupee, CalendarDays, FileText } from 'lucide-react';
+import { Wallet, IndianRupee, CalendarDays, FileText } from 'lucide-react';
+import { MySalaryPanel, MyPayslipsPanel, MyIncomeTaxPanel } from './MyPayPanels';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { TabBar, type TabDef } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
@@ -8,8 +9,11 @@ import { useToast } from '../context/ToastContext';
 import { payslipsApi, type LatestPayslipSummary } from '../api/payslips';
 import { payrollApi, type EmployeeCompensationResponse } from '../api/payroll';
 import { profileApi, type ProfileData } from '../api/profile';
+import { myDocuments, type EmployeeDocument } from '../api/documents';
+import { taxProfileApi, type RegimeView } from '../api/taxProfile';
+import { BankCard, StatutoryCard, IdentityCard, RegimeCard, RegimeBanner } from './MyFinancesSummaryCards';
 import { ReadField } from './profile/shared';
-import { panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, BtnGhost, SectionHead, StatTile } from './payroll/payrollShared';
+import { panelStyle, fmtCurrency, fmtDate, BtnGhost, SectionHead, StatTile } from './payroll/payrollShared';
 
 const BASE = '/myfinances';
 
@@ -59,6 +63,9 @@ interface FinanceData {
   periods: string[];
   profile: ProfileData | null;
   latest: LatestPayslipSummary | null;
+  docs: EmployeeDocument[];
+  esiCeiling: number | null;
+  regime: RegimeView | null;
 }
 
 /**
@@ -72,7 +79,7 @@ export default function MyFinancesPage() {
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const [downloading, setDownloading] = useState<string | null>(null);
-  const [data, setData] = useState<FinanceData>({ loaded: false, current: null, history: [], periods: [], profile: null, latest: null });
+  const [data, setData] = useState<FinanceData>({ loaded: false, current: null, history: [], periods: [], profile: null, latest: null, docs: [], esiCeiling: null, regime: null });
 
   useEffect(() => {
     let cancelled = false;
@@ -84,7 +91,10 @@ export default function MyFinancesPage() {
       payslipsApi.listMyPeriods(token),
       profileApi.get(token),
       payslipsApi.latestSummary(token),
-    ]).then(([current, history, periods, profile, latest]) => {
+      myDocuments(token),
+      taxProfileApi.esiWageCeiling(token),
+      taxProfileApi.regime(token),
+    ]).then(([current, history, periods, profile, latest, docs, esiCeiling, regime]) => {
       if (cancelled) return;
       setData({
         loaded: true,
@@ -93,6 +103,9 @@ export default function MyFinancesPage() {
         periods: periods.status === 'fulfilled' ? periods.value : [],
         profile: profile.status === 'fulfilled' ? profile.value : null,
         latest: latest.status === 'fulfilled' ? latest.value : null,
+        docs: docs.status === 'fulfilled' ? docs.value : [],
+        esiCeiling: esiCeiling.status === 'fulfilled' ? esiCeiling.value : null,
+        regime: regime.status === 'fulfilled' ? regime.value : null,
       });
     });
     return () => { cancelled = true; };
@@ -115,13 +128,27 @@ export default function MyFinancesPage() {
     }
   }
 
+  async function saveRegime(r: 'OLD' | 'NEW') {
+    try {
+      const regime = await taxProfileApi.setRegime(r, token);
+      setData(d => ({ ...d, regime }));
+      showToast('success', 'Tax regime updated');
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to update tax regime');
+      throw e;
+    }
+  }
+
   let body: ReactNode;
   if (!data.loaded) body = <div style={{ color: 'var(--txt-mut)', fontSize: 13 }}>Loading your finances…</div>;
   else if (noPayrollRecord) body = <NoPayrollRecord />;
   else if (tab === 'summary') body = <SummaryPanel data={data} onRequestChange={() => navigate('/profile')}
-    onViewPayslip={p => navigate(`${BASE}/pay/payslips?period=${p}`)} />;
-  else if (sub === 'salary') body = <SalaryPanel current={data.current} history={data.history} />;
-  else if (sub === 'payslips') body = <PayslipsPanel periods={data.periods} selected={new URLSearchParams(search).get('period')} downloading={downloading} onDownload={download} />;
+    onViewPayslip={p => navigate(`${BASE}/pay/payslips?period=${p}`)}
+    onUploadDocs={() => navigate('/my-documents')} onSaveRegime={saveRegime} />;
+  else if (sub === 'salary') body = <MySalaryPanel token={token} />;
+  else if (sub === 'income-tax') body = <MyIncomeTaxPanel token={token} />;
+  else if (sub === 'payslips') body = <MyPayslipsPanel token={token} periods={data.periods} selected={new URLSearchParams(search).get('period')}
+    downloading={downloading} onDownload={download} onSelect={p => navigate(`${BASE}/pay/payslips?period=${p}`, { replace: true })} />;
   else body = <ComingSoon title={[...PAY_TABS, ...TAX_TABS].find(t => t.key === sub)?.label ?? 'This section'} />;
 
   return (
@@ -137,6 +164,9 @@ export default function MyFinancesPage() {
       {SUBTABS[tab] && sub && (
         <TabBar tabs={SUBTABS[tab]} active={sub} onChange={k => navigate(`${BASE}/${tab}/${k}`)} size="sm" className="nf-boxedtabs"
           ariaLabel={`${TOP_TABS.find(t => t.key === tab)?.label} sections`} style={{ marginBottom: 16 }} />
+      )}
+      {data.loaded && !noPayrollRecord && ['salary', 'income-tax', 'declaration'].includes(sub ?? '') && (
+        <RegimeBanner regime={data.regime} onChange={() => navigate(`${BASE}/summary`)} />
       )}
       {body}
     </div>
@@ -165,9 +195,11 @@ function ComingSoon({ title }: { title: ReactNode }) {
   );
 }
 
-function SummaryPanel({ data, onRequestChange, onViewPayslip }: { data: FinanceData; onRequestChange: () => void; onViewPayslip: (period: string) => void }) {
+function SummaryPanel({ data, onRequestChange, onViewPayslip, onUploadDocs, onSaveRegime }: {
+  data: FinanceData; onRequestChange: () => void; onViewPayslip: (period: string) => void;
+  onUploadDocs: () => void; onSaveRegime: (r: 'OLD' | 'NEW') => Promise<void>;
+}) {
   const { current, profile, latest } = data;
-  const hasStatutory = profile && (profile.bankAccountNumber || profile.panNumber || profile.uanNumber || profile.esiNumber);
   return (
     <>
       <div style={{ marginBottom: 22 }}>
@@ -197,85 +229,10 @@ function SummaryPanel({ data, onRequestChange, onViewPayslip }: { data: FinanceD
         </div>
       )}
 
-      {hasStatutory && profile && (
-        <div style={{ marginBottom: 24 }}>
-          <SectionHead title="Bank & Statutory Details" action={<BtnGhost onClick={onRequestChange}>Request change</BtnGhost>} />
-          <div style={{ ...panelStyle, padding: '18px 22px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
-              <ReadField label="Bank Account Number" value={profile.bankAccountNumber} />
-              <ReadField label="Bank Name & IFSC" value={profile.bankName ? `${profile.bankName}${profile.bankIfsc ? ` · IFSC: ${profile.bankIfsc}` : ''}` : null} />
-              <ReadField label="PAN" value={profile.panNumber} />
-              <ReadField label="UAN" value={profile.uanNumber} />
-              <ReadField label="ESI Number" value={profile.esiNumber} />
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 14 }}>
-              Read-only and masked for privacy. Use Request change to ask for an update.
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-function SalaryPanel({ current, history }: { current: EmployeeCompensationResponse | null; history: EmployeeCompensationResponse[] }) {
-  return (
-    <>
-      {current && (
-        <div className="nf-pr-tiles" style={{ marginBottom: 22 }}>
-          <StatTile tone="var(--brand)" icon={<IndianRupee size={20} />} label="Current CTC" value={fmtCurrency(current.ctc)} />
-          <StatTile tone="var(--info)" icon={<Wallet size={20} />} label="Salary Structure" value={current.structureName} />
-          <StatTile tone="var(--ok)" icon={<CalendarDays size={20} />} label="Effective From" value={fmtDate(current.effectiveFrom)} />
-        </div>
-      )}
-      <SectionHead title="Compensation History" />
-      <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>{['Structure', 'CTC', 'Effective From', 'Effective To'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
-          </thead>
-          <tbody>
-            {history.map(h => (
-              <tr key={h.id}>
-                <td style={tdStyle}>{h.structureName}</td>
-                <td style={tdStyle}>{fmtCurrency(h.ctc)}</td>
-                <td style={tdStyle}>{fmtDate(h.effectiveFrom)}</td>
-                <td style={tdStyle}>{h.effectiveTo ? fmtDate(h.effectiveTo) : 'Current'}</td>
-              </tr>
-            ))}
-            {history.length === 0 && <EmptyRow cols={4} msg="No compensation history yet." />}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
-function PayslipsPanel({ periods, selected, downloading, onDownload }: { periods: string[]; selected: string | null; downloading: string | null; onDownload: (period: string) => void }) {
-  return (
-    <>
-      <SectionHead title="Payslips" />
-      <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>{['Pay Period', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
-          </thead>
-          <tbody>
-            {periods.map(period => (
-              <tr key={period} aria-selected={period === selected} style={period === selected ? { background: 'var(--brand-soft, rgba(99,102,241,.1))' } : undefined}>
-                <td style={tdStyle}>{formatPeriod(period)}</td>
-                <td style={tdStyle}>
-                  <BtnGhost onClick={() => onDownload(period)} disabled={downloading === period}>
-                    <Download size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />
-                    {downloading === period ? 'Downloading…' : 'Download PDF'}
-                  </BtnGhost>
-                </td>
-              </tr>
-            ))}
-            {periods.length === 0 && <EmptyRow cols={2} msg="No payslips available yet." />}
-          </tbody>
-        </table>
-      </div>
+      <RegimeCard regime={data.regime} onSave={onSaveRegime} />
+      {profile && <BankCard profile={profile} onRequestChange={onRequestChange} />}
+      {profile && <StatutoryCard profile={profile} current={current} esiCeiling={data.esiCeiling} />}
+      {profile && <IdentityCard profile={profile} docs={data.docs} onUpload={onUploadDocs} />}
     </>
   );
 }

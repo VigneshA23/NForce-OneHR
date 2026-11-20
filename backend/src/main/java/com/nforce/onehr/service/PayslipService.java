@@ -138,6 +138,44 @@ public class PayslipService {
                         p.getEmployedDays(), p.getLopDays()));
     }
 
+    /** US-F08 on-screen payslip. Same data as the PDF, with PAN/UAN masked and YTD always filled in. */
+    public record PayslipPreview(String companyName, String companyAddress, String periodLabel, LocalDate cycleStart, LocalDate cycleEnd,
+                                 String employeeName, String employeeCode, LocalDate joiningDate, String department, String designation,
+                                 String paymentMode, String uan, String pan, int totalDays, BigDecimal lopDays, BigDecimal daysPayable,
+                                 List<Line> earnings, List<Line> contributions, List<Line> deductions,
+                                 BigDecimal totalEarnings, BigDecimal totalDeductions, BigDecimal netPay) {}
+
+    @Transactional(readOnly = true)
+    public PayslipPreview getMyPreview(String actorEmail, String period) {
+        UUID me = resolveUser(actorEmail).getId();
+        YearMonth month = parsePeriod(period);
+        Payslip payslip = payslipRepository.findReleasedForEmployeeBetween(me, month.atDay(1), month.atEndOfMonth(), VISIBLE_RUN_STATUSES)
+                .stream().findFirst().orElseThrow(() -> new NoSuchElementException("No payslip available for " + period));
+        Employee e = employeeRepository.findById(me).orElseThrow(() -> new NoSuchElementException("Employee not found"));
+        PayrollRun run = payslip.getPayrollRun();
+        PayGroup pg = payGroupRepository.findById(run.getPayGroupId()).orElse(null);
+        List<PayslipLineItem> items = lineItemRepository.findByPayslipId(payslip.getId());
+        Map<UUID, SalaryComponent> components = salaryComponentRepository
+                .findAllById(items.stream().map(PayslipLineItem::getComponentId).distinct().toList())
+                .stream().collect(Collectors.toMap(SalaryComponent::getId, c -> c));
+        Map<String, BigDecimal> ytd = ytdByComponentName(me, run.getCycleEnd());
+        return new PayslipPreview(
+                pg == null ? null : (pg.getLegalEntity() != null ? pg.getLegalEntity() : pg.getName()), pg == null ? null : pg.getAddress(),
+                PERIOD_LABEL.format(month), run.getCycleStart(), run.getCycleEnd(),
+                e.getFullName(), e.getEmployeeCode(), e.getJoiningDate(),
+                e.getDepartment() == null ? null : e.getDepartment().getName(),
+                e.getDesignation() == null ? null : e.getDesignation().getTitle(),
+                "Bank Transfer", mask(e.getUanNumber()), mask(e.getPanNumber()),
+                payslip.getCycleDays(), payslip.getLopDays(), BigDecimal.valueOf(payslip.getEmployedDays()).subtract(payslip.getLopDays()).max(BigDecimal.ZERO),
+                lines(items, EARNING_TYPES, components, ytd), lines(items, CONTRIBUTION_TYPES, components, ytd), lines(items, DEDUCTION_TYPES, components, ytd),
+                payslip.getGrossPay(), payslip.getTotalDeductions(), payslip.getNetPay());
+    }
+
+    /** Keeps the last 4 characters only (PAN / UAN on a payslip). */
+    static String mask(String id) {
+        return id == null || id.length() <= 4 ? id : "X".repeat(id.length() - 4) + id.substring(id.length() - 4);
+    }
+
     @Transactional(readOnly = true)
     public PayslipFile getMyPayslipPdf(String actorEmail, String period) {
         return getPayslipPdf(actorEmail, resolveUser(actorEmail).getId(), period);
@@ -251,7 +289,7 @@ public class PayslipService {
         return new PayslipExtras(
                 settings.isExcludeNaFields(), settings.getEarningsHeading(), settings.getDeductionsHeading(),
                 PayslipFields.decode(settings.getPayslipFields()),
-                employee.getUanNumber(), employee.getEsiNumber(), employee.getPanNumber(),
+                mask(employee.getUanNumber()), employee.getEsiNumber(), mask(employee.getPanNumber()),
                 settings.getLogoAlignment(), leaveSummary, arrearBreakup,
                 settings.isIncludeYtdColumn(), contributions);
     }

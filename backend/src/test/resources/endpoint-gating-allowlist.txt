@@ -191,6 +191,12 @@ OrgHierarchyController#getRoots | OPEN - readable by any signed-in user (or publ
 OvertimeRequestController#mine | SELF - own data only (ownership checked in the service)
 OvertimeRequestController#submit | SELF - own data only (ownership checked in the service)
 PayrollYtdController#myYtd | SELF - own data only (ownership checked in the service)
+MyPayController#incomeTax | SELF - own data only (identity from the token)
+MyPayController#salaryTimeline | SELF - own data only (identity from the token)
+PayslipController#myPreview | SELF - own data only (ownership checked in the service)
+MyTaxProfileController#esiCeiling | SELF - own data only (identity from the token)
+MyTaxProfileController#regime | SELF - own data only (identity from the token)
+MyTaxProfileController#setRegime | SELF - own data only (identity from the token); blocked server-side when the window is closed
 PayslipController#myLatest | SELF - own data only (ownership checked in the service)
 PayslipController#myPayslip | SELF - own data only (ownership checked in the service)
 PayslipController#myPeriods | SELF - own data only (ownership checked in the service)
