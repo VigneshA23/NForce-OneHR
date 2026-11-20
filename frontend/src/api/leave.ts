@@ -58,7 +58,8 @@ export interface LeaveRequestRecord {
   halfDay: boolean;
   halfDaySession: 'FIRST_HALF' | 'SECOND_HALF' | null;
   totalDays: number;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  /** PENALIZED = read-only row synthesized from an attendance penalty's leave deduction (own requests only). */
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'PENALIZED';
   employeeReason: string;
   decisionReason: string | null;
   decidedByName: string | null;

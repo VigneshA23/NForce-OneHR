@@ -66,6 +66,9 @@ public class EmployeeSkillService {
         UUID actorId = requireActor(actorEmail).getId();
         SkillMaster skill = requireActiveSkill(req.getSkillId());
         ProficiencyLevel level = requireActiveLevel(req.getProficiencyLevelId());
+        if (repository.existsByEmployeeUserIdAndSkillIdAndProficiencyLevelId(actorId, skill.getId(), level.getId())) {
+            throw duplicate(skill, level);
+        }
         EmployeeSkill entity = EmployeeSkill.builder()
                 .employeeUserId(actorId)
                 .skillId(skill.getId()).skillName(skill.getName())
@@ -85,6 +88,9 @@ public class EmployeeSkillService {
         // offers active options anyway, so this only matters for a pre-existing row.
         SkillMaster skill = requireSkill(req.getSkillId());
         ProficiencyLevel level = requireLevel(req.getProficiencyLevelId());
+        if (repository.existsByEmployeeUserIdAndSkillIdAndProficiencyLevelIdAndIdNot(actorId, skill.getId(), level.getId(), id)) {
+            throw duplicate(skill, level);
+        }
         entity.setSkillId(skill.getId());
         entity.setSkillName(skill.getName());
         entity.setProficiencyLevelId(level.getId());
@@ -132,6 +138,11 @@ public class EmployeeSkillService {
             throw new AccessDeniedException("You can only modify your own skills");
         }
         return entity;
+    }
+
+    private IllegalArgumentException duplicate(SkillMaster skill, ProficiencyLevel level) {
+        return new IllegalArgumentException("You have already added \"" + skill.getName() + "\" at "
+                + level.getName() + " proficiency");
     }
 
     private SkillMaster requireSkill(UUID id) {

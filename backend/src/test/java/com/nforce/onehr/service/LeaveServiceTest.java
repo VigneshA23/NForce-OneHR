@@ -2454,7 +2454,7 @@ class LeaveServiceTest {
 
         assertEquals(1, rows.size());
         LeaveRequestResponse row = rows.get(0);
-        assertEquals("APPROVED", row.getStatus());
+        assertEquals("PENALIZED", row.getStatus());
         assertEquals("Annual Leave", row.getLeaveTypeName());
         assertEquals(incident, row.getStartDate());
         assertEquals(0, new BigDecimal("1.00").compareTo(row.getTotalDays()));

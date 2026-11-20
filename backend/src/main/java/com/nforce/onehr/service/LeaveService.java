@@ -481,8 +481,10 @@ public class LeaveService {
      * ONEHR-645: a PAID_LEAVE attendance penalty debits {@code LeaveBalance.usedDays} directly
      * (PenaltyDeductionService) without any LeaveRequest, so the deduction was invisible in Leave
      * history, My Requests and My Attendance (whose Leave day-tag reads this same list). Surfaces
-     * each still-active penalty as a read-only, already-APPROVED row per debited leave type —
-     * synthesized, never persisted, so the balance isn't debited twice and no leave-approval side
+     * each still-active penalty as a read-only row per debited leave type, status PENALIZED (not
+     * APPROVED — so it reads as a penalty, not as leave the employee took, and APPROVED-only
+     * consumers like the AI leave summary don't double-count it) — synthesized, never persisted,
+     * so the balance isn't debited twice and no leave-approval side
      * effects (penalty re-evaluation/reversal) fire. A cancelled/reversed penalty drops out
      * automatically, matching AttendancePenaltyService#restoreLeaveBalance crediting it back.
      */
@@ -511,7 +513,7 @@ public class LeaveService {
                             .startDate(p.getIncidentDate())
                             .endDate(p.getIncidentDate())
                             .totalDays(days)
-                            .status("APPROVED")
+                            .status("PENALIZED")
                             .employeeReason(reason)
                             .decisionReason("Deducted automatically by attendance penalty")
                             .decidedByName("System")

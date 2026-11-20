@@ -1682,6 +1682,9 @@ export interface DayInfo {
   isWeekend: boolean;
   holidayName?: string;
   leaveTypeName?: string;
+  /** Leave debited by a still-active attendance penalty on this day, e.g. "1 day(s) Annual Leave" —
+   * from the PENALIZED rows LeaveService#penaltyDeductionRows adds to the employee's leave list. */
+  penaltyLeaveDeduction?: string;
   /** Only ever set when the request is APPROVED — pending/rejected requests get no calendar mark. */
   regularization?: RegularizationRecord;
   /** Only ever set when the WFH/Partial Day request is APPROVED. */
@@ -1728,6 +1731,7 @@ function dayCellIndicator(info: DayInfo, fmt: { time: (iso: string | null) => st
     details.push(`${inOut}${worked}`);
   }
   if (rec?.lateByMinutes) details.push(`Late by ${rec.lateByMinutes}m`);
+  if (info.penaltyLeaveDeduction) details.push(`Leave deducted (penalty): ${info.penaltyLeaveDeduction}`);
 
   const workedCaption = rec?.workedMinutes != null ? (fmt.duration(rec.workedMinutes) ?? '') : '';
   const make = (label: string, color: string, shape: DayCellIndicator['shape'], icon: LucideIcon, caption: string): DayCellIndicator => ({
@@ -3769,6 +3773,9 @@ function DayDetailsBody({ info, config, punches, workedMinutesToday, businessTod
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>{formatDay(info.iso)}</div>
+      {info.penaltyLeaveDeduction && (
+        <div style={{ fontSize: 12, color: '#E08A83' }}>Penalized · leave deducted: {info.penaltyLeaveDeduction}</div>
+      )}
       {info.holidayName && !info.record ? (
         <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Company holiday · {info.holidayName}</div>
       ) : info.leaveTypeName ? (
@@ -3948,6 +3955,11 @@ function DayDetailsDrawerBody({ info, config, punches, workedMinutesToday, busin
           )}
         </div>
 
+        {info.penaltyLeaveDeduction && (
+          <DrawerBlock icon={TriangleAlert} title="Penalized · leave deducted" accent="var(--risk)">
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{info.penaltyLeaveDeduction}</div>
+          </DrawerBlock>
+        )}
         {info.holidayName && !info.record ? (
           <DrawerBlock icon={PartyPopper} title="Company holiday" accent="var(--info)">
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{info.holidayName}</div>
@@ -4089,7 +4101,12 @@ export function InlineDayBadge({ info }: { info: DayInfo }) {
   // See dayCellIndicator's identical check — an actually-persisted, still-active penalty, never a
   // frontend-computed guess.
   if (info.record?.penalized) {
-    return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(166,52,46,.15)', color: '#E08A83' }}>PENALIZED</span>;
+    return (
+      <span
+        title={info.penaltyLeaveDeduction ? `Leave deducted (penalty): ${info.penaltyLeaveDeduction}` : undefined}
+        style={{ ...DAY_TAG_STYLE, background: 'rgba(166,52,46,.15)', color: '#E08A83' }}
+      >PENALIZED</span>
+    );
   }
   if (info.isWeekend && !info.record) {
     return <span style={{ ...DAY_TAG_STYLE, background: 'rgba(155,161,172,.15)', color: '#9BA1AC' }}>W-OFF</span>;
@@ -4739,6 +4756,18 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
     return map;
   }, [leaves]);
 
+  // PENALIZED rows are leave debited by an attendance penalty — shown as the day's penalty
+  // detail, never as leave taken (leaveByDate above is APPROVED-only).
+  const penaltyLeaveByDate = useMemo(() => {
+    const map = new Map<string, string>();
+    leaves.filter((l) => l.status === 'PENALIZED').forEach((l) => {
+      const text = `${l.totalDays} day(s) ${l.leaveTypeName}`;
+      const prev = map.get(l.startDate);
+      map.set(l.startDate, prev ? `${prev}, ${text}` : text);
+    });
+    return map;
+  }, [leaves]);
+
   // Calendar marks/details only ever reflect APPROVED requests — pending/rejected requests
   // are not shown on the calendar at all.
   const regularizationByDate = useMemo(() => {
@@ -4859,11 +4888,12 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       isWeekend,
       holidayName: holidayByDate.get(iso),
       leaveTypeName: leaveByDate.get(iso),
+      penaltyLeaveDeduction: penaltyLeaveByDate.get(iso),
       regularization: regularizationByDate.get(iso),
       attendanceRequest: attendanceRequestByDate.get(iso),
       record: recordByDate.get(iso),
     };
-  }, [viewYear, viewMonth, config, joiningDate, holidayByDate, leaveByDate, regularizationByDate, attendanceRequestByDate, recordByDate, today?.workDate]);
+  }, [viewYear, viewMonth, config, joiningDate, holidayByDate, leaveByDate, penaltyLeaveByDate, regularizationByDate, attendanceRequestByDate, recordByDate, today?.workDate]);
 
   function goToPrevMonth() {
     setSelectedDate(null);

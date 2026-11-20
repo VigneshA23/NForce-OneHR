@@ -98,6 +98,8 @@ const STATUS_TONES: Record<string, string> = {
   PARTIALLY_APPROVED: 'tone-info',
   APPROVED: 'tone-ok',
   REJECTED: 'tone-risk',
+  // Leave-only: a read-only row for leave debited by an attendance penalty (LeaveService#penaltyDeductionRows).
+  PENALIZED: 'tone-risk',
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -490,11 +492,12 @@ function RequestDetailModal({ item, onClose }: { item: MyRequestItem; onClose: (
   // Same per-type field set as before; Reason is pulled out into its own quoted block below.
   const reason = item.requestType === 'LEAVE' ? item.leaveReason : item.regularizationReason;
   const facts = requestFacts(item);
-  const decided = item.status === 'APPROVED' || item.status === 'REJECTED';
+  const decided = item.status === 'APPROVED' || item.status === 'REJECTED' || item.status === 'PENALIZED';
   const tone = STATUS_TONES[item.status] ?? 'tone-mute';
-  const StepIcon = item.status === 'APPROVED' ? CheckCircle2 : item.status === 'REJECTED' ? XCircle : Hourglass;
+  const StepIcon = item.status === 'APPROVED' ? CheckCircle2 : item.status === 'REJECTED' || item.status === 'PENALIZED' ? XCircle : Hourglass;
   const stepTitle = item.status === 'APPROVED' ? 'Approved'
     : item.status === 'REJECTED' ? 'Rejected'
+    : item.status === 'PENALIZED' ? 'Leave deducted by attendance penalty'
     : item.status === 'PARTIALLY_APPROVED' ? 'Manager approved, awaiting final approval'
     : 'Awaiting decision';
 
