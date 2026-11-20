@@ -82,8 +82,10 @@ public class BenchAgingService {
         settings.setNotifyThresholdDays(req.notifyThresholdDays());
         settingsRepository.save(settings);
 
-        refreshStoredBuckets(benchRepository.findByActiveTrue(), sorted.stream().map(b -> BenchAgingBucket.builder()
+        List<BenchStatus> active = benchRepository.findByActiveTrue();
+        refreshStoredBuckets(active, sorted.stream().map(b -> BenchAgingBucket.builder()
                 .bucketLabel(b.label().trim()).minDays(b.minDays()).maxDays(b.maxDays()).build()).toList());
+        notifyThresholdCrossings(active, LocalDate.now());
         return getConfig();
     }
 
@@ -165,8 +167,11 @@ public class BenchAgingService {
      * US-A05: notifies the report's current manager once, the first night their days-on-bench is at
      * or above the threshold. notifiedAt is only stamped when a manager actually received it, so an
      * employee with no manager yet is retried the next night rather than silently never notified.
+     * Also called straight away when an episode is marked (back-dated past the threshold) or the
+     * threshold is lowered (ONEHR-729), so the manager isn't left waiting for the nightly run.
      */
-    private void notifyThresholdCrossings(List<BenchStatus> active, LocalDate today) {
+    @Transactional
+    public void notifyThresholdCrossings(List<BenchStatus> active, LocalDate today) {
         int threshold = thresholdDays();
         for (BenchStatus b : active) {
             long days = daysOnBench(b, today);

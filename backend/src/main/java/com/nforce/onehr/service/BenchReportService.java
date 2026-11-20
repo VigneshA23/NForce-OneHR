@@ -13,6 +13,7 @@ import com.nforce.onehr.entity.BenchStatus;
 import com.nforce.onehr.entity.CompensationBand;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeCompensationBand;
+import com.nforce.onehr.entity.EmployeeSkill;
 import com.nforce.onehr.entity.EmployeeSkillRating;
 import com.nforce.onehr.entity.Project;
 import com.nforce.onehr.entity.ProjectAllocation;
@@ -24,6 +25,7 @@ import com.nforce.onehr.repository.CompensationBandRepository;
 import com.nforce.onehr.repository.EmployeeCompensationBandRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.EmployeeSkillRatingRepository;
+import com.nforce.onehr.repository.EmployeeSkillRepository;
 import com.nforce.onehr.repository.ProjectAllocationRepository;
 import com.nforce.onehr.repository.ProjectRepository;
 import com.nforce.onehr.repository.SkillTaxonomyRepository;
@@ -68,6 +70,7 @@ public class BenchReportService {
     private final EmployeeCompensationBandRepository employeeBandRepository;
     private final ProjectAllocationRepository allocationRepository;
     private final ProjectRepository projectRepository;
+    private final EmployeeSkillRepository profileSkillRepository;
 
     /**
      * US-A08/US-A04: active bench list, optionally narrowed by aging bucket and by skills (AND =
@@ -88,19 +91,32 @@ public class BenchReportService {
                 .collect(Collectors.toMap(SkillTaxonomy::getId, Function.identity()));
         Map<UUID, List<EmployeeSkillRating>> ratings = ratingRepository.findByEmployeeUserIdIn(employeeIds).stream()
                 .collect(Collectors.groupingBy(EmployeeSkillRating::getEmployeeUserId));
+        // ONEHR-727: the "Skills" card on My Skills writes profile skills (employee_skills), not
+        // taxonomy ratings — read both so a skill an employee added there shows up (and matches) here.
+        Map<UUID, List<EmployeeSkill>> profileSkills = profileSkillRepository.findByEmployeeUserIdInOrderByCreatedAtAsc(employeeIds)
+                .stream().collect(Collectors.groupingBy(EmployeeSkill::getEmployeeUserId));
 
         List<BenchListRow> rows = new ArrayList<>();
         for (BenchStatus b : active) {
             if (bucket != null && !bucket.isBlank() && !bucket.equals(b.getAgingBucket())) continue;
             List<EmployeeSkillRating> mine = ratings.getOrDefault(b.getEmployeeUserId(), List.of());
+            List<EmployeeSkill> profile = profileSkills.getOrDefault(b.getEmployeeUserId(), List.of());
+            Set<String> profileNames = profile.stream().map(p -> normalize(p.getSkillName())).collect(Collectors.toSet());
             Set<UUID> mineIds = mine.stream().map(EmployeeSkillRating::getSkillId).collect(Collectors.toSet());
-            int matchScore = (int) wanted.stream().filter(mineIds::contains).count();
+            int matchScore = (int) wanted.stream().filter(id -> mineIds.contains(id)
+                    || (taxonomy.containsKey(id) && profileNames.contains(normalize(taxonomy.get(id).getSkill())))).count();
             if (!wanted.isEmpty() && (all ? matchScore != wanted.size() : matchScore == 0)) continue;
-            List<String> skills = mine.stream()
-                    .filter(r -> taxonomy.containsKey(r.getSkillId()))
-                    .map(r -> taxonomy.get(r.getSkillId()).getSkill() + " ("
-                            + (r.getManagerRating() != null ? r.getManagerRating() : r.getSelfRating()) + "/5)")
-                    .sorted(String.CASE_INSENSITIVE_ORDER).toList();
+            Map<String, String> skillLabels = new LinkedHashMap<>();
+            for (EmployeeSkillRating r : mine) {
+                if (!taxonomy.containsKey(r.getSkillId())) continue;
+                String name = taxonomy.get(r.getSkillId()).getSkill();
+                skillLabels.put(normalize(name), name + " ("
+                        + (r.getManagerRating() != null ? r.getManagerRating() : r.getSelfRating()) + "/5)");
+            }
+            for (EmployeeSkill p : profile) {
+                skillLabels.putIfAbsent(normalize(p.getSkillName()), p.getSkillName() + " (" + p.getProficiencyLevel() + ")");
+            }
+            List<String> skills = skillLabels.values().stream().sorted(String.CASE_INSENSITIVE_ORDER).toList();
             rows.add(new BenchListRow(b.getId(), b.getEmployeeUserId(), names.get(b.getEmployeeUserId()),
                     b.getReasonCode(), b.getStartDate(), BenchAgingService.daysOnBench(b, today),
                     b.getAgingBucket(), matchScore, skills));
@@ -184,5 +200,9 @@ public class BenchReportService {
                 .sorted(Comparator.comparing(ProjectAllocation::getStartDate).reversed())
                 .map(a -> new AllocationOption(a.getId(), projectNames.get(a.getProjectId()),
                         a.getCapacityPercent(), a.getStartDate(), a.getEndDate())).toList();
+    }
+
+    private static String normalize(String skill) {
+        return skill == null ? "" : skill.trim().toLowerCase();
     }
 }

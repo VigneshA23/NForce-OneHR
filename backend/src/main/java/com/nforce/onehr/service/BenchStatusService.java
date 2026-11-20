@@ -72,6 +72,8 @@ public class BenchStatusService {
                 .build());
         String after = snapshot(saved);
         AuditService.afterCommit(() -> auditService.log(actor.getId(), AUDIT_ACTION, saved.getEmployeeUserId(), null, after));
+        // ONEHR-729: a start date back-dated past the threshold notifies the manager now, not at 00:15.
+        agingService.notifyThresholdCrossings(List.of(saved), LocalDate.now());
         return toResponse(saved, employee);
     }
 

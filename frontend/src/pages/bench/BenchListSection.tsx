@@ -3,6 +3,7 @@ import { Download, Filter, UsersRound, UserCheck } from 'lucide-react';
 import { usePaged } from '../../components/usePaged';
 import { TablePagination } from '../../components/TablePagination';
 import * as XLSX from 'xlsx';
+import { autoSizeColumns } from '../../lib/xlsxColumns';
 import { benchApi, BENCH_REASON_LABELS, CLOSE_REASON_LABELS, type AgingConfig, type AllocationOption, type BenchCloseReason, type BenchListRow } from '../../api/bench';
 import { skillsApi, type Skill } from '../../api/skills';
 import { toExportRows } from './benchExport';
@@ -102,7 +103,9 @@ export default function BenchListSection({ token }: { token: string }) {
   function exportXlsx() {
     const sheet = toExportRows(rows ?? [], skillIds.length);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sheet), 'Bench');
+    const ws = XLSX.utils.json_to_sheet(sheet);
+    if (sheet.length > 0) autoSizeColumns(ws, sheet, Object.keys(sheet[0])); // ONEHR-731: no truncated columns
+    XLSX.utils.book_append_sheet(wb, ws, 'Bench');
     XLSX.writeFile(wb, `bench-list-${todayLocal()}.xlsx`);
   }
 

@@ -10,6 +10,7 @@ import com.nforce.onehr.entity.BenchStatus;
 import com.nforce.onehr.entity.CompensationBand;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeCompensationBand;
+import com.nforce.onehr.entity.EmployeeSkill;
 import com.nforce.onehr.entity.EmployeeSkillRating;
 import com.nforce.onehr.entity.SkillTaxonomy;
 import com.nforce.onehr.repository.BenchAgingBucketRepository;
@@ -19,6 +20,7 @@ import com.nforce.onehr.repository.CompensationBandRepository;
 import com.nforce.onehr.repository.EmployeeCompensationBandRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.EmployeeSkillRatingRepository;
+import com.nforce.onehr.repository.EmployeeSkillRepository;
 import com.nforce.onehr.repository.ProjectAllocationRepository;
 import com.nforce.onehr.repository.ProjectRepository;
 import com.nforce.onehr.repository.SkillTaxonomyRepository;
@@ -56,6 +58,7 @@ class BenchReportServiceTest {
     @Mock private EmployeeCompensationBandRepository employeeBandRepository;
     @Mock private ProjectAllocationRepository allocationRepository;
     @Mock private ProjectRepository projectRepository;
+    @Mock private EmployeeSkillRepository profileSkillRepository;
 
     private BenchReportService service;
 
@@ -68,7 +71,7 @@ class BenchReportServiceTest {
     @BeforeEach
     void setUp() {
         service = new BenchReportService(benchRepository, bucketRepository, snapshotRepository, employeeRepository,
-                ratingRepository, taxonomyRepository, bandRepository, employeeBandRepository, allocationRepository, projectRepository);
+                ratingRepository, taxonomyRepository, bandRepository, employeeBandRepository, allocationRepository, projectRepository, profileSkillRepository);
         lenient().when(benchRepository.findByActiveTrue()).thenReturn(List.of(
                 bench(ann, 40, "31-60 days"), bench(bob, 10, "0-15 days"), bench(cat, 50, "31-60 days")));
         lenient().when(employeeRepository.findAllById(any())).thenReturn(List.of(
@@ -131,6 +134,24 @@ class BenchReportServiceTest {
         BenchListRow ann = service.list(null, null, "OR").stream().filter(r -> r.employeeName().equals("Ann")).findFirst().orElseThrow();
 
         assertEquals(List.of("Java (4/5)", "SQL (3/5)"), ann.skills());
+    }
+
+    @Test
+    void list_includesProfileSkillsFromMySkills_andMatchesThemByName() {
+        // ONEHR-727: Cat only added skills on the My Skills "Skills" card (employee_skills), no ratings.
+        when(profileSkillRepository.findByEmployeeUserIdInOrderByCreatedAtAsc(any())).thenReturn(List.of(
+                EmployeeSkill.builder().employeeUserId(cat).skillName("sql").proficiencyLevel("Expert").build(),
+                EmployeeSkill.builder().employeeUserId(cat).skillName("Kotlin").proficiencyLevel("Beginner").build(),
+                EmployeeSkill.builder().employeeUserId(ann).skillName("Java").proficiencyLevel("Expert").build()));
+
+        List<BenchListRow> all = service.list(null, null, "OR");
+        BenchListRow catRow = all.stream().filter(r -> r.employeeName().equals("Cat")).findFirst().orElseThrow();
+        BenchListRow annRow = all.stream().filter(r -> r.employeeName().equals("Ann")).findFirst().orElseThrow();
+        assertEquals(List.of("Kotlin (Beginner)", "sql (Expert)"), catRow.skills());
+        assertEquals(List.of("Java (4/5)", "SQL (3/5)"), annRow.skills(), "a rated skill is not listed twice");
+
+        List<BenchListRow> sqlSearch = service.list(null, Set.of(sql), "OR");
+        assertEquals(List.of("Cat", "Ann"), sqlSearch.stream().map(BenchListRow::employeeName).toList());
     }
 
     // ---- dashboard ----

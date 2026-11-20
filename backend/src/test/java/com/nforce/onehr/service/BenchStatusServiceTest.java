@@ -104,6 +104,15 @@ class BenchStatusServiceTest {
     }
 
     @Test
+    void start_checksTheThresholdNotificationImmediately() {
+        // ONEHR-729: a back-dated mark must not wait for the nightly job to notify the manager.
+        service.start(ACTOR_EMAIL, request(LocalDate.now().minusDays(40)));
+
+        verify(agingService).notifyThresholdCrossings(argThat(l -> l.size() == 1
+                && l.get(0).getEmployeeUserId().equals(employeeId)), eq(LocalDate.now()));
+    }
+
+    @Test
     void start_rejectsAnEmployeeAlreadyOnBench() {
         when(benchRepository.existsByEmployeeUserIdAndActiveTrue(employeeId)).thenReturn(true);
 
