@@ -196,15 +196,15 @@ public class RegularizationService {
 
     /**
      * Max {@link #monthlyLimit} submissions per calendar month per employee, counting every
-     * request regardless of eventual status (a rejected request still consumed a slot) —
+     * non-rejected request (a rejected request frees its slot) —
      * skipped entirely for Super Admin submitters. Not enforced on update() — editing an
      * existing pending request must not consume an extra slot.
      */
     private void assertMonthlyLimitNotExceeded(UUID employeeId) {
         LocalDate today = regularizationBusinessToday();
         LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
-        long countThisMonth = regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(
-                employeeId, monthStart, monthStart.plusMonths(1));
+        long countThisMonth = regularizationRepository.countByEmployeeUserIdAndStatusNotAndCreatedAtBetween(
+                employeeId, "REJECTED", monthStart, monthStart.plusMonths(1));
         if (countThisMonth >= monthlyLimit) {
             throw new IllegalArgumentException(
                     "You have reached the maximum of " + monthlyLimit + " regularization requests for this month");
@@ -223,8 +223,8 @@ public class RegularizationService {
         boolean isSuperAdmin = isSubmissionLimitExempt(actor);
         LocalDate today = regularizationBusinessToday();
         LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
-        int usedCount = (int) regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(
-                actor.getId(), monthStart, monthStart.plusMonths(1));
+        int usedCount = (int) regularizationRepository.countByEmployeeUserIdAndStatusNotAndCreatedAtBetween(
+                actor.getId(), "REJECTED", monthStart, monthStart.plusMonths(1));
         return new RegularizationBalance(usedCount, monthlyLimit, Math.max(0, monthlyLimit - usedCount), isSuperAdmin);
     }
 

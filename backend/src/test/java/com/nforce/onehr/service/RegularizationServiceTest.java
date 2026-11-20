@@ -232,7 +232,7 @@ class RegularizationServiceTest {
 
         // Default for existing tests that don't care about the monthly cap — most submit()
         // tests use today's date and don't stub this, so let it resolve to a lenient 0.
-        lenient().when(regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(any(), any(), any()))
+        lenient().when(regularizationRepository.countByEmployeeUserIdAndStatusNotAndCreatedAtBetween(any(), any(), any(), any()))
                 .thenReturn(0L);
     }
 
@@ -776,7 +776,7 @@ class RegularizationServiceTest {
     void submit_byNonSuperAdmin_atMonthlyLimit_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         LocalDate today = LocalDate.now();
-        when(regularizationRepository.countByEmployeeUserIdAndCreatedAtBetween(eq(employeeId), any(), any()))
+        when(regularizationRepository.countByEmployeeUserIdAndStatusNotAndCreatedAtBetween(eq(employeeId), any(), any(), any()))
                 .thenReturn(3L); // monthlyLimit is 3 in setUp()
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
@@ -795,7 +795,7 @@ class RegularizationServiceTest {
                 request(today, today.atTime(9, 0), today.atTime(18, 0), "Yet another"), superAdminEmail);
 
         assertEquals("PENDING", resp.getStatus());
-        verify(regularizationRepository, never()).countByEmployeeUserIdAndCreatedAtBetween(any(), any(), any());
+        verify(regularizationRepository, never()).countByEmployeeUserIdAndStatusNotAndCreatedAtBetween(any(), any(), any(), any());
     }
 
     @Test
@@ -812,7 +812,7 @@ class RegularizationServiceTest {
         regularizationService.update(pending.getId(),
                 request(date, date.atTime(9, 15), date.atTime(18, 15), "Updated reason"), employeeEmail);
 
-        verify(regularizationRepository, never()).countByEmployeeUserIdAndCreatedAtBetween(any(), any(), any());
+        verify(regularizationRepository, never()).countByEmployeeUserIdAndStatusNotAndCreatedAtBetween(any(), any(), any(), any());
     }
 
     @Test
@@ -2160,7 +2160,7 @@ class RegularizationServiceTest {
                 request(tooOld, tooOld.atTime(9, 0), tooOld.atTime(18, 0), "Old correction"), exempt.getEmail());
 
         assertEquals("PENDING", resp.getStatus());
-        verify(regularizationRepository, never()).countByEmployeeUserIdAndCreatedAtBetween(any(), any(), any());
+        verify(regularizationRepository, never()).countByEmployeeUserIdAndStatusNotAndCreatedAtBetween(any(), any(), any(), any());
         assertTrue(regularizationService.getBalance(exempt.getEmail()).unlimited());
     }
 

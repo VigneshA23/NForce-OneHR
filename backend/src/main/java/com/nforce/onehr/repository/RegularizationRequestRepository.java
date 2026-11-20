@@ -43,8 +43,8 @@ public interface RegularizationRequestRepository extends JpaRepository<Regulariz
 
     boolean existsByEmployeeUserIdAndAttendanceDateAndStatus(UUID employeeUserId, LocalDate attendanceDate, String status);
 
-    /** Backs the monthly submission-limit check — counts every request regardless of status. */
-    long countByEmployeeUserIdAndCreatedAtBetween(UUID employeeUserId, LocalDateTime start, LocalDateTime end);
+    /** Backs the monthly submission-limit check — counts every request except those of the given status (REJECTED does not consume a slot). */
+    long countByEmployeeUserIdAndStatusNotAndCreatedAtBetween(UUID employeeUserId, String status, LocalDateTime start, LocalDateTime end);
 
     // Backs the "Attendance Regularizations Summary" report card (ONEHR-109) — a manager's
     // team, scoped by caller, over a date range.
