@@ -22,7 +22,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.when;
 
-/** Sensitive profile fields are visible to employees:VIEW:ALL holders (seeded: HR_ADMIN + SUPER_ADMIN). */
+/** Sensitive profile fields are visible to employee_sensitive:VIEW:ALL holders (seeded: HR_ADMIN + SUPER_ADMIN). */
 @ExtendWith(MockitoExtension.class)
 class ProfileServiceSensitiveAccessTest {
 
@@ -31,8 +31,8 @@ class ProfileServiceSensitiveAccessTest {
     @Mock private EmployeeManagerHistoryRepository historyRepository;
     @Mock private AttendanceService attendanceService;
     @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
-            "CUSTOM_HR_VIEWER", Map.of("employees:VIEW", "ALL"),
-            "CUSTOM_OTHER", Map.of("employees:EDIT", "ALL")));
+            "CUSTOM_SENSITIVE_VIEWER", Map.of("employee_sensitive:VIEW", "ALL"),
+            "CUSTOM_MASTER_ONLY", Map.of("employees:VIEW", "ALL")));
     @InjectMocks private ProfileService profileService;
 
     private boolean access(String roleCode) {
@@ -54,8 +54,8 @@ class ProfileServiceSensitiveAccessTest {
     }
 
     @Test
-    void customRole_withEmployeesViewAll_hasAccess_withoutIt_doesNot() {
-        assertEquals(true, access("CUSTOM_HR_VIEWER"));
-        assertEquals(false, access("CUSTOM_OTHER"));
+    void customRole_needsTheSensitivePermission_theEmployeeMasterAloneIsNotEnough() {
+        assertEquals(true, access("CUSTOM_SENSITIVE_VIEWER"));
+        assertEquals(false, access("CUSTOM_MASTER_ONLY"));
     }
 }

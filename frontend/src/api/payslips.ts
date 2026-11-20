@@ -1,6 +1,8 @@
 import { API_ORIGIN } from './config';
 const BASE = `${API_ORIGIN}/api/payslips`;
 
+export interface LatestPayslipSummary { period: string; cycleStart: string; cycleEnd: string; workingDays: number; lopDays: number }
+
 /** Employee self-service — PayslipController resolves "me" from the JWT principal itself, never
  * an employeeId the client supplies, so there's no permission gate to check here (any
  * authenticated user can see their own payslips, same as /api/payslips/me server-side). */
@@ -9,6 +11,15 @@ export const payslipsApi = {
   listMyPeriods: (token: string) =>
     fetch(`${BASE}/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => { if (!res.ok) throw new Error(`Failed to load payslips (${res.status})`); return res.json() as Promise<string[]>; }),
+
+  /** US-F02: latest released cycle, or null (204) when none. */
+  latestSummary: (token: string) =>
+    fetch(`${BASE}/me/latest`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => {
+        if (res.status === 204) return null;
+        if (!res.ok) throw new Error(`Failed to load payroll summary (${res.status})`);
+        return res.json() as Promise<LatestPayslipSummary>;
+      }),
 
   /** Downloads that period's payslip as a PDF — same fetch-blob-anchor pattern as
    * reports.ts#exportAttendanceRequests, the one existing binary-download convention in this app. */

@@ -229,6 +229,8 @@ function RoleEditorModal({ token, catalogue, tree, existing, template, existingN
   const [saving, setSaving] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [warnings, setWarnings] = useState<string[] | null>(null);
+  // Optional note kept on the role's new version and in the audit entry.
+  const [reason, setReason] = useState('');
 
   const metadataEditable = !role || role.metadataEditable;
   const canConfigure = hasPermission(mine, 'roles', 'CONFIGURE', 'ALL');
@@ -282,8 +284,8 @@ function RoleEditorModal({ token, catalogue, tree, existing, template, existingN
       } else {
         saved = existing!;
         // Each save bumps the role's version, so the second call sends the version the first returned.
-        if (metadataEditable && metaDirty) saved = await rolesApi.update(role.id, { name: trimmed, description: description.trim() || undefined, version: saved.role.version }, token);
-        if (permissionsEditable && grantsDirty) saved = await rolesApi.setPermissions(role.id, toGrants(map, catalogue), saved.role.version, token);
+        if (metadataEditable && metaDirty) saved = await rolesApi.update(role.id, { name: trimmed, description: description.trim() || undefined, version: saved.role.version, reason: reason.trim() || undefined }, token);
+        if (permissionsEditable && grantsDirty) saved = await rolesApi.setPermissions(role.id, toGrants(map, catalogue), saved.role.version, token, reason.trim() || undefined);
       }
       showToast('success', role ? `${saved.role.name} updated` : `${saved.role.name} created`);
       onSaved(saved);
@@ -331,6 +333,13 @@ function RoleEditorModal({ token, catalogue, tree, existing, template, existingN
               You can only grant permissions you hold yourself. <b>Organization</b> scope covers everyone; <b>Team</b> covers the holder's direct reports; <b>Own</b> covers only their own records.
             </div>
           </div>
+          {role && dirty && (
+            <div>
+              <label style={labelStyle} htmlFor="role-reason">Reason for this change (optional)</label>
+              <input id="role-reason" style={inputStyle} value={reason} maxLength={500} onChange={e => setReason(e.target.value)}
+                placeholder="Saved with this version and in the audit log" />
+            </div>
+          )}
           {warnings && (
             <Banner tone="warn">
               <div style={{ fontWeight: 700, marginBottom: 4 }}>Please confirm these changes</div>
@@ -578,7 +587,8 @@ function RoleDetailsDrawer({ token, roleId, catalogue, tree, onClose, onEdit, on
                   <PermissionMatrix tree={tree} map={toGrantMap(detail.grants)} readOnly />
                 </div>
               )}
-              {tab === 'history' && <RoleHistory token={token} roleId={role.id} catalogue={catalogue} />}
+              {tab === 'history' && <RoleHistory token={token} roleId={role.id} catalogue={catalogue} roleVersion={role.version}
+                canRestore={isSuperAdmin(mine)} onRestored={(d) => { setDetail(d); onChanged(); }} />}
               {tab === 'members' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {role.code === 'EMPLOYEE' && (

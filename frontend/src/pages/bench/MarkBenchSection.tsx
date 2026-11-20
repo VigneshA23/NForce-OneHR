@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
 import { UserPlus } from 'lucide-react';
-import { employeesApi, type EmployeeRecord } from '../../api/employees';
-import { benchApi, BENCH_REASON_LABELS, type BenchReasonCode } from '../../api/bench';
+import { benchApi, BENCH_REASON_LABELS, type BenchReasonCode, type EligibleEmployee } from '../../api/bench';
 import { card, CardTitle, ErrorBox, inputStyle, labelStyle, primaryBtn, todayLocal } from './ui';
 
 const REASONS = Object.keys(BENCH_REASON_LABELS) as BenchReasonCode[];
 
 /** US-A01: HR marks an employee On Bench with a controlled reason and an editable start date. */
 export default function MarkBenchSection({ token, onMarked }: { token: string; onMarked: (employeeName: string) => void }) {
-  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [employees, setEmployees] = useState<EligibleEmployee[]>([]);
   const [employeeId, setEmployeeId] = useState('');
   const [reasonCode, setReasonCode] = useState<BenchReasonCode>('PROJECT_ENDED');
   const [startDate, setStartDate] = useState(() => todayLocal());
@@ -16,7 +15,8 @@ export default function MarkBenchSection({ token, onMarked }: { token: string; o
   const [error, setError] = useState('');
 
   useEffect(() => {
-    employeesApi.list(token).then(list => setEmployees(list.filter(e => e.active))).catch(() => setEmployees([]));
+    benchApi.eligibleEmployees(token).then(setEmployees)
+      .catch(e => { setEmployees([]); setError(e instanceof Error ? e.message : 'Failed to load employees'); });
   }, [token]);
 
   async function submit() {

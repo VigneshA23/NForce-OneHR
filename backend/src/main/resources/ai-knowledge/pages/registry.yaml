@@ -94,13 +94,13 @@ pages:
         route: /assets
         description: "Your own assets and expense claims, plus your direct reports' asset requests and expense claims awaiting your approval."
 
-  - pageId: my-finances
+  - pageId: myfinances
     module: payroll
     variants:
       - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
         label: "My Finances"
-        route: /my-finances
-        description: "Your own compensation (current CTC and revision history), payslip downloads, and your bank/statutory details (PAN, UAN, ESI Number) carried over read-only from your Profile."
+        route: /myfinances
+        description: "Your own finances in three tabs: Summary (current CTC, bank/statutory details read-only with a Request change action), My Pay (My Salary with revision history, Payslips with PDF download, Income Tax) and Manage Tax (Declaration, Previous Income, Forms, Tax Filing, Tax Saving Investment). Always your own data, for every role."
 
   - pageId: payroll-runs
     module: payroll
@@ -264,7 +264,7 @@ pages:
 
   - pageId: approvals
     module: approvals
-    permissions: ["regularization:APPROVE:TEAM", "attendance_requests:APPROVE:TEAM", "overtime:APPROVE:TEAM", "leave:APPROVE:TEAM", "expenses:APPROVE:TEAM", "assets:APPROVE:TEAM", "hr_help_content:APPROVE:TEAM"]
+    permissions: ["regularization:APPROVE:TEAM", "attendance_requests:APPROVE:TEAM", "overtime:APPROVE:TEAM", "leave:APPROVE:TEAM", "expenses:APPROVE:TEAM", "assets:APPROVE:TEAM", "hr_help_content:APPROVE:TEAM", "employee_sensitive:APPROVE:ALL"]
     variants:
       - roles: [MANAGER, HR_ADMIN, SUPER_ADMIN]
         label: "Approval Center"

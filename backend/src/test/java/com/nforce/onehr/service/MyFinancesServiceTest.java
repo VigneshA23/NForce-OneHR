@@ -50,6 +50,20 @@ class MyFinancesServiceTest {
         lenient().when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
     }
 
+    @Test
+    void requireSelf_allowsOwnIdOrNoId() {
+        assertDoesNotThrow(() -> service.requireSelf(actorEmail));
+        assertDoesNotThrow(() -> service.requireSelf(actorEmail, null, actorId));
+    }
+
+    @Test
+    void requireSelf_anotherUsersId_isForbidden() {
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.requireSelf(actorEmail, UUID.randomUUID()));
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> service.requireSelf(actorEmail, actorId, UUID.randomUUID()));
+    }
+
     private SalaryComponent catalogComponent(String name, String type) {
         return SalaryComponent.builder().id(UUID.randomUUID()).name(name).type(type).build();
     }

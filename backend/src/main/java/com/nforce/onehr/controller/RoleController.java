@@ -94,14 +94,22 @@ public class RoleController {
     @PatchMapping("/api/roles/{roleId}/status")
     @PreAuthorize("hasAuthority('roles:EDIT:ALL')")
     public RoleDetail setStatus(@PathVariable Integer roleId, @Valid @RequestBody UpdateRoleStatusRequest req, Principal principal) {
-        return roleAdminService.setActive(roleId, req.active(), req.version(), principal.getName());
+        return roleAdminService.setActive(roleId, req.active(), req.version(), req.reason(), principal.getName());
     }
 
     @PutMapping("/api/roles/{roleId}/permissions")
     @PreAuthorize("hasAuthority('roles:CONFIGURE:ALL')")
     public RoleDetail setPermissions(@PathVariable Integer roleId, @Valid @RequestBody UpdateRolePermissionsRequest req,
                                      Principal principal) {
-        return roleAdminService.setPermissions(roleId, req.grants(), req.version(), principal.getName());
+        return roleAdminService.setPermissions(roleId, req.grants(), req.version(), req.reason(), principal.getName());
+    }
+
+    /** Puts a role back to one of its saved versions (permissions, name, active flag; never membership). Super Admin only. */
+    @PostMapping("/api/roles/{roleId}/versions/{versionNo}/restore")
+    @PreAuthorize("hasAuthority('roles:CONFIGURE:ALL')")
+    public RoleRestoreResult restore(@PathVariable Integer roleId, @PathVariable int versionNo,
+                                     @Valid @RequestBody RestoreRoleVersionRequest req, Principal principal) {
+        return roleAdminService.restore(roleId, versionNo, req.version(), req.reason(), principal.getName());
     }
 
     @DeleteMapping("/api/roles/{roleId}")

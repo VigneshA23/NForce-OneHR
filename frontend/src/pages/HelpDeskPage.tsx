@@ -101,7 +101,7 @@ function StatusBadge({ status }: { status: TicketStatus }) {
 }
 
 function fmtDateTime(s?: string | null) {
-  if (!s) return '–';
+  if (!s) return '-';
   return new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
@@ -405,7 +405,7 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
   return (
     <div>
       <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--txt-mut)', fontSize: 12.5, cursor: 'pointer', marginBottom: 14, padding: 0 }}>
-        ← Back to My Requests
+        Back to My Requests
       </button>
 
       <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 20, marginBottom: 20 }}>
@@ -440,7 +440,7 @@ function TicketDetailView({ ticketId, token, onBack, onChanged }: {
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <CheckCircle2 size={16} style={{ color: 'var(--ok)', flexShrink: 0 }} />
             <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>
-              HR marked this resolved. If everything looks good, close it — you can still reopen it for a week after closing if it turns out it's not actually fixed.
+              HR marked this resolved. If everything looks good, close it. You can still reopen it for a week after closing if it turns out it's not actually fixed.
             </span>
           </div>
           <button onClick={handleClose} disabled={closing} style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 15px', fontSize: 12.5, fontWeight: 600, cursor: closing ? 'not-allowed' : 'pointer', opacity: closing ? 0.7 : 1, whiteSpace: 'nowrap' }}>
@@ -676,8 +676,8 @@ function ReasonPromptModal({ title, label, onConfirm, onClose }: {
 
 function SectionHeader({ title, description, action, icon: Icon }: { title: string; description?: string; action?: React.ReactNode; icon?: LucideIcon }) {
   return (
-    <div style={{ marginBottom: 16, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+    <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {Icon && <span className="nf-opp-ico"><Icon size={18} /></span>}
         <div>
           <h2 style={{ fontFamily: 'Inter, sans-serif', fontSize: 19, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)', margin: 0 }}>{title}</h2>
@@ -709,7 +709,7 @@ function AttachmentIndicator({ contentId, count, token, kind }: { contentId: str
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-          📎 This {kind} has {count} attachment{count === 1 ? '' : 's'}. Would you like to take a look?
+          This {kind} has {count} attachment{count === 1 ? '' : 's'}. Would you like to take a look?
         </span>
         <button type="button" className="nf-act-btn" onClick={open}>
           <Paperclip size={13} />View Attachments
@@ -839,7 +839,7 @@ function ContentModal({ id, token, isAdmin, viewedRef, onClose, onContactHR }: {
           {item.attachments.length > 0 && (
             <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: 'var(--txt-mut)' }}>
-                📎 This {CONTENT_TYPE_LABEL[item.type]} has {item.attachments.length} attachment{item.attachments.length === 1 ? '' : 's'}. Would you like to take a look?
+                This {CONTENT_TYPE_LABEL[item.type]} has {item.attachments.length} attachment{item.attachments.length === 1 ? '' : 's'}. Would you like to take a look?
               </span>
               <button
                 onClick={() => setViewingAttachments(true)}
@@ -858,7 +858,7 @@ function ContentModal({ id, token, isAdmin, viewedRef, onClose, onContactHR }: {
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
             <button onClick={() => onContactHR(item.title)} className="nf-link-btn">
-              Still need help? Contact HR Support →
+              Still need help? Contact HR Support
             </button>
             <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>
               Close
@@ -1409,7 +1409,7 @@ export default function HelpDeskPage() {
                   )}
                   {faqs.length > 0 && (
                     <button onClick={() => setShowAllFaqs(true)} className="nf-link-btn">
-                      View all →
+                      View all
                     </button>
                   )}
                 </div>
@@ -1430,7 +1430,7 @@ export default function HelpDeskPage() {
                   )}
                   {guides.length > 0 && (
                     <button onClick={() => setShowAllGuides(true)} className="nf-link-btn">
-                      View all →
+                      View all
                     </button>
                   )}
                 </div>
@@ -1447,7 +1447,7 @@ export default function HelpDeskPage() {
           title="My Requests"
           action={!showAllRequests && tickets.length > 0 && (
             <button onClick={() => setShowAllRequests(true)} className="nf-link-btn">
-              View all requests →
+              View all requests
             </button>
           )}
         />
@@ -1506,9 +1506,9 @@ export default function HelpDeskPage() {
 
           {showAllRequests && totalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid var(--line)' }}>
-              <button onClick={() => loadTickets(page - 1)} disabled={page === 0} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: page === 0 ? 'not-allowed' : 'pointer', opacity: page === 0 ? 0.5 : 1 }}>← Prev</button>
+              <button onClick={() => loadTickets(page - 1)} disabled={page === 0} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: page === 0 ? 'not-allowed' : 'pointer', opacity: page === 0 ? 0.5 : 1 }}>Prev</button>
               <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Page {page + 1} of {totalPages}</span>
-              <button onClick={() => loadTickets(page + 1)} disabled={page >= totalPages - 1} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: page >= totalPages - 1 ? 'not-allowed' : 'pointer', opacity: page >= totalPages - 1 ? 0.5 : 1 }}>Next →</button>
+              <button onClick={() => loadTickets(page + 1)} disabled={page >= totalPages - 1} style={{ background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '6px 12px', fontSize: 12, color: 'var(--txt-mut)', cursor: page >= totalPages - 1 ? 'not-allowed' : 'pointer', opacity: page >= totalPages - 1 ? 0.5 : 1 }}>Next</button>
             </div>
           )}
         </div>

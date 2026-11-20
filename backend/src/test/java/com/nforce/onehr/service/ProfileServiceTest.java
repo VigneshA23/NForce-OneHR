@@ -32,6 +32,9 @@ class ProfileServiceTest {
     @Mock private EmployeeManagerHistoryRepository historyRepository;
     @Mock private AttendanceService attendanceService;
     @Mock private EffectivePermissionService effectivePermissionService;
+    @Mock private AuditService auditService;
+    @Mock private AuditSnapshotSerializer auditSnapshot;
+    @Mock private ProfileChangeRequestService profileChangeRequestService;
 
     @InjectMocks private ProfileService service;
 
@@ -52,6 +55,7 @@ class ProfileServiceTest {
     void setUp() {
         lenient().when(userRepository.findByEmail(email)).thenReturn(Optional.of(user()));
         lenient().when(employeeRepository.save(any(Employee.class))).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(profileChangeRequestService.hasPending(any())).thenReturn(false);
     }
 
     @Test
@@ -111,7 +115,7 @@ class ProfileServiceTest {
         when(userRepository.findByEmail("manager@test.com")).thenReturn(Optional.of(viewer));
         when(userRepository.findById(userId)).thenReturn(Optional.of(user()));
         when(employeeRepository.findById(userId)).thenReturn(Optional.of(employee()));
-        when(effectivePermissionService.hasAuthority(viewer, "employees:VIEW:ALL")).thenReturn(false);
+        when(effectivePermissionService.hasAuthority(viewer, "employee_sensitive:VIEW:ALL")).thenReturn(false);
 
         ProfileResponse resp = service.getProfileForViewer("manager@test.com", userId);
 
@@ -127,7 +131,7 @@ class ProfileServiceTest {
         when(userRepository.findByEmail("hr@test.com")).thenReturn(Optional.of(viewer));
         when(userRepository.findById(userId)).thenReturn(Optional.of(user()));
         when(employeeRepository.findById(userId)).thenReturn(Optional.of(employee()));
-        when(effectivePermissionService.hasAuthority(viewer, "employees:VIEW:ALL")).thenReturn(true);
+        when(effectivePermissionService.hasAuthority(viewer, "employee_sensitive:VIEW:ALL")).thenReturn(true);
 
         ProfileResponse resp = service.getProfileForViewer("hr@test.com", userId);
 

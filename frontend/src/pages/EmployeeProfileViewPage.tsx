@@ -112,7 +112,7 @@ function ProfileContent({ profile, hasSensitiveAccess }: { profile: ProfileData;
 
       {!hasSensitiveAccess ? (
         <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', fontStyle: 'italic', padding: '0 4px' }}>
-          Personal details (contact, address, emergency contact, identity & banking) are restricted to HR Admin and Super Admin.
+          Personal details (contact, address, emergency contact, identity & banking) are restricted. You need the Sensitive Employee Data permission to see them.
         </div>
       ) : (
         <>

@@ -23,7 +23,7 @@ import PageTitleBlock from '../../components/PageTitleBlock';
 import { PersonCell } from '../../components/PersonCell';
 import { SidebarNav } from '../../components/SidebarNav';
 import { NAV, type Role } from '../../lib/nav.config';
-import { TabBar } from '../../components/TabBar';
+import { TabBar, ChipGroup as MtChipGroup } from '../../components/TabBar';
 import { useEffect, useState } from 'react';
 import { useAccentColor, ACCENT_SWATCHES, type AccentColor } from '../../lib/accentColor';
 import { KpiCard } from '../talent/DashboardTab';
@@ -49,12 +49,13 @@ import UserPreferencesPage from '../UserPreferencesPage';
 import ChangePasswordPage from '../ChangePasswordPage';
 import '../login.css';
 import '../myTeamTabs.css';
-import { DiwaliBurst } from '../auth/DiwaliBurst';
-import { MemberCard as MtMemberCard, Pill as MtPill } from '../my-team/MyTeamRedesign';
+import { SignInConfetti } from '../auth/SignInConfetti';
+import { MemberCard as MtMemberCard, MemberGrid as MtMemberGrid, MemberGridSection as MtMemberGridSection, Pill as MtPill } from '../my-team/MyTeamRedesign';
 import { EffortTab as MtEffortTab, NegligenceTab as MtNegligenceTab, PenaltiesTab as MtPenaltiesTab, AssignmentsTab as MtAssignmentsTab, SkillsGrowthTab as MtGrowthTab, AttentionPanel, LeaveBalanceLine as MtLeaveBalanceLine, ReportsTab as MyTeamReportsTab, KpiCard as TeamKpiCard, LeaveTodayPanel, NotInYetPanel, KudosModal, EmployeeDetailModal, EmployeeDetailsModal, NotInYetListModal } from '../MyTeamPage';
 import { Users as KIcTeam, CheckCircle2 as KIcOk, Clock as KIcLate, Home as KIcHome, MapPin as KIcPin } from 'lucide-react';
 import type { ApprovalItem } from '../../api/approvalCenter';
 import PoliciesPage from '../PoliciesPage';
+import { SkillModal } from '../profile/tabs/SkillModal';
 import { WizardSteps } from '../user-management/WizardSteps';
 import { BasicInfoStep } from '../user-management/steps/BasicInfoStep';
 import { EmploymentStep } from '../user-management/steps/EmploymentStep';
@@ -109,7 +110,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'onboarding-page', label: 'Onboarding (full page)', title: 'Onboarding', subtitle: 'All four tabs, the checklist detail view and its popups, with sample data. Changes here only affect this preview.' },
   { key: 'team-popups', label: 'My Team: Popups', title: 'My Team: Popups', subtitle: 'Open each popup. Sending kudos only works against a backend, so Send is a no-op here.' },
   { key: 'team-today', label: 'My Team: Today tiles & panels', title: 'My Team: Today', subtitle: 'The KPI tiles plus the Who is on leave and Not in yet panels, as the page renders them.' },
-  { key: 'login-diwali', label: 'Login: cracker lights', title: 'Login: cracker lights', subtitle: 'Click Sign in to play the effect inside the card (sample only).' },
+  { key: 'login-effect', label: 'Login: sign-in effect', title: 'Login: sign-in effect', subtitle: 'Click Sign in to see the green tick and confetti burst (sample only, nothing is submitted).' },
   { key: 'team-tabs', label: 'My Team: Section tabs', title: 'My Team: Section tabs', subtitle: 'The section tabs inside a card container.' },
   { key: 'team-member-cards', label: 'My Team: Member cards', title: 'My Team: Member cards', subtitle: 'Roster cards with the compact leave balance. Click it to see the breakdown.' },
   { key: 'team-effort', label: 'My Team: Efforts / Punctuality', title: 'My Team: Efforts and Punctuality', subtitle: 'The real tab, fed with sample data.' },
@@ -124,6 +125,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
   { key: 'employee-master-page', label: 'Employee Master (full page)', title: 'Employee Master', subtitle: 'The real page with sample employees and the themed table header.' },
+  { key: 'skill-modal', label: 'Add Skill dialog', title: 'Add Skill', subtitle: 'The real dialog with the search icon clear of the placeholder text.' },
   { key: 'hr-requests-page', label: 'HR Service Requests (full page)', title: 'HR Service Requests', subtitle: 'The real page with sample tickets, the themed tab card and header.' },
   { key: 'user-edit', label: 'Edit User popup (Access)', title: 'User Management: Edit popup', subtitle: 'Open the popup for an active or an inactive user. Saving only changes this preview.' },
   { key: 'roles-page', label: 'Roles & Permissions (full page)', title: 'Roles & Permissions', subtitle: 'Super Admin view with sample roles. Create, edit, deactivate and delete only change this preview.' },
@@ -132,6 +134,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'documents-page', label: 'My Documents (full page)', title: 'My Documents & Policies', subtitle: 'Employee view with sample data: banner, pill tabs, search, table, policy and announcement cards.' },
   { key: 'my-requests-page', label: 'My Requests (full page)', title: 'My Requests', subtitle: 'Employee view with sample requests. Click View Details on any row to see the redesigned popup (leave, regularization, WFH, partial day, overtime; pending, approved, rejected).' },
   { key: 'help-page', label: 'Help & Guidance (full page)', title: 'Help & Guidance', subtitle: 'HR view with sample data: hero search, FAQ cards, guide cards and the always-visible action buttons.' },
+  { key: 'help-page-employee', label: 'Help & Guidance (employee view)', title: 'Help & Guidance (employee)', subtitle: 'What an employee sees: published FAQs and guides only, no admin buttons.' },
   { key: 'workflows-page', label: 'Workflow Studio (full page)', title: 'Workflow Studio', subtitle: 'Sample rules: themed table, stage flow pills, condition chips and the action dock.' },
   { key: 'talent-page', label: 'Performance tabs (full page)', title: 'Performance', subtitle: 'Sample data. Add &tab=search, &tab=directory or &tab=settings to the URL to open that tab.' },
   { key: 'leave-page', label: 'Leave (full page)', title: 'Leave', subtitle: 'Employee view with sample data: KPIs, balance cards, filters, history table and the Manage dock on pending requests.' },
@@ -752,8 +755,8 @@ function TeamTabMock({ tab }: { tab: 'effort' | 'negligence' | 'penalties' | 'as
   return tab === 'effort' ? <MtEffortTab token="mock-token" /> : tab === 'negligence' ? <MtNegligenceTab token="mock-token" /> : tab === 'penalties' ? <MtPenaltiesTab token="mock-token" /> : tab === 'assignments' ? <MtAssignmentsTab token="mock-token" /> : <MtGrowthTab token="mock-token" />;
 }
 
-function LoginDiwaliMock() {
-  // Mock only: click Sign in to play the cracker-lights effect; nothing is submitted anywhere.
+function LoginEffectMock() {
+  // Mock only: click Sign in to play the sign-in effect (green tick + confetti); nothing is submitted anywhere.
   const [signedIn, setSignedIn] = useState(false);
   useEffect(() => {
     if (!signedIn) return;
@@ -761,10 +764,10 @@ function LoginDiwaliMock() {
     return () => window.clearTimeout(t);
   }, [signedIn]);
   return (
-    <div style={{ display: 'grid', placeItems: 'center', padding: '24px 0 40px', background: 'linear-gradient(135deg, #0b0b0f, #2a0a0a)', borderRadius: 16 }}>
+    <div style={{ display: 'grid', placeItems: 'center', padding: '24px 0 40px', background: '#f1f3f7', borderRadius: 16 }}>
       <div className="nf-lg-card">
         <h2 className="nf-lg-title">Welcome back</h2>
-        <p className="nf-lg-sub">Click Sign in to see the effect (sample only, nothing is submitted).</p>
+        <p className="nf-lg-lead">Click Sign in to see the effect (sample only, nothing is submitted).</p>
         <form onSubmit={e => { e.preventDefault(); if (!signedIn) setSignedIn(true); }}>
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#334155' }}>Email address</label>
@@ -774,10 +777,20 @@ function LoginDiwaliMock() {
             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6, color: '#334155' }}>Password</label>
             <input type="password" defaultValue="password" style={{ width: '100%', boxSizing: 'border-box', height: 44, padding: '0 12px', borderRadius: 10, border: '1px solid #e2e8f0' }} />
           </div>
-          {signedIn && <DiwaliBurst />}
-          <button type="submit" className={`nf-lg-submit${signedIn ? ' is-done' : ''}`} disabled={signedIn}>
-            {signedIn ? 'Signed in' : 'Sign in'}
-          </button>
+          <div className="nf-lg-btnwrap">
+            <button type="submit" className={`nf-lg-submit${signedIn ? ' is-done' : ''}`} disabled={signedIn}>
+              {signedIn ? (
+                <>
+                  <svg className="nf-lg-tick" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle className="nf-lg-tick-ring" cx="12" cy="12" r="10" />
+                    <path className="nf-lg-tick-mark" d="M7 12.5l3.2 3.2L17 9" />
+                  </svg>
+                  Signed in
+                </>
+              ) : 'Sign in'}
+            </button>
+            {signedIn && <SignInConfetti />}
+          </div>
         </form>
       </div>
     </div>
@@ -785,25 +798,40 @@ function LoginDiwaliMock() {
 }
 
 function TeamMemberCardsMock() {
-  // Mock only: roster cards with the compact leave balance line (click it to open the breakdown).
-  const people = [['Test', 'Automation QA Engineer', 'NF-202613574', 'Quality Engineering'], ['Test', 'Junior Sales Engineer', 'NF-202613567', 'Sales'], ['Test', 'Software Engineer', 'NF-202613571', 'Engineering']];
+  // Mock only: the roster section exactly as My Team lays it out (scrolling card grid beside the 340px
+  // side column), with the compact leave balance line (click it to open the breakdown).
+  const people = [['Rohit Reddy', 'QA Engineer II', 'NF-202613574', 'Engineering'], ['Sanjukta Senapati', 'QA Engineer III', 'NF-202613567', 'Operations & Sales'], ['LahariG', 'No designation', 'NF-202613571', 'Quality Engineering'], ['Vyshnavi Guthala', 'Senior Software Engineer', 'NF-202613572', 'Finance'], ['Venkat Narsimha Reddy', 'Software Developer', 'NF-202613573', 'Sales'], ['Sheetal Richie', 'HR Administrator', 'NF-202613575', 'Marketing']];
   const bal = [
     { leaveTypeCode: 'AL', leaveTypeName: 'Annual Leave', remainingDays: 15, totalDays: 15 },
     { leaveTypeCode: 'PL', leaveTypeName: 'Paid Leave', remainingDays: 20, totalDays: 20 },
     { leaveTypeCode: 'TL', leaveTypeName: 'Test Leave', remainingDays: 20, totalDays: 20 },
   ] as unknown as Parameters<typeof MtLeaveBalanceLine>[0]['balances'];
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('all');
   return (
     <div className="mt-root">
-      <div className="mt-members" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
-        {people.map(([n, d, code, dept], i) => (
-          <MtMemberCard key={i} avatar={<span className="mt-avatar" style={{ width: 52, height: 52, borderRadius: '50%', background: 'color-mix(in srgb, var(--brand) 14%, var(--panel))', color: 'var(--brand)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>TE</span>} name={n} designation={d} active status="NOT_IN_YET" 
-            tags={<><MtPill>{dept}</MtPill><MtPill tone="ok">Full time</MtPill></>}
-            extras={<>
-              <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, marginTop: -4 }}>{code}</div>
-              <MtLeaveBalanceLine balances={bal} />
-            </>}
-            onViewProfile={() => undefined} />
-        ))}
+      <div className="nf-grid-side-collapse" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 16, alignItems: 'flex-start' }}>
+        <div style={{ minWidth: 0 }}>
+          <MtMemberGridSection title="Team Members" subtitle="Your direct reports and their details" search={search} onSearch={setSearch} searchPlaceholder="Search by name or employee code…"
+            chips={(<>
+              <select aria-label="Filter by project" style={{ background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13 }}><option>All projects</option></select>
+              <MtChipGroup ariaLabel="Roster status" value={status} onChange={setStatus} options={[{ key: 'all', label: 'All' }, { key: 'IN', label: 'In' }, { key: 'OUT', label: 'Out' }, { key: 'NOT_IN_YET', label: 'Not in yet' }, { key: 'LEAVE', label: 'On leave' }]} />
+            </>)}>
+            <MtMemberGrid scroll>
+              {people.map(([n, d, code, dept], i) => (
+                <MtMemberCard key={i} avatar={<span className="mt-avatar" style={{ width: 52, height: 52, flexShrink: 0, borderRadius: '50%', background: 'color-mix(in srgb, var(--brand) 14%, var(--panel))', color: 'var(--brand)', display: 'grid', placeItems: 'center', fontWeight: 800 }}>{n.split(' ').map(w => w[0]).slice(0, 2).join('')}</span>} name={n} designation={d} active status="NOT_IN_YET"
+                  tags={<><MtPill>{dept}</MtPill><MtPill tone="ok">Full time</MtPill></>}
+                  extras={<>
+                    <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, marginTop: -4 }}>{code}</div>
+                    <MtLeaveBalanceLine balances={bal} />
+                  </>}
+                  secondaryAction={<button type="button" className="mt-link">Appreciate</button>}
+                  onViewProfile={() => undefined} />
+              ))}
+            </MtMemberGrid>
+          </MtMemberGridSection>
+        </div>
+        <div style={{ minHeight: 200, borderRadius: 12, border: '1px solid var(--line)', background: 'var(--panel)', padding: 16, color: 'var(--txt-mut)', fontSize: 13 }}>Side column (Needs your attention)</div>
       </div>
     </div>
   );
@@ -1325,6 +1353,28 @@ function HrRequestsMock() {
   return ready ? <HelpDeskAdminPage /> : null;
 }
 
+function SkillModalMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample skill and proficiency lists; fetch is restored on leave.
+    const prevFetch = window.fetch;
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).split('?')[0];
+      if (path.endsWith('/skills/active')) return json([
+        { id: 's1', name: 'React', category: 'Frontend' }, { id: 's2', name: 'Java', category: 'Backend' }, { id: 's3', name: 'SQL', category: 'Data' },
+      ]);
+      if (path.endsWith('/proficiency-levels/active')) return json([
+        { id: 'l1', name: 'Beginner', rank: 1 }, { id: 'l2', name: 'Intermediate', rank: 2 }, { id: 'l3', name: 'Expert', rank: 3 },
+      ]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    setReady(true);
+    return () => { window.fetch = prevFetch; };
+  }, []);
+  return ready ? <SkillModal token="mock" existing={null} onClose={() => {}} onSaved={() => {}} /> : null;
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -1451,7 +1501,7 @@ function MyRequestsMock() {
   return ready ? <MyRequestsPage /> : null;
 }
 
-function HelpMock() {
+function HelpMock({ employee = false }: { employee?: boolean } = {}) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     // Mock only: sample data and an HR/Super Admin session; everything is restored on leave.
@@ -1461,14 +1511,16 @@ function HelpMock() {
     const item = (id: string, type: string, title: string, description: string, status: string, attachmentCount = 0) => ({
       id, type, title, description, category: null, status, featured: false, displayOrder: 0, viewCount: 0, attachmentCount, audience: [], rejectionReason: null, createdAt: '', updatedAt: '',
     });
-    const all = [
-      item('f1', 'FAQ', 'test faq', 'A short answer to a test question.', 'PENDING_APPROVAL'),
+    const every = [
+      item('f1', 'FAQ', 'How do I change my password?', 'Go to My Profile → Security → "Change Password", enter your current password and a new one meeting the strength requirements shown live, and confirm. If your password was just reset by an admin you will be taken here automatically.', 'PUBLISHED'),
       item('f2', 'FAQ', "How do I respond to an employee's HR Service Request ticket?", 'Open the ticket from HR Service Requests, read the thread and reply or change the status.', 'PUBLISHED'),
       item('f3', 'FAQ', "Who approves my Help & Guidance content before it's published?", 'Super Admins approve content that HR submits for approval.', 'PENDING_APPROVAL'),
       item('g1', 'GUIDE', 'This a new fact for Test', 'This a new fact for Test', 'PENDING_APPROVAL'),
       item('g2', 'GUIDE', 'Test Guide to testdefect', 'This is a test guide', 'PUBLISHED', 1),
       item('g3', 'QUICK_HELP', "Forgot to Check In or Check Out? Here's What to Do", "Missed a punch? Don't try to log a new entry — use Attendance regularization.", 'DRAFT'),
     ];
+    // Employees only ever see published content, with no admin controls.
+    const all = employee ? every.filter(x => x.status === 'PUBLISHED') : every;
     window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input).split('?')[0];
       if (url.endsWith('/api/hr/help-content') || url.endsWith('/api/help-content')) {
@@ -1483,7 +1535,8 @@ function HelpMock() {
       if (url.includes('/api/helpdesk')) return json([]);
       return prevFetch(input, init);
     }) as typeof window.fetch;
-    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { permissions: { hr_help_content: { VIEW: ['ALL'], CREATE: ['ALL'], EDIT: ['ALL'], DELETE: ['ALL'] } } } as never });
+    if (employee) useAuthStore.setState({ token: 'mock-token', user: { email: 'employee@example.com', mustChangePassword: false, role: 'EMPLOYEE' }, permissions: { permissions: {} } as never });
+    else useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { permissions: { hr_help_content: { VIEW: ['ALL'], CREATE: ['ALL'], EDIT: ['ALL'], DELETE: ['ALL'] } } } as never });
     setReady(true);
     return () => {
       window.fetch = prevFetch;
@@ -2132,12 +2185,14 @@ function Tiles({ page }: { page: string }) {
       return <TeamMemberCardsMock />;
     case 'hr-requests-page':
       return <HrRequestsMock />;
+    case 'skill-modal':
+      return <SkillModalMock />;
     case 'employee-master-page':
       return <EmployeeMasterMock />;
     case 'team-tabs':
       return <TeamTabsMock />;
-    case 'login-diwali':
-      return <LoginDiwaliMock />;
+    case 'login-effect':
+      return <LoginEffectMock />;
     case 'team-effort':
       return <TeamTabMock tab="effort" />;
     case 'team-negligence':
@@ -2156,6 +2211,8 @@ function Tiles({ page }: { page: string }) {
       return <DocumentsMock />;
     case 'help-page':
       return <HelpMock />;
+    case 'help-page-employee':
+      return <HelpMock employee />;
     case 'my-requests-page':
       return <MyRequestsMock />;
     case 'workflows-page':

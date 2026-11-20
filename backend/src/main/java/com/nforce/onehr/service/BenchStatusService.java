@@ -75,6 +75,18 @@ public class BenchStatusService {
         return toResponse(saved, employee);
     }
 
+    /** Employees who can be marked on bench: active and not already on bench. Gated by bench permission, not employees:VIEW. */
+    @Transactional(readOnly = true)
+    public List<com.nforce.onehr.dto.bench.BenchDtos.EligibleEmployee> eligibleEmployees() {
+        Set<UUID> benched = benchRepository.findByActiveTrue().stream()
+                .map(BenchStatus::getEmployeeUserId).collect(Collectors.toSet());
+        return employeeRepository.findAllWithDetails().stream()
+                .filter(e -> e.getUser().isActive() && !benched.contains(e.getUserId()))
+                .sorted(Comparator.comparing(Employee::getFullName, String.CASE_INSENSITIVE_ORDER))
+                .map(e -> new com.nforce.onehr.dto.bench.BenchDtos.EligibleEmployee(e.getUserId(), e.getFullName(), e.getEmployeeCode()))
+                .toList();
+    }
+
     @Transactional
     public BenchStatusResponse end(String actorEmail, UUID benchStatusId, EndBenchRequest req) {
         User actor = resolveUser(actorEmail);

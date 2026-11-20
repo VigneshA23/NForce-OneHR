@@ -81,10 +81,24 @@ public class UserManagementService {
     // permissions view of Manage Roles.
     private final EffectivePermissionService effectivePermissionService;
 
+    /** DOB, marital status, phone, personal email and emergency contact are sensitive profile data: entering them for another person needs employee_sensitive:EDIT, not just user_management:CREATE. */
+    private void requireSensitiveEditIfProvided(User actor, CreateUserRequest req) {
+        boolean provided = req.getDateOfBirth() != null
+                || trimOrNull(req.getMaritalStatus()) != null
+                || trimOrNull(req.getPhone()) != null
+                || trimOrNull(req.getPersonalEmail()) != null
+                || trimOrNull(req.getEmergencyContactName()) != null
+                || trimOrNull(req.getEmergencyContactPhone()) != null
+                || trimOrNull(req.getEmergencyContactRelationship()) != null;
+        if (provided && !effectivePermissionService.hasAuthority(actor, "employee_sensitive:EDIT:ALL"))
+            throw new AccessDeniedException("Missing employee_sensitive:EDIT:ALL");
+    }
+
     /** Super Admin: create a user with any Phase 1 role. */
     @Transactional
     public EmployeeResponse createUser(CreateUserRequest req, String actorEmail) {
         User actor = requireActor(actorEmail);
+        requireSensitiveEditIfProvided(actor, req);
 
         String roleCode = req.getRole().toUpperCase();
         if (!PHASE1_ROLES.contains(roleCode))

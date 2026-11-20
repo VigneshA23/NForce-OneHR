@@ -22,6 +22,7 @@ public final class BenchDtos {
                                LocalDate startDate, long daysOnBench, String agingBucket,
                                int matchScore, List<String> skills) {}
 
+    public record EligibleEmployee(UUID userId, String fullName, String employeeCode) {}
     public record DashboardPoint(LocalDate date, int benchedCount, int totalHeadcount) {}
 
     public record BucketCount(String bucket, long count) {}

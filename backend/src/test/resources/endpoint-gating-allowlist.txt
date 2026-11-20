@@ -137,6 +137,7 @@ LeaveController#submitRequest | SELF - own data only (ownership checked in the s
 LeaveController#updateRequest | SELF - own data only (ownership checked in the service)
 MeController#accessCatalogue | OPEN - page requirements carry no user data; every signed-in user needs them
 MeController#myPermissions | SELF - own data only (ownership checked in the service)
+MyAllocationController#myAllocations | SELF - own data only (ownership checked in the service)
 MyFinancesController#compensationHistory | SELF - own data only (ownership checked in the service)
 MyFinancesController#ctcBreakdown | SELF - own data only (ownership checked in the service)
 MyRequestsController#myRequests | SELF - own data only (ownership checked in the service)
@@ -190,6 +191,7 @@ OrgHierarchyController#getRoots | OPEN - readable by any signed-in user (or publ
 OvertimeRequestController#mine | SELF - own data only (ownership checked in the service)
 OvertimeRequestController#submit | SELF - own data only (ownership checked in the service)
 PayrollYtdController#myYtd | SELF - own data only (ownership checked in the service)
+PayslipController#myLatest | SELF - own data only (ownership checked in the service)
 PayslipController#myPayslip | SELF - own data only (ownership checked in the service)
 PayslipController#myPeriods | SELF - own data only (ownership checked in the service)
 PolicyController#acknowledge | SERVICE - permission / eligibility enforced in the service
@@ -197,6 +199,8 @@ PolicyController#getAttachment | SERVICE - permission / eligibility enforced in 
 PolicyController#myPolicies | SERVICE - permission / eligibility enforced in the service
 PolicyController#pendingCount | SERVICE - permission / eligibility enforced in the service
 ProficiencyLevelController#listActive | OPEN - readable by any signed-in user (or public auth flow)
+ProfileChangeRequestController#mine | SELF - own data only (ownership checked in the service)
+ProfileController#getOwnSensitive | SELF - own data only (ownership checked in the service)
 ProfileController#getProfile | SELF - own data only (ownership checked in the service)
 ProfileController#getProfileForViewer | SERVICE - permission / eligibility enforced in the service
 ProfileController#getTimeline | SELF - own data only (ownership checked in the service)

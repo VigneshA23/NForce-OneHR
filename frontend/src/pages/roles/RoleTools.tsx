@@ -230,20 +230,52 @@ export function ConvertedManagersModal({ token, canReview, onClose }: { token: s
 }
 
 // ─── Role change history ────────────────────────────────────────────────────────
-export function RoleHistory({ token, roleId, catalogue }: { token: string; roleId: number; catalogue: CatalogueModule[] }) {
+/** Saved versions of a role (newest first) with membership changes mixed in. A Super Admin can restore any
+ *  saved version: permissions, name and active status go back, membership never does, and the restore is itself
+ *  saved as a new version. */
+export function RoleHistory({ token, roleId, catalogue, roleVersion, canRestore, onRestored }: {
+  token: string; roleId: number; catalogue: CatalogueModule[];
+  /** The role's current optimistic-lock version, sent with a restore so a stale view is refused. */
+  roleVersion: number;
+  canRestore: boolean;
+  onRestored: (detail: RoleDetail) => void;
+}) {
   const [entries, setEntries] = useState<RoleHistoryEntry[] | null>(null);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [notice, setNotice] = useState<{ tone: 'info' | 'warn'; text: string } | null>(null);
+  const [reload, setReload] = useState(0);
+  const [restoring, setRestoring] = useState<number | null>(null); // version awaiting confirmation
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
   const names = useMemo(() => moduleNamesOf(catalogue), [catalogue]);
 
   useEffect(() => {
     let live = true;
     rolesApi.history(roleId, token)
       .then((e) => { if (live) setEntries(e); })
-      .catch((e) => { if (live) setError(e instanceof Error ? e.message : 'Could not load the history.'); });
+      .catch((e) => { if (live) setLoadError(e instanceof Error ? e.message : 'Could not load the history.'); });
     return () => { live = false; };
-  }, [roleId, token]);
+  }, [roleId, token, reload]);
 
-  if (error) return <Banner tone="error">{error}</Banner>;
+  async function doRestore(versionNo: number) {
+    setBusy(true); setActionError(''); setNotice(null);
+    try {
+      const res = await rolesApi.restore(roleId, versionNo, roleVersion, reason.trim() || undefined, token);
+      setNotice(res.skipped.length
+        ? { tone: 'warn', text: `Restored to version ${versionNo}. ${res.skipped.length} permission${res.skipped.length === 1 ? '' : 's'} from that version no longer exist or can't be configured and were left out: ${res.skipped.map((s) => describeAuthority(s, names, ACTION_LABEL)).join(', ')}.` }
+        : { tone: 'info', text: `Restored to version ${versionNo}. This restore is saved as a new version.` });
+      setRestoring(null); setReason('');
+      onRestored(res.role);
+      setReload((n) => n + 1);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Could not restore that version.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loadError) return <Banner tone="error">{loadError}</Banner>;
   if (!entries) return <div style={{ padding: 20, textAlign: 'center', color: 'var(--txt-dim)' }}>Loading…</div>;
   if (entries.length === 0) return <div style={{ fontSize: 13, color: 'var(--txt-dim)' }}>No recorded changes for this role yet.</div>;
 
@@ -256,19 +288,45 @@ export function RoleHistory({ token, roleId, catalogue }: { token: string; roleI
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {notice && <Banner tone={notice.tone}>{notice.text}</Banner>}
+      {actionError && <Banner tone="error">{actionError}</Banner>}
       {entries.map((e) => (
         <div key={e.id} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '10px 14px' }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
+            {e.versionNo != null && (
+              <span style={{ fontSize: 11, fontWeight: 700, borderRadius: 6, padding: '1px 7px', color: 'var(--txt-mut)', border: '1px solid var(--line)' }}>v{e.versionNo}</span>
+            )}
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt)' }}>{e.summary}</span>
             <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>
               {new Date(e.occurredAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
               {e.actorName ? ` · by ${e.actorName}` : ''}
             </span>
+            {canRestore && e.restorable && e.versionNo != null && restoring !== e.versionNo && (
+              <button style={{ ...secondaryBtn, marginLeft: 'auto', padding: '3px 10px', fontSize: 12 }} disabled={busy}
+                onClick={() => { setRestoring(e.versionNo); setReason(''); setActionError(''); setNotice(null); }}>
+                Restore this version
+              </button>
+            )}
           </div>
+          {e.reason && <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 6 }}>Reason: {e.reason}</div>}
           {(e.added.length > 0 || e.removed.length > 0) && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
               {e.added.map((a) => chip(a, '+'))}
               {e.removed.map((r) => chip(r, '−'))}
+            </div>
+          )}
+          {restoring === e.versionNo && e.versionNo != null && (
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Banner tone="warn">
+                Restore this role to version {e.versionNo}? Its permissions (and name and status, for a custom role) go back to how they were then.
+                Who holds the role does not change. This is saved as a new version, so it can be undone.
+              </Banner>
+              <input value={reason} onChange={(ev) => setReason(ev.target.value)} maxLength={500}
+                placeholder="Reason (optional)" aria-label="Reason for restoring" style={{ ...inputStyle, padding: '8px 12px' }} />
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button style={secondaryBtn} disabled={busy} onClick={() => setRestoring(null)}>Cancel</button>
+                <button style={primaryBtn} disabled={busy} onClick={() => doRestore(e.versionNo!)}>{busy ? 'Restoring…' : `Restore version ${e.versionNo}`}</button>
+              </div>
             </div>
           )}
         </div>

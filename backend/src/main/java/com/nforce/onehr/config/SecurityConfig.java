@@ -39,14 +39,8 @@ public class SecurityConfig {
     private final CustomUserDetailsService userDetailsService;
     private final UnauthenticatedEntryPoint unauthenticatedEntryPoint;
 
-    // Default matches application.yml's cors.allowed-origins (a separate, unused property key —
-    // this @Value reads the literal env var, not that nested YAML path) so a fresh checkout works
-    // without anyone having to set CORS_ALLOWED_ORIGINS manually. Was just "http://localhost:5173"
-    // only, silently rejecting every browser request once the frontend's dev port moved to 5180 —
-    // real CORS requests (which carry an Origin header) got an empty-bodied 403 before reaching
-    // any controller, while curl/Postman (no Origin header) never triggered the check at all,
-    // which is why this went unnoticed through plenty of backend-side testing.
-    @Value("${CORS_ALLOWED_ORIGINS:http://localhost:5180,http://localhost:5173,http://localhost:3000}")
+    /** Same property EmailService reads; application.yml defaults it (5180/5173/3000) and still honours the CORS_ALLOWED_ORIGINS env var. */
+    @Value("${app.cors.allowed-origins}")
     private String allowedOrigins;
 
     @Bean

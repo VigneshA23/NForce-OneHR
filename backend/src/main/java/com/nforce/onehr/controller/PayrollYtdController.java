@@ -7,6 +7,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
@@ -26,9 +27,13 @@ import java.util.UUID;
 public class PayrollYtdController {
 
     private final PayrollYtdService ytdService;
+    private final com.nforce.onehr.service.MyFinancesService myFinancesService;
 
     @GetMapping("/api/me/finances/ytd")
-    public YtdResponse myYtd(Principal principal) {
+    public YtdResponse myYtd(@RequestParam(required = false) UUID userId,
+                             @RequestParam(required = false) UUID employeeId,
+                             Principal principal) {
+        myFinancesService.requireSelf(principal.getName(), userId, employeeId);
         return ytdService.getMyYtd(principal.getName());
     }
 
