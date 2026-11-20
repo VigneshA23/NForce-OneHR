@@ -15,4 +15,8 @@ public interface ArrearsRepository extends JpaRepository<Arrears, UUID> {
     List<Arrears> findByEmployeeIdIn(List<UUID> employeeIds);
 
     List<Arrears> findByEmployeeIdAndAppliedToRunId(UUID employeeId, UUID appliedToRunId);
+
+    // US-C10 pre-approval summary — every arrears row actually applied to this run, regardless of
+    // employee, so the variance list can flag "Arrears" as a driver without one lookup per employee.
+    List<Arrears> findByAppliedToRunId(UUID appliedToRunId);
 }

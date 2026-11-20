@@ -48,6 +48,13 @@ public class ProfileResponse {
     private String panNumber;             // masked
     private String uanNumber;             // masked
     private String esiNumber;             // masked
+    private String accountHolderName;
+    private boolean pfEnabled;
+    private String pfNumber;              // masked
+    private LocalDate pfRegistrationDate;
+    private String nameAsPerPf;
+    private boolean esiEnabled;
+    private String professionalTaxNumber; // masked
     /** True when the viewer lacks employee_sensitive:VIEW and sensitive fields were masked or removed, so the UI can say "Restricted" instead of showing blanks. */
     private boolean sensitiveRestricted;
     /** True while the employee's own bank / government-ID edit is waiting for HR approval (their own profile only). */

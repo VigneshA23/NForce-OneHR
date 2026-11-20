@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FileText, ListChecks, Download, Send, FileSpreadsheet } from 'lucide-react';
+import { FileText, ListChecks, Download, Send, FileSpreadsheet, Landmark } from 'lucide-react';
 import { ActionDock } from '../../components/ActionDock';
 import { PersonCellById } from '../../components/PersonCell';
 import { usePaged } from '../../components/usePaged';
@@ -209,6 +209,7 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
   const [search, setSearch] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [exportingBank, setExportingBank] = useState(false);
   const [showDistribute, setShowDistribute] = useState(false);
   const { nameFor } = useEmployeeDirectory();
 
@@ -254,6 +255,19 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
     }
   }
 
+  // Bank-details ticket — bank details + net pay only, excludes Payout Hold and anyone missing
+  // bank details (same "needs attention" condition the Overview's Pre-Approval Summary flags).
+  async function exportBankTransfer() {
+    setExportingBank(true);
+    try {
+      await payrollApi.downloadBankTransfer(runId, token);
+    } catch (e) {
+      showToast('error', e instanceof Error ? e.message : 'Failed to export bank transfer file');
+    } finally {
+      setExportingBank(false);
+    }
+  }
+
   async function distribute(channels: ('PORTAL' | 'EMAIL')[]) {
     try {
       const result = await payrollApi.distributePayslips(runId, { channels }, token);
@@ -281,22 +295,25 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
       <SectionHead
         title="Payslips"
         action={(
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {payslips.length > 0 && (
-              <span style={{ fontSize: 13, color: 'var(--txt-mut)' }}>
+              <span style={{ fontSize: 13, color: 'var(--txt-mut)', whiteSpace: 'nowrap' }}>
                 {payslips.length} payslip{payslips.length === 1 ? '' : 's'} · {fmtCurrency(totalNet)} total net
               </span>
             )}
             {canConfigure && (
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <BtnGhost onClick={exportToExcel} disabled={exporting || payslips.length === 0}>
-                  <FileSpreadsheet size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />{exporting ? 'Exporting…' : 'Export to Excel'}
+                  <FileSpreadsheet size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} /><span style={{ whiteSpace: 'nowrap' }}>{exporting ? 'Exporting…' : 'Export to Excel'}</span>
+                </BtnGhost>
+                <BtnGhost onClick={exportBankTransfer} disabled={!viewable || exportingBank || payslips.length === 0}>
+                  <Landmark size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} /><span style={{ whiteSpace: 'nowrap' }}>{exportingBank ? 'Exporting…' : 'Download Bank File'}</span>
                 </BtnGhost>
                 <BtnGhost onClick={downloadAll} disabled={!viewable || downloading || payslips.length === 0}>
-                  <Download size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />{downloading ? 'Downloading…' : 'Download All'}
+                  <Download size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} /><span style={{ whiteSpace: 'nowrap' }}>{downloading ? 'Downloading…' : 'Download All'}</span>
                 </BtnGhost>
                 <BtnPrimary onClick={() => setShowDistribute(true)} disabled={!viewable || payslips.length === 0}>
-                  <Send size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Distribute Payslips
+                  <Send size={13} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} /><span style={{ whiteSpace: 'nowrap' }}>Distribute Payslips</span>
                 </BtnPrimary>
               </div>
             )}

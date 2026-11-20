@@ -114,4 +114,46 @@ class EmployeeFinancialDetailsServiceTest {
         assertEquals("HDFC Bank", resp.getBankName());
         assertEquals("ABCDE1234F", resp.getPanNumber());
     }
+
+    @Test
+    void update_setsNewStatutoryFinanceFields() {
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee()));
+        when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(User.builder().id(actorId).email(actorEmail).build()));
+
+        UpdateEmployeeFinancialDetailsRequest req = new UpdateEmployeeFinancialDetailsRequest();
+        req.setAccountHolderName("Asha Rao");
+        req.setPfEnabled(true);
+        req.setPfNumber("PF123456");
+        req.setNameAsPerPf("Asha S Rao");
+        req.setEsiEnabled(true);
+        req.setProfessionalTaxNumber("PT987654");
+
+        EmployeeFinancialDetailsResponse resp = service.update(employeeId, req, actorEmail);
+
+        assertEquals("Asha Rao", resp.getAccountHolderName());
+        assertTrue(resp.isPfEnabled());
+        assertEquals("PF123456", resp.getPfNumber());
+        assertEquals("Asha S Rao", resp.getNameAsPerPf());
+        assertTrue(resp.isEsiEnabled());
+        assertEquals("PT987654", resp.getProfessionalTaxNumber());
+    }
+
+    @Test
+    void update_auditSnapshotMasksPanAndBankAccountNumber() {
+        Employee existing = employee();
+        existing.setPanNumber("OLDPAN1234");
+        existing.setBankAccountNumber("000111222333");
+        when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(existing));
+        when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(User.builder().id(actorId).email(actorEmail).build()));
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<java.util.Map<String, Object>> captor = org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+
+        service.update(employeeId, new UpdateEmployeeFinancialDetailsRequest(), actorEmail);
+
+        verify(auditSnapshot, times(2)).toJson(captor.capture());
+        java.util.Map<String, Object> before = captor.getAllValues().get(0);
+        assertEquals("XXXX-1234", before.get("panNumber"));
+        assertEquals("XXXX-2333", before.get("bankAccountNumber"));
+    }
 }

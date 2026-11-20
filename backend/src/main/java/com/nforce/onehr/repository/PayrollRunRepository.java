@@ -23,4 +23,11 @@ public interface PayrollRunRepository extends JpaRepository<PayrollRun, UUID> {
     @Query("SELECT r FROM PayrollRun r WHERE r.payGroupId = :payGroupId AND r.cycleStart > :cycleStart "
          + "AND r.status IN ('APPROVED', 'DISBURSED')")
     List<PayrollRun> findLaterLockedRuns(@Param("payGroupId") UUID payGroupId, @Param("cycleStart") LocalDate cycleStart);
+
+    // US-C10 pre-approval summary — the most recent already-finalized cycle for this pay group, to
+    // compare this run's totals/employees against. DRAFT/SUBMITTED runs are excluded: their totals
+    // are still in flux and wouldn't be a meaningful "last month" baseline.
+    @Query("SELECT r FROM PayrollRun r WHERE r.payGroupId = :payGroupId AND r.cycleStart < :cycleStart "
+         + "AND r.status IN ('APPROVED', 'DISBURSED') ORDER BY r.cycleStart DESC LIMIT 1")
+    Optional<PayrollRun> findPreviousFinalizedRun(@Param("payGroupId") UUID payGroupId, @Param("cycleStart") LocalDate cycleStart);
 }

@@ -61,6 +61,14 @@ public class PayrollRunController {
         return payrollRunService.listRollbackHistory(runId);
     }
 
+    // US-C10 — previous-cycle comparison, status counts and the employee variance list, for the
+    // reviewer screen shown before Submit/Approve.
+    @GetMapping("/{runId}/pre-approval-summary")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public PreApprovalSummaryResponse preApprovalSummary(@PathVariable UUID runId) {
+        return payrollRunService.getPreApprovalSummary(runId);
+    }
+
     @GetMapping("/{runId}")
     @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
     public PayrollRunResponse get(@PathVariable UUID runId) {
@@ -135,6 +143,19 @@ public class PayrollRunController {
     @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
     public ResponseEntity<byte[]> payRegisterExcel(@PathVariable UUID runId) {
         PayslipFile file = payrollRunService.payRegisterExcel(runId);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(file.fileName()).build().toString())
+                .contentType(MediaType.parseMediaType(file.contentType()))
+                .cacheControl(CacheControl.noStore())
+                .body(file.data());
+    }
+
+    /** Bank-details ticket — the bank bulk-upload sheet: bank details + net pay only, excluding
+     * Payout Hold and anyone missing bank details. See PayrollRunService#bankTransferExcel. */
+    @GetMapping("/{runId}/bank-transfer")
+    @PreAuthorize("hasAuthority('payroll:VIEW:ALL')")
+    public ResponseEntity<byte[]> bankTransferExcel(@PathVariable UUID runId) {
+        PayslipFile file = payrollRunService.bankTransferExcel(runId);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(file.fileName()).build().toString())
                 .contentType(MediaType.parseMediaType(file.contentType()))
