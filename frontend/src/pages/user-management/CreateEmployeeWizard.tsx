@@ -62,6 +62,9 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
   // (Compensation) first; only clicking "Skip for Now" there sets this and reveals the success
   // screen. No second API call happens between the two — this is a pure local view switch.
   const [showSuccessScreen, setShowSuccessScreen] = useState(false);
+  // True once CompensationFollowUp's own "Assign Compensation" action has actually saved — lets
+  // Step 4's footer button stop saying "Skip for Now" once there's nothing left to skip.
+  const [compensationAssigned, setCompensationAssigned] = useState(false);
 
   useEffect(() => {
     employeesApi.previewNextCode(token)
@@ -151,7 +154,10 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
     } finally { setSubmitting(false); }
   }
 
-  // Step 4's only action — a pure local view switch to the success screen below, no API call.
+  // Step 4's only action — a pure local view switch to the success screen below, no API call
+  // (CompensationFollowUp already made its own save call, if any, before this ever fires). Reused
+  // for both "Skip for Now" (nothing assigned yet) and "Continue" (compensation already assigned)
+  // — the footer button's label is what changes, not this handler.
   function handleSkipCompensation() {
     setShowSuccessScreen(true);
   }
@@ -218,7 +224,7 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>
               {created.fullName} has been created successfully.
             </div>
-            <CompensationFollowUp employeeId={created.userId} employeeName={created.fullName} />
+            <CompensationFollowUp employeeId={created.userId} employeeName={created.fullName} onAssigned={() => setCompensationAssigned(true)} />
             <div style={{ fontSize: 12.5, color: 'var(--txt-mut)', marginTop: 10 }}>
               Compensation is optional and can be configured later, it won't affect this employee's account, onboarding, or access.
             </div>
@@ -232,7 +238,9 @@ export function CreateEmployeeWizard({ onClose, onCreated, token, opts, setOpts 
           </button>
         )}
         {step === 3 ? (
-          <button type="button" onClick={handleSkipCompensation} className="nf-ce-next">Skip for Now</button>
+          <button type="button" onClick={handleSkipCompensation} className="nf-ce-next">
+            {compensationAssigned ? 'Continue' : 'Skip for Now'}
+          </button>
         ) : step < 2 ? (
           <button type="button" onClick={handleContinue} className="nf-ce-next">Continue <ArrowRight size={15} /></button>
         ) : (

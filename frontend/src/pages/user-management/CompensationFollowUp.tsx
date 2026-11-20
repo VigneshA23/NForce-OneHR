@@ -10,7 +10,12 @@ import { labelStyle, inputStyle, FormRow, BtnPrimary, fmtCurrency, fmtDate } fro
 // admin without payroll:CONFIGURE:ALL (payroll is Super-Admin-only by default; see V275) can't
 // assign compensation here regardless, so they get the plain informational note instead of a form
 // they'd only hit a 403 on.
-export function CompensationFollowUp({ employeeId, employeeName }: { employeeId: string; employeeName: string }) {
+export function CompensationFollowUp({ employeeId, employeeName, onAssigned }: {
+  employeeId: string; employeeName: string;
+  // Lets the wizard know compensation was actually saved, so its footer button can stop calling
+  // this "Skip for Now" once there's nothing left to skip — see CreateEmployeeWizard.tsx.
+  onAssigned?: () => void;
+}) {
   const token = useAuthStore(s => s.token)!;
   const permissions = useAuthStore(s => s.permissions);
   const { showToast } = useToast();
@@ -60,6 +65,7 @@ export function CompensationFollowUp({ employeeId, employeeName }: { employeeId:
     try {
       const comp = await payrollApi.assignCompensation({ employeeId, payGroupId, structureId, ctc: Number(ctc), effectiveFrom }, token);
       setAssigned(comp);
+      onAssigned?.();
       showToast('success', `Compensation assigned to ${employeeName}`);
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Failed to assign compensation');
