@@ -42,6 +42,11 @@ public class PayslipController {
                 .map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.noContent().build());
     }
 
+    @GetMapping("/me/{period}/preview")
+    public PayslipService.PayslipPreview myPreview(@PathVariable String period, Principal principal) {
+        return payslipService.getMyPreview(principal.getName(), period);
+    }
+
     @GetMapping("/me/{period}")
     public ResponseEntity<byte[]> myPayslip(@PathVariable String period, Principal principal) {
         PayslipFile file = payslipService.getMyPayslipPdf(principal.getName(), period);
