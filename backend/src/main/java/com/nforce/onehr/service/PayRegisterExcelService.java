@@ -31,16 +31,23 @@ public class PayRegisterExcelService {
 
     /** Everything needed to render one Pay Register — column sets are passed in already resolved
      * (ordered by the salary component catalog's own displayOrder) so this class never touches the
-     * catalog itself. */
+     * catalog itself. {@code draftNumber} is 1 on a run's first generation, 2 after its first
+     * regenerate, and so on — see {@code PayrollRun#regenerateCount}. */
     public record Model(List<Payslip> payslips, Map<UUID, Employee> employees,
                          Map<UUID, Map<String, BigDecimal>> amountsByEmployee,
-                         List<String> earningColumns, List<String> deductionColumns, List<String> contributionColumns) {}
+                         List<String> earningColumns, List<String> deductionColumns, List<String> contributionColumns,
+                         int draftNumber) {}
 
     public byte[] render(Model m) {
         try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             CellStyle bold = boldStyle(wb);
             CellStyle money = moneyStyle(wb);
             Sheet sheet = wb.createSheet("Pay Register");
+
+            Row titleRow = sheet.createRow(0);
+            Cell titleCell = titleRow.createCell(0);
+            titleCell.setCellValue("Pay Register — Draft " + m.draftNumber());
+            titleCell.setCellStyle(bold);
 
             List<String> headers = new ArrayList<>(List.of(
                     "Employee Name", "Employee Code", "Department", "Designation",
@@ -53,7 +60,7 @@ public class PayRegisterExcelService {
             headers.add("Net Pay");
             headers.add("Payment Withheld");
 
-            Row headerRow = sheet.createRow(0);
+            Row headerRow = sheet.createRow(1);
             for (int i = 0; i < headers.size(); i++) {
                 Cell c = headerRow.createCell(i);
                 c.setCellValue(headers.get(i));
@@ -61,7 +68,7 @@ public class PayRegisterExcelService {
                 sheet.setColumnWidth(i, Math.max(12, headers.get(i).length() + 4) * 256);
             }
 
-            int r = 1;
+            int r = 2;
             for (Payslip p : m.payslips()) {
                 Employee e = m.employees().get(p.getEmployeeId());
                 Map<String, BigDecimal> amounts = m.amountsByEmployee().getOrDefault(p.getEmployeeId(), Map.of());

@@ -82,4 +82,15 @@ public class UpdateProfileRequest {
     private String uanNumber;
     // ESI number format varies enough across states/schemes that no single regex is reliable.
     private String esiNumber;
+
+    // US-C21 — same null-means-unchanged convention as every optional field above. pfEnabled/
+    // esiEnabled are Boolean (not boolean) specifically so "not included in this request" (null)
+    // stays distinguishable from "explicitly set to false" — a primitive can't represent that.
+    private String accountHolderName;
+    private Boolean pfEnabled;
+    private String pfNumber;
+    private LocalDate pfRegistrationDate;
+    private String nameAsPerPf;
+    private Boolean esiEnabled;
+    private String professionalTaxNumber;
 }

@@ -6,6 +6,7 @@ import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.security.SensitiveDataMasker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,9 +59,16 @@ public class EmployeeFinancialDetailsService {
         if (req.getBankAccountNumber() != null) employee.setBankAccountNumber(req.getBankAccountNumber().trim());
         if (req.getBankName() != null) employee.setBankName(req.getBankName().trim());
         if (req.getBankIfsc() != null) employee.setBankIfsc(req.getBankIfsc().trim());
+        if (req.getAccountHolderName() != null) employee.setAccountHolderName(req.getAccountHolderName().trim());
         if (req.getPanNumber() != null) employee.setPanNumber(req.getPanNumber().trim().toUpperCase());
         if (req.getUanNumber() != null) employee.setUanNumber(req.getUanNumber().trim());
         if (req.getEsiNumber() != null) employee.setEsiNumber(req.getEsiNumber().trim());
+        employee.setPfEnabled(req.isPfEnabled());
+        if (req.getPfNumber() != null) employee.setPfNumber(req.getPfNumber().trim());
+        if (req.getPfRegistrationDate() != null) employee.setPfRegistrationDate(req.getPfRegistrationDate());
+        if (req.getNameAsPerPf() != null) employee.setNameAsPerPf(req.getNameAsPerPf().trim());
+        employee.setEsiEnabled(req.isEsiEnabled());
+        if (req.getProfessionalTaxNumber() != null) employee.setProfessionalTaxNumber(req.getProfessionalTaxNumber().trim());
         employeeRepository.save(employee);
 
         User actor = userRepository.findByEmail(actorEmail)
@@ -78,14 +86,27 @@ public class EmployeeFinancialDetailsService {
                 .orElseThrow(() -> new NoSuchElementException("Employee not found: " + employeeId));
     }
 
+    // US-C21 — "mask PAN/account numbers in logs": unlike the live edit/import screen (which needs
+    // the real value to let a Payroll Admin correct it), the audit trail only ever needs to show
+    // THAT a sensitive field changed, same principle ProfileService#auditSensitiveView already
+    // follows for its own fields (field names only, never raw values, in that case). Bank account
+    // and PAN specifically are identifier-like enough to mask here rather than omit outright, so a
+    // reviewer can still tell whether a near-identical vs a wholesale-different value was entered.
     private Map<String, Object> snapshot(Employee e) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
-        snapshot.put("bankAccountNumber", e.getBankAccountNumber());
+        snapshot.put("bankAccountNumber", SensitiveDataMasker.maskId(e.getBankAccountNumber()));
         snapshot.put("bankName", e.getBankName());
         snapshot.put("bankIfsc", e.getBankIfsc());
-        snapshot.put("panNumber", e.getPanNumber());
+        snapshot.put("accountHolderName", e.getAccountHolderName());
+        snapshot.put("panNumber", SensitiveDataMasker.maskId(e.getPanNumber()));
         snapshot.put("uanNumber", e.getUanNumber());
         snapshot.put("esiNumber", e.getEsiNumber());
+        snapshot.put("pfEnabled", e.isPfEnabled());
+        snapshot.put("pfNumber", e.getPfNumber());
+        snapshot.put("pfRegistrationDate", e.getPfRegistrationDate());
+        snapshot.put("nameAsPerPf", e.getNameAsPerPf());
+        snapshot.put("esiEnabled", e.isEsiEnabled());
+        snapshot.put("professionalTaxNumber", e.getProfessionalTaxNumber());
         return snapshot;
     }
 
@@ -97,9 +118,16 @@ public class EmployeeFinancialDetailsService {
                 .bankAccountNumber(e.getBankAccountNumber())
                 .bankName(e.getBankName())
                 .bankIfsc(e.getBankIfsc())
+                .accountHolderName(e.getAccountHolderName())
                 .panNumber(e.getPanNumber())
                 .uanNumber(e.getUanNumber())
                 .esiNumber(e.getEsiNumber())
+                .pfEnabled(e.isPfEnabled())
+                .pfNumber(e.getPfNumber())
+                .pfRegistrationDate(e.getPfRegistrationDate())
+                .nameAsPerPf(e.getNameAsPerPf())
+                .esiEnabled(e.isEsiEnabled())
+                .professionalTaxNumber(e.getProfessionalTaxNumber())
                 .build();
     }
 }

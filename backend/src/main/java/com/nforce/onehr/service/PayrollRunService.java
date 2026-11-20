@@ -191,6 +191,9 @@ public class PayrollRunService {
     private final PayslipService payslipService;
     private final PayRegisterExcelService payRegisterExcelService;
     private final PayrollRunRollbackRepository payrollRunRollbackRepository;
+    private final ArrearsRepository arrearsRepository;
+    private final PayrollRunReviewItemRepository payrollRunReviewItemRepository;
+    private final BankTransferExcelService bankTransferExcelService;
 
     // Default-timeout (30s, see application.yml) is sized for this app's normal transactions,
     // which are short and single-method. This one isn't: it loops once per included employee,
@@ -227,6 +230,9 @@ public class PayrollRunService {
                 .totalDeductions(BigDecimal.ZERO)
                 .totalNet(BigDecimal.ZERO)
                 .build());
+        if (existing.isPresent()) {
+            run.setRegenerateCount(run.getRegenerateCount() + 1);
+        }
         run = payrollRunRepository.save(run);
 
         if (existing.isPresent()) {
@@ -381,6 +387,153 @@ public class PayrollRunService {
         run.setEvaluatedRuleId(decision.evaluatedRuleId());
 
         return transition(run, PayrollRunStatus.SUBMITTED, actorEmail, r -> r.setSubmittedAt(LocalDateTime.now()));
+    }
+
+    /**
+     * US-C10 (Keka-walkthrough amendments, 4 Nov 2026) — the human-readable pre-approval summary:
+     * this cycle vs the previous finalized one, status counts, and the per-employee variance list.
+     * Read-only and side-effect-free — the hard reconciliation block that actually stops a bad
+     * submission already lives in {@link #submit}; this is the reviewer-facing summary layered on
+     * top of it, callable at any run status (so it's just as useful to Finance reviewing a
+     * SUBMITTED run as to the Payroll Admin preparing a DRAFT one).
+     */
+    @Transactional(readOnly = true)
+    public PreApprovalSummaryResponse getPreApprovalSummary(UUID runId) {
+        PayrollRun run = requireRun(runId);
+        Optional<PayrollRun> previousRun = payrollRunRepository.findPreviousFinalizedRun(run.getPayGroupId(), run.getCycleStart());
+
+        PeriodTotalsResponse current = periodTotals(run);
+        PeriodTotalsResponse previous = previousRun.map(this::periodTotals).orElse(null);
+
+        int onHoldCount = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(runId, SalaryHoldType.PROCESSING).size();
+
+        // "Needs attention" — every reason an employee isn't cleanly ready for approval, each
+        // employee carrying the SPECIFIC reason(s) flagged, not just a bare count a reviewer can't
+        // act on. (Employees excluded from the run entirely for a compensation/window problem
+        // aren't tracked after generateDraft runs, so they can't be surfaced here without
+        // re-running that exclusion check live.)
+        Map<UUID, List<String>> needsAttentionReasons = new LinkedHashMap<>();
+        for (String stepType : List.of(PayrollRunReviewStepType.LEAVE_APPLIED, PayrollRunReviewStepType.NO_ATTENDANCE)) {
+            String reason = PayrollRunReviewStepType.LEAVE_APPLIED.equals(stepType)
+                    ? "Pending Leave Applied review" : "Pending No Attendance review";
+            payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(runId, stepType).stream()
+                    .filter(i -> LeaveReviewDecision.PENDING.equals(i.getDecision()))
+                    .forEach(i -> needsAttentionReasons.computeIfAbsent(i.getEmployeeId(), k -> new ArrayList<>()).add(reason));
+        }
+
+        // US-C15: "missing bank details/PAN = processing error" — checked live against CURRENT
+        // Employee data (not a snapshot from generation time), so adding the missing detail after
+        // the fact correctly clears it here without a regenerate.
+        // (Removed 2026-11-20: a "PF enabled but missing UAN" check — pfEnabled defaults off and
+        // has no effect on whether PF is actually deducted, which still happens automatically via
+        // Location/Country matching a Statutory Rule, same as always; the check only added
+        // confusion about needing to toggle a flag nobody actually has to touch.)
+        List<UUID> runEmployeeIds = payslipRepository.findByPayrollRunId(runId).stream().map(Payslip::getEmployeeId).toList();
+        Map<UUID, Employee> runEmployeesById = new LinkedHashMap<>();
+        for (Employee e : employeeRepository.findAllById(runEmployeeIds)) {
+            runEmployeesById.put(e.getUserId(), e);
+            List<String> reasons = needsAttentionReasons.computeIfAbsent(e.getUserId(), k -> new ArrayList<>());
+            if (isBlank(e.getBankAccountNumber())) reasons.add("Missing bank account number");
+            if (isBlank(e.getBankIfsc())) reasons.add("Missing IFSC code");
+            if (isBlank(e.getPanNumber())) reasons.add("Missing PAN");
+            if (reasons.isEmpty()) needsAttentionReasons.remove(e.getUserId());
+        }
+
+        List<NeedsAttentionItemResponse> needsAttentionDetails = needsAttentionReasons.entrySet().stream()
+                .map(entry -> NeedsAttentionItemResponse.builder()
+                        .employeeId(entry.getKey())
+                        .employeeName(runEmployeesById.containsKey(entry.getKey())
+                                ? runEmployeesById.get(entry.getKey()).getFullName() : "Unknown")
+                        .reasons(entry.getValue())
+                        .build())
+                .toList();
+
+        List<EmployeeVarianceResponse> variances = previousRun.map(prev -> buildVariances(run, prev)).orElseGet(List::of);
+
+        return PreApprovalSummaryResponse.builder()
+                .current(current)
+                .previous(previous)
+                .processedCount(run.getEmployeeCount())
+                .onHoldCount(onHoldCount)
+                .needsAttentionCount(needsAttentionDetails.size())
+                .needsAttentionDetails(needsAttentionDetails)
+                .variances(variances)
+                .build();
+    }
+
+    private PeriodTotalsResponse periodTotals(PayrollRun run) {
+        Map<String, BigDecimal> sums = payslipLineItemRepository.sumAmountByComponentType(run.getId()).stream()
+                .collect(Collectors.toMap(row -> (String) row[0], row -> (BigDecimal) row[1]));
+        return PeriodTotalsResponse.builder()
+                .grossPay(run.getTotalGross())
+                .totalDeductions(run.getTotalDeductions())
+                .netPay(run.getTotalNet())
+                .employerContributions(sums.getOrDefault(SalaryComponentType.CONTRIBUTION, BigDecimal.ZERO))
+                .employeeCount(run.getEmployeeCount())
+                .build();
+    }
+
+    // Everyone present in both this run and the previous one whose net pay actually differs, with
+    // a best-effort list of likely drivers. Deliberately inclusive rather than exclusive about
+    // drivers (an employee can have more than one real cause in the same cycle) — "Other" only
+    // appears when nothing concrete was found, so the list is never silently empty for a real
+    // change. Not a substitute for actually opening the two payslips; it's a triage aid for the
+    // "why did my net change by 15 rupees" queries the team said they get routinely.
+    private List<EmployeeVarianceResponse> buildVariances(PayrollRun run, PayrollRun previousRun) {
+        Map<UUID, Payslip> current = payslipRepository.findByPayrollRunId(run.getId()).stream()
+                .collect(Collectors.toMap(Payslip::getEmployeeId, p -> p));
+        Map<UUID, Payslip> previous = payslipRepository.findByPayrollRunId(previousRun.getId()).stream()
+                .collect(Collectors.toMap(Payslip::getEmployeeId, p -> p));
+
+        Set<UUID> adHocPaymentEmployeeIds = adHocPaymentRepository.findByPayrollRunId(run.getId()).stream()
+                .map(AdHocPayment::getEmployeeId).collect(Collectors.toSet());
+        Set<UUID> adHocDeductionEmployeeIds = adHocDeductionInstallmentRepository.findByPayrollRunId(run.getId()).stream()
+                .map(i -> i.getAdHocDeduction().getEmployeeId()).collect(Collectors.toSet());
+        Set<UUID> arrearsEmployeeIds = arrearsRepository.findByAppliedToRunId(run.getId()).stream()
+                .map(Arrears::getEmployeeId).collect(Collectors.toSet());
+
+        List<UUID> commonEmployeeIds = current.keySet().stream().filter(previous::containsKey).toList();
+        Map<UUID, Employee> employeesById = employeeRepository.findAllById(commonEmployeeIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+
+        List<EmployeeVarianceResponse> variances = new ArrayList<>();
+        for (UUID employeeId : commonEmployeeIds) {
+            Payslip cur = current.get(employeeId);
+            Payslip prev = previous.get(employeeId);
+            BigDecimal delta = cur.getNetPay().subtract(prev.getNetPay());
+            if (delta.abs().compareTo(new BigDecimal("0.01")) < 0) continue;
+
+            List<String> drivers = new ArrayList<>();
+            if (cur.getLopDays().compareTo(prev.getLopDays()) != 0) drivers.add("LOP change");
+            if (cur.getCtc().compareTo(prev.getCtc()) != 0) drivers.add("Salary revision");
+            if (arrearsEmployeeIds.contains(employeeId)) drivers.add("Arrears");
+            if (adHocPaymentEmployeeIds.contains(employeeId)) drivers.add("Ad-hoc payment");
+            if (adHocDeductionEmployeeIds.contains(employeeId)) drivers.add("Ad-hoc deduction");
+            BigDecimal curStatutory = sumLineItemsNamed(cur.getId(), "PF", "ESI", "Professional Tax");
+            BigDecimal prevStatutory = sumLineItemsNamed(prev.getId(), "PF", "ESI", "Professional Tax");
+            if (curStatutory.compareTo(prevStatutory) != 0) drivers.add("Statutory deduction change");
+            if (drivers.isEmpty()) drivers.add("Other");
+
+            Employee employee = employeesById.get(employeeId);
+            variances.add(EmployeeVarianceResponse.builder()
+                    .employeeId(employeeId)
+                    .employeeName(employee != null ? employee.getFullName() : "Unknown")
+                    .previousNetPay(prev.getNetPay())
+                    .currentNetPay(cur.getNetPay())
+                    .delta(delta)
+                    .drivers(drivers)
+                    .build());
+        }
+        variances.sort(Comparator.comparing((EmployeeVarianceResponse v) -> v.getDelta().abs()).reversed());
+        return variances;
+    }
+
+    private BigDecimal sumLineItemsNamed(UUID payslipId, String... componentNames) {
+        Set<String> names = Set.of(componentNames);
+        return payslipLineItemRepository.findByPayslipId(payslipId).stream()
+                .filter(li -> names.contains(li.getComponentName()))
+                .map(PayslipLineItem::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     @Transactional
@@ -658,10 +811,53 @@ public class PayrollRunService {
         List<String> contributionColumns = nameToType.entrySet().stream()
                 .filter(e -> SalaryComponentType.CONTRIBUTION.equals(e.getValue())).map(Map.Entry::getKey).sorted(byDisplayOrder).toList();
 
+        int draftNumber = run.getRegenerateCount() + 1;
         byte[] xlsx = payRegisterExcelService.render(new PayRegisterExcelService.Model(
-                payslips, employees, amountsByEmployee, earningColumns, deductionColumns, contributionColumns));
-        String fileName = "pay-register-" + YearMonth.from(run.getCycleEnd()) + ".xlsx";
+                payslips, employees, amountsByEmployee, earningColumns, deductionColumns, contributionColumns, draftNumber));
+        String fileName = "pay-register-" + YearMonth.from(run.getCycleEnd()) + "-draft" + draftNumber + ".xlsx";
         return new PayslipService.PayslipFile(xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+
+    /**
+     * Bank-details ticket (Keka-walkthrough amendments) — the "Bank bulk-upload sheet": bank
+     * details + net pay only, for whoever is actually being paid this cycle. Two kinds of employee
+     * never make it into the file, each a deliberate omission rather than an error:
+     * <ul>
+     *   <li>On an active Payout Hold for this run — nothing to transfer for them this cycle.</li>
+     *   <li>Missing an account number or IFSC on file — same condition {@link
+     *       #getPreApprovalSummary} already surfaces as "needs attention" before approval; this is
+     *       the second place it matters, at the point money would actually move.</li>
+     * </ul>
+     * "Account Holder Name" uses the employee's own full name — there's no separate
+     * account-holder-name field on {@link Employee} today (bank fields were unified with
+     * PAN/UAN/ESI storage, not split into their own entity); revisit if a real mismatch case
+     * (e.g. a joint account) ever needs one.
+     */
+    @Transactional(readOnly = true)
+    public PayslipService.PayslipFile bankTransferExcel(UUID runId) {
+        PayrollRun run = requireRun(runId);
+        List<Payslip> payslips = payslipRepository.findByPayrollRunId(runId);
+        Set<UUID> payoutHoldEmployeeIds = salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(runId, SalaryHoldType.PAYOUT);
+
+        List<UUID> employeeIds = payslips.stream().map(Payslip::getEmployeeId).toList();
+        Map<UUID, Employee> employees = employeeRepository.findAllById(employeeIds).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+
+        List<BankTransferExcelService.BankTransferRow> rows = new ArrayList<>();
+        for (Payslip p : payslips) {
+            if (payoutHoldEmployeeIds.contains(p.getEmployeeId())) continue;
+            Employee e = employees.get(p.getEmployeeId());
+            if (e == null || isBlank(e.getBankAccountNumber()) || isBlank(e.getBankIfsc())) continue;
+            rows.add(new BankTransferExcelService.BankTransferRow(e.getFullName(), e.getBankAccountNumber(), e.getBankIfsc(), p.getNetPay()));
+        }
+
+        byte[] xlsx = bankTransferExcelService.render(new BankTransferExcelService.Model(rows));
+        String fileName = "bank-transfer-" + YearMonth.from(run.getCycleEnd()) + ".xlsx";
+        return new PayslipService.PayslipFile(xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     /**

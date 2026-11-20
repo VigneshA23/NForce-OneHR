@@ -22,6 +22,13 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
   const [panNumber, setPanNumber] = useState('');
   const [uanNumber, setUanNumber] = useState('');
   const [esiNumber, setEsiNumber] = useState('');
+  const [accountHolderName, setAccountHolderName] = useState(profile.accountHolderName ?? '');
+  const [pfEnabled, setPfEnabled] = useState(profile.pfEnabled);
+  const [pfNumber, setPfNumber] = useState('');
+  const [pfRegistrationDate, setPfRegistrationDate] = useState(profile.pfRegistrationDate ?? '');
+  const [nameAsPerPf, setNameAsPerPf] = useState(profile.nameAsPerPf ?? '');
+  const [esiEnabled, setEsiEnabled] = useState(profile.esiEnabled);
+  const [professionalTaxNumber, setProfessionalTaxNumber] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function handleSave() {
@@ -32,6 +39,10 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
         // A cleared field sends no passportExpiry at all, plus the explicit clear flag — see
         // UpdateProfilePayload's doc comment for why "" / omitted alone isn't enough.
         ...(passportExpiry ? { passportExpiry } : { clearPassportExpiry: true }),
+        accountHolderName,
+        pfEnabled,
+        nameAsPerPf,
+        esiEnabled,
       };
       // Only send if the employee actually typed a new value — otherwise leave the masked value
       // stored server-side untouched instead of overwriting it with an empty string.
@@ -42,6 +53,9 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
       if (panNumber) payload.panNumber = panNumber;
       if (uanNumber) payload.uanNumber = uanNumber;
       if (esiNumber) payload.esiNumber = esiNumber;
+      if (pfNumber) payload.pfNumber = pfNumber;
+      if (pfRegistrationDate) payload.pfRegistrationDate = pfRegistrationDate;
+      if (professionalTaxNumber) payload.professionalTaxNumber = professionalTaxNumber;
       const updated = await profileApi.update(token, payload);
       onSaved(updated);
       // Bank and ID changes don't apply on save: HR approves them first, so say so.
@@ -97,11 +111,36 @@ export function IdentityStatutoryModal({ profile, token, onClose, onSaved }: {
             <EditField label="Replace UAN" value={uanNumber} onChange={setUanNumber} placeholder="12-digit UAN" />
           </div>
         </div>
-        <div style={{ gridColumn: '1/-1' }}>
+        <div>
           <ReadField label="ESI Number (current)" value={profile.esiNumber} />
           <div style={{ marginTop: 8 }}>
             <EditField label="Replace ESI Number" value={esiNumber} onChange={setEsiNumber} placeholder="Enter new value…" />
           </div>
+        </div>
+        <EditField label="Account Holder Name" value={accountHolderName} onChange={setAccountHolderName} placeholder="As per bank records" />
+        <EditField label="Name as per PF" value={nameAsPerPf} onChange={setNameAsPerPf} placeholder="As per PF records" />
+        <div>
+          <ReadField label="PF Number (current)" value={profile.pfNumber} />
+          <div style={{ marginTop: 8 }}>
+            <EditField label="Replace PF Number" value={pfNumber} onChange={setPfNumber} placeholder="Enter new value…" />
+          </div>
+        </div>
+        <EditField label="PF Registration Date" value={pfRegistrationDate} onChange={setPfRegistrationDate} type="date" />
+        <div>
+          <ReadField label="Professional Tax Number (current)" value={profile.professionalTaxNumber} />
+          <div style={{ marginTop: 8 }}>
+            <EditField label="Replace Professional Tax Number" value={professionalTaxNumber} onChange={setProfessionalTaxNumber} placeholder="Enter new value…" />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 24, alignItems: 'center', gridColumn: '1/-1' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--txt)' }}>
+            <input type="checkbox" checked={pfEnabled} onChange={e => setPfEnabled(e.target.checked)} />
+            PF Enabled
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--txt)' }}>
+            <input type="checkbox" checked={esiEnabled} onChange={e => setEsiEnabled(e.target.checked)} />
+            ESI Enabled
+          </label>
         </div>
       </div>
     </EditModal>

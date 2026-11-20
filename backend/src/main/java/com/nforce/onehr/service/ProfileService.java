@@ -132,6 +132,11 @@ public class ProfileService {
         response.setPanNumber(null);
         response.setUanNumber(null);
         response.setEsiNumber(null);
+        response.setAccountHolderName(null);
+        response.setPfNumber(null);
+        response.setPfRegistrationDate(null);
+        response.setNameAsPerPf(null);
+        response.setProfessionalTaxNumber(null);
     }
 
     /** Field names only — the audit trail must never hold the sensitive values themselves. */
@@ -269,6 +274,14 @@ public class ProfileService {
         if (req.getPanNumber() != null)        emp.setPanNumber(req.getPanNumber().trim().toUpperCase());
         if (req.getUanNumber() != null)        emp.setUanNumber(req.getUanNumber().trim());
         if (req.getEsiNumber() != null)         emp.setEsiNumber(req.getEsiNumber().trim());
+        // US-C21 — same direct-write treatment as PAN/UAN/ESI just above, for the same reason.
+        if (req.getAccountHolderName() != null) emp.setAccountHolderName(req.getAccountHolderName().trim());
+        if (req.getPfEnabled() != null)         emp.setPfEnabled(req.getPfEnabled());
+        if (req.getPfNumber() != null)          emp.setPfNumber(req.getPfNumber().trim());
+        if (req.getPfRegistrationDate() != null) emp.setPfRegistrationDate(req.getPfRegistrationDate());
+        if (req.getNameAsPerPf() != null)       emp.setNameAsPerPf(req.getNameAsPerPf().trim());
+        if (req.getEsiEnabled() != null)        emp.setEsiEnabled(req.getEsiEnabled());
+        if (req.getProfessionalTaxNumber() != null) emp.setProfessionalTaxNumber(req.getProfessionalTaxNumber().trim());
 
         // fullName is derived, never client-set: join non-blank first/middle/last with single spaces.
         if (nameChanged) {
@@ -459,6 +472,13 @@ public class ProfileService {
                 .panNumber(maskTrailing4(emp.getPanNumber()))
                 .uanNumber(maskTrailing4(emp.getUanNumber()))
                 .esiNumber(maskTrailing4(emp.getEsiNumber()))
+                .accountHolderName(emp.getAccountHolderName())
+                .pfEnabled(emp.isPfEnabled())
+                .pfNumber(maskTrailing4(emp.getPfNumber()))
+                .pfRegistrationDate(emp.getPfRegistrationDate())
+                .nameAsPerPf(emp.getNameAsPerPf())
+                .esiEnabled(emp.isEsiEnabled())
+                .professionalTaxNumber(maskTrailing4(emp.getProfessionalTaxNumber()))
                 .employeeCode(emp.getEmployeeCode())
                 .departmentName(emp.getDepartment() != null ? emp.getDepartment().getName() : null)
                 .designationName(emp.getDesignation() != null ? emp.getDesignation().getTitle() : null)

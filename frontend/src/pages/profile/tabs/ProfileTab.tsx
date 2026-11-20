@@ -165,6 +165,13 @@ export function ProfileTab({ profile, token, onSaved }: { profile: ProfileData; 
           <ReadField label="PAN" value={profile.panNumber} />
           <ReadField label="UAN" value={profile.uanNumber} />
           <ReadField label="ESI Number" value={profile.esiNumber} />
+          <ReadField label="Account Holder Name" value={profile.accountHolderName} />
+          <ReadField label="PF Enabled" value={profile.pfEnabled ? 'Yes' : 'No'} />
+          <ReadField label="PF Number" value={profile.pfNumber} />
+          <ReadField label="PF Registration Date" value={profile.pfRegistrationDate} />
+          <ReadField label="Name as per PF" value={profile.nameAsPerPf} />
+          <ReadField label="ESI Enabled" value={profile.esiEnabled ? 'Yes' : 'No'} />
+          <ReadField label="Professional Tax Number" value={profile.professionalTaxNumber} />
         </div>
       </SectionCard>
 

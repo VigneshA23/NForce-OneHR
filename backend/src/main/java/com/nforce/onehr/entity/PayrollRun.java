@@ -56,6 +56,13 @@ public class PayrollRun {
     @Column(name = "employee_count", nullable = false)
     private int employeeCount;
 
+    // Bank-details ticket (Keka-walkthrough amendments) — 0 on first generation ("Draft 1" to a
+    // reader), incremented every time generateDraft regenerates an ALREADY-existing run, so the
+    // Pay Register can print which attempt Finance is looking at after a correction.
+    @Column(name = "regenerate_count", nullable = false)
+    @Builder.Default
+    private int regenerateCount = 0;
+
     @Column(name = "total_gross", nullable = false)
     private BigDecimal totalGross;
 

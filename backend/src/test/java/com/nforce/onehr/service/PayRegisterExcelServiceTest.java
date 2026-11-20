@@ -38,17 +38,19 @@ class PayRegisterExcelServiceTest {
         byte[] xlsx = service.render(new PayRegisterExcelService.Model(
                 List.of(payslip), Map.of(employeeId, employee),
                 Map.of(employeeId, Map.of("Basic", new BigDecimal("30000.00"), "PF", new BigDecimal("3600.00"), "Employer PF", new BigDecimal("3600.00"))),
-                List.of("Basic"), List.of("PF"), List.of("Employer PF")));
+                List.of("Basic"), List.of("PF"), List.of("Employer PF"), 1));
 
         try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(xlsx))) {
-            Row header = wb.getSheetAt(0).getRow(0);
+            assertEquals("Pay Register — Draft 1", wb.getSheetAt(0).getRow(0).getCell(0).getStringCellValue());
+
+            Row header = wb.getSheetAt(0).getRow(1);
             List<String> headers = new java.util.ArrayList<>();
             for (int i = 0; i < header.getLastCellNum(); i++) headers.add(header.getCell(i).getStringCellValue());
             assertEquals(List.of("Employee Name", "Employee Code", "Department", "Designation",
                     "Days in Cycle", "Days Employed", "LOP Days", "Basic", "Gross Pay", "PF", "Total Deductions",
                     "Employer PF", "Net Pay", "Payment Withheld"), headers);
 
-            Row row = wb.getSheetAt(0).getRow(1);
+            Row row = wb.getSheetAt(0).getRow(2);
             assertEquals("Asha Rao", row.getCell(0).getStringCellValue());
             assertEquals("EMP001", row.getCell(1).getStringCellValue());
             assertEquals("Engineering", row.getCell(2).getStringCellValue());
@@ -78,10 +80,10 @@ class PayRegisterExcelServiceTest {
         byte[] xlsx = service.render(new PayRegisterExcelService.Model(
                 List.of(payslip), Map.of(otherEmployeeId, employee),
                 Map.of(otherEmployeeId, Map.of("Basic", new BigDecimal("20000.00"))),
-                List.of("Basic", "Bonus"), List.of(), List.of()));
+                List.of("Basic", "Bonus"), List.of(), List.of(), 2));
 
         try (XSSFWorkbook wb = new XSSFWorkbook(new ByteArrayInputStream(xlsx))) {
-            Row row = wb.getSheetAt(0).getRow(1);
+            Row row = wb.getSheetAt(0).getRow(2);
             assertEquals(20000.00, row.getCell(7).getNumericCellValue(), 0.001); // Basic
             assertNull(row.getCell(8)); // Bonus — no line item for this employee, cell never created
         }

@@ -54,6 +54,9 @@ class PayrollRunServiceTest {
     @Mock private PayslipService payslipService;
     @Mock private PayRegisterExcelService payRegisterExcelService;
     @Mock private PayrollRunRollbackRepository payrollRunRollbackRepository;
+    @Mock private ArrearsRepository arrearsRepository;
+    @Mock private PayrollRunReviewItemRepository payrollRunReviewItemRepository;
+    @Mock private BankTransferExcelService bankTransferExcelService;
 
     private PayrollRunService service;
 
@@ -78,7 +81,8 @@ class PayrollRunServiceTest {
                 adHocPaymentRepository, recurringAdHocPaymentRuleRepository, adHocDeductionRepository, adHocDeductionInstallmentRepository,
                 salaryHoldRepository, payrollRunReviewService, new SalaryStructureResolutionService(),
                 statutoryDeductionService, arrearsService, salaryComponentRepository, employeeRepository,
-                userRepository, auditService, auditSnapshot, payslipService, payRegisterExcelService, payrollRunRollbackRepository);
+                userRepository, auditService, auditSnapshot, payslipService, payRegisterExcelService, payrollRunRollbackRepository,
+                arrearsRepository, payrollRunReviewItemRepository, bankTransferExcelService);
 
         lenient().when(recurringAdHocPaymentRuleRepository.findActiveForPayGroup(any())).thenReturn(List.of());
 
@@ -90,7 +94,11 @@ class PayrollRunServiceTest {
         // Joined well before any test's cycle window, never exited — every existing test's
         // employee passes generateDraft's own "actually employed through this window" filter by
         // default; the filter's own exclusion behavior is covered by its dedicated tests below.
-        Employee defaultEmployee = Employee.builder().userId(employeeId).joiningDate(LocalDate.of(2000, 1, 1)).build();
+        // Bank details set on the shared default so existing tests don't spuriously trip the
+        // "missing bank details" needs-attention check added for the bank-transfer file — tests
+        // that specifically exercise that check build their own bank-detail-less Employee instead.
+        Employee defaultEmployee = Employee.builder().userId(employeeId).joiningDate(LocalDate.of(2000, 1, 1))
+                .bankAccountNumber("1234567890").bankIfsc("HDFC0000001").panNumber("ABCDE1234F").build();
         lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(defaultEmployee));
         lenient().when(employeeRepository.findAllById(any())).thenReturn(List.of(defaultEmployee));
         lenient().when(statutoryDeductionService.computeDeductions(any(), any(), any(), any(), any())).thenReturn(List.of());
@@ -1118,8 +1126,188 @@ class PayrollRunServiceTest {
         PayRegisterExcelService.Model model = captor.getValue();
         assertEquals(List.of("Basic", "HRA"), model.earningColumns());
         assertEquals(List.of("PF"), model.deductionColumns());
+        assertEquals(1, model.draftNumber());
         assertEquals(List.of(), model.contributionColumns());
         assertEquals(new BigDecimal("30000.00"), model.amountsByEmployee().get(employeeId).get("Basic"));
         assertEquals("Asha Rao", model.employees().get(employeeId).getFullName());
+    }
+
+    @Test
+    void getPreApprovalSummary_noPreviousRun_returnsNullPreviousAndEmptyVariances() {
+        PayrollRun current = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(current.getId())).thenReturn(Optional.of(current));
+        when(payrollRunRepository.findPreviousFinalizedRun(payGroupId, cycleStart)).thenReturn(Optional.empty());
+        when(payslipLineItemRepository.sumAmountByComponentType(current.getId())).thenReturn(List.of());
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(current.getId(), SalaryHoldType.PROCESSING)).thenReturn(Set.of());
+        when(payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(eq(current.getId()), any())).thenReturn(List.of());
+
+        PreApprovalSummaryResponse resp = service.getPreApprovalSummary(current.getId());
+
+        assertNull(resp.getPrevious());
+        assertEquals(List.of(), resp.getVariances());
+        assertEquals(0, resp.getOnHoldCount());
+        assertEquals(0, resp.getNeedsAttentionCount());
+    }
+
+    @Test
+    void getPreApprovalSummary_withPreviousRun_flagsLopAndStatutoryDrivers() {
+        PayrollRun current = run(PayrollRunStatus.DRAFT);
+        PayrollRun previousRun = PayrollRun.builder().id(UUID.randomUUID()).payGroupId(payGroupId)
+                .cycleStart(cycleStart.minusMonths(1)).cycleEnd(cycleEnd.minusMonths(1)).status(PayrollRunStatus.DISBURSED)
+                .totalGross(new BigDecimal("100000.00")).totalDeductions(BigDecimal.ZERO).totalNet(new BigDecimal("100000.00")).build();
+        when(payrollRunRepository.findById(current.getId())).thenReturn(Optional.of(current));
+        when(payrollRunRepository.findPreviousFinalizedRun(payGroupId, cycleStart)).thenReturn(Optional.of(previousRun));
+        when(payslipLineItemRepository.sumAmountByComponentType(any())).thenReturn(List.of());
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(current.getId(), SalaryHoldType.PROCESSING)).thenReturn(Set.of());
+        when(payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(eq(current.getId()), any())).thenReturn(List.of());
+
+        Payslip currentPayslip = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId)
+                .ctc(new BigDecimal("500000")).lopDays(BigDecimal.ONE).netPay(new BigDecimal("41000.00")).build();
+        Payslip previousPayslip = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId)
+                .ctc(new BigDecimal("500000")).lopDays(BigDecimal.ZERO).netPay(new BigDecimal("42000.00")).build();
+        when(payslipRepository.findByPayrollRunId(current.getId())).thenReturn(List.of(currentPayslip));
+        when(payslipRepository.findByPayrollRunId(previousRun.getId())).thenReturn(List.of(previousPayslip));
+        when(adHocPaymentRepository.findByPayrollRunId(current.getId())).thenReturn(List.of());
+        when(adHocDeductionInstallmentRepository.findByPayrollRunId(current.getId())).thenReturn(List.of());
+        when(arrearsRepository.findByAppliedToRunId(current.getId())).thenReturn(List.of());
+        when(payslipLineItemRepository.findByPayslipId(currentPayslip.getId())).thenReturn(List.of(
+                PayslipLineItem.builder().componentName("PF").amount(new BigDecimal("2500.00")).build()));
+        when(payslipLineItemRepository.findByPayslipId(previousPayslip.getId())).thenReturn(List.of(
+                PayslipLineItem.builder().componentName("PF").amount(new BigDecimal("2400.00")).build()));
+        Employee emp = Employee.builder().userId(employeeId).fullName("Asha Rao").build();
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(emp));
+
+        PreApprovalSummaryResponse resp = service.getPreApprovalSummary(current.getId());
+
+        assertEquals(1, resp.getVariances().size());
+        EmployeeVarianceResponse variance = resp.getVariances().get(0);
+        assertEquals("Asha Rao", variance.getEmployeeName());
+        assertEquals(new BigDecimal("-1000.00"), variance.getDelta());
+        assertTrue(variance.getDrivers().contains("LOP change"));
+        assertTrue(variance.getDrivers().contains("Statutory deduction change"));
+        assertFalse(variance.getDrivers().contains("Salary revision"));
+    }
+
+    @Test
+    void getPreApprovalSummary_withPreviousRun_unchangedNetPay_producesNoVariance() {
+        PayrollRun current = run(PayrollRunStatus.DRAFT);
+        PayrollRun previousRun = PayrollRun.builder().id(UUID.randomUUID()).payGroupId(payGroupId)
+                .cycleStart(cycleStart.minusMonths(1)).cycleEnd(cycleEnd.minusMonths(1)).status(PayrollRunStatus.APPROVED)
+                .totalGross(new BigDecimal("100000.00")).totalDeductions(BigDecimal.ZERO).totalNet(new BigDecimal("100000.00")).build();
+        when(payrollRunRepository.findById(current.getId())).thenReturn(Optional.of(current));
+        when(payrollRunRepository.findPreviousFinalizedRun(payGroupId, cycleStart)).thenReturn(Optional.of(previousRun));
+        when(payslipLineItemRepository.sumAmountByComponentType(any())).thenReturn(List.of());
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(current.getId(), SalaryHoldType.PROCESSING)).thenReturn(Set.of());
+        when(payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(eq(current.getId()), any())).thenReturn(List.of());
+
+        Payslip currentPayslip = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId)
+                .ctc(new BigDecimal("500000")).lopDays(BigDecimal.ZERO).netPay(new BigDecimal("41000.00")).build();
+        Payslip previousPayslip = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId)
+                .ctc(new BigDecimal("500000")).lopDays(BigDecimal.ZERO).netPay(new BigDecimal("41000.00")).build();
+        when(payslipRepository.findByPayrollRunId(current.getId())).thenReturn(List.of(currentPayslip));
+        when(payslipRepository.findByPayrollRunId(previousRun.getId())).thenReturn(List.of(previousPayslip));
+        when(adHocPaymentRepository.findByPayrollRunId(current.getId())).thenReturn(List.of());
+        when(adHocDeductionInstallmentRepository.findByPayrollRunId(current.getId())).thenReturn(List.of());
+        when(arrearsRepository.findByAppliedToRunId(current.getId())).thenReturn(List.of());
+
+        PreApprovalSummaryResponse resp = service.getPreApprovalSummary(current.getId());
+
+        assertEquals(List.of(), resp.getVariances());
+    }
+
+    @Test
+    void getPreApprovalSummary_employeeMissingBankDetails_countsTowardNeedsAttention() {
+        PayrollRun current = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(current.getId())).thenReturn(Optional.of(current));
+        when(payrollRunRepository.findPreviousFinalizedRun(payGroupId, cycleStart)).thenReturn(Optional.empty());
+        when(payslipLineItemRepository.sumAmountByComponentType(current.getId())).thenReturn(List.of());
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(current.getId(), SalaryHoldType.PROCESSING)).thenReturn(Set.of());
+        when(payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(eq(current.getId()), any())).thenReturn(List.of());
+
+        Payslip payslip = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId).build();
+        when(payslipRepository.findByPayrollRunId(current.getId())).thenReturn(List.of(payslip));
+        Employee noBankDetails = Employee.builder().userId(employeeId).fullName("Asha Rao").build();
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(noBankDetails));
+
+        PreApprovalSummaryResponse resp = service.getPreApprovalSummary(current.getId());
+
+        assertEquals(1, resp.getNeedsAttentionCount());
+    }
+
+    @Test
+    void getPreApprovalSummary_employeeMissingPan_countsTowardNeedsAttention() {
+        PayrollRun current = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(current.getId())).thenReturn(Optional.of(current));
+        when(payrollRunRepository.findPreviousFinalizedRun(payGroupId, cycleStart)).thenReturn(Optional.empty());
+        when(payslipLineItemRepository.sumAmountByComponentType(current.getId())).thenReturn(List.of());
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(current.getId(), SalaryHoldType.PROCESSING)).thenReturn(Set.of());
+        when(payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(eq(current.getId()), any())).thenReturn(List.of());
+
+        Payslip payslip = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId).build();
+        when(payslipRepository.findByPayrollRunId(current.getId())).thenReturn(List.of(payslip));
+        Employee missingPan = Employee.builder().userId(employeeId).fullName("Asha Rao")
+                .bankAccountNumber("123").bankIfsc("IFSC0001").build();
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(missingPan));
+
+        PreApprovalSummaryResponse resp = service.getPreApprovalSummary(current.getId());
+
+        assertEquals(1, resp.getNeedsAttentionCount());
+    }
+
+    @Test
+    void getPreApprovalSummary_needsAttentionDetails_namesEachEmployeeAndTheirSpecificReasons() {
+        PayrollRun current = run(PayrollRunStatus.DRAFT);
+        when(payrollRunRepository.findById(current.getId())).thenReturn(Optional.of(current));
+        when(payrollRunRepository.findPreviousFinalizedRun(payGroupId, cycleStart)).thenReturn(Optional.empty());
+        when(payslipLineItemRepository.sumAmountByComponentType(current.getId())).thenReturn(List.of());
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(current.getId(), SalaryHoldType.PROCESSING)).thenReturn(Set.of());
+        when(payrollRunReviewItemRepository.findByPayrollRunIdAndStepType(eq(current.getId()), any())).thenReturn(List.of());
+
+        Payslip payslip = Payslip.builder().id(UUID.randomUUID()).employeeId(employeeId).build();
+        when(payslipRepository.findByPayrollRunId(current.getId())).thenReturn(List.of(payslip));
+        Employee missingEverything = Employee.builder().userId(employeeId).fullName("Asha Rao").build();
+        when(employeeRepository.findAllById(List.of(employeeId))).thenReturn(List.of(missingEverything));
+
+        PreApprovalSummaryResponse resp = service.getPreApprovalSummary(current.getId());
+
+        assertEquals(1, resp.getNeedsAttentionDetails().size());
+        NeedsAttentionItemResponse item = resp.getNeedsAttentionDetails().get(0);
+        assertEquals("Asha Rao", item.getEmployeeName());
+        assertEquals(List.of("Missing bank account number", "Missing IFSC code", "Missing PAN"), item.getReasons());
+    }
+
+    @Test
+    void bankTransferExcel_excludesPayoutHoldAndMissingBankDetails() {
+        PayrollRun approved = run(PayrollRunStatus.APPROVED);
+        when(payrollRunRepository.findById(approved.getId())).thenReturn(Optional.of(approved));
+
+        UUID payoutHeldId = UUID.randomUUID();
+        UUID noBankDetailsId = UUID.randomUUID();
+        UUID eligibleId = UUID.randomUUID();
+        Payslip p1 = Payslip.builder().id(UUID.randomUUID()).employeeId(payoutHeldId).netPay(new BigDecimal("40000.00")).build();
+        Payslip p2 = Payslip.builder().id(UUID.randomUUID()).employeeId(noBankDetailsId).netPay(new BigDecimal("35000.00")).build();
+        Payslip p3 = Payslip.builder().id(UUID.randomUUID()).employeeId(eligibleId).netPay(new BigDecimal("50000.00")).build();
+        when(payslipRepository.findByPayrollRunId(approved.getId())).thenReturn(List.of(p1, p2, p3));
+        when(salaryHoldRepository.findActiveEmployeeIdsByPayrollRunIdAndType(approved.getId(), SalaryHoldType.PAYOUT)).thenReturn(Set.of(payoutHeldId));
+
+        Employee heldEmployee = Employee.builder().userId(payoutHeldId).fullName("Held Employee")
+                .bankAccountNumber("111").bankIfsc("IFSC0001").build();
+        Employee noBankEmployee = Employee.builder().userId(noBankDetailsId).fullName("No Bank Employee").build();
+        Employee eligibleEmployee = Employee.builder().userId(eligibleId).fullName("Eligible Employee")
+                .bankAccountNumber("222").bankIfsc("IFSC0002").build();
+        when(employeeRepository.findAllById(List.of(payoutHeldId, noBankDetailsId, eligibleId)))
+                .thenReturn(List.of(heldEmployee, noBankEmployee, eligibleEmployee));
+
+        ArgumentCaptor<BankTransferExcelService.Model> captor = ArgumentCaptor.forClass(BankTransferExcelService.Model.class);
+        when(bankTransferExcelService.render(captor.capture())).thenReturn(new byte[]{1, 2});
+
+        PayslipService.PayslipFile file = service.bankTransferExcel(approved.getId());
+
+        assertEquals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", file.contentType());
+        BankTransferExcelService.Model model = captor.getValue();
+        assertEquals(1, model.rows().size());
+        assertEquals("Eligible Employee", model.rows().get(0).accountHolderName());
+        assertEquals("222", model.rows().get(0).accountNumber());
+        assertEquals(new BigDecimal("50000.00"), model.rows().get(0).netPay());
     }
 }

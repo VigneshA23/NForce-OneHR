@@ -166,6 +166,31 @@ public class Employee {
     @Column(name = "esi_number", length = 20)
     private String esiNumber;
 
+    // US-C21 (ONEHR-621/621) — the rest of the "statutory and finance identifiers" set. Merged
+    // into this same storage/access rule as bank/PAN/UAN/ESI above, per that ticket's own dev note.
+    @Column(name = "account_holder_name", length = 150)
+    private String accountHolderName;
+
+    @Column(name = "pf_enabled", nullable = false)
+    @Builder.Default
+    private boolean pfEnabled = false;
+
+    @Column(name = "pf_number", length = 30)
+    private String pfNumber;
+
+    @Column(name = "pf_registration_date")
+    private LocalDate pfRegistrationDate;
+
+    @Column(name = "name_as_per_pf", length = 150)
+    private String nameAsPerPf;
+
+    @Column(name = "esi_enabled", nullable = false)
+    @Builder.Default
+    private boolean esiEnabled = false;
+
+    @Column(name = "professional_tax_number", length = 30)
+    private String professionalTaxNumber;
+
     // Job tab — read-only, HR-managed.
     @Column(name = "job_code", length = 50)
     private String jobCode;

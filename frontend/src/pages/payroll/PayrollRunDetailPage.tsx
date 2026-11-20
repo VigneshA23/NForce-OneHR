@@ -3,14 +3,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Users, IndianRupee, MinusCircle, Wallet, LayoutGrid, Receipt, CalendarCheck,
   PlusCircle, PauseCircle, Undo2, UserRoundPlus, Gift, Receipt as ReceiptIcon, History,
-  ShieldCheck, PieChart,
+  ShieldCheck, PieChart, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
 import PageTitleBlock from '../../components/PageTitleBlock';
 import { TabBar, type TabDef } from '../../components/TabBar';
 import { useAuthStore } from '../../store/authStore';
 import { hasPermission } from '../../lib/permissions';
 import { useToast } from '../../context/ToastContext';
-import { payrollApi, type PayrollRunResponse, type PayrollRunRollbackResponse, type PayrollRunStatus, type PayGroupResponse } from '../../api/payroll';
+import { payrollApi, type PayrollRunResponse, type PayrollRunRollbackResponse, type PayrollRunStatus, type PayGroupResponse, type PreApprovalSummaryResponse } from '../../api/payroll';
 import {
   fmtCurrency, fmtDate, fmtDateTime, StatusBadge, StatTile, StepCard, SectionHead, Modal, FormRow,
   labelStyle, inputStyle, BtnPrimary, BtnGhost, WithFaqPanel, useEmployeeDirectory, panelStyle, thStyle, tdStyle, type FaqItem,
@@ -179,11 +179,14 @@ export default function PayrollRunDetailPage() {
   const [busy, setBusy] = useState(false);
   const [showRollback, setShowRollback] = useState(false);
   const [rollbackHistory, setRollbackHistory] = useState<PayrollRunRollbackResponse[]>([]);
+  const [preApproval, setPreApproval] = useState<PreApprovalSummaryResponse | null>(null);
+  const [showNeedsAttention, setShowNeedsAttention] = useState(false);
 
   const reload = useCallback(() => {
     if (!runId) return;
     payrollApi.getRun(runId, token).then(setRun).catch(() => showToast('error', 'Failed to load this payroll run'));
     payrollApi.rollbackHistory(runId, token).then(setRollbackHistory).catch(() => {});
+    payrollApi.preApprovalSummary(runId, token).then(setPreApproval).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId, token]);
 
@@ -280,6 +283,85 @@ export default function PayrollRunDetailPage() {
             <div><dt style={labelStyle}>Pending Approval Stage</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{run.pendingApprovalStage ?? '–'}</dd></div>
           </dl>
           </div>
+
+          {preApproval && (
+            <div style={{ marginTop: 18 }}>
+              <SectionHead title="Pre-Approval Summary" />
+
+              <div className="nf-pr-tiles" style={{ marginBottom: 18 }}>
+                {([
+                  ['Gross Pay', preApproval.current.grossPay, preApproval.previous?.grossPay, 'var(--brand)'],
+                  ['Deductions', preApproval.current.totalDeductions, preApproval.previous?.totalDeductions, 'var(--warn)'],
+                  ['Net Pay', preApproval.current.netPay, preApproval.previous?.netPay, 'var(--ok)'],
+                  ['Employer Contributions', preApproval.current.employerContributions, preApproval.previous?.employerContributions, 'var(--info)'],
+                ] as const).map(([label, value, prevValue, tone]) => {
+                  const delta = prevValue != null ? value - prevValue : null;
+                  const hint = delta == null ? 'No previous cycle to compare'
+                    : delta === 0 ? 'No change vs last cycle'
+                    : `${delta > 0 ? '▲' : '▼'} ${fmtCurrency(Math.abs(delta))} vs last cycle`;
+                  return <StatTile key={label} tone={tone} icon={<IndianRupee size={20} />} label={label} value={fmtCurrency(value)} hint={hint} />;
+                })}
+              </div>
+
+              <div className="nf-pr-tiles" style={{ marginBottom: 20 }}>
+                <StatTile tone="var(--info)" icon={<CheckCircle2 size={20} />} label="Processed" value={String(preApproval.processedCount)} />
+                <StatTile tone="var(--warn)" icon={<PauseCircle size={20} />} label="On Hold" value={String(preApproval.onHoldCount)} />
+                <StatTile
+                  tone="var(--risk)" icon={<AlertTriangle size={20} />} label="Needs Attention"
+                  value={String(preApproval.needsAttentionCount)}
+                  hint={preApproval.needsAttentionCount > 0 ? (showNeedsAttention ? 'Click to hide details' : 'Click to see who, and why') : undefined}
+                  onClick={preApproval.needsAttentionCount > 0 ? () => setShowNeedsAttention(v => !v) : undefined}
+                />
+              </div>
+
+              {showNeedsAttention && preApproval.needsAttentionDetails.length > 0 && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 8 }}>
+                    Employees needing attention before approval
+                  </div>
+                  <div style={panelStyle}>
+                    <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead><tr>{['Employee', 'Reason(s)'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {preApproval.needsAttentionDetails.map(item => (
+                          <tr key={item.employeeId}>
+                            <td style={tdStyle}>{item.employeeName}</td>
+                            <td style={tdStyle}>{item.reasons.join(', ')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {preApproval.variances.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 8 }}>
+                    Employees whose net pay changed vs last cycle
+                  </div>
+                  <div style={panelStyle}>
+                    <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead><tr>{['Employee', 'Previous Net', 'Current Net', 'Change', 'Likely Reason(s)'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+                      <tbody>
+                        {preApproval.variances.map(v => (
+                          <tr key={v.employeeId}>
+                            <td style={tdStyle}>{v.employeeName}</td>
+                            <td style={tdStyle}>{fmtCurrency(v.previousNetPay)}</td>
+                            <td style={tdStyle}>{fmtCurrency(v.currentNetPay)}</td>
+                            <td style={{ ...tdStyle, color: v.delta >= 0 ? 'var(--ok)' : 'var(--risk)' }}>
+                              {v.delta >= 0 ? '+' : ''}{fmtCurrency(v.delta)}
+                            </td>
+                            <td style={tdStyle}>{v.drivers.join(', ')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {rollbackHistory.length > 0 && (
             <div style={{ marginTop: 18 }}>

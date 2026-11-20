@@ -119,6 +119,39 @@ export interface PayrollRunRollbackResponse {
   rolledBackAt: string;
 }
 
+export interface PeriodTotalsResponse {
+  grossPay: number;
+  totalDeductions: number;
+  netPay: number;
+  employerContributions: number;
+  employeeCount: number;
+}
+
+export interface EmployeeVarianceResponse {
+  employeeId: string;
+  employeeName: string;
+  previousNetPay: number;
+  currentNetPay: number;
+  delta: number;
+  drivers: string[];
+}
+
+export interface NeedsAttentionItemResponse {
+  employeeId: string;
+  employeeName: string;
+  reasons: string[];
+}
+
+export interface PreApprovalSummaryResponse {
+  current: PeriodTotalsResponse;
+  previous: PeriodTotalsResponse | null;
+  processedCount: number;
+  onHoldCount: number;
+  needsAttentionCount: number;
+  needsAttentionDetails: NeedsAttentionItemResponse[];
+  variances: EmployeeVarianceResponse[];
+}
+
 export interface PayslipLineItemResponse {
   componentId: string;
   componentName: string;
@@ -527,6 +560,9 @@ export const payrollApi = {
   rollbackHistory: (runId: string, token: string) =>
     fetch(`${BASE}/runs/${runId}/rollback-history`, { headers: bearerOnly(token) }).then(handle<PayrollRunRollbackResponse[]>),
 
+  preApprovalSummary: (runId: string, token: string) =>
+    fetch(`${BASE}/runs/${runId}/pre-approval-summary`, { headers: bearerOnly(token) }).then(handle<PreApprovalSummaryResponse>),
+
   // Payslips
   listPayslips: (runId: string, token: string) =>
     fetch(`${BASE}/runs/${runId}/payslips`, { headers: bearerOnly(token) }).then(handle<PayslipResponse[]>),
@@ -575,6 +611,22 @@ export const payrollApi = {
     const disposition = res.headers.get('Content-Disposition') ?? '';
     const match = /filename="?([^";]+)"?/.exec(disposition);
     const fileName = match ? match[1] : 'pay-register.xlsx';
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  },
+
+  /** Bank-details ticket — the bank bulk-upload sheet: bank details + net pay only, excluding
+   *  Payout Hold and anyone missing bank details. */
+  downloadBankTransfer: async (runId: string, token: string) => {
+    const res = await fetch(`${BASE}/runs/${runId}/bank-transfer`, { headers: bearerOnly(token) });
+    if (!res.ok) throw new Error(`Failed to download bank transfer file (${res.status})`);
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    const fileName = match ? match[1] : 'bank-transfer.xlsx';
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement('a');
     a.href = url;
