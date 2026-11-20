@@ -53,6 +53,19 @@ export function isExpenseDateInFuture(dateStr: string, todayStr: string = todayI
   return dateStr > todayStr;
 }
 
+/** Oldest claimable expense date — 1 year back; mirrors ExpenseService.MAX_CLAIM_AGE_DAYS. */
+export const EXPENSE_MAX_AGE_DAYS = 365;
+export function minExpenseIsoDate(todayStr: string = todayIsoDate()): string {
+  const d = new Date(`${todayStr}T00:00:00`);
+  d.setDate(d.getDate() - EXPENSE_MAX_AGE_DAYS);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+/** Also catches malformed years (e.g. 1380, or a 5-digit year typed into the picker). */
+export function isExpenseDateTooOld(dateStr: string, todayStr: string = todayIsoDate()): boolean {
+  if (!dateStr) return false;
+  return !/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || dateStr < minExpenseIsoDate(todayStr);
+}
+
 // ══════════════════════════════════════════════════════════
 // EMPLOYEE VIEW
 // ══════════════════════════════════════════════════════════
@@ -379,11 +392,17 @@ export function SubmitExpenseModal({ categories: propCategories, token, onClose,
   const receiptRequired = selectedCat != null && amountNum > selectedCat.requiresReceiptAbove;
   const maxDate = todayIsoDate();
   const isFutureDate = isExpenseDateInFuture(expenseDate, maxDate);
+  const minDate = minExpenseIsoDate(maxDate);
+  const isTooOld = isExpenseDateTooOld(expenseDate, maxDate);
 
   async function submit() {
     if (!categoryId || !amount || !expenseDate || !businessPurpose.trim()) return;
     if (isFutureDate) {
       showToast('error', 'Expense date cannot be in the future');
+      return;
+    }
+    if (isTooOld) {
+      showToast('error', `Expense date must be on or after ${fmtDate(minDate)}`);
       return;
     }
     if (receiptRequired && !receiptFile) { showToast('error', `Receipt required for ${selectedCat!.name} amounts above ${fmtCurrency(selectedCat!.requiresReceiptAbove)}`); return; }
@@ -422,17 +441,23 @@ export function SubmitExpenseModal({ categories: propCategories, token, onClose,
         <label style={labelStyle}>Expense Date *</label>
         <input
           type="date"
+          min={minDate}
           max={maxDate}
           value={expenseDate}
           onChange={e => setExpenseDate(e.target.value)}
           style={{
             ...inputStyle,
-            borderColor: isFutureDate ? '#E4373D' : undefined,
+            borderColor: isFutureDate || isTooOld ? '#E4373D' : undefined,
           }}
         />
         {isFutureDate && (
           <div style={{ fontSize: 11, color: '#E4373D', marginTop: 4 }}>
             Expense date cannot be in the future.
+          </div>
+        )}
+        {isTooOld && (
+          <div style={{ fontSize: 11, color: '#E4373D', marginTop: 4 }}>
+            Expense date must be on or after {fmtDate(minDate)}.
           </div>
         )}
       </FormRow>
@@ -451,7 +476,7 @@ export function SubmitExpenseModal({ categories: propCategories, token, onClose,
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
         <BtnGhost onClick={onClose}>Cancel</BtnGhost>
-        <BtnPrimary onClick={submit} disabled={!categoryId || !amount || !expenseDate || isFutureDate || !businessPurpose.trim() || (receiptRequired && !receiptFile) || submitting}>{submitting ? 'Submitting…' : 'Submit Claim'}</BtnPrimary>
+        <BtnPrimary onClick={submit} disabled={!categoryId || !amount || !expenseDate || isFutureDate || isTooOld || !businessPurpose.trim() || (receiptRequired && !receiptFile) || submitting}>{submitting ? 'Submitting…' : 'Submit Claim'}</BtnPrimary>
       </div>
     </Modal>
   );

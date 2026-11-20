@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
 import type { ApprovalItem } from '../api/approvalCenter';
-import { REPORT_COLUMN_SETS, autoSizeColumns } from './MyTeamPage';
+import { REPORT_COLUMN_SETS } from './MyTeamPage';
+import { autoSizeColumns } from '../lib/xlsxColumns';
 import type { WorkSheet } from 'xlsx';
 
 function mockRequest(requestType: 'LEAVE' | 'REGULARIZATION', id: string): ApprovalItem {
