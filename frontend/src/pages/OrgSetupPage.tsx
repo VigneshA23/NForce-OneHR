@@ -10,7 +10,7 @@ import {
   CalendarDays, Bot, Wallet, ShieldCheck, Activity, UsersRound, Crown, Handshake, Megaphone,
   Cpu, Landmark, Wrench, BriefcaseBusiness, UserCog, TestTube, Code, UserRound, Home, Globe,
   Sunrise, Sun, Sunset, Moon, Timer, IdCard, FileSignature, FileCheck, Award, File,
-  ClipboardCheck, CalendarClock, CalendarX2, CalendarCheck2,
+  ClipboardCheck,
 } from 'lucide-react';
 import { KebabMenu, type KebabItem } from '../components/KebabMenu';
 import type { LucideIcon } from 'lucide-react';
@@ -26,7 +26,7 @@ import {
   listAllDocTypes, createDocType, updateDocType, toggleDocTypeActive, deleteDocType,
   type DocumentType,
 } from '../api/documents';
-import { leaveApi, type LeaveType, type LeaveTypeClassification } from '../api/leave';
+import LeaveConfigSection from './leave-config/LeaveConfigSection';
 import * as aiAssistantApi from '../api/aiAssistant';
 import PolicyListSection from './penalization/PolicyListSection';
 import PenalizationPolicyAllocationSection from './penalization/PenalizationPolicyAllocationSection';
@@ -88,11 +88,11 @@ const TABS: Record<OrgTab, TabDef> = {
     addLabel: 'Add Document Type',
     emptyLine: 'No document types configured yet. Add one to start collecting employee documents.',
   },
+  // Leave Types / Entitlements / Carry-Forward, rendered by LeaveConfigSection (leave_configuration
+  // permission) — not a row-per-item table, so columns/addLabel/emptyLine are unused.
   leavetypes: {
     label: 'Leave', icon: CalendarDays,
-    columns: ['Leave Type', 'Code', 'Classification'],
-    addLabel: 'Add Leave Type',
-    emptyLine: 'No leave types configured yet. Add one to start collecting leave requests.',
+    columns: [], addLabel: '', emptyLine: '',
   },
   // Not a row-per-item table like the other tabs above — the Policy List (Section 5), rendered
   // by PolicyListSection, which in turn opens PenalizationPolicySection per-policy for editing.
@@ -237,16 +237,6 @@ function getShiftIcon(row: { name: string; startTime: string; flexible?: boolean
   return { icon: Moon, accent: 'var(--info)' };
 }
 
-const LEAVE_ICON_RULES: IconRule[] = [
-  { test: /sick|medical|health/, icon: CalendarX2, accent: 'var(--risk)' },
-  { test: /unpaid|loss of pay|\blop\b/, icon: CalendarX2, accent: 'var(--txt-mut)' },
-  { test: /casual/, icon: CalendarClock, accent: 'var(--warn)' },
-  { test: /annual|paid|earned/, icon: CalendarCheck2, accent: 'var(--ok)' },
-];
-function getLeaveTypeIcon(name: string) {
-  return resolveIcon(LEAVE_ICON_RULES, name, { icon: TABS.leavetypes.icon, accent: TAB_ACCENT.leavetypes });
-}
-
 // Small tab-colored icon badge shown before a row's primary name/title — resolved per-row from
 // real data, purely presentational. A soft tinted fill + a thin inset ring (--badge-accent, read
 // by .nf-org-icon-badge in index.css) gives the glyph more visual weight than a bare thin-outline
@@ -291,20 +281,6 @@ function StatusBadge({ active }: { active: boolean }) {
       color: active ? 'var(--ok)' : 'var(--txt-dim)',
     }}>
       {active ? 'Active' : 'Inactive'}
-    </span>
-  );
-}
-
-function ClassificationBadge({ classification }: { classification: LeaveTypeClassification }) {
-  const isPaid = classification === 'PAID';
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-      background: isPaid ? 'rgba(47,182,124,.15)' : 'rgba(228,155,15,.15)',
-      color: isPaid ? 'var(--ok)' : 'var(--warn, #b7791f)',
-    }}>
-      {isPaid ? 'Paid' : 'Unpaid'}
     </span>
   );
 }
@@ -822,95 +798,6 @@ function DocTypeModal({ editRow, token, locationNames, onClose, onSaved }: DocTy
   );
 }
 
-// ── LeaveTypeModal ─────────────────────────────────────────────────────────────
-// Create/edit are Super Admin/HR Admin — enforced by LeaveController (@PreAuthorize) regardless
-// of whether this modal is reachable, same convention as DocTypeModal above.
-
-interface LeaveTypeModalProps {
-  editRow?: LeaveType;
-  token: string;
-  onClose(): void;
-  onSaved(): void;
-}
-
-function LeaveTypeModal({ editRow, token, onClose, onSaved }: LeaveTypeModalProps) {
-  const isEdit = !!editRow;
-  const [code, setCode] = useState(editRow?.code ?? '');
-  const [name, setName] = useState(editRow?.name ?? '');
-  const [classification, setClassification] = useState<LeaveTypeClassification>(editRow?.classification ?? 'PAID');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) { setError('Name is required'); return; }
-    if (!isEdit && !code.trim()) { setError('Code is required'); return; }
-    setError('');
-    setLoading(true);
-    try {
-      if (isEdit && editRow) {
-        await leaveApi.updateType(editRow.id, { name: name.trim(), classification }, token);
-      } else {
-        await leaveApi.createType({ code: code.trim(), name: name.trim(), classification }, token);
-      }
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const inputS: React.CSSProperties = { background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px', fontSize: 13, color: 'var(--txt)', width: '100%', boxSizing: 'border-box' };
-  const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
-
-  return (
-    <div className="nf-om-dlg" role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}>
-      <div className="nf-om-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width: 420, maxWidth: '94vw' }}>
-        <h2 data-kind={isEdit ? 'edit' : 'add'}>{isEdit ? 'Edit Leave Type' : 'Add Leave Type'}</h2>
-        <form onSubmit={submit}>
-          <div style={{ marginBottom: 14 }}>
-            <label style={labelS}>Leave Type Name *</label>
-            <input style={inputS} value={name} onChange={e => setName(e.target.value)} required autoFocus />
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <label style={labelS}>Code {isEdit ? '' : '*'}</label>
-            <input
-              style={{ ...inputS, opacity: isEdit ? 0.6 : 1 }}
-              value={code}
-              onChange={e => setCode(e.target.value)}
-              maxLength={20}
-              disabled={isEdit}
-              placeholder="e.g. LOP"
-            />
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <label style={labelS}>Classification *</label>
-            <div style={{ display: 'flex', gap: 20 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
-                <input type="radio" name="classification" checked={classification === 'PAID'} onChange={() => setClassification('PAID')} />
-                Paid
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
-                <input type="radio" name="classification" checked={classification === 'UNPAID'} onChange={() => setClassification('UNPAID')} />
-                Unpaid
-              </label>
-            </div>
-          </div>
-          {error && <div style={{ color: 'var(--risk)', fontSize: 12, marginBottom: 12 }}>{error}</div>}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} disabled={loading} style={{ padding: '7px 16px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={loading} style={{ padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
-              {loading ? 'Saving…' : isEdit ? 'Save Changes' : 'Add'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 // ── ShiftFormModal ─────────────────────────────────────────────────────────────
 // Create/edit are Super Admin only — enforced by OrgService (@PreAuthorize) regardless of
 // whether this modal is reachable; canManageShifts in the parent just controls whether the
@@ -1409,8 +1296,18 @@ export default function OrgSetupPage() {
   const canManageShifts = hasPermission(permissions, 'organization_shifts', 'EDIT', 'ALL');
   const can = useCan();
 
-  // Opens on the first tab (Business Units), same order as the tab bar.
-  const [activeTab, setActiveTab] = useState<OrgTab>('businessunits');
+  // The page is reachable with organization:EDIT (every master) or leave_configuration:VIEW (the
+  // Leave tab only, e.g. a custom role granted just Leave Configuration) — see the /organization and
+  // /masters route requirements in permission-catalogue.yml.
+  const orgAccess = can('organization', 'EDIT');
+  const leaveAccess = can('leave_configuration', 'VIEW');
+  // Opens on the first tab (Business Units), same order as the tab bar — or on Leave when that is all
+  // the caller may see.
+  const [activeTab, setActiveTab] = useState<OrgTab>(orgAccess || !leaveAccess ? 'businessunits' : 'leavetypes');
+  // Permissions can arrive after the first render: never leave someone on a tab they can't see.
+  useEffect(() => {
+    if (!orgAccess && leaveAccess && activeTab !== 'leavetypes') setActiveTab('leavetypes');
+  }, [orgAccess, leaveAccess, activeTab]);
   const [penalizationSubTab, setPenalizationSubTab] = useState<'policy' | 'allocation'>('policy');
   // Set when the Policy List's employee-count link is clicked — consumed once by
   // PenalizationPolicyAllocationSection to pre-select its Penalization Policy filter, then cleared
@@ -1422,7 +1319,6 @@ export default function OrgSetupPage() {
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
   const [docTypes, setDocTypes] = useState<DocumentType[]>([]);
-  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
 
@@ -1432,7 +1328,6 @@ export default function OrgSetupPage() {
     key: number;
   }>({ open: false, key: 0 });
   const [docTypeModal, setDocTypeModal] = useState<{ open: boolean; row?: DocumentType; key: number }>({ open: false, key: 0 });
-  const [leaveTypeModal, setLeaveTypeModal] = useState<{ open: boolean; row?: LeaveType; key: number }>({ open: false, key: 0 });
   const [shiftModal, setShiftModal] = useState<{ open: boolean; row?: ShiftRow; key: number }>({ open: false, key: 0 });
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   // The Shift & Weekly Off tab's own nested sub-tab — see TABS.shiftweeklyoff's own comment.
@@ -1449,8 +1344,8 @@ export default function OrgSetupPage() {
   // brand-new tab still gets its data promptly, and dropdowns elsewhere that read another
   // section's data (e.g. Document Types' "Applicable Locations", which reads `locations`) still
   // end up populated without the user having to visit that tab first.
-  type FetchableTab = 'businessunits' | 'departments' | 'designations' | 'locations' | 'shiftweeklyoff' | 'doctypes' | 'leavetypes';
-  const FETCHABLE_TABS: FetchableTab[] = ['businessunits', 'departments', 'designations', 'locations', 'shiftweeklyoff', 'doctypes', 'leavetypes'];
+  type FetchableTab = 'businessunits' | 'departments' | 'designations' | 'locations' | 'shiftweeklyoff' | 'doctypes';
+  const FETCHABLE_TABS: FetchableTab[] = ['businessunits', 'departments', 'designations', 'locations', 'shiftweeklyoff', 'doctypes'];
   const loadedRef = useRef<Set<FetchableTab>>(new Set());
   const inFlightRef = useRef<Set<FetchableTab>>(new Set());
   const [sectionLoading, setSectionLoading] = useState<Partial<Record<FetchableTab, boolean>>>({});
@@ -1468,7 +1363,6 @@ export default function OrgSetupPage() {
         case 'locations': setLocations(await orgApi.listLocations(token)); break;
         case 'shiftweeklyoff': setShifts(await orgApi.listShifts(token)); break;
         case 'doctypes': setDocTypes(await listAllDocTypes(token)); break;
-        case 'leavetypes': setLeaveTypes(await leaveApi.listTypes(token)); break;
       }
       loadedRef.current.add(section);
       setLoadError('');
@@ -1491,13 +1385,13 @@ export default function OrgSetupPage() {
   }, [token, activeTab]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !orgAccess) return;
     // Let the active tab's own request go first on the wire before quietly topping up the rest.
     const t = setTimeout(() => {
       FETCHABLE_TABS.forEach(section => fetchSection(section, { silent: true }));
     }, 200);
     return () => clearTimeout(t);
-  }, [token]);
+  }, [token, orgAccess]);
 
   useEffect(() => { setSearch(''); }, [activeTab]);
 
@@ -1509,19 +1403,16 @@ export default function OrgSetupPage() {
     l.name.toLowerCase().includes(q) || (l.city ?? '').toLowerCase().includes(q)
   );
   const visibleDocTypes = docTypes.filter(d => d.name.toLowerCase().includes(q));
-  const visibleLeaveTypes = leaveTypes.filter(t => t.name.toLowerCase().includes(q));
   const buPaged = usePaged(visibleBusinessUnits, [q, activeTab]);
   const deptPaged = usePaged(visibleDepts, [q, activeTab]);
   const desigPaged = usePaged(visibleDesigs, [q, activeTab]);
   const locPaged = usePaged(visibleLocs, [q, activeTab]);
   const docPaged = usePaged(visibleDocTypes, [q, activeTab]);
-  const leavePaged = usePaged(visibleLeaveTypes, [q, activeTab]);
   const orgPagerProps = activeTab === 'businessunits' ? buPaged.pagerProps
     : activeTab === 'departments' ? deptPaged.pagerProps
     : activeTab === 'designations' ? desigPaged.pagerProps
     : activeTab === 'locations' ? locPaged.pagerProps
-    : activeTab === 'doctypes' ? docPaged.pagerProps
-    : leavePaged.pagerProps;
+    : docPaged.pagerProps;
   // Shifts no longer participates in the shared search/generic-table plumbing above — its master-
   // detail layout (ShiftsMasterDetail) filters the full, unfiltered `shifts` list with its own
   // internal search state instead (see the reference design's dedicated left-panel search box).
@@ -1530,17 +1421,14 @@ export default function OrgSetupPage() {
     activeTab === 'departments' ? visibleDepts :
     activeTab === 'designations' ? visibleDesigs :
     activeTab === 'doctypes' ? visibleDocTypes :
-    activeTab === 'leavetypes' ? visibleLeaveTypes :
     visibleLocs;
 
-  // Add needs the tab's own permission: documents/leave CONFIGURE, organization CREATE for the masters.
+  // Add needs the tab's own permission: documents CONFIGURE, organization CREATE for the masters.
   const canAddRow = activeTab === 'doctypes' ? can('documents', 'CONFIGURE')
-    : activeTab === 'leavetypes' ? can('leave', 'CONFIGURE')
     : can('organization', 'CREATE');
 
   function openAdd() {
     if (activeTab === 'doctypes') { setDocTypeModal(s => ({ open: true, key: s.key + 1 })); return; }
-    if (activeTab === 'leavetypes') { setLeaveTypeModal(s => ({ open: true, key: s.key + 1 })); return; }
     if (activeTab === 'shiftweeklyoff' && shiftWeeklyOffSubTab === 'shifts') { setShiftModal(s => ({ open: true, key: s.key + 1 })); return; }
     setAddEditModal(s => ({ open: true, key: s.key + 1 }));
   }
@@ -1549,9 +1437,6 @@ export default function OrgSetupPage() {
   }
   function openEditDocType(dt: DocumentType) {
     setDocTypeModal(s => ({ open: true, row: dt, key: s.key + 1 }));
-  }
-  function openEditLeaveType(lt: LeaveType) {
-    setLeaveTypeModal(s => ({ open: true, row: lt, key: s.key + 1 }));
   }
   function openEditShift(row: ShiftRow) {
     setShiftModal(s => ({ open: true, row, key: s.key + 1 }));
@@ -1757,18 +1642,6 @@ export default function OrgSetupPage() {
           }}
         />
       )}
-      {leaveTypeModal.open && (
-        <LeaveTypeModal
-          key={leaveTypeModal.key}
-          editRow={leaveTypeModal.row}
-          token={token}
-          onClose={() => setLeaveTypeModal(s => ({ ...s, open: false }))}
-          onSaved={() => {
-            fetchAll();
-            showToast('success', leaveTypeModal.row ? 'Updated successfully' : 'Leave type created');
-          }}
-        />
-      )}
       {shiftModal.open && (
         <ShiftFormModal
           key={shiftModal.key}
@@ -1797,7 +1670,7 @@ export default function OrgSetupPage() {
           <p style={{ margin: 0, fontSize: 13, color: 'var(--txt-mut)' }}>{copy.tagline}</p>
         </PageTitleBlock>
         {activeTab !== 'penalization' && activeTab !== 'shiftweeklyoff' && activeTab !== 'attendance'
-          && activeTab !== 'ai-assistant' && (
+          && activeTab !== 'ai-assistant' && activeTab !== 'leavetypes' && (
           // Right of the page title, above the tabs.
           <div className="nf-org-toolbar-actions" style={{
             display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8,
@@ -1894,6 +1767,8 @@ export default function OrgSetupPage() {
                 // load: unlike every other tab here (at least viewable via /organization by HR
                 // Admin), the AI Assistant rate-limit configuration is Super-Admin-only end to end.
                 .filter(key => key !== 'ai-assistant' || hasPermission(permissions, 'ai_assistant', 'VIEW', 'ALL'))
+                // Leave needs leave_configuration:VIEW; every other tab needs the page's organization access.
+                .filter(key => (key === 'leavetypes' ? leaveAccess : orgAccess))
                 .map(key => {
                   const TabIcon = TABS[key].icon;
                   return { key, label: TABS[key].label, icon: <TabIcon size={14} aria-hidden="true" /> };
@@ -1969,6 +1844,8 @@ export default function OrgSetupPage() {
           <AttendanceRulesSection token={token} />
         ) : activeTab === 'ai-assistant' ? (
           <AiRateLimitSettingsSection token={token} />
+        ) : activeTab === 'leavetypes' ? (
+          <LeaveConfigSection token={token} />
         ) : (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -2122,25 +1999,7 @@ export default function OrgSetupPage() {
                     </td>
                   </tr>
                 ))
-              ) : (
-                leavePaged.pageRows.map(lt => (
-                  <tr key={lt.id} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt)', fontWeight: 500 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <RowIconBadge {...getLeaveTypeIcon(lt.name)} />
-                        {lt.name}
-                      </div>
-                    </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--txt-mut)', fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{lt.code}</td>
-                    <td style={{ padding: '10px 16px' }}><ClassificationBadge classification={lt.classification} /></td>
-                    <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                      <KebabMenu items={can('leave', 'CONFIGURE') ? [
-                        { label: 'Edit', onClick: () => openEditLeaveType(lt) },
-                      ] : []} />
-                    </td>
-                  </tr>
-                ))
-              )}
+              ) : null}
             </tbody>
           </table>
           <TablePagination {...orgPagerProps} noun="records" />

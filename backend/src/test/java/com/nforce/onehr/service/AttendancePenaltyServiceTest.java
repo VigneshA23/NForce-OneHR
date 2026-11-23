@@ -92,6 +92,9 @@ class AttendancePenaltyServiceTest {
 
     @BeforeEach
     void setUp() {
+        // V309: leave credit-back goes through the real balance engine over this test's mocked repositories.
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "leaveBalanceService",
+                TestLeaveBalances.over(leaveTypeRepository, leaveBalanceRepository));
         manager = Employee.builder().userId(managerId).fullName("Manager One").build();
         employee = Employee.builder().userId(empId).fullName("Employee One").employeeCode("NF-1").build();
         lenient().when(employeeRepository.findByUser_Email(managerEmail)).thenReturn(Optional.of(manager));

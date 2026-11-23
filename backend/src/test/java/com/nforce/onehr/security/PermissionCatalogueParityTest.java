@@ -92,6 +92,8 @@ class PermissionCatalogueParityTest {
         for (String body : migrationsInOrder()) {
             Matcher m = SCOPE_RANGE.matcher(body);
             while (m.find()) sql.put(m.group(1) + ":" + m.group(2), m.group(3) + ".." + m.group(4));
+            Matcher retired = SeedMatrix.RETIRE.matcher(body); // a later migration may retire a permission
+            while (retired.find()) sql.remove(retired.group(1) + ":" + retired.group(2));
         }
         Map<String, String> yaml = new TreeMap<>();
         catalogue.leaves().forEach((code, n) -> n.actions().forEach((a, r) -> yaml.put(code + ":" + a, r.min() + ".." + r.max())));

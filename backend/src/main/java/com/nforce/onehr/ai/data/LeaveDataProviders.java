@@ -64,14 +64,12 @@ public final class LeaveDataProviders {
             List<LeaveBalanceResponse> balances = leaveService.listMyBalances(context.getActorEmail());
             if (balances == null || balances.isEmpty()) return Optional.empty();
 
-            // Annual, Sick and Casual share one consolidated balance (V122), so the numbers can
-            // legitimately look identical across those types. Listing them per type anyway, because
-            // collapsing them here would hide a real property of the system from the model.
+            // V309: every paid leave type has its own independent balance; unpaid types are unlimited
+            // and per-occurrence types (Maternity) are granted per eligible occurrence, not per year.
             StringBuilder out = new StringBuilder("Leave types available to you - exactly %d, each with its balance. "
                     .formatted(balances.size()) + "These are the leave types you can apply for:\n");
             out.append(balances.stream()
-                    .map(b -> "- %s: %s of %s days remaining (%s used)".formatted(
-                            b.getLeaveTypeName(), b.getRemainingDays(), b.getTotalDays(), b.getUsedDays()))
+                    .map(LeaveDataProviders::describeBalance)
                     .collect(Collectors.joining("\n")));
 
             int year = LocalDate.now(attendanceRulesService.getDefaultZoneId()).getYear();
@@ -220,5 +218,22 @@ public final class LeaveDataProviders {
                             r.getEmployeeName(), r.getLeaveTypeName(),
                             r.getStartDate(), r.getEndDate(), r.getTotalDays())));
         }
+    }
+
+    static String describeBalance(LeaveBalanceResponse b) {
+        if (b.isUnlimited()) {
+            return "- %s: unlimited (unpaid leave, does not use any paid balance)".formatted(b.getLeaveTypeName());
+        }
+        if ("PER_OCCURRENCE".equals(b.getEntitlementBasis())) {
+            return "- %s: %s of %s days remaining for the current eligible occurrence (%s used, %s pending)".formatted(
+                    b.getLeaveTypeName(), b.getRemainingDays(), b.getTotalDays(), b.getUsedDays(), b.getPendingDays());
+        }
+        String carried = b.getCarriedForwardDays() != null && b.getCarriedForwardDays().signum() > 0
+                ? "; includes %s days carried forward from last year (%s left%s)".formatted(b.getCarriedForwardDays(),
+                        b.getCarriedForwardRemainingDays(),
+                        b.getCarriedForwardExpiresOn() != null ? ", expiring " + b.getCarriedForwardExpiresOn() : "")
+                : "";
+        return "- %s: %s days remaining of %s this year (%s used, %s pending%s)".formatted(
+                b.getLeaveTypeName(), b.getRemainingDays(), b.getTotalDays(), b.getUsedDays(), b.getPendingDays(), carried);
     }
 }

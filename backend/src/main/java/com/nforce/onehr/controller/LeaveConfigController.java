@@ -1,0 +1,139 @@
+package com.nforce.onehr.controller;
+
+import com.nforce.onehr.dto.CreateLeaveTypeRequest;
+import com.nforce.onehr.dto.LeaveBalanceResponse;
+import com.nforce.onehr.dto.LeaveConfigDtos.BalanceAdjustmentRequest;
+import com.nforce.onehr.dto.LeaveConfigDtos.CarryForwardSettingsRequest;
+import com.nforce.onehr.dto.LeaveConfigDtos.CarryForwardTransferResponse;
+import com.nforce.onehr.dto.LeaveConfigDtos.EntitlementChangeRequest;
+import com.nforce.onehr.dto.LeaveConfigDtos.EntitlementPolicyResponse;
+import com.nforce.onehr.dto.LeaveConfigDtos.YearEndRunResult;
+import com.nforce.onehr.dto.LeaveTypeResponse;
+import com.nforce.onehr.dto.UpdateLeaveTypeRequest;
+import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.service.LeaveTypeService;
+import com.nforce.onehr.service.LeaveYearEndService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.security.Principal;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Leave Configuration — Organization Masters / Organization Structure > Leave. Separate from leave
+ * application/approval: every endpoint needs {@code leave_configuration}, never a {@code leave:*}
+ * grant. VIEW reads configuration and balances, CONFIGURE changes policy (types, entitlements,
+ * carry-forward, year-end run), EDIT adjusts an individual employee's balance.
+ */
+@RestController
+@RequestMapping("/api/leave-config")
+@RequiredArgsConstructor
+public class LeaveConfigController {
+
+    private final LeaveTypeService leaveTypeService;
+    private final LeaveYearEndService leaveYearEndService;
+    private final UserRepository userRepository;
+
+    // ── Leave types ──
+
+    @GetMapping("/types")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public List<LeaveTypeResponse> listTypes() {
+        return leaveTypeService.listForAdmin();
+    }
+
+    @PostMapping("/types")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
+    public LeaveTypeResponse createType(@Valid @RequestBody CreateLeaveTypeRequest req, Principal principal) {
+        return leaveTypeService.create(req, principal.getName());
+    }
+
+    @PatchMapping("/types/{id}")
+    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
+    public LeaveTypeResponse updateType(@PathVariable UUID id, @Valid @RequestBody UpdateLeaveTypeRequest req,
+                                        Principal principal) {
+        return leaveTypeService.update(id, req, principal.getName());
+    }
+
+    @PatchMapping("/types/{id}/active")
+    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
+    public LeaveTypeResponse setActive(@PathVariable UUID id, @RequestBody Map<String, Boolean> body, Principal principal) {
+        Boolean active = body.get("active");
+        if (active == null) throw new IllegalArgumentException("active is required");
+        return leaveTypeService.setActive(id, active, principal.getName());
+    }
+
+    @DeleteMapping("/types/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
+    public void deleteType(@PathVariable UUID id, Principal principal) {
+        leaveTypeService.delete(id, principal.getName());
+    }
+
+    // ── Entitlements ──
+
+    @GetMapping("/types/{id}/entitlements")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public List<EntitlementPolicyResponse> listEntitlements(@PathVariable UUID id) {
+        return leaveTypeService.listPolicies(id);
+    }
+
+    @PostMapping("/types/{id}/entitlements")
+    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
+    public List<EntitlementPolicyResponse> changeEntitlement(@PathVariable UUID id, @Valid @RequestBody EntitlementChangeRequest req,
+                                                             Principal principal) {
+        return leaveTypeService.changeEntitlement(id, req, principal.getName());
+    }
+
+    // ── Carry-forward ──
+
+    @PutMapping("/types/{id}/carry-forward")
+    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
+    public LeaveTypeResponse updateCarryForward(@PathVariable UUID id, @Valid @RequestBody CarryForwardSettingsRequest req,
+                                                Principal principal) {
+        return leaveTypeService.updateCarryForward(id, req, principal.getName());
+    }
+
+    @GetMapping("/carry-forward/transfers")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public List<CarryForwardTransferResponse> transfers(@RequestParam int fromYear) {
+        return leaveYearEndService.listTransfers(fromYear);
+    }
+
+    /** Runs year-end processing for an ended leave year now (the nightly job does the same; safe to repeat). */
+    @PostMapping("/carry-forward/run")
+    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
+    public YearEndRunResult runYearEnd(@RequestParam int fromYear, Principal principal) {
+        User actor = userRepository.findByEmail(principal.getName())
+                .orElseThrow(() -> new IllegalStateException("Actor not found"));
+        return leaveYearEndService.run(fromYear, actor.getId());
+    }
+
+    // ── Employee balances ──
+
+    @GetMapping("/employees")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public List<Map<String, Object>> employees() {
+        return leaveTypeService.employeeDirectory();
+    }
+
+    @GetMapping("/employees/{userId}/balances")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public List<LeaveBalanceResponse> employeeBalances(@PathVariable UUID userId, @RequestParam(required = false) Integer year) {
+        return leaveTypeService.employeeBalances(userId, year);
+    }
+
+    @PatchMapping("/balances/{balanceId}")
+    @PreAuthorize("hasAuthority('leave_configuration:EDIT:ALL')")
+    public LeaveBalanceResponse adjustBalance(@PathVariable UUID balanceId, @Valid @RequestBody BalanceAdjustmentRequest req,
+                                              Principal principal) {
+        return leaveTypeService.adjustBalance(balanceId, req, principal.getName());
+    }
+}

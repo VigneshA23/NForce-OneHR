@@ -14,33 +14,70 @@ async function handle<T>(res: Response): Promise<T> {
 
 export type LeaveTypeClassification = 'PAID' | 'UNPAID';
 
+/** ANNUAL = a yearly balance; PER_OCCURRENCE = e.g. Maternity, per eligible occurrence; UNLIMITED = unpaid. */
+export type EntitlementBasis = 'ANNUAL' | 'PER_OCCURRENCE' | 'UNLIMITED';
+export type CarryForwardPriority = 'CARRY_FORWARD_FIRST' | 'CURRENT_FIRST';
+
 export interface LeaveType {
   id: string;
   code: string;
   name: string;
   classification: LeaveTypeClassification;
+  entitlementBasis: EntitlementBasis;
+  active: boolean;
+  // Filled only by the Leave Configuration listing (leaveConfigApi.listTypes).
+  occurrenceWindowMonths?: number | null;
+  currentEntitlementDays?: number | null;
+  carryForwardEnabled?: boolean;
+  carryForwardMaxDays?: number | null;
+  carryForwardExpiryMonths?: number | null;
+  carryForwardPriority?: CarryForwardPriority;
+  /** Records still using the type: above zero means deactivate, not delete. */
+  referenceCount?: number;
 }
 
 export interface CreateLeaveTypePayload {
   code: string;
   name: string;
   classification: LeaveTypeClassification;
+  entitlementBasis?: 'ANNUAL' | 'PER_OCCURRENCE';
+  entitlementDays?: number;
+  occurrenceWindowMonths?: number;
 }
 
 export interface UpdateLeaveTypePayload {
   name?: string;
   classification?: LeaveTypeClassification;
+  entitlementBasis?: 'ANNUAL' | 'PER_OCCURRENCE';
+  occurrenceWindowMonths?: number;
+  /** Only used when an unpaid type becomes paid and has no entitlement yet. */
+  entitlementDays?: number;
 }
 
 export interface LeaveBalance {
-  /** Only set by listTeamBalances — null for the caller's own balances. */
+  /** Set by listTeamBalances and the admin view — null for the caller's own balances. */
   employeeUserId?: string | null;
+  /** Admin view: the row a manual adjustment targets (regular paid types only). */
+  balanceId?: string | null;
+  leaveTypeId?: string;
   leaveTypeCode: string;
   leaveTypeName: string;
+  classification?: LeaveTypeClassification;
+  entitlementBasis?: EntitlementBasis;
+  /** Unpaid leave: no limit — the numeric fields below are null. */
+  unlimited?: boolean;
   year: number;
-  totalDays: number;
-  usedDays: number;
-  remainingDays: number;
+  totalDays: number | null;
+  usedDays: number | null;
+  pendingDays?: number | null;
+  remainingDays: number | null;
+  carriedForwardDays?: number | null;
+  carriedForwardUsedDays?: number | null;
+  carriedForwardExpiredDays?: number | null;
+  carriedForwardRemainingDays?: number | null;
+  carriedForwardExpiresOn?: string | null;
+  occurrenceStartDate?: string | null;
+  occurrenceWindowEndDate?: string | null;
 }
 
 export interface LeaveRequestRecord {
@@ -77,16 +114,9 @@ export interface SubmitLeaveRequestPayload {
 }
 
 export const leaveApi = {
+  /** Active leave types only — what a new request may use. */
   listTypes: (token: string) =>
     fetch(`${BASE}/types`, { headers: authHeaders(token) }).then(handle<LeaveType[]>),
-
-  /** Organization Masters > Leave — create a Leave Type. Super Admin/HR Admin only (server-enforced). */
-  createType: (payload: CreateLeaveTypePayload, token: string) =>
-    fetch(`${BASE}/types`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveType>),
-
-  /** Organization Masters > Leave — edit a Leave Type, including its Paid/Unpaid classification. */
-  updateType: (id: string, payload: UpdateLeaveTypePayload, token: string) =>
-    fetch(`${BASE}/types/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveType>),
 
   listBalances: (token: string) =>
     fetch(`${BASE}/balances`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
@@ -125,4 +155,82 @@ export const leaveApi = {
 
   reject: (id: string, reason: string, token: string) =>
     fetch(`${BASE}/requests/${id}/reject`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify({ reason }) }).then(handle<LeaveRequestRecord>),
+};
+
+// ── Leave Configuration (Organization Masters > Leave) — every call needs leave_configuration ──
+
+const CONFIG = `${API_ORIGIN}/api/leave-config`;
+
+export interface EntitlementPolicy {
+  id: string;
+  effectiveYear: number;
+  days: number;
+  createdByName: string;
+  createdAt: string;
+}
+
+export interface CarryForwardSettings {
+  enabled: boolean;
+  maxDays: number | null;
+  expiryMonths: number | null;
+  priority: CarryForwardPriority;
+}
+
+export interface CarryForwardTransfer {
+  id: string;
+  employeeUserId: string;
+  employeeName: string;
+  employeeCode: string | null;
+  leaveTypeCode: string;
+  leaveTypeName: string;
+  fromYear: number;
+  unusedDays: number;
+  carriedDays: number;
+  lapsedDays: number;
+  expiresOn: string | null;
+  processedAt: string;
+  updatedAt: string;
+}
+
+export interface YearEndRunResult {
+  fromYear: number;
+  balancesChecked: number;
+  transfersCreated: number;
+  expiriesUpdated: number;
+  failures: number;
+}
+
+export interface DirectoryEmployee {
+  userId: string;
+  name: string;
+  employeeCode: string | null;
+}
+
+function send<T>(method: string, url: string, token: string, body?: unknown): Promise<T> {
+  return fetch(url, { method, headers: authHeaders(token), body: body === undefined ? undefined : JSON.stringify(body) }).then(handle<T>);
+}
+
+export const leaveConfigApi = {
+  listTypes: (token: string) => send<LeaveType[]>('GET', `${CONFIG}/types`, token),
+  createType: (payload: CreateLeaveTypePayload, token: string) => send<LeaveType>('POST', `${CONFIG}/types`, token, payload),
+  updateType: (id: string, payload: UpdateLeaveTypePayload, token: string) => send<LeaveType>('PATCH', `${CONFIG}/types/${id}`, token, payload),
+  setActive: (id: string, active: boolean, token: string) => send<LeaveType>('PATCH', `${CONFIG}/types/${id}/active`, token, { active }),
+  deleteType: (id: string, token: string) => send<void>('DELETE', `${CONFIG}/types/${id}`, token),
+
+  listEntitlements: (id: string, token: string) => send<EntitlementPolicy[]>('GET', `${CONFIG}/types/${id}/entitlements`, token),
+  changeEntitlement: (id: string, payload: { effectiveYear: number; days: number; applyToExistingBalances: boolean }, token: string) =>
+    send<EntitlementPolicy[]>('POST', `${CONFIG}/types/${id}/entitlements`, token, payload),
+
+  updateCarryForward: (id: string, payload: CarryForwardSettings, token: string) =>
+    send<LeaveType>('PUT', `${CONFIG}/types/${id}/carry-forward`, token, payload),
+  listTransfers: (fromYear: number, token: string) =>
+    send<CarryForwardTransfer[]>('GET', `${CONFIG}/carry-forward/transfers?fromYear=${fromYear}`, token),
+  runYearEnd: (fromYear: number, token: string) =>
+    send<YearEndRunResult>('POST', `${CONFIG}/carry-forward/run?fromYear=${fromYear}`, token),
+
+  employees: (token: string) => send<DirectoryEmployee[]>('GET', `${CONFIG}/employees`, token),
+  employeeBalances: (userId: string, year: number, token: string) =>
+    send<LeaveBalance[]>('GET', `${CONFIG}/employees/${userId}/balances?year=${year}`, token),
+  adjustBalance: (balanceId: string, payload: { entitlementDays: number; carriedForwardDays: number; reason: string }, token: string) =>
+    send<LeaveBalance>('PATCH', `${CONFIG}/balances/${balanceId}`, token, payload),
 };

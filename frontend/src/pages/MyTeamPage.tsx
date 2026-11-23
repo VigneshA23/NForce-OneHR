@@ -37,7 +37,7 @@ import { projectAllocationsApi, projectsApi } from '../api/projectAllocations';
 import TeamCapacityTab from './my-team/TeamCapacityTab';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import DashTile from '../components/DashTile';
-import { roundDays } from '../utils/leaveDays';
+import { roundDays, hasYearlyQuota, yearlyQuota } from '../utils/leaveDays';
 import './myTeamTabs.css';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
@@ -723,10 +723,10 @@ export function LeaveBalanceLine({ balances }: { balances: LeaveBalance[] | null
   // One compact line (total days left); the per-type breakdown opens on click so the card stays short.
   const muted: React.CSSProperties = { fontSize: 11.5, color: 'var(--txt-dim)' };
   if (balances === null) return <div style={muted}>Leave balance: Loading…</div>;
-  if (balances.filter(b => b.totalDays > 0).length === 0) return <div style={muted}>Leave balance: none on file</div>;
+  if (balances.filter(hasYearlyQuota).length === 0) return <div style={muted}>Leave balance: none on file</div>;
   // Same rule as the Dashboard tile and the Leave page: types with no quota are left out and a
   // negative remaining balance counts as 0, so the numbers never disagree across pages.
-  const quota = balances.filter(b => b.totalDays > 0);
+  const quota = balances.filter(hasYearlyQuota);
   const left = roundDays(quota.reduce((a, b) => a + Math.max(0, Number(b.remainingDays)), 0));
   return (
     <details className="nf-mt-lb">
@@ -739,7 +739,7 @@ export function LeaveBalanceLine({ balances }: { balances: LeaveBalance[] | null
         {quota.map(b => (
           <div key={b.leaveTypeCode}>
             <span>{b.leaveTypeName}</span>
-            <span><strong>{formatDays(b.remainingDays)}</strong> / {formatDays(b.totalDays)}</span>
+            <span><strong>{formatDays(Number(b.remainingDays ?? 0))}</strong> / {formatDays(yearlyQuota(b))}</span>
           </div>
         ))}
       </div>

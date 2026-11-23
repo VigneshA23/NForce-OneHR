@@ -271,7 +271,9 @@ public class PayslipService {
         List<LeaveLine> leaveSummary = settings.isIncludeLeaveSummary()
                 ? leaveBalanceRepository.findByEmployeeUserIdAndYear(payslip.getEmployeeId(), payslip.getPayrollRun().getCycleEnd().getYear())
                         .stream()
-                        .map(b -> new LeaveLine(b.getLeaveType().getName(), b.getTotalDays().subtract(b.getUsedDays())))
+                        .filter(b -> b.getLeaveType().isAnnualBalance())
+                        .map(b -> new LeaveLine(b.getLeaveType().getName(),
+                                b.getTotalDays().subtract(b.getUsedDays()).add(LeaveBalanceService.carriedForwardAvailable(b))))
                         .toList()
                 : List.of();
 

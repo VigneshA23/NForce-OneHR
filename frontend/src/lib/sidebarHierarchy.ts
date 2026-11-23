@@ -41,7 +41,7 @@ const SIDEBAR: Spec[] = [
     { label: 'Sensitive Employee Data', leaves: ['employee_sensitive'] },
     { label: 'Organization', children: [
       { label: 'Org Hierarchy', note: EVERYONE },
-      { label: 'Organization Structure', leaves: ['organization'] },
+      { label: 'Organization Structure', leaves: ['organization', 'leave_configuration'] },
       { label: 'People Directory', note: EVERYONE },
       { label: 'Performance', leaves: ['talent_skills'] },
     ] },

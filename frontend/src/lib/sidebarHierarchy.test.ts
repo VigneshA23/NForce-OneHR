@@ -33,7 +33,7 @@ const EXPECTED: Outline = [
     ['My Team', [['Team Skill Ratings']]],
     ['Employee Master'],
     ['Sensitive Employee Data'],
-    ['Organization',[['Org Hierarchy'], ['Organization Structure'], ['People Directory'], ['Performance']]],
+    ['Organization',[['Org Hierarchy'], ['Organization Structure', [['organization'], ['leave_configuration']]], ['People Directory'], ['Performance']]],
   ]],
   ['Administration', [
     ['User Management'],

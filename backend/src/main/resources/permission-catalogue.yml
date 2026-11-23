@@ -77,8 +77,8 @@ modules:
     children:
       - code: leave
         name: Leave Administration
-        description: Team/organisation leave, approvals and leave types.
-        actions: { VIEW: TEAM..ALL, APPROVE: TEAM..ALL, CONFIGURE: ALL }
+        description: Team/organisation leave and approvals.
+        actions: { VIEW: TEAM..ALL, APPROVE: TEAM..ALL }
       - code: holidays
         name: Holidays
         description: The holiday calendar.
@@ -177,6 +177,10 @@ modules:
             name: Shifts & Weekly Offs
             description: Shifts, weekly-off policies, attendance rules.
             actions: { CREATE: ALL, EDIT: ALL, DELETE: ALL, CONFIGURE: ALL }
+          - code: leave_configuration
+            name: Leave Configuration
+            description: Leave types, entitlements, carry-forward and year-end processing. Edit adjusts an individual employee's leave balance.
+            actions: { VIEW: ALL, EDIT: ALL, CONFIGURE: ALL }
 
   - code: mod.documents
     name: Documents & Compliance
@@ -287,9 +291,9 @@ routes:
   - path: /policies
     requires: [policies:VIEW:ALL]
   - path: /organization
-    requires: [organization:EDIT:ALL]
+    requires: [organization:EDIT:ALL, leave_configuration:VIEW:ALL]
   - path: /masters
-    requires: [organization:EDIT:ALL]
+    requires: [organization:EDIT:ALL, leave_configuration:VIEW:ALL]
   - path: /talent-performance
     requires: [talent_skills:VIEW:ALL]
   - path: /reports

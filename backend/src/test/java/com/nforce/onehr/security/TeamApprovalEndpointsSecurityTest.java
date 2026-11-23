@@ -10,7 +10,6 @@ import com.nforce.onehr.service.AttendanceRequestService;
 import com.nforce.onehr.service.EmployeeService;
 import com.nforce.onehr.service.ExpenseService;
 import com.nforce.onehr.service.LeaveService;
-import com.nforce.onehr.service.LeaveTypeService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -54,7 +53,7 @@ class TeamApprovalEndpointsSecurityTest {
     @Configuration
     @EnableMethodSecurity
     static class Config {
-        @Bean LeaveController leaveController() { return new LeaveController(mock(LeaveService.class), mock(LeaveTypeService.class)); }
+        @Bean LeaveController leaveController() { return new LeaveController(mock(LeaveService.class)); }
         @Bean ExpenseController expenseController() { return new ExpenseController(mock(ExpenseService.class)); }
         @Bean EmployeeController employeeController() { return new EmployeeController(mock(EmployeeService.class)); }
         @Bean AttendanceRequestController attendanceRequestController() {

@@ -76,35 +76,15 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
             UUID employeeUserId, Collection<String> statuses, LocalDate startDateAtOrBefore, LocalDate endDateAtOrAfter,
             UUID excludedId);
 
-    // Backs LeaveService#availableBalance: sums PENDING days across a set of leave-type IDs
-    // within a calendar year for one employee, so the available balance excludes in-flight requests.
-    @Query("SELECT COALESCE(SUM(r.totalDays), 0) FROM LeaveRequest r " +
-           "WHERE r.employeeUserId = :employeeUserId " +
-           "AND r.leaveType.id IN :leaveTypeIds " +
-           "AND r.status = :status " +
-           "AND r.startDate BETWEEN :startDate AND :endDate")
-    BigDecimal sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
-            @Param("employeeUserId") UUID employeeUserId,
-            @Param("leaveTypeIds") Collection<UUID> leaveTypeIds,
-            @Param("status") String status,
-            @Param("startDate") LocalDate startDate,
-            @Param("endDate") LocalDate endDate);
-
-    // Same PENDING-reservation sum as above, used by LeaveService#update: excludes the request
-    // being edited so its own (not-yet-saved) reservation isn't double-counted against itself.
-    @Query("SELECT COALESCE(SUM(r.totalDays), 0) FROM LeaveRequest r " +
-           "WHERE r.employeeUserId = :employeeUserId " +
-           "AND r.leaveType.id IN :leaveTypeIds " +
-           "AND r.status = :status " +
-           "AND r.startDate BETWEEN :startDate AND :endDate " +
-           "AND r.id <> :excludedId")
-    BigDecimal sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetweenAndIdNot(
-            @Param("employeeUserId") UUID employeeUserId,
-            @Param("leaveTypeIds") Collection<UUID> leaveTypeIds,
-            @Param("status") String status,
-            @Param("startDate") LocalDate startDate,
-            @Param("endDate") LocalDate endDate,
-            @Param("excludedId") UUID excludedId);
+    // Backs LeaveBalanceService's pending reservations (V309): PENDING requests of one leave type
+    // overlapping [from, to]. Reservations are split per leave year in Java, so a request spanning
+    // Dec/Jan reserves its December days against one year and its January days against the next.
+    @Query("SELECT r FROM LeaveRequest r WHERE r.employeeUserId = :employeeUserId AND r.leaveType.id = :leaveTypeId "
+            + "AND r.status = 'PENDING' AND r.startDate <= :to AND r.endDate >= :from")
+    List<LeaveRequest> findPendingOverlapping(@Param("employeeUserId") UUID employeeUserId,
+                                              @Param("leaveTypeId") UUID leaveTypeId,
+                                              @Param("from") LocalDate from,
+                                              @Param("to") LocalDate to);
 
     // Backs ExpectedWorkHoursService#loadPartialHourLeaveByEmployeeDate: approved HOURLY/
     // QUARTER_DAY leave overlapping [from, to] for a set of employees.

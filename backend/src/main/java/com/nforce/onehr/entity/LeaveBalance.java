@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -32,6 +33,24 @@ public class LeaveBalance {
     @Column(name = "used_days", nullable = false)
     @Builder.Default
     private BigDecimal usedDays = BigDecimal.ZERO;
+
+    // ── Carried-forward bucket (V309) — kept apart from the current-year entitlement so expiry
+    // can be applied to exactly the days that came over from the previous leave year. ──
+    @Column(name = "carried_forward_days", nullable = false)
+    @Builder.Default
+    private BigDecimal carriedForwardDays = BigDecimal.ZERO;
+
+    @Column(name = "carried_forward_used_days", nullable = false)
+    @Builder.Default
+    private BigDecimal carriedForwardUsedDays = BigDecimal.ZERO;
+
+    @Column(name = "carried_forward_expired_days", nullable = false)
+    @Builder.Default
+    private BigDecimal carriedForwardExpiredDays = BigDecimal.ZERO;
+
+    /** Null = never expires (or nothing carried forward). Carried days can only cover leave dated on/before this. */
+    @Column(name = "carried_forward_expires_on")
+    private LocalDate carriedForwardExpiresOn;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
