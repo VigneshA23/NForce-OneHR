@@ -104,6 +104,10 @@ const SIDEBAR: Spec[] = [
     { label: 'My Documents', note: EVERYONE },
     { label: 'Help & Guidance', leaves: ['hr_help_content'] },
   ] },
+  { label: 'Finance', children: [
+    { label: 'My Finances', note: EVERYONE },
+    { label: 'Employee Finances', leaves: ['finance'] },
+  ] },
   { label: 'Payroll & Compensation', note: 'Backend only: there is no payroll page in the sidebar yet', children: [
     { label: 'Payroll', leaves: ['payroll'] },
     { label: 'Compensation Bands', leaves: ['compensation'] },
