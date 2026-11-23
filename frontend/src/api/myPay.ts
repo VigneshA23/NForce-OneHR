@@ -22,7 +22,7 @@ export interface IncomeTax {
   fyStartYear: number; fyLabel: string; regime: 'OLD' | 'NEW'; months: TaxMonth[];
   grossEarnings: number; previousEmployerIncome: number; standardDeduction: number; netTaxableIncome: number;
   tax: { slabTax: TaxSlabRow[]; slabTotal: number; rebate: number; grossTax: number; surcharge: number; cess: number; netPayable: number };
-  taxPaidTillNow: number; remainingTax: number; configured: boolean;
+  taxPaidTillNow: number; remainingTax: number; configured: boolean; deductions: number; otherIncome: number; previousEmployerTds: number;
 }
 
 async function get<T>(path: string, token: string): Promise<T> {

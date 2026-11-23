@@ -230,3 +230,16 @@ WebClockInController#cancel | SELF - own data only (ownership checked in the ser
 WebClockInController#checkOut | SELF - own data only (ownership checked in the service)
 WebClockInController#mine | SELF - own data only (ownership checked in the service)
 WebClockInController#submit | SELF - own data only (ownership checked in the service)
+MyTaxController#overview | SELF - own data only (identity from the token)
+MyTaxController#add | SELF - own data only (identity from the token)
+MyTaxController#update | SELF - own data only (identity from the token)
+MyTaxController#delete | SELF - own data only (identity from the token)
+MyTaxController#uploadProof | SELF - own data only (identity from the token)
+MyTaxController#proofs | SELF - own data only (identity from the token)
+MyTaxController#proofFile | SELF - own data only (identity from the token)
+MyTaxController#previous | SELF - own data only (identity from the token)
+MyTaxController#savePrevious | SELF - own data only (identity from the token)
+MyTaxController#form130 | SELF - own data only (identity from the token)
+MyTaxController#form124 | SELF - own data only (identity from the token)
+MyTaxController#form130Published | SELF - publish flag only, no personal data
+MyTaxController#filing | SELF - enabled partner links, same for everyone

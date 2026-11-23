@@ -37,6 +37,10 @@ public class DocumentService {
     private final NotificationService notificationService;
     private final EffectivePermissionService effectivePermissionService;
 
+    // US-F18: field-injected (not constructor) so existing constructor call sites keep working; null in unit tests.
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private AuditService auditService;
+
     // ── Employee: list my documents with required doc computation ──
 
     @Transactional(readOnly = true)
@@ -273,6 +277,11 @@ public class DocumentService {
                     "/documents");
         } else {
             throw new IllegalArgumentException("Invalid action: " + req.getAction());
+        }
+        if (auditService != null) {
+            auditService.log(actor.getId(), "VERIFY".equalsIgnoreCase(req.getAction()) ? "DOCUMENT_VERIFIED" : "DOCUMENT_REJECTED",
+                    doc.getEmployeeUserId(), null,
+                    "{\"document\":\"" + doc.getDocumentType().getName().replace("\"", "'") + "\",\"status\":\"" + doc.getStatus() + "\"}");
         }
         return EmployeeDocumentResponse.from(docRepo.save(doc));
     }

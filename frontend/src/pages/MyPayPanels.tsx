@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Download, IndianRupee, CalendarDays, Wallet } from 'lucide-react';
 import { myPayApi, type SalaryTimeline, type PayslipPreview, type IncomeTax, type PayslipLine } from '../api/myPay';
+import { financeAdminApi } from '../api/myTax';
 import { ReadField } from './profile/shared';
 import { panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, BtnGhost, SectionHead, StatTile } from './payroll/payrollShared';
 
@@ -9,7 +10,7 @@ const right = { textAlign: 'right' } as const;
 const muted = { fontSize: 13, color: 'var(--txt-mut)' } as const;
 
 /** Runs `load` and gives back its result, an error message, or neither while loading. */
-function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
+export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
   const [state, setState] = useState<{ data?: T; error?: string }>({});
   useEffect(() => {
     let off = false;
@@ -21,14 +22,14 @@ function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
   return state;
 }
 
-function Status({ error, children }: { error?: string; children?: ReactNode }) {
+export function Status({ error, children }: { error?: string; children?: ReactNode }) {
   return <div style={muted}>{error ?? children ?? 'Loading…'}</div>;
 }
 
 // ── US-F07 My Salary ─────────────────────────────────────────────────────────
 
-export function MySalaryPanel({ token }: { token: string }) {
-  const { data, error } = useLoad<SalaryTimeline>(() => myPayApi.salaryTimeline(token), [token]);
+export function MySalaryPanel({ token, uid }: { token: string; uid?: string }) {
+  const { data, error } = useLoad<SalaryTimeline>(() => (uid ? financeAdminApi(token).salaryTimeline(uid) : myPayApi.salaryTimeline(token)), [token, uid]);
   const [open, setOpen] = useState<string | null>(null);
   if (!data) return <Status error={error} />;
   return (
@@ -155,7 +156,8 @@ function PayslipView({ p }: { p: PayslipPreview }) {
   );
 }
 
-export function MyPayslipsPanel({ token, periods, selected, downloading, onSelect, onDownload }: {
+export function MyPayslipsPanel({ token, uid, periods, selected, downloading, onSelect, onDownload }: {
+  uid?: string;
   token: string; periods: string[]; selected: string | null; downloading: string | null;
   onSelect: (period: string) => void; onDownload: (period: string) => void;
 }) {
@@ -163,7 +165,7 @@ export function MyPayslipsPanel({ token, periods, selected, downloading, onSelec
   const [year, setYear] = useState(selected?.slice(0, 4) ?? years[0] ?? '');
   const months = periods.filter(p => p.startsWith(year));
   const active = selected && months.includes(selected) ? selected : months[0] ?? null;
-  const { data, error } = useLoad<PayslipPreview | null>(() => (active ? myPayApi.payslipPreview(active, token) : Promise.resolve(null)), [active, token]);
+  const { data, error } = useLoad<PayslipPreview | null>(() => (active ? (uid ? financeAdminApi(token).payslipPreview(uid, active) : myPayApi.payslipPreview(active, token)) : Promise.resolve(null)), [active, token, uid]);
 
   if (periods.length === 0) return <div style={{ ...panelStyle, padding: 24, ...muted }}>No payslips available yet.</div>;
   return (
@@ -184,7 +186,7 @@ export function MyPayslipsPanel({ token, periods, selected, downloading, onSelec
           ))}
         </div>
         <div>
-          {active && (
+          {active && !uid && (
             <div style={{ marginBottom: 12 }}>
               <BtnGhost onClick={() => onDownload(active)} disabled={downloading === active}>
                 <Download size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />
@@ -201,9 +203,9 @@ export function MyPayslipsPanel({ token, periods, selected, downloading, onSelec
 
 // ── US-F09 Income Tax ────────────────────────────────────────────────────────
 
-export function MyIncomeTaxPanel({ token }: { token: string }) {
+export function MyIncomeTaxPanel({ token, uid }: { token: string; uid?: string }) {
   const [fy, setFy] = useState<number | undefined>();
-  const { data, error } = useLoad<IncomeTax>(() => myPayApi.incomeTax(token, fy), [token, fy]);
+  const { data, error } = useLoad<IncomeTax>(() => (uid ? financeAdminApi(token).incomeTax(uid, fy) : myPayApi.incomeTax(token, fy)), [token, fy, uid]);
   if (!data) return <Status error={error} />;
   const t = data.tax;
   const cur = data.fyStartYear;
@@ -216,7 +218,7 @@ export function MyIncomeTaxPanel({ token }: { token: string }) {
           {[realFy, realFy - 1].map(y => <option key={y} value={y}>FY {y}-{String(y + 1).slice(2)}</option>)}
         </select>} />
       <div style={{ ...panelStyle, padding: '12px 18px', marginBottom: 16, ...muted }}>
-        <strong>Important:</strong> tax is calculated on the amounts you declared, whatever their approval status. Future months are projected
+        <strong>Important:</strong> tax uses your declarations (accepted amounts once verified; nothing for unproven items after the proof window closes) and approved previous-employer income. Future months are projected
         at your current pay and exclude bonuses and revisions.
       </div>
       {!data.configured && <div style={{ ...panelStyle, padding: 18, marginBottom: 16, ...muted }}>Tax slabs for {data.fyLabel} are not set up yet.</div>}
@@ -247,7 +249,10 @@ export function MyIncomeTaxPanel({ token }: { token: string }) {
       <div style={{ ...panelStyle, padding: '16px 20px', marginBottom: 20 }}>
         <div style={grid}>
           <ReadField label="Gross Earnings (A)" value={fmtCurrency(data.grossEarnings + data.previousEmployerIncome)} />
+          <ReadField label="Add: Other Income Declared" value={fmtCurrency(data.otherIncome)} />
           <ReadField label="Less: Standard Deduction" value={fmtCurrency(data.standardDeduction)} />
+          <ReadField label="Less: Declared Deductions" value={fmtCurrency(data.deductions)} />
+          <ReadField label="Tax Deducted by Previous Employer" value={fmtCurrency(data.previousEmployerTds)} />
           <ReadField label="Net Taxable Income" value={fmtCurrency(data.netTaxableIncome)} />
         </div>
       </div>

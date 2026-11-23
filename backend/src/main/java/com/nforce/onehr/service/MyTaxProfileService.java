@@ -56,7 +56,8 @@ public class MyTaxProfileService {
                 (rs, i) -> new LocalDate[]{ rs.getObject(1, LocalDate.class), rs.getObject(2, LocalDate.class) });
         LocalDate opens = w.isEmpty() ? null : w.get(0)[0], closes = w.isEmpty() ? null : w.get(0)[1];
         LocalDate today = LocalDate.now();
-        boolean open = opens != null && closes != null && !today.isBefore(opens) && !today.isAfter(closes);
+        boolean unlocked = jdbc.queryForObject("SELECT count(*) FROM employee_tax_regime_unlock WHERE employee_user_id = ?", Integer.class, id) > 0;
+        boolean open = unlocked || (opens != null && closes != null && !today.isBefore(opens) && !today.isAfter(closes));
         return new RegimeView(own.isEmpty() ? "NEW" : own.get(0), own.isEmpty(), open, opens, closes);
     }
 
@@ -68,8 +69,17 @@ public class MyTaxProfileService {
         UUID id = user(actorEmail).getId();
         jdbc.update("INSERT INTO employee_tax_regime (employee_user_id, regime) VALUES (?, ?) "
                 + "ON CONFLICT (employee_user_id) DO UPDATE SET regime = EXCLUDED.regime, updated_at = now()", id, regime);
+        jdbc.update("DELETE FROM employee_tax_regime_unlock WHERE employee_user_id = ?", id); // one-time unlock is used up
         auditService.log(id, "TAX_REGIME_CHANGED", id, "{\"regime\":\"" + before.regime() + "\"}", "{\"regime\":\"" + regime + "\"}");
         return regime(actorEmail);
+    }
+
+    /** US-F06: Super Admin lets one employee change regime outside the window, once. */
+    @Transactional
+    public void unlock(UUID actor, UUID employeeId) {
+        jdbc.update("INSERT INTO employee_tax_regime_unlock (employee_user_id, unlocked_by) VALUES (?, ?) "
+                + "ON CONFLICT (employee_user_id) DO UPDATE SET unlocked_by = EXCLUDED.unlocked_by, unlocked_at = now()", employeeId, actor);
+        auditService.log(actor, "TAX_REGIME_UNLOCKED", employeeId, null, null);
     }
 
     @Transactional

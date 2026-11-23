@@ -101,6 +101,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('payroll-setup', 'Payroll Setup', Settings, 1),
     item('statutory-compliance', 'Statutory Compliance', ShieldCheck, 1),
     item('payroll-reports', 'Payroll Reports', BarChart3, 1),
+    item('finances', 'Employee Finances', Wallet, 1),
     item('myfinances', 'My Finances', Wallet, 1),
     item('requests', 'HR Service Requests', HelpCircle, 1),
     item('reports', 'Reports & Analytics', FileText, 1),
@@ -122,6 +123,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('payroll-setup', 'Payroll Setup', Settings, 1),
     item('statutory-compliance', 'Statutory Compliance', ShieldCheck, 1),
     item('payroll-reports', 'Payroll Reports', BarChart3, 1),
+    item('finances', 'Employee Finances', Wallet, 1),
     item('myfinances', 'My Finances', Wallet, 1),
     item('workflows', 'Workflow Studio', GitBranch, 1),
     item('masters', 'Organization Masters', FileText, 1),
@@ -192,7 +194,7 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
   { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
   { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports', 'api-usage'] },
   { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'myfinances', 'allocations', 'bench', 'bench-opportunities', 'my-skills', 'performance', 'documents', 'policies', 'my-documents'] },
-  { key: 'payroll', label: 'Payroll', icon: Wallet, children: ['payroll-runs', 'payroll-setup', 'statutory-compliance', 'payroll-reports'] },
+  { key: 'payroll', label: 'Payroll', icon: Wallet, children: ['payroll-runs', 'payroll-setup', 'statutory-compliance', 'payroll-reports', 'finances'] },
   'help',
 ];
 
