@@ -6,12 +6,12 @@ import java.util.Map;
 /**
  * The payslip's configurable employee-identity fields — Keka restyle's "Payslip Fields" screen
  * (§3.9). Employee Name, Employee Number and Pay Period always print and aren't part of this
- * list; these six are what HR can toggle on/off and reorder.
+ * list; these seven are what HR can toggle on/off and reorder.
  */
 public final class PayslipFields {
 
     public static final List<String> VALID_KEYS = List.of(
-            "dateOfJoining", "department", "designation", "uan", "esi", "pan");
+            "dateOfJoining", "department", "designation", "uan", "esi", "pan", "paymentMode");
 
     /** What a pay group that's never touched this setting renders — exactly the three fields
      * (in exactly this order) PayslipPdfService always printed before this setting existed, so
@@ -25,7 +25,8 @@ public final class PayslipFields {
             "designation", "Designation",
             "uan", "UAN",
             "esi", "ESI Number",
-            "pan", "PAN Number");
+            "pan", "PAN Number",
+            "paymentMode", "Payment Mode");
 
     /** Decodes {@link com.nforce.onehr.entity.PayslipSettings#getPayslipFields()}'s stored,
      * comma-separated form. Blank/null means "never configured" → {@link #DEFAULT_KEYS}. */

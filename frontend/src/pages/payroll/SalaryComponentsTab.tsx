@@ -318,10 +318,18 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
       />
       <FilterBar search={search} onSearchChange={setSearch} placeholder="Search component" />
       <div style={panelStyle}>
-        <div style={{ overflowX: 'auto' }}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <thead>
-            <tr>{['Name', 'Type', 'Taxable', 'In CTC', 'On Payslip', 'Prorate on LOP', 'Status', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
+            <tr>
+              <th style={{ ...thStyle, width: '21%', whiteSpace: 'normal' }}>Name</th>
+              <th style={{ ...thStyle, width: '12%', whiteSpace: 'normal' }}>Type</th>
+              <th style={{ ...thStyle, width: '9%', whiteSpace: 'normal' }}>Taxable</th>
+              <th style={{ ...thStyle, width: '9%', whiteSpace: 'normal' }}>In CTC</th>
+              <th style={{ ...thStyle, width: '10%', whiteSpace: 'normal' }}>On Payslip</th>
+              <th style={{ ...thStyle, width: '12%', whiteSpace: 'normal' }}>Prorate on LOP</th>
+              <th style={{ ...thStyle, width: '9%', whiteSpace: 'normal' }}>Status</th>
+              <th style={thStyle} className="nf-dock-cell" />
+            </tr>
           </thead>
           <tbody>
             {filtered.map(c => (
@@ -346,7 +354,6 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
             )}
           </tbody>
         </table>
-        </div>
       </div>
 
       {showCreate && (

@@ -58,7 +58,7 @@ export interface EmployeeFinancialDetailsResponse {
 }
 
 // Keka restyle — Configure Payslip Settings (§3.9).
-export type PayslipFieldKey = 'dateOfJoining' | 'department' | 'designation' | 'uan' | 'esi' | 'pan';
+export type PayslipFieldKey = 'dateOfJoining' | 'department' | 'designation' | 'uan' | 'esi' | 'pan' | 'paymentMode';
 
 export interface PayslipSettingsResponse {
   payGroupId: string;
@@ -67,6 +67,8 @@ export interface PayslipSettingsResponse {
   footerText: string | null;
   hasLogo: boolean;
   logoAlignment: 'LEFT' | 'RIGHT';
+  logoSize: number;
+  logoShape: 'SQUARE' | 'CIRCLE';
   excludeNaFields: boolean;
   earningsHeading: string | null;
   deductionsHeading: string | null;
@@ -793,7 +795,7 @@ export const payrollApi = {
 
   updatePayslipSettings: (payGroupId: string, payload: {
     passwordProtected: boolean; documentHeaderText?: string; footerText?: string;
-    logoAlignment?: 'LEFT' | 'RIGHT'; excludeNaFields?: boolean;
+    logoAlignment?: 'LEFT' | 'RIGHT'; logoSize?: number; logoShape?: 'SQUARE' | 'CIRCLE'; excludeNaFields?: boolean;
     earningsHeading?: string; deductionsHeading?: string;
     includeLeaveSummary?: boolean; includeArrearBreakup?: boolean;
     includeYtdColumn?: boolean; includeEmployerContributions?: boolean;

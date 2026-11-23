@@ -35,7 +35,8 @@ public class PayslipSettingsService {
         return payslipSettingsRepository.findById(payGroupId)
                 .map(this::toResponse)
                 .orElseGet(() -> PayslipSettingsResponse.builder().payGroupId(payGroupId)
-                        .logoAlignment("RIGHT").payslipFields(PayslipFields.DEFAULT_KEYS).build());
+                        .logoAlignment("RIGHT").logoSize(70).logoShape("SQUARE")
+                        .payslipFields(PayslipFields.DEFAULT_KEYS).build());
     }
 
     @Transactional
@@ -46,6 +47,12 @@ public class PayslipSettingsService {
         if (req.getLogoAlignment() != null && !req.getLogoAlignment().equals("LEFT") && !req.getLogoAlignment().equals("RIGHT")) {
             throw new IllegalArgumentException("logoAlignment must be LEFT or RIGHT");
         }
+        if (req.getLogoShape() != null && !req.getLogoShape().equals("SQUARE") && !req.getLogoShape().equals("CIRCLE")) {
+            throw new IllegalArgumentException("logoShape must be SQUARE or CIRCLE");
+        }
+        if (req.getLogoSize() != 0 && (req.getLogoSize() < 30 || req.getLogoSize() > 200)) {
+            throw new IllegalArgumentException("logoSize must be between 30 and 200");
+        }
         PayslipSettings settings = payslipSettingsRepository.findById(payGroupId)
                 .orElseGet(() -> PayslipSettings.builder().payGroupId(payGroupId).build());
 
@@ -53,6 +60,8 @@ public class PayslipSettingsService {
         settings.setDocumentHeaderText(trim(req.getDocumentHeaderText()));
         settings.setFooterText(trim(req.getFooterText()));
         settings.setLogoAlignment(req.getLogoAlignment() != null ? req.getLogoAlignment() : "RIGHT");
+        settings.setLogoSize(req.getLogoSize() != 0 ? req.getLogoSize() : 70);
+        settings.setLogoShape(req.getLogoShape() != null ? req.getLogoShape() : "SQUARE");
         settings.setExcludeNaFields(req.isExcludeNaFields());
         settings.setEarningsHeading(trim(req.getEarningsHeading()));
         settings.setDeductionsHeading(trim(req.getDeductionsHeading()));
@@ -128,6 +137,8 @@ public class PayslipSettingsService {
                 .footerText(s.getFooterText())
                 .hasLogo(s.getLogo() != null)
                 .logoAlignment(s.getLogoAlignment())
+                .logoSize(s.getLogoSize())
+                .logoShape(s.getLogoShape())
                 .excludeNaFields(s.isExcludeNaFields())
                 .earningsHeading(s.getEarningsHeading())
                 .deductionsHeading(s.getDeductionsHeading())

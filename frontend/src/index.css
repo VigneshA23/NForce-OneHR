@@ -1812,7 +1812,7 @@ select, input, textarea, button { touch-action: manipulation; }
 .nf-req-tag { margin-left: 8px; padding: 2px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 800; letter-spacing: .03em; color: var(--risk); background: color-mix(in srgb, var(--risk) 11%, var(--panel)); border: 1px solid color-mix(in srgb, var(--risk) 28%, transparent); }
 .nf-aud-chip { display: inline-block; padding: 3px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line2); }
 .nf-rep-pill.is-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 13%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 32%, transparent); }
-.nf-dock-cell { width: 132px; min-width: 132px; text-align: right; }
+.nf-dock-cell { width: 132px; min-width: 132px; text-align: right; position: sticky; right: 0; background: var(--panel); border-left: 1px solid var(--line); z-index: 2; }
 .nf-dock { position: relative; display: inline-flex; align-items: center; vertical-align: middle; z-index: 3; }
 .nf-dock-items { position: absolute; right: 100%; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 6px; max-width: 0; opacity: 0; pointer-events: none; overflow: hidden; padding: 0; border-radius: 999px; background: var(--panel); border: 1px solid transparent; transition: max-width .22s ease, opacity .18s ease, padding .22s ease, border-color .18s; }
 .nf-dock:hover .nf-dock-items, .nf-dock:focus-within .nf-dock-items, .nf-dock.is-open .nf-dock-items { max-width: 520px; opacity: 1; pointer-events: auto; padding: 4px 12px 4px 6px; border-color: var(--line2); box-shadow: 0 8px 22px rgba(16,24,40,.16); }
