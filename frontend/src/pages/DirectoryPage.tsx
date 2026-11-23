@@ -274,7 +274,7 @@ export default function DirectoryPage() {
         {sortableTh('workMode', 'Work Mode')}
         <th>Status</th>
         <th>Manager</th>
-        <th style={{ width: 66 }}><span className="nf-pd-sr-only">Details</span></th>
+        <th style={{ width: 100 }}><span className="nf-pd-sr-only">Details</span></th>
       </tr>
     </thead>
   );

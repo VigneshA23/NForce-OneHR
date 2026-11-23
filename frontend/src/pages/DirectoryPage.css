@@ -168,8 +168,24 @@
 .nf-pd-clear:hover { color: var(--txt); border-color: var(--txt-dim); }
 
 /* Table */
-.nf-pd-table-wrap { overflow-x: auto; border-top: 1px solid var(--line); }
-.nf-pd-table { width: 100%; min-width: 1080px; border-collapse: collapse; }
+/* The table fits the available width at any zoom: fixed columns that wrap their text. Only a very narrow
+   container (about 250% zoom and above) falls back to scrolling inside the card. */
+.nf-pd-table-wrap { overflow-x: auto; border-top: 1px solid var(--line); container-type: inline-size; }
+.nf-pd-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.nf-pd-table th:nth-child(1) { width: 18%; }
+.nf-pd-table th:nth-child(2) { width: 15%; }
+.nf-pd-table th:nth-child(3) { width: 9%; }
+.nf-pd-table th:nth-child(4) { width: 10%; }
+.nf-pd-table th:nth-child(5) { width: 8%; }
+.nf-pd-table th:nth-child(6) { width: 7%; }
+.nf-pd-table th:nth-child(7) { width: 94px; }
+.nf-pd-table th:nth-child(8) { width: 9%; }
+.nf-pd-table th:nth-child(9) { width: 100px; }
+.nf-pd-table th, .nf-pd-table td { padding-left: 10px; padding-right: 10px; overflow-wrap: anywhere; }
+.nf-pd-table th:first-child, .nf-pd-table td:first-child { padding-left: 16px; }
+@container (max-width: 800px) {
+  .nf-pd-table { table-layout: auto; min-width: 860px; }
+}
 .nf-pd-table th {
   padding: 13px 16px;
   font-size: 11px;
@@ -177,7 +193,7 @@
   letter-spacing: .06em;
   text-transform: uppercase;
   text-align: left;
-  white-space: nowrap;
+  white-space: normal;
   color: var(--txt-mut);
   background: var(--pd-head-bg);
   border-bottom: 1px solid var(--line);
@@ -186,7 +202,7 @@
 .nf-pd-th-sort { cursor: pointer; transition: color .15s; }
 .nf-pd-th-sort:hover { color: var(--txt); }
 .nf-pd-th-sort--active { color: var(--pd-accent-txt); }
-.nf-pd-th-inner { display: inline-flex; align-items: center; gap: 6px; }
+.nf-pd-th-inner { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; }
 .nf-pd-sort-icon { display: inline-flex; flex-direction: column; line-height: 0; }
 .nf-pd-sort-icon svg { opacity: .35; }
 .nf-pd-sort-icon svg + svg { margin-top: -4px; }
@@ -204,7 +220,10 @@
 .nf-pd-table tbody tr:hover { background: color-mix(in srgb, var(--brand) 4%, transparent); }
 .nf-pd-table tbody tr:last-child td { border-bottom: none; }
 
-.nf-pd-person { display: flex; align-items: center; gap: 12px; min-width: 200px; }
+.nf-pd-person { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.nf-pd-table .nf-person { min-width: 0 !important; }
+.nf-pd-person > :first-child { flex-shrink: 0; }
+.nf-pd-person > :last-child { min-width: 0; overflow-wrap: anywhere; }
 .nf-pd-name { font-weight: 600; font-size: 13.5px; color: var(--txt); }
 .nf-pd-code { margin-top: 2px; font-size: 11.5px; color: var(--txt-dim); letter-spacing: .01em; }
 .nf-pd-table td.nf-pd-email { color: var(--pd-accent-txt); }

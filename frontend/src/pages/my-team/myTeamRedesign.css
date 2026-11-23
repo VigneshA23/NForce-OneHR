@@ -434,6 +434,49 @@
   .mt-table td.mt-col-today .mt-pill { width: 88px; }
 }
 
+/* ── Medium widths (browser zoom of roughly 125% to 200%): the calendar still fits with no sideways scroll.
+   The name column and day cells shrink, the Team and Today columns drop out below 900px (the same
+   details are in the member card and the Today's Team Status card), and the month tally narrows. ── */
+@container (min-width: 640px) and (max-width: 1239.98px) {
+  .mt-table { table-layout: fixed; }
+  .mt-table thead th:first-child { width: 150px; min-width: 0 !important; }
+  .mt-table thead th:nth-child(2) { width: 84px; min-width: 0 !important; }
+  .mt-table thead th.mt-col-tally { width: 104px; min-width: 0; }
+  .mt-table thead th.mt-col-today { width: 96px; min-width: 0; }
+  .mt-table thead th { min-width: 0 !important; overflow: hidden; font-size: 9.5px; }
+  .mt-table thead th small { font-size: 8px; }
+  .mt-table .mt-who { min-width: 0; padding: 6px 4px 6px 10px; gap: 6px; }
+  .mt-table .mt-who-name, .mt-table .mt-who-role { overflow: hidden; text-overflow: ellipsis; }
+  .mt-table .mt-who > div { min-width: 0; }
+  .mt-table td:nth-child(2) { overflow: hidden; }
+  .mt-table td:nth-child(2) .mt-pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mt-table .mt-cellwrap { width: auto; min-width: 0; }
+  .mt-table .mt-cell { width: 100%; max-width: 20px; height: 26px; border-radius: 7px; }
+  .mt-table .mt-cellwrap .mt-day { width: 15px; height: 15px; }
+  .mt-table .mt-cellwrap .mt-day svg { width: 9px; height: 9px; }
+  .mt-table .mt-col-tally { width: 104px; min-width: 0; padding: 0 4px !important; }
+  .mt-tally .mt-day-sm { width: 14px; height: 14px; }
+  .mt-tally .mt-day-sm svg { width: 8px; height: 8px; }
+  .mt-tally span { grid-template-columns: 14px 1fr; column-gap: 2px; font-size: 10px; }
+  .mt-table .mt-col-today { width: 96px; min-width: 0; padding: 0 4px !important; }
+  .mt-table td.mt-col-today .mt-pill { width: 84px; font-size: 10.5px; }
+}
+@container (min-width: 640px) and (max-width: 899.98px) {
+  .mt-table thead th:nth-child(2), .mt-table td:nth-child(2),
+  .mt-table thead th.mt-col-today, .mt-table td.mt-col-today { display: none; }
+}
+@container (min-width: 640px) and (max-width: 799.98px) {
+  .mt-table thead th:first-child { width: 132px; }
+  .mt-table thead th.mt-col-tally, .mt-table .mt-col-tally { width: 76px; }
+  .mt-tally { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px 2px; }
+  .mt-tally span { font-size: 9.5px; min-width: 0; }
+}
+@container (min-width: 640px) and (max-width: 719.98px) {
+  .mt-table .mt-cell { max-width: 16px; }
+  .mt-table .mt-cellwrap .mt-day { width: 12px; height: 12px; }
+  .mt-table .mt-cellwrap .mt-day svg { width: 8px; height: 8px; }
+}
+
 /* Attendance summary: 4 across when the card is wide enough, otherwise a clean 2x2, so 3-digit values never collide with labels. */
 .mt-card[aria-label="Attendance summary"] { container-type: inline-size; }
 .mt-sumgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 10px; }

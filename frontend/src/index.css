@@ -1918,3 +1918,16 @@ input[placeholder^="Search"]:not([style*="border: none"]):not(:is(.nf-filter-sea
   color: #fff; background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 72%, #000));
   box-shadow: 0 4px 12px -4px color-mix(in srgb, var(--brand) 60%, transparent);
 }
+
+/* ── Fit at any browser zoom: card-style tab bars wrap onto a second row instead of scrolling sideways,
+   and table headers and cells wrap their text so a table shrinks to its card instead of running past the edge. ── */
+.nf-tabs, .apv-tabs { flex-wrap: wrap; overflow-x: visible; overflow-y: visible; }
+.nf-main-content table th { white-space: normal !important; }
+.nf-main-content table th, .nf-main-content table td { overflow-wrap: anywhere; }
+@media (max-width: 1600px) {
+  .nf-main-content table th, .nf-main-content table td { padding-left: 10px !important; padding-right: 10px !important; }
+}
+@media (max-width: 1300px) {
+  .nf-main-content table th, .nf-main-content table td { padding-left: 7px !important; padding-right: 7px !important; }
+}
+

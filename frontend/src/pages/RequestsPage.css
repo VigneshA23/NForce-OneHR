@@ -353,7 +353,7 @@
    sidebar (Quick Actions/Need Help) is much shorter than a long request list, and without this
    the page just kept growing under the table while the sidebar sat still, so a long scroll down
    showed a huge empty gap next to it. Paired with .nf-rq-stack's sticky position below. */
-.nf-rq-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 620px; border-top: 1px solid var(--line); }
+.nf-rq-table-wrap { overflow-x: auto; overflow-y: auto; max-height: 620px; border-top: 1px solid var(--line); container-type: inline-size; }
 .nf-rq-table thead th { position: sticky; top: 0; z-index: 1; }
 .nf-rq-table { width: 100%; border-collapse: collapse; }
 .nf-rq-table th {
@@ -404,7 +404,7 @@
 .nf-rq-nowrap { white-space: nowrap; }
 
 /* Request type cell: tinted icon tile + label */
-.nf-rq-type { display: flex; align-items: center; gap: 12px; min-width: 170px; }
+.nf-rq-type { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .nf-rq-type-icon {
   width: 36px;
   height: 36px;
@@ -423,7 +423,7 @@
 .nf-rq-summary-line svg { flex-shrink: 0; opacity: .8; }
 
 /* Person (initials avatar + name) */
-.nf-rq-person { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.nf-rq-person { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .nf-rq-avatar {
   width: 32px;
   height: 32px;
@@ -956,3 +956,8 @@
 .nf-rq-md-decision.tone-warn { border-left-color: var(--warn); }
 .nf-rq-md-decision.tone-info { border-left-color: var(--info); }
 @media (max-width: 560px) { .nf-rq-md-facts { grid-template-columns: 1fr; } }
+
+/* Narrow card (browser zoom): ticket numbers, type labels and dates wrap instead of forcing a sideways scroll. */
+@container (max-width: 980px) {
+  .nf-rq-table .nf-rq-nowrap, .nf-rq-table .nf-rq-ticket-no, .nf-rq-table .nf-rq-type-label, .nf-rq-table .nf-rq-type-sub { white-space: normal; }
+}

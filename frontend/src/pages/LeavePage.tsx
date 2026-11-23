@@ -566,7 +566,7 @@ export default function LeavePage() {
                     <td style={tdStyle}><span className="nf-rep-code">{r.totalDays}</span></td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}>
-                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.employeeReason}>{r.employeeReason}</div>
+                      <div style={{ overflowWrap: 'anywhere' }} title={r.employeeReason}>{r.employeeReason}</div>
                     </td>
                     <td style={{ ...tdStyle, maxWidth: 240 }}>
                       {r.status === 'PENDING' ? (
@@ -580,7 +580,7 @@ export default function LeavePage() {
                           {r.decidedAt && <span style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>{formatDecisionTimestamp(r.decidedAt)}</span>}
                           {r.decisionReason && (
                             <span
-                              style={{ fontSize: 12, color: 'var(--txt-mut)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220, display: 'block' }}
+                              style={{ fontSize: 12, color: 'var(--txt-mut)', overflowWrap: 'anywhere', maxWidth: 220, display: 'block' }}
                               title={r.decisionReason}
                             >
                               Comment: {r.decisionReason}

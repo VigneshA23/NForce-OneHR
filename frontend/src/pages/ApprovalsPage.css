@@ -32,7 +32,7 @@
 
 .apv-tabs {
   display: flex; align-items: center; gap: 4px; margin: 0 14px 14px; padding: 8px 10px;
-  overflow-x: auto; scrollbar-width: none;
+  flex-wrap: wrap; overflow-x: visible; scrollbar-width: none;
   background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 9%, var(--panel)) 0%, var(--panel) 70%);
   border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line)); border-radius: 16px;
   box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--brand) 45%, transparent);
