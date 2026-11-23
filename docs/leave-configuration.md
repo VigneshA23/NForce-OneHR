@@ -1,4 +1,4 @@
-# Leave configuration (V309)
+# Leave configuration (V310)
 
 Leave types, entitlements, carry-forward and balance adjustments live in **Organization Masters /
 Organization Structure → Leave** (the `leave_configuration` permission). There is no separate page.
@@ -47,7 +47,7 @@ the cap and only while the bucket hasn't expired. A transfer is never lowered.
 
 ## Migration and reset (production)
 
-V309 is additive and idempotent, and runs in one transaction:
+V310 is additive and idempotent, and runs in one transaction:
 
 - It snapshots `leave_balances` into `leave_balances_pre_v306` before changing anything. The app never
   reads that table; it exists for rollback and reference.

@@ -139,7 +139,7 @@ class LeaveServiceTest {
         lenient().when(userRepository.findById(employeeId)).thenReturn(Optional.of(employeeUser));
         lenient().when(userRepository.findById(managerId)).thenReturn(Optional.of(managerUser));
         lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
-        // V309: every paid type keeps its OWN balance. Active regular paid types (the "use paid leave
+        // V310: every paid type keeps its OWN balance. Active regular paid types (the "use paid leave
         // first" rule scans these) and, by default, a zero balance for any (employee, type, year) a test
         // doesn't stub explicitly — the more specific eq(...) stubs in individual tests win.
         lenient().when(leaveTypeRepository.findByActiveTrueOrderByNameAsc()).thenReturn(List.of(annual, casual, sick));
@@ -2369,7 +2369,7 @@ class LeaveServiceTest {
 
         var result = leaveService.listTeamBalances(managerEmail);
 
-        // V309: no consolidation — Sick is its own balance, not a vestigial row; unpaid never has one.
+        // V310: no consolidation — Sick is its own balance, not a vestigial row; unpaid never has one.
         assertEquals(2, result.size());
         assertTrue(result.stream().allMatch(r -> employeeId.equals(r.getEmployeeUserId())));
         var byCode = result.stream().collect(java.util.stream.Collectors.toMap(r -> r.getLeaveTypeCode(), r -> r));

@@ -369,7 +369,7 @@ public class AttendancePenaltyService {
             if (type == null) {
                 continue;
             }
-            // V309: bucket-aware credit (carried-forward first, mirroring how the debit drew on it).
+            // V310: bucket-aware credit (carried-forward first, mirroring how the debit drew on it).
             if (leaveBalanceService.credit(penalty.getEmployeeUserId(), type, year, entry.getValue())) {
                 restored.put(entry.getKey(), entry.getValue());
             }

@@ -52,7 +52,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label style={labelStyle} className="nf-lv-lbl">{label}</label>{children}</div>;
 }
 
-// Every paid leave type has its own balance (V309) — a request always draws on its own type's row.
+// Every paid leave type has its own balance (V310) — a request always draws on its own type's row.
 // Regular paid (ANNUAL) balances are the ones that count toward "available leave" and the
 // use-paid-leave-first rule; unpaid rows are unlimited and Maternity-style rows are per occurrence.
 function isRegularPaid(b: LeaveBalance): boolean {

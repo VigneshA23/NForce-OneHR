@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * Entitlement days for one leave type from {@code effectiveYear} onwards (V309). The policy for a
+ * Entitlement days for one leave type from {@code effectiveYear} onwards (V310). The policy for a
  * year is the row with the greatest effectiveYear <= that year, so a change never rewrites balances
  * that already exist; it applies to balances created for its effective year and later.
  * Days per leave year for ANNUAL types, per occurrence for PER_OCCURRENCE types. Unpaid types have none.

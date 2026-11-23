@@ -1,9 +1,9 @@
 # Leave and Holidays.
 #
-# Authored from LeaveService, LeaveBalanceService, LeaveController and migrations V19/V140/V153/V309.
+# Authored from LeaveService, LeaveBalanceService, LeaveController and migrations V19/V140/V153/V310.
 # Stated plainly because a plausible wrong answer about someone's leave is worse than no answer:
 #   1. There is no cancel or withdraw path. LeaveService has no CANCELLED status.
-#   2. Since V309 every paid leave type has its OWN balance (the old Annual/Sick/Casual shared balance
+#   2. Since V310 every paid leave type has its OWN balance (the old Annual/Sick/Casual shared balance
 #      is gone); unpaid leave is unlimited; Maternity is granted per eligible occurrence.
 
 knowledge:

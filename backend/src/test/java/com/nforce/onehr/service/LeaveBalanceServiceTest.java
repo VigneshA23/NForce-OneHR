@@ -35,7 +35,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
- * V309 balance engine: independent per-type balances, configured entitlements, unlimited unpaid,
+ * V310 balance engine: independent per-type balances, configured entitlements, unlimited unpaid,
  * Maternity per occurrence, carried-forward bucket with expiry and priority, pending reservations
  * per leave year, cross-year splits, penalty debit/credit.
  */

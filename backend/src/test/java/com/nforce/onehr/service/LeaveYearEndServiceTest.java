@@ -37,7 +37,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-/** V309 year-end: cap, lapse, expiry, pending reservations, idempotent re-runs, failure + retry, top-up. */
+/** V310 year-end: cap, lapse, expiry, pending reservations, idempotent re-runs, failure + retry, top-up. */
 @ExtendWith(MockitoExtension.class)
 class LeaveYearEndServiceTest {
 

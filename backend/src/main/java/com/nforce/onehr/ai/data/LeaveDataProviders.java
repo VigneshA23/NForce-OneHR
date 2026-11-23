@@ -64,7 +64,7 @@ public final class LeaveDataProviders {
             List<LeaveBalanceResponse> balances = leaveService.listMyBalances(context.getActorEmail());
             if (balances == null || balances.isEmpty()) return Optional.empty();
 
-            // V309: every paid leave type has its own independent balance; unpaid types are unlimited
+            // V310: every paid leave type has its own independent balance; unpaid types are unlimited
             // and per-occurrence types (Maternity) are granted per eligible occurrence, not per year.
             StringBuilder out = new StringBuilder("Leave types available to you - exactly %d, each with its balance. "
                     .formatted(balances.size()) + "These are the leave types you can apply for:\n");

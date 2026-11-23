@@ -76,7 +76,7 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
             UUID employeeUserId, Collection<String> statuses, LocalDate startDateAtOrBefore, LocalDate endDateAtOrAfter,
             UUID excludedId);
 
-    // Backs LeaveBalanceService's pending reservations (V309): PENDING requests of one leave type
+    // Backs LeaveBalanceService's pending reservations (V310): PENDING requests of one leave type
     // overlapping [from, to]. Reservations are split per leave year in Java, so a request spanning
     // Dec/Jan reserves its December days against one year and its January days against the next.
     @Query("SELECT r FROM LeaveRequest r WHERE r.employeeUserId = :employeeUserId AND r.leaveType.id = :leaveTypeId "

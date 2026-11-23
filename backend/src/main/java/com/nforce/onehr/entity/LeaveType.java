@@ -14,7 +14,7 @@ public class LeaveType {
 
     /** Regular paid leave: an entitlement per leave year, kept in {@link LeaveBalance}. */
     public static final String BASIS_ANNUAL = "ANNUAL";
-    /** e.g. Maternity: an entitlement per eligible occurrence, kept in {@link LeaveOccurrence} (V309). */
+    /** e.g. Maternity: an entitlement per eligible occurrence, kept in {@link LeaveOccurrence} (V310). */
     public static final String BASIS_PER_OCCURRENCE = "PER_OCCURRENCE";
 
     public static final String CF_FIRST = "CARRY_FORWARD_FIRST";

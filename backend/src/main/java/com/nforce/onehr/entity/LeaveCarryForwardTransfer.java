@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * Year-end ledger row (V309): what one employee's leave type carried from {@code fromYear} into the
+ * Year-end ledger row (V310): what one employee's leave type carried from {@code fromYear} into the
  * next leave year. UNIQUE (employee, type, fromYear) is the duplicate-transfer guard; the job only
  * ever raises {@code carriedDays} (a pending request rejected after year-end frees days), never lowers it.
  */

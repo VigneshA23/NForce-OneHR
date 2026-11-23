@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
 import static java.math.BigDecimal.ZERO;
 
 /**
- * The single source of truth for leave balances (V309). Every paid leave type keeps its OWN balance
+ * The single source of truth for leave balances (V310). Every paid leave type keeps its OWN balance
  * — the old Annual/Sick/Casual consolidation is gone — and every reader/writer of a balance
  * (LeaveService, attendance penalties, payroll, payslips, the admin screens) goes through here.
  *
@@ -328,7 +328,7 @@ public class LeaveBalanceService {
 
     /**
      * Penalty debit of up to {@code max} days from this type's balance for the incident's leave year,
-     * carried-forward first while it still covers the incident date. Like before V309, pending
+     * carried-forward first while it still covers the incident date. Like before V310, pending
      * reservations are not considered. Returns the days actually debited.
      */
     @Transactional

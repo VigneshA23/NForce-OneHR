@@ -34,7 +34,7 @@ public class LeaveBalance {
     @Builder.Default
     private BigDecimal usedDays = BigDecimal.ZERO;
 
-    // ── Carried-forward bucket (V309) — kept apart from the current-year entitlement so expiry
+    // ── Carried-forward bucket (V310) — kept apart from the current-year entitlement so expiry
     // can be applied to exactly the days that came over from the previous leave year. ──
     @Column(name = "carried_forward_days", nullable = false)
     @Builder.Default

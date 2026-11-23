@@ -45,7 +45,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 /**
- * Leave Configuration (V309) through real Spring method security over MockMvc: every endpoint needs
+ * Leave Configuration (V310) through real Spring method security over MockMvc: every endpoint needs
  * its leave_configuration grant and returns 403 without it — including for someone holding every
  * leave application/approval permission, which must never be enough to configure leave.
  */
