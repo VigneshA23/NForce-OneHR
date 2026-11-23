@@ -17,13 +17,13 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 
 /**
- * US-F15 / F16 / F17 / F18 — Super Admin finance. Every route needs payroll:CONFIGURE:ALL (Super Admin only
+ * US-F15 / F16 / F17 / F18 — Super Admin finance. Every route needs finance:CONFIGURE:ALL (Super Admin only
  * by default, migration V275), so Employee, Manager and HR Admin get 403 unless that permission is granted
  * explicitly. Routes that take an employee id are the only way to reach another person's finance data.
  */
 @RestController
 @RequestMapping("/api/admin/finances")
-@PreAuthorize("hasAuthority('payroll:CONFIGURE:ALL')")
+@PreAuthorize("hasAuthority('finance:CONFIGURE:ALL')")
 @RequiredArgsConstructor
 public class FinanceAdminController {
 

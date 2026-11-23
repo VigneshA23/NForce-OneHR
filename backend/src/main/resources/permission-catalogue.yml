@@ -229,6 +229,16 @@ modules:
         sensitivity: HIGH
         actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL }
 
+  - code: mod.finance
+    name: Finance
+    description: Finance and tax administration.
+    children:
+      - code: finance
+        name: Employee Finances
+        description: Every employee's finances - salary, payslips, declarations, proofs, previous income, Form 130/124, tax windows, partners, slabs and the finance audit log.
+        sensitivity: HIGH
+        actions: { CONFIGURE: ALL }
+
   - code: mod.administration
     name: Administration
     description: Users, roles and platform administration.
@@ -305,7 +315,7 @@ routes:
   - path: /payroll-setup
     requires: [payroll:CONFIGURE:ALL]
   - path: /finances
-    requires: [payroll:CONFIGURE:ALL]
+    requires: [finance:CONFIGURE:ALL]
   - path: /statutory-compliance
     requires: [payroll:CONFIGURE:ALL]
   - path: /payroll-reports

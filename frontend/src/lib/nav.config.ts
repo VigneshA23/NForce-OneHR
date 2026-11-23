@@ -193,8 +193,9 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
   { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'leave', 'exceptions'] },
   { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
   { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports', 'api-usage'] },
-  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'myfinances', 'allocations', 'bench', 'bench-opportunities', 'my-skills', 'performance', 'documents', 'policies', 'my-documents'] },
-  { key: 'payroll', label: 'Payroll', icon: Wallet, children: ['payroll-runs', 'payroll-setup', 'statutory-compliance', 'payroll-reports', 'finances'] },
+  { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'allocations', 'bench', 'bench-opportunities', 'my-skills', 'performance', 'documents', 'policies', 'my-documents'] },
+  { key: 'payroll', label: 'Payroll', icon: Wallet, children: ['payroll-runs', 'payroll-setup', 'statutory-compliance', 'payroll-reports'] },
+  { key: 'finance', label: 'Finance', icon: Wallet, children: ['myfinances', 'finances'] },
   'help',
 ];
 

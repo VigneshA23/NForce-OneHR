@@ -61,6 +61,7 @@ const EXPECTED: Outline = [
     ['Policies', [['policies'], ['announcements']]],
     ['My Documents'], ['Help & Guidance'],
   ]],
+  ['Finance', [['My Finances'], ['Employee Finances']]],
   ['Payroll & Compensation', [['Payroll'], ['Compensation Bands']]],
 ];
 
