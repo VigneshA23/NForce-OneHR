@@ -304,6 +304,8 @@ routes:
     requires: [payroll:VIEW:ALL]
   - path: /payroll-setup
     requires: [payroll:CONFIGURE:ALL]
+  - path: /finances
+    requires: [payroll:CONFIGURE:ALL]
   - path: /statutory-compliance
     requires: [payroll:CONFIGURE:ALL]
   - path: /payroll-reports

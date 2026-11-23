@@ -40,14 +40,15 @@ public class IncomeTaxService {
     public record Computation(int fyStartYear, String fyLabel, String regime, List<Month> months,
                               BigDecimal grossEarnings, BigDecimal previousEmployerIncome, BigDecimal standardDeduction,
                               BigDecimal netTaxableIncome, Tax tax, BigDecimal taxPaidTillNow, BigDecimal remainingTax,
-                              boolean configured) {}
+                              boolean configured, BigDecimal deductions, BigDecimal otherIncome, BigDecimal previousEmployerTds) {}
 
     private static final int FY_START_MONTH = 4;
 
     private final JdbcTemplate jdbc;
     private final UserRepository userRepository;
     private final MySalaryService salaryService;
-    private final MyTaxProfileService taxProfileService;
+    private final TaxDeclarationService declarationService;
+    private final PreviousIncomeService previousIncomeService;
     private final PayslipRepository payslipRepository;
     private final PayslipLineItemRepository lineItemRepository;
 
@@ -74,10 +75,14 @@ public class IncomeTaxService {
 
     @Transactional(readOnly = true)
     public Computation compute(String actorEmail, Integer fyStartYear) {
-        UUID employeeId = userRepository.findByEmail(actorEmail).orElseThrow(() -> new IllegalStateException("Actor not found")).getId();
+        return compute(userRepository.findByEmail(actorEmail).orElseThrow(() -> new IllegalStateException("Actor not found")).getId(), fyStartYear);
+    }
+
+    @Transactional(readOnly = true)
+    public Computation compute(UUID employeeId, Integer fyStartYear) {
         FiscalYear current = FiscalYear.containing(LocalDate.now(), FY_START_MONTH);
         int year = fyStartYear != null ? fyStartYear : current.start().getYear();
-        String regime = taxProfileService.regime(actorEmail).regime();
+        String regime = declarationService.regimeOf(employeeId);
         Rules rules = rules(year, regime);
 
         BigDecimal annual = salaryService.currentAnnualEarnings(employeeId);
@@ -99,8 +104,11 @@ public class IncomeTaxService {
             months.add(new Month(ym.toString(), ym.getMonth().name().substring(0, 1) + ym.getMonth().name().substring(1).toLowerCase() + " " + ym.getYear(),
                     p != null, g, tds, null));
         }
-        BigDecimal previous = BigDecimal.ZERO; // ponytail: previous-employer income arrives with the Previous Income tab
-        BigDecimal taxable = gross.add(previous).subtract(rules.standardDeduction()).max(BigDecimal.ZERO);
+        PreviousIncomeService.Approved prev = previousIncomeService.approved(employeeId, year);
+        BigDecimal previous = prev.income();
+        paid = paid.add(prev.tds());
+        TaxDeclarationService.Totals decl = declarationService.totals(employeeId, year);
+        BigDecimal taxable = gross.add(previous).add(decl.otherIncome()).subtract(rules.standardDeduction()).subtract(decl.deductions()).max(BigDecimal.ZERO);
         Tax tax = compute(rules, taxable);
         BigDecimal remaining = tax.netPayable().subtract(paid).max(BigDecimal.ZERO);
 
@@ -114,7 +122,8 @@ public class IncomeTaxService {
             out.add(new Month(m.period(), m.label(), m.actual(), m.gross(), t, cumulative));
         }
         return new Computation(year, "FY " + year + "-" + String.valueOf(year + 1).substring(2), regime, out, gross, previous,
-                rules.standardDeduction(), taxable, tax, paid, remaining, !rules.slabs().isEmpty());
+                rules.standardDeduction(), taxable, tax, paid, remaining, !rules.slabs().isEmpty(),
+                decl.deductions(), decl.otherIncome(), prev.tds());
     }
 
     /** TDS already deducted on a payslip: any deduction line named TDS / Income Tax (payroll does not compute it yet, so usually 0). */

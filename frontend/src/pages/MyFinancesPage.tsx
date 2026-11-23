@@ -1,7 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Wallet, IndianRupee, CalendarDays, FileText } from 'lucide-react';
 import { MySalaryPanel, MyPayslipsPanel, MyIncomeTaxPanel } from './MyPayPanels';
+import { DeclarationPanel, PreviousIncomePanel, FormsPanel, PartnersPanel } from './MyTaxPanels';
+import { selfTaxApi, type Filing } from '../api/myTax';
+import { myPayApi } from '../api/myPay';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { TabBar, type TabDef } from '../components/TabBar';
 import { useAuthStore } from '../store/authStore';
@@ -37,6 +40,13 @@ const TAX_TABS: TabDef<string>[] = [
   { key: 'investments', label: 'Tax Saving Investment' },
 ];
 const SUBTABS: Record<string, TabDef<string>[]> = { pay: PAY_TABS, tax: TAX_TABS };
+
+/** US-F14: partner tabs disappear when no partner of that kind is enabled. */
+function visibleSubtabs(tab: string, filing: Filing | null): TabDef<string>[] {
+  const subs = SUBTABS[tab];
+  if (tab !== "tax" || !filing) return subs;
+  return subs.filter(t => (t.key === "tax-filing" ? filing.filing.length > 0 : t.key === "investments" ? filing.saving.length > 0 : true));
+}
 
 function formatPeriod(period: string) {
   const [year, month] = period.split('-');
@@ -79,6 +89,9 @@ export default function MyFinancesPage() {
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const [downloading, setDownloading] = useState<string | null>(null);
+  const taxApi = useMemo(() => selfTaxApi(token), [token]);
+  const [filing, setFiling] = useState<Filing | null>(null);
+  useEffect(() => { taxApi.filing().then(setFiling, () => setFiling(null)); }, [taxApi]);
   const [data, setData] = useState<FinanceData>({ loaded: false, current: null, history: [], periods: [], profile: null, latest: null, docs: [], esiCeiling: null, regime: null });
 
   useEffect(() => {
@@ -149,6 +162,11 @@ export default function MyFinancesPage() {
   else if (sub === 'income-tax') body = <MyIncomeTaxPanel token={token} />;
   else if (sub === 'payslips') body = <MyPayslipsPanel token={token} periods={data.periods} selected={new URLSearchParams(search).get('period')}
     downloading={downloading} onDownload={download} onSelect={p => navigate(`${BASE}/pay/payslips?period=${p}`, { replace: true })} />;
+  else if (sub === 'declaration') body = <DeclarationPanel api={taxApi} loadTax={fy => myPayApi.incomeTax(token, fy)} />;
+  else if (sub === 'previous-income') body = <PreviousIncomePanel api={taxApi} />;
+  else if (sub === 'forms') body = <FormsPanel token={token} api={taxApi} />;
+  else if (sub === 'tax-filing') body = <PartnersPanel kind="FILING" filing={filing} />;
+  else if (sub === 'investments') body = <PartnersPanel kind="SAVING" filing={filing} />;
   else body = <ComingSoon title={[...PAY_TABS, ...TAX_TABS].find(t => t.key === sub)?.label ?? 'This section'} />;
 
   return (
@@ -162,7 +180,7 @@ export default function MyFinancesPage() {
 
       <TabBar tabs={TOP_TABS} active={tab} onChange={k => navigate(`${BASE}/${k}`)} ariaLabel="My Finances sections" style={{ marginBottom: 16 }} />
       {SUBTABS[tab] && sub && (
-        <TabBar tabs={SUBTABS[tab]} active={sub} onChange={k => navigate(`${BASE}/${tab}/${k}`)} size="sm" className="nf-boxedtabs"
+        <TabBar tabs={visibleSubtabs(tab, filing)} active={sub} onChange={k => navigate(`${BASE}/${tab}/${k}`)} size="sm" className="nf-boxedtabs"
           ariaLabel={`${TOP_TABS.find(t => t.key === tab)?.label} sections`} style={{ marginBottom: 16 }} />
       )}
       {data.loaded && !noPayrollRecord && ['salary', 'income-tax', 'declaration'].includes(sub ?? '') && (

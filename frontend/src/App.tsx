@@ -32,6 +32,7 @@ import PayrollSetupPage from './pages/payroll/PayrollSetupPage';
 import StatutoryCompliancePage from './pages/payroll/StatutoryCompliancePage';
 import PayrollReportsPage from './pages/payroll/PayrollReportsPage';
 import MyFinancesPage from './pages/MyFinancesPage';
+import FinanceAdminPage from './pages/FinanceAdminPage';
 import DocumentsPage from './pages/DocumentsPage';
 import DocumentsCompliancePage from './pages/DocumentsCompliancePage';
 import PoliciesPage from './pages/PoliciesPage';
@@ -216,6 +217,9 @@ export default function App() {
           {/* US-F01: self-service for every role. Tabs live in the URL (/myfinances/pay/payslips ...); the
               Super Admin "Employee Finances" view (US-F15) will be a separate /finances/:userId route. */}
           <Route path="/myfinances/*"  element={<MyFinancesPage />} />
+          {/* US-F15: Super Admin only (server-gated on payroll:CONFIGURE:ALL); nobody else gets a nav entry. */}
+          <Route path="/finances" element={<FinanceAdminPage />} />
+          <Route path="/finances/:userId" element={<FinanceAdminPage />} />
           <Route path="/my-finances/*" element={<Navigate to="/myfinances/summary" replace />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
