@@ -9,7 +9,7 @@ const SOURCE_LABEL: Record<string, string> = {
   SALARY_REVISION: 'Salary Revision', LOP_REVERSAL: 'LOP Reversal', HOLD_RELEASE: 'Hold Release',
 };
 
-/** Keka's "Arrears" step — read-only, auto-computed from three triggers (backdated salary
+/** Keka's "Arrears" step - read-only, auto-computed from three triggers (backdated salary
  * revision, LOP reversal, salary hold release). A PENDING row becomes a real "Arrears"/"Arrears
  * Recovery" payslip line item the next time that employee's payslip is (re)generated. */
 export function ArrearsTab({ runId }: { runId: string }) {
@@ -39,7 +39,7 @@ export function ArrearsTab({ runId }: { runId: string }) {
         )}
       />
       <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
-        Auto-computed from backdated salary revisions, LOP reversals and salary hold releases — never manually entered.
+        Auto-computed from backdated salary revisions, LOP reversals and salary hold releases - never manually entered.
         A PENDING row lands on this employee's next payslip; an APPLIED one already has.
       </div>
       <FilterBar search={search} onSearchChange={setSearch} />
@@ -52,7 +52,7 @@ export function ArrearsTab({ runId }: { runId: string }) {
                 <td style={tdStyle}><PersonCellById userId={r.employeeId} name={r.employeeName} /></td>
                 <td style={tdStyle}>{fmtCurrency(r.amount)}{r.amount < 0 ? ' (recovery)' : ''}</td>
                 <td style={tdStyle}>{SOURCE_LABEL[r.sourceType] ?? r.sourceType}</td>
-                <td style={tdStyle}>{fmtDate(r.sourceCycleStart)} – {fmtDate(r.sourceCycleEnd)}</td>
+                <td style={tdStyle}>{fmtDate(r.sourceCycleStart)} to {fmtDate(r.sourceCycleEnd)}</td>
                 <td style={tdStyle}>{r.reason}</td>
                 <td style={tdStyle}><StatusBadge status={r.status} /></td>
               </tr>

@@ -33,11 +33,11 @@ const SECTIONS: TabDef<SetupSection>[] = [
  * Payroll's settings area, restructured into Keka-style named sections instead of one page —
  * each section is its own file under pages/payroll/, same split as PayrollRunDetailPage's step
  * tabs. Every section here has real backend CRUD behind it (see each Create*Request/Update*Request
- * DTO); nothing is a disabled placeholder — unlike the Run console's step tabs, there's no
+ * DTO); nothing is a disabled placeholder - unlike the Run console's step tabs, there's no
  * not-yet-built config surface in this epic to stub out.
  *
  * Statutory Rules used to be a sixth tab here; it's now its own sidebar destination
- * (StatutoryCompliancePage) — admins check/edit it often enough on its own that burying it one
+ * (StatutoryCompliancePage) - admins check/edit it often enough on its own that burying it one
  * click deeper than Structures/Pay Groups/Compensation was the wrong trade-off.
  */
 export default function PayrollSetupPage() {
@@ -69,9 +69,9 @@ export default function PayrollSetupPage() {
   }
 
   // Salary Structures' own component picker offers active earning/deduction/reimbursement/
-  // contribution components — ad-hoc types and inactive ones aren't structure material. CONTRIBUTION
+  // contribution components - ad-hoc types and inactive ones aren't structure material. CONTRIBUTION
   // (Employer PF, Gratuity) added 2026-11-19: SalaryStructureResolutionService now carves these out
-  // of Gross before resolving Basic/HRA/etc — see that service's own class doc — so they have to be
+  // of Gross before resolving Basic/HRA/etc - see that service's own class doc - so they have to be
   // selectable here too, not just a catalog entry nothing can actually attach to a structure.
   const structureableCatalog = catalog.filter(c => ['EARNING', 'REIMBURSEMENT', 'DEDUCTION', 'CONTRIBUTION'].includes(c.type) && c.active);
 
@@ -79,10 +79,10 @@ export default function PayrollSetupPage() {
     <div style={{ padding: '24px 28px' }}>
       <PageTitleBlock icon={Settings} style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Payroll Setup</h1>
-        <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Components, structures, pay groups and compensation — everything a payroll run needs before it can generate. Statutory rules live under Statutory Compliance.</p>
+        <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Components, structures, pay groups and compensation - everything a payroll run needs before it can generate. Statutory rules live under Statutory Compliance.</p>
       </PageTitleBlock>
 
-      {/* Stat cards double as quick-nav buttons to their own tab — "where do I go to see my pay
+      {/* Stat cards double as quick-nav buttons to their own tab - "where do I go to see my pay
           groups?" shouldn't require reading tab labels first. */}
       <div className="nf-pr-tiles" style={{ marginBottom: 22 }}>
         <StatTile

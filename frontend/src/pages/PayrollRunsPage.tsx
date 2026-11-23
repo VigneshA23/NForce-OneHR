@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Wallet, Lock, CheckCircle2, Clock, CalendarClock, Loader2 } from 'lucide-react';
+import { Wallet, Lock, CheckCircle2, Clock, CalendarClock, Loader2, ListChecks, IndianRupee, Hourglass } from 'lucide-react';
+import DashTile from '../components/DashTile';
 import PageTitleBlock from '../components/PageTitleBlock';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
@@ -59,12 +60,12 @@ export function buildMonthStrip(payGroup: PayGroupResponse, runs: PayrollRunResp
 
     let status: MonthTileStatus;
     if (run?.status === 'DISBURSED') {
-      // Demo/visual-only distinction — the backend has no separate "locked" state once DISBURSED,
+      // Demo/visual-only distinction - the backend has no separate "locked" state once DISBURSED,
       // this just mirrors Keka showing only the most recent disbursed cycle as "Completed" and
       // everything older as "Locked" (read-only in spirit; rollback is still the real guard).
       status = toDateOnly(run.cycleEnd).getTime() === mostRecentDisbursedEnd ? 'COMPLETED' : 'LOCKED';
     } else if (run) {
-      status = 'CURRENT'; // DRAFT/SUBMITTED/APPROVED — in progress, regardless of calendar position
+      status = 'CURRENT'; // DRAFT/SUBMITTED/APPROVED - in progress, regardless of calendar position
     } else if (isCurrentCycle) {
       status = 'CURRENT';
     } else if (cycleStart > today) {
@@ -124,7 +125,8 @@ function MonthStrip({ payGroup, runs, canConfigure, generatingKey, onOpenRun, on
   }
 
   return (
-    <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 6, marginBottom: 22 }}>
+    <div className="nf-pr-strip-wrap">
+    <div className="nf-pr-strip">
       {tiles.map(tile => {
         const Icon = TILE_ICON[tile.status];
         const isGenerating = generatingKey === tile.key;
@@ -135,25 +137,22 @@ function MonthStrip({ payGroup, runs, canConfigure, generatingKey, onOpenRun, on
             key={tile.key}
             onClick={() => click(tile)}
             disabled={!clickable}
-            title={tile.run ? `${tile.run.employeeCount} employees` : tile.status === 'UPCOMING' ? 'Not yet due' : `Click to generate the ${fmtDate(tile.cycleStart.toISOString().slice(0, 10))} – ${fmtDate(tile.cycleEnd.toISOString().slice(0, 10))} cycle`}
-            style={{
-              flex: '0 0 148px', textAlign: 'left', cursor: clickable ? 'pointer' : 'default',
-              background: 'var(--panel)', border: `1px solid ${isCurrent ? 'var(--brand)' : 'var(--line)'}`,
-              borderRadius: 12, padding: '14px 14px', boxShadow: isCurrent ? '0 0 0 1px var(--brand)' : 'none',
-              opacity: tile.status === 'UPCOMING' ? 0.6 : 1,
-            }}
+            className={`nf-pr-cycle${isCurrent ? ' is-current' : ''}${tile.status === 'UPCOMING' ? ' is-upcoming' : ''}`}
+            style={{ ['--mk' as string]: TILE_TONE[tile.status] }}
+            title={tile.run ? `Open this run (${tile.run.employeeCount} employees)` : tile.status === 'UPCOMING' ? 'Not yet due' : `Click to generate the ${fmtDate(tile.cycleStart.toISOString().slice(0, 10))} to ${fmtDate(tile.cycleEnd.toISOString().slice(0, 10))} cycle`}
           >
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 8 }}>{tile.label}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: TILE_TONE[tile.status], fontSize: 12, fontWeight: 600 }}>
+            <span className="nf-pr-cycle-month">{tile.label}</span>
+            <span className="nf-pr-cycle-state">
               {isGenerating ? <Loader2 size={14} className="nf-spin" /> : <Icon size={14} />}
               {isGenerating ? 'Generating…' : TILE_LABEL[tile.status]}
-            </div>
-            {tile.run && (
-              <div style={{ marginTop: 8, fontSize: 11, color: 'var(--txt-mut)' }}>{fmtCurrency(tile.run.totalNet)} net</div>
-            )}
+            </span>
+            {tile.run
+              ? <span className="nf-pr-cycle-net">{fmtCurrency(tile.run.totalNet)} net</span>
+              : <span className="nf-pr-cycle-net is-empty">{tile.status === 'UPCOMING' ? 'Not yet due' : canConfigure ? 'Click to generate' : 'No run'}</span>}
           </button>
         );
       })}
+    </div>
     </div>
   );
 }
@@ -187,7 +186,7 @@ export default function PayrollRunsPage() {
   const selectedPayGroup = payGroups.find(pg => pg.id === payGroupId) ?? null;
 
   // Each tile already knows its own exact cycle (cycleStart/cycleEnd from buildMonthStrip's own
-  // boundary math), so there's nothing left for a dialog to ask — generate straight off the click,
+  // boundary math), so there's nothing left for a dialog to ask - generate straight off the click,
   // the same instinct as regenerate/submit/approve/disburse already being one click each.
   async function generateForTile(tile: MonthTile) {
     if (!payGroupId) return;
@@ -206,18 +205,24 @@ export default function PayrollRunsPage() {
 
   return (
     <div style={{ padding: '24px 28px' }}>
-      <div className="nf-page-hdr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+      <div className="nf-pr-hero">
         <PageTitleBlock icon={Wallet}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Payroll Runs</h1>
           <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Generate, review and process each pay cycle's batch.</p>
         </PageTitleBlock>
+        <div className="nf-pr-hero-select">
+          <label style={labelStyle}>Pay Group</label>
+          <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
+            {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}
+          </select>
+        </div>
       </div>
 
-      <div style={{ marginBottom: 16, maxWidth: 320 }}>
-        <label style={labelStyle}>Pay Group</label>
-        <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
-          {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}
-        </select>
+      <div className="nf-pr-tiles" style={{ marginBottom: 18 }}>
+        <DashTile icon={<ListChecks size={20} />} label="Total Runs" value={String(runs.length)} accent="var(--brand)" />
+        <DashTile icon={<Hourglass size={20} />} label="In Progress" value={String(runs.filter(r => r.status !== 'DISBURSED').length)} sub="Draft, submitted or approved" accent="var(--warn)" />
+        <DashTile icon={<CheckCircle2 size={20} />} label="Disbursed" value={String(runs.filter(r => r.status === 'DISBURSED').length)} accent="var(--ok)" />
+        <DashTile icon={<IndianRupee size={20} />} label="Latest Net Pay" value={runs.length ? fmtCurrency([...runs].sort((a, b) => b.cycleEnd.localeCompare(a.cycleEnd))[0].totalNet) : fmtCurrency(0)} sub={runs.length ? 'Most recent cycle' : undefined} accent="var(--info)" />
       </div>
 
       {selectedPayGroup && (
@@ -241,13 +246,13 @@ export default function PayrollRunsPage() {
           </thead>
           <tbody>
             {pageRows.map(run => (
-              <tr key={run.id} onClick={() => navigate(`/payroll-runs/${run.id}`)}>
-                <td style={tdStyle}>{fmtDate(run.cycleStart)} – {fmtDate(run.cycleEnd)}</td>
+              <tr key={run.id} tabIndex={0} title="Open this run" onClick={() => navigate(`/payroll-runs/${run.id}`)} onKeyDown={e => { if (e.key === 'Enter') navigate(`/payroll-runs/${run.id}`); }}>
+                <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtDate(run.cycleStart)} to {fmtDate(run.cycleEnd)}</td>
                 <td style={tdStyle}><StatusBadge status={run.status} /></td>
                 <td style={tdStyle}>{run.employeeCount}</td>
                 <td style={tdStyle}>{fmtCurrency(run.totalGross)}</td>
                 <td style={tdStyle}>{fmtCurrency(run.totalDeductions)}</td>
-                <td style={tdStyle}>{fmtCurrency(run.totalNet)}</td>
+                <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 700 }}>{fmtCurrency(run.totalNet)}</td>
                 <td style={tdStyle}>{fmtDate(run.createdAt)}</td>
               </tr>
             ))}

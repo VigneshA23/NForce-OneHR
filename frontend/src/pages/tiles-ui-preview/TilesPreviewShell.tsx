@@ -10,7 +10,9 @@
  *  accent-color setting.
  * ============================================================================
  */
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Routes, Route } from 'react-router-dom';
+import PayrollRunDetailPage from '../payroll/PayrollRunDetailPage';
+import PayrollRunsPage from '../PayrollRunsPage';
 import {
   Users, Sparkles, Award, AlertTriangle, Wallet, CheckCircle2, Hourglass, CalendarClock,
   Inbox, CircleDot, Clock, Lock, MessageSquareText, Zap, Activity, Gauge, CalendarCheck,
@@ -125,6 +127,8 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
   { key: 'employee-master-page', label: 'Employee Master (full page)', title: 'Employee Master', subtitle: 'The real page with sample employees and the themed table header.' },
+  { key: 'payroll-runs-page', label: 'Payroll Runs list (first page)', title: 'Payroll Runs', subtitle: 'The real Payroll Runs list with a sample pay group and runs. Nothing to click first.' },
+  { key: 'payroll-run-page', label: 'Payroll Run details (full page)', title: 'Payroll Run details', subtitle: 'The real run console with a sample run. Add &status=DRAFT, SUBMITTED, APPROVED or DISBURSED to the URL.' },
   { key: 'skill-modal', label: 'Add Skill dialog', title: 'Add Skill', subtitle: 'The real dialog with the search icon clear of the placeholder text.' },
   { key: 'hr-requests-page', label: 'HR Service Requests (full page)', title: 'HR Service Requests', subtitle: 'The real page with sample tickets, the themed tab card and header.' },
   { key: 'user-edit', label: 'Edit User popup (Access)', title: 'User Management: Edit popup', subtitle: 'Open the popup for an active or an inactive user. Saving only changes this preview.' },
@@ -1375,6 +1379,76 @@ function SkillModalMock() {
   return ready ? <SkillModal token="mock" existing={null} onClose={() => {}} onSaved={() => {}} /> : null;
 }
 
+function PayrollRunsListMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: a sample pay group with runs, and a Super Admin session with payroll access; restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const run = (id: string, a: string, b: string, status: string, n: number, gross: number, ded: number, created: string) => ({
+      id, payGroupId: 'g1', cycleStart: a, cycleEnd: b, status, employeeCount: n, totalGross: gross, totalDeductions: ded, totalNet: gross - ded,
+      submittedAt: null, approvedAt: null, disbursedAt: null, lastRolledBackAt: null, lastRollbackReason: null, lastRolledBackBy: null, approvalStages: null, pendingApprovalStage: null, createdAt: created });
+    const runs = [
+      run('a', '2026-10-26', '2026-11-25', 'APPROVED', 14, 999961.59, 24626.6, '2026-11-10T09:00:00'),
+      run('b', '2026-09-26', '2026-10-25', 'DISBURSED', 7, 1074794.88, 0, '2026-11-11T09:00:00'),
+      run('c', '2026-08-26', '2026-09-25', 'DISBURSED', 7, 956983.75, 0, '2026-11-17T09:00:00'),
+      run('d', '2026-07-26', '2026-08-25', 'DRAFT', 3, 85461.8, 3175.88, '2026-11-23T09:00:00'),
+    ];
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).split('?')[0];
+      if (path.endsWith('/api/payroll/pay-groups')) return json([{ id: 'g1', name: 'NForce One Pvt Ltd', legalEntity: 'NForce One Pvt Ltd', address: null, frequency: 'MONTHLY', currency: 'INR', cycleStartDay: 26, cycleEndDay: 25, processingDay: 28, active: true }]);
+      if (path.endsWith('/api/payroll/runs')) return json(runs);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { permissions: { payroll: { VIEW: ['ALL'], CONFIGURE: ['ALL'] } } } as never });
+    setReady(true);
+    return () => { window.fetch = prevFetch; useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions }); };
+  }, []);
+  return ready ? <PayrollRunsPage /> : null;
+}
+
+function PayrollRunMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: a sample payroll run and a Super Admin session with payroll access; restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const status = new URLSearchParams(window.location.search).get('status') ?? 'APPROVED';
+    const run = { id: 'r1', payGroupId: 'g1', cycleStart: '2026-10-26', cycleEnd: '2026-11-25', status, employeeCount: 14, totalGross: 999961.59, totalDeductions: 24626.6, totalNet: 975334.99,
+      submittedAt: status === 'DRAFT' ? null : '2026-11-10T10:12:00', approvedAt: status === 'APPROVED' || status === 'DISBURSED' ? '2026-11-10T16:40:00' : null, disbursedAt: status === 'DISBURSED' ? '2026-11-11T09:05:00' : null,
+      lastRolledBackAt: null, lastRollbackReason: null, lastRolledBackBy: null, approvalStages: null, pendingApprovalStage: status === 'SUBMITTED' ? 'Finance Head' : null, createdAt: '2026-11-10T09:00:00' };
+    const totals = (g: number, d: number, e: number) => ({ grossPay: g, totalDeductions: d, netPay: g - d, employerContributions: e, employeeCount: 14 });
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).split('?')[0];
+      if (path.endsWith('/api/payroll/pay-groups')) return json([{ id: 'g1', name: 'NForce One Pvt Ltd' }]);
+      if (path.endsWith('/rollback-history')) return json([{ id: 'h1', reason: 'Wrong LOP days for two employees', rolledBackBy: null, rolledBackAt: '2026-11-09T18:20:00' }]);
+      if (path.endsWith('/pre-approval-summary')) return json({ current: totals(999961.59, 24626.6, 61000), previous: totals(1074794.88, 0, 58000), processedCount: 12, onHoldCount: 1, needsAttentionCount: 1,
+        needsAttentionDetails: [{ employeeId: 'e1', employeeName: 'Sri vidya', reasons: ['Missing bank details'] }],
+        variances: [{ employeeId: 'e2', employeeName: 'Praveen Gurram', previousNetPay: 82000, currentNetPay: 76500, delta: -5500, drivers: ['LOP 2 days'] }, { employeeId: 'e3', employeeName: 'Ramesh A', previousNetPay: 90000, currentNetPay: 94000, delta: 4000, drivers: ['Bonus'] }] });
+      if (/\/api\/payroll\/runs\/[^/]+$/.test(path)) return json(run);
+      if (path.endsWith('/payslips')) return json(['Sri vidya', 'Praveen Gurram', 'Ramesh A', 'Lalith Kumar Ratnala'].map((_, i) => ({
+        id: 'p' + i, payrollRunId: 'r1', employeeId: 'e' + (i + 1), ctc: 600000 + i * 120000, cycleDays: 31, lopDays: i === 1 ? 2 : 0, employedDays: 31, prorationFactor: 1,
+        grossPay: 50000 + i * 10000, totalDeductions: 2500 + i * 400, netPay: 47500 + i * 9600, released: i % 2 === 0, paymentWithheld: false, lineItems: [] })));
+      if (path.endsWith('/joiners-exits')) return json({ runId: 'r1', cycleStart: '2026-10-26', cycleEnd: '2026-11-25',
+        joiners: [{ employeeId: 'e1', employeeName: 'Sri vidya', date: '2026-11-03' }, { employeeId: 'e2', employeeName: 'Karthik S', date: '2026-11-12' }],
+        exits: [{ employeeId: 'e3', employeeName: 'Praveen Gurram', date: '2026-11-20' }] });
+      if (path.endsWith('/cost-report')) return json({ runId: 'r1', cycleStart: '2026-10-26', cycleEnd: '2026-11-25', employeeCount: 14, grossPay: 999961.59, totalDeductions: 24626.6, netPay: 975334.99,
+        byDepartment: [], byProject: [] });
+      // Any other payroll or directory call returns an empty list, so unmocked tabs open empty instead of failing against a missing backend.
+      if (path.includes('/api/payroll/') || path.includes('/api/employees')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { permissions: { payroll: { VIEW: ['ALL'], CONFIGURE: ['ALL'] } } } as never });
+    setReady(true);
+    return () => { window.fetch = prevFetch; useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions }); };
+  }, []);
+  return ready ? (
+    <Routes location="/tiles-ui-preview/r1"><Route path="/:runId" element={<PayrollRunDetailPage />} /></Routes>
+  ) : null;
+}
+
 function PoliciesMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -2187,6 +2261,10 @@ function Tiles({ page }: { page: string }) {
       return <HrRequestsMock />;
     case 'skill-modal':
       return <SkillModalMock />;
+    case 'payroll-runs-page':
+      return <PayrollRunsListMock />;
+    case 'payroll-run-page':
+      return <PayrollRunMock />;
     case 'employee-master-page':
       return <EmployeeMasterMock />;
     case 'team-tabs':

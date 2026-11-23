@@ -11,7 +11,7 @@ import {
 
 const RULE_TYPES = ['PF', 'ESI', 'PROFESSIONAL_TAX'];
 
-/** Keka's "Statutory Override" step — one employee's computed PF/ESI/Professional Tax amount for
+/** Keka's "Statutory Override" step - one employee's computed PF/ESI/Professional Tax amount for
  * one cycle. Stored independent of any specific run (see StatutoryDeductionOverride's own doc
  * comment), so it survives a regenerate the same way an LOP override does. */
 export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: { payGroupId: string; cycleStart: string; canConfigure: boolean }) {
@@ -35,9 +35,9 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
 
   useEffect(() => reload(employeeId), [employeeId, token]);
 
-  // "What you'd be overriding FROM" — refetched whenever employee/rule type changes, since the
+  // "What you'd be overriding FROM" - refetched whenever employee/rule type changes, since the
   // formula depends on both. Not kept in sync with overrideAmount itself (that's the admin's new
-  // value, this is the system's current one) — see payrollApi.previewStatutoryAmount's own comment.
+  // value, this is the system's current one) - see payrollApi.previewStatutoryAmount's own comment.
   useEffect(() => {
     if (!employeeId) { setPreview(null); return; }
     setPreviewLoading(true);
@@ -57,7 +57,7 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
         employeeId, payGroupId, referenceDate: cycleStart, ruleType,
         overrideAmount: Number(overrideAmount), overrideReason: overrideReason.trim(),
       }, token);
-      showToast('success', 'Override saved — regenerate the run to reflect it in the payslip');
+      showToast('success', 'Override saved - regenerate the run to reflect it in the payslip');
       setOverrideAmount(''); setOverrideReason('');
       reload(employeeId);
     } catch (e) {
@@ -89,17 +89,17 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
           <SectionHead title="Override Statutory Deduction" />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 14 }}>
             <FormRow>
-              <label style={labelStyle}>Employee *</label>
+              <label style={labelStyle}>Employee</label>
               <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employees.map(e => ({ id: e.userId, label: e.fullName }))} />
             </FormRow>
             <FormRow>
-              <label style={labelStyle}>Rule Type *</label>
+              <label style={labelStyle}>Rule Type</label>
               <select value={ruleType} onChange={e => setRuleType(e.target.value)} style={inputStyle}>
                 {RULE_TYPES.map(t => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
               </select>
             </FormRow>
             <FormRow>
-              <label style={labelStyle}>Override Amount *</label>
+              <label style={labelStyle}>Override Amount</label>
               <input type="number" min={0} value={overrideAmount} onChange={e => setOverrideAmount(e.target.value)} style={inputStyle} />
             </FormRow>
           </div>
@@ -108,12 +108,12 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
               {previewLoading
                 ? 'Checking the currently computed amount…'
                 : preview?.computedAmount != null
-                  ? <>Currently computed (formula): <strong style={{ color: 'var(--txt)' }}>{fmtCurrency(preview.computedAmount)}</strong> — this is what you'd be overriding.</>
+                  ? <>Currently computed (formula): <strong style={{ color: 'var(--txt)' }}>{fmtCurrency(preview.computedAmount)}</strong> - this is what you'd be overriding.</>
                   : preview?.note ?? null}
             </div>
           )}
           <FormRow>
-            <label style={labelStyle}>Reason *</label>
+            <label style={labelStyle}>Reason</label>
             <textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
           </FormRow>
           <BtnPrimary onClick={submit} disabled={!valid || submitting}>{submitting ? 'Saving…' : 'Save Override'}</BtnPrimary>
@@ -130,7 +130,7 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
                 {overrides.map(o => (
                   <tr key={o.id}>
                     <td style={tdStyle}>{o.ruleType.replace(/_/g, ' ')}</td>
-                    <td style={tdStyle}>{fmtDate(o.cycleStart)} – {fmtDate(o.cycleEnd)}</td>
+                    <td style={tdStyle}>{fmtDate(o.cycleStart)} - {fmtDate(o.cycleEnd)}</td>
                     <td style={tdStyle}>{fmtCurrency(o.overrideAmount)}</td>
                     <td style={tdStyle}>{o.overrideReason}</td>
                     <td style={tdStyle}>{fmtDate(o.overriddenAt)}</td>

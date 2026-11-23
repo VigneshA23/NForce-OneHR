@@ -17,7 +17,7 @@ import { AllChangesHistory } from './EmployeeCompensationTab';
 import './payroll.css';
 
 // Favourites/recently-used are a per-browser convenience, same spirit as a remembered tab or
-// filter — never synced, never read back by anyone else, so localStorage is the right place for
+// filter - never synced, never read back by anyone else, so localStorage is the right place for
 // them rather than a new backend table just to persist two small id lists.
 const FAVOURITES_KEY = 'nf-payroll-report-favourites';
 const RECENT_KEY = 'nf-payroll-report-recent';
@@ -32,7 +32,7 @@ function readIds(key: string): string[] {
 }
 
 function writeIds(key: string, ids: string[]) {
-  try { localStorage.setItem(key, JSON.stringify(ids)); } catch { /* private window / blocked storage — fine to drop */ }
+  try { localStorage.setItem(key, JSON.stringify(ids)); } catch { /* private window / blocked storage - fine to drop */ }
 }
 
 type ReportId = 'current-ctc' | 'salary-revision' | 'current-salary-structure' | 'employee-ctc-range' | 'financial-information';
@@ -97,7 +97,7 @@ function CurrentCtcReport() {
   );
 }
 
-/** Component columns vary per employee (whichever SalaryStructure they're on) — the union of
+/** Component columns vary per employee (whichever SalaryStructure they're on) - the union of
  * every component name seen across all rows becomes the column set, in first-seen order, same
  * "blank where that employee has no line item" idea PayRegisterExcelService uses for its own
  * dynamic columns, just computed client-side here since this is an on-screen table, not a file. */
@@ -137,7 +137,7 @@ function CurrentSalaryStructureReport() {
                   <td style={tdStyle}>{r.structureName}</td>
                   <td style={tdStyle}>{fmtCurrency(r.ctc)}</td>
                   <td style={tdStyle}>{fmtDate(r.effectiveFrom)}</td>
-                  {columns.map(name => <td key={name} style={tdStyle}>{byName.has(name) ? fmtCurrency(byName.get(name)!) : '—'}</td>)}
+                  {columns.map(name => <td key={name} style={tdStyle}>{byName.has(name) ? fmtCurrency(byName.get(name)!) : '-'}</td>)}
                 </tr>
               );
             })}
@@ -232,12 +232,12 @@ function FinancialInformationReport() {
               <tr key={r.employeeId}>
                 <td style={tdStyle}><PersonCellById userId={r.employeeId} name={r.employeeName} /></td>
                 <td style={tdStyle}>{r.employeeCode}</td>
-                <td style={tdStyle}>{r.bankName ?? '—'}</td>
-                <td style={tdStyle}>{r.bankAccountNumber ?? '—'}</td>
-                <td style={tdStyle}>{r.bankIfsc ?? '—'}</td>
-                <td style={tdStyle}>{r.panNumber ?? '—'}</td>
-                <td style={tdStyle}>{r.uanNumber ?? '—'}</td>
-                <td style={tdStyle}>{r.esiNumber ?? '—'}</td>
+                <td style={tdStyle}>{r.bankName ?? '-'}</td>
+                <td style={tdStyle}>{r.bankAccountNumber ?? '-'}</td>
+                <td style={tdStyle}>{r.bankIfsc ?? '-'}</td>
+                <td style={tdStyle}>{r.panNumber ?? '-'}</td>
+                <td style={tdStyle}>{r.uanNumber ?? '-'}</td>
+                <td style={tdStyle}>{r.esiNumber ?? '-'}</td>
               </tr>
             ))}
             {filtered.length === 0 && (
@@ -259,17 +259,17 @@ const REPORT_ICON: Record<ReportId, React.ReactNode> = {
   'financial-information': <Landmark size={18} />,
 };
 
-/** Keka's "Reports Home" (§3.6) — scoped to the reports this app can genuinely back today (all
+/** Keka's "Reports Home" (§3.6) - scoped to the reports this app can genuinely back today (all
  * reuse existing data/endpoints, no new aggregation invented for this screen). Favourites/
  * Recently Used are a per-browser preference (localStorage), not server state. The left category
- * panel only has two real categories — "Compensation Reports" and "Financial Reports" — rather
+ * panel only has two real categories - "Compensation Reports" and "Financial Reports" - rather
  * than Keka's full list (Payroll Run Reports, YTD, Statutory Forms, Loan, F&F...), none of which
  * this app has data for. */
 const FAQ_ITEMS: FaqItem[] = [
-  { q: 'What reports are actually available today?', a: 'Five: Current CTC, Current Salary Structure (full component-by-component breakup), Salary Revision, Employee CTC for a chosen date range, and Financial Information (bank/PAN/UAN/ESI). All reuse existing compensation/employee data — nothing is a separate aggregation job.' },
-  { q: 'How do Favourites and Recently Used work?', a: 'Click the star on a report to favourite it, or just open a report to have it show up under Recently Used. Both lists are remembered on this browser only — they’re not shared with other HR users or saved on the server.' },
-  { q: 'Can I export a report?', a: 'Not yet — these open as an on-screen table, not a downloadable file. The Payslips tab’s "Export to Excel" is the only downloadable export in the payroll module today.' },
-  { q: 'Why don’t I see Bonus, YTD, Loan, Full & Final Settlement, Perks or PF ECR reports?', a: 'This app doesn’t have the underlying data or concept for any of those yet — no bonus status/revision tracking, no org-wide YTD aggregation, no loans, no settlement workflow, no perquisites, no statutory e-filing. Rather than list them as empty placeholders, they’re simply not here until that data exists.' },
+  { q: 'What reports are actually available today?', a: 'Five: Current CTC, Current Salary Structure (full component-by-component breakup), Salary Revision, Employee CTC for a chosen date range, and Financial Information (bank/PAN/UAN/ESI). All reuse existing compensation/employee data - nothing is a separate aggregation job.' },
+  { q: 'How do Favourites and Recently Used work?', a: 'Click the star on a report to favourite it, or just open a report to have it show up under Recently Used. Both lists are remembered on this browser only - they’re not shared with other HR users or saved on the server.' },
+  { q: 'Can I export a report?', a: 'Not yet - these open as an on-screen table, not a downloadable file. The Payslips tab’s "Export to Excel" is the only downloadable export in the payroll module today.' },
+  { q: 'Why don’t I see Bonus, YTD, Loan, Full & Final Settlement, Perks or PF ECR reports?', a: 'This app doesn’t have the underlying data or concept for any of those yet - no bonus status/revision tracking, no org-wide YTD aggregation, no loans, no settlement workflow, no perquisites, no statutory e-filing. Rather than list them as empty placeholders, they’re simply not here until that data exists.' },
 ];
 
 export default function PayrollReportsPage() {

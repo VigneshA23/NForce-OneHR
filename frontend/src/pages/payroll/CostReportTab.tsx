@@ -5,8 +5,8 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayrollCostReportResponse, type PayrollRunStatus } from '../../api/payroll';
 import { panelStyle, thStyle, tdStyle, fmtCurrency, EmptyRow, SectionHead, ChartCard, PIE_PALETTE, chartTooltipStyle } from './payrollShared';
 
-/** Donut slice is each entry's share of this breakdown's own net-pay total — not of the run's
- * overall net pay — since "By Department" and "By Project" aren't mutually exclusive partitions
+/** Donut slice is each entry's share of this breakdown's own net-pay total - not of the run's
+ * overall net pay - since "By Department" and "By Project" aren't mutually exclusive partitions
  * of the same whole (a payslip's cost can appear under a project without belonging to it instead
  * of a department). Mirrors the table rows it sits above one-for-one, just visualized. */
 function NetPayPie({ data, nameKey, onSliceClick }: {
@@ -31,7 +31,7 @@ function NetPayPie({ data, nameKey, onSliceClick }: {
   );
 }
 
-/** US-C16 — only buildable once a run leaves DRAFT/SUBMITTED (the backend enforces this; the
+/** US-C16 - only buildable once a run leaves DRAFT/SUBMITTED (the backend enforces this; the
  * report's own department/project splits aren't meaningful until the run's numbers are final). */
 export function CostReportTab({ runId, runStatus }: { runId: string; runStatus: PayrollRunStatus }) {
   const token = useAuthStore(s => s.token)!;
@@ -57,7 +57,7 @@ export function CostReportTab({ runId, runStatus }: { runId: string; runStatus: 
     return <div style={{ padding: '24px', color: 'var(--txt-mut)' }}>Loading…</div>;
   }
 
-  // Pie slices only make sense for positive shares of the whole — a department/project with zero
+  // Pie slices only make sense for positive shares of the whole - a department/project with zero
   // or negative net pay (e.g. an all-LOP cycle) has no slice to draw, so it's dropped from the
   // chart but still appears in the table below with its real figure.
   const deptChartData = report.byDepartment.filter(d => d.netPay > 0).map(d => ({ name: d.departmentName, value: d.netPay }));
@@ -65,7 +65,7 @@ export function CostReportTab({ runId, runStatus }: { runId: string; runStatus: 
 
   return (
     <div>
-      {/* No Employees/Gross/Deductions/Net tiles here — the run console's top-level KPI row
+      {/* No Employees/Gross/Deductions/Net tiles here - the run console's top-level KPI row
           (PayrollRunDetailPage.tsx) already shows those same totals on every step. This tab's
           own job is the department/project breakdown below, not a restatement of the run total. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 16, marginBottom: 20 }} className="nf-grid-side-collapse">

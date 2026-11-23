@@ -45,21 +45,21 @@ function CreateDeductionModal({ employeeId, components, onClose, onCreated }: {
   return (
     <Modal title="Add Ad-hoc Deduction" subtitle="Applied as installments across future payroll runs until the total is recovered." onClose={onClose}>
       <FormRow>
-        <label style={labelStyle}>Component *</label>
+        <label style={labelStyle}>Component</label>
         <select value={componentName} onChange={e => setComponentName(e.target.value)} style={inputStyle}>
           {components.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Total Amount *</label>
+        <label style={labelStyle}>Total Amount</label>
         <input type="number" min={0} step="0.01" value={totalAmount} onChange={e => setTotalAmount(e.target.value)} style={inputStyle} />
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Installment Amount *</label>
+        <label style={labelStyle}>Installment Amount</label>
         <input type="number" min={0} step="0.01" value={installmentAmount} onChange={e => setInstallmentAmount(e.target.value)} style={inputStyle} />
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Reason *</label>
+        <label style={labelStyle}>Reason</label>
         <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -81,7 +81,7 @@ export function AdHocDeductionsTab({ runId, canConfigure }: { runId: string; can
   const [showAdd, setShowAdd] = useState(false);
   const [cancelling, setCancelling] = useState<AdHocDeductionResponse | null>(null);
 
-  // This run's own employees — ad-hoc deductions are employee-scoped, not run-scoped (they're
+  // This run's own employees - ad-hoc deductions are employee-scoped, not run-scoped (they're
   // applied as installments across whichever future runs are open when they're created).
   useEffect(() => {
     payrollApi.listPayslips(runId, token).then(payslips => setEmployeeIds(payslips.map(p => p.employeeId))).catch(() => {});

@@ -46,12 +46,12 @@ function CreateHoldModal({ runId, fixedType, onClose, onCreated }: {
       onClose={onClose}
     >
       <FormRow>
-        <label style={labelStyle}>Employee *</label>
+        <label style={labelStyle}>Employee</label>
         <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employees.map(e => ({ id: e.userId, label: e.fullName }))} />
       </FormRow>
       {!fixedType && (
         <FormRow>
-          <label style={labelStyle}>Type *</label>
+          <label style={labelStyle}>Type</label>
           <select value={type} onChange={e => setType(e.target.value as SalaryHoldType)} style={inputStyle}>
             <option value="PROCESSING">Processing (exclude from this run)</option>
             <option value="PAYOUT">Payout (withhold disbursement)</option>
@@ -59,7 +59,7 @@ function CreateHoldModal({ runId, fixedType, onClose, onCreated }: {
         </FormRow>
       )}
       <FormRow>
-        <label style={labelStyle}>Reason *</label>
+        <label style={labelStyle}>Reason</label>
         <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -71,7 +71,7 @@ function CreateHoldModal({ runId, fixedType, onClose, onCreated }: {
 }
 
 /** `holdType` scopes this to one of Keka's two separate steps (Salary Processing on Hold / Salary
- * Payout on Hold) — same underlying SalaryHold data, just filtered and pre-typed per step, instead
+ * Payout on Hold) - same underlying SalaryHold data, just filtered and pre-typed per step, instead
  * of a combined type column. Omit it to show both (used nowhere currently, kept for flexibility). */
 export function SalaryHoldsTab({ runId, holdType, canConfigure }: { runId: string; holdType?: SalaryHoldType; canConfigure: boolean }) {
   const token = useAuthStore(s => s.token)!;
@@ -124,7 +124,7 @@ export function SalaryHoldsTab({ runId, holdType, canConfigure }: { runId: strin
                 <td style={tdStyle}><StatusBadge status={h.status} /></td>
                 <td style={tdStyle}>{h.reason}</td>
                 <td style={tdStyle}>{h.createdByName} · {fmtDateTime(h.createdAt)}</td>
-                <td style={tdStyle}>{h.releasedByName ? `${h.releasedByName} · ${fmtDateTime(h.releasedAt)}` : '–'}</td>
+                <td style={tdStyle}>{h.releasedByName ? `${h.releasedByName} · ${fmtDateTime(h.releasedAt)}` : '-'}</td>
                 <td style={tdStyle}>
                   {canConfigure && h.status === 'ACTIVE' && (
                     <ActionDock items={[{ label: 'Release', icon: Unlock, onClick: () => setReleasing(h) }]} />

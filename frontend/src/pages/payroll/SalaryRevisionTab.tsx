@@ -4,14 +4,14 @@ import { payrollApi, type SalaryStructureResponse, type EmployeeCompensationResp
 import { fmtCurrency, fmtDate, labelStyle, BtnPrimary, SectionHead, EmployeePicker, useEmployeeDirectory } from './payrollShared';
 import { ReviseCompensationScreen } from './EmployeeCompensationTab';
 
-/** Keka's "Salary Revisions" sub-step — a run-scoped convenience wrapper around the same
+/** Keka's "Salary Revisions" sub-step - a run-scoped convenience wrapper around the same
  * ReviseCompensationScreen (and the assignCompensation call it makes) the Settings page's
  * Employee Compensation tab uses for the general case. A revision whose effectiveFrom lands on/
- * before an already-closed cycle automatically produces an Arrears row (see ArrearsTab) — this
+ * before an already-closed cycle automatically produces an Arrears row (see ArrearsTab) - this
  * form itself doesn't need to know that.
  *
  * Employee picker is genuinely run-scoped (this run's own payslips, same pattern as
- * AdHocDeductionsTab) — it used to offer the full org roster despite being documented as a
+ * AdHocDeductionsTab) - it used to offer the full org roster despite being documented as a
  * run-scoped convenience, which was misleading even though the backend validates pay group
  * membership separately regardless. */
 export function SalaryRevisionTab({ runId, payGroupId, canConfigure }: { runId: string; payGroupId: string; canConfigure: boolean }) {
@@ -51,7 +51,7 @@ export function SalaryRevisionTab({ runId, payGroupId, canConfigure }: { runId: 
       {canConfigure && (
         <>
           <div style={{ maxWidth: 320, marginBottom: 14 }}>
-            <label style={labelStyle}>Employee (from this run) *</label>
+            <label style={labelStyle}>Employee (from this run)</label>
             <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employeeIds.map(id => ({ id, label: nameFor(id) }))} />
           </div>
           {employeeId && (

@@ -34,7 +34,7 @@ function BulkAddModal({ runId, components, employeeCount, onClose, onDone }: {
       const result = await payrollApi.bulkAddAdHocPayment(runId, { componentName, amount: Number(amount), reason: reason.trim() }, token);
       onClose();
       onDone(result.skippedCount > 0
-        ? `Added to ${result.added.length} employee(s) — skipped ${result.skippedCount} who already had ${componentName} this cycle`
+        ? `Added to ${result.added.length} employee(s) - skipped ${result.skippedCount} who already had ${componentName} this cycle`
         : `Added to ${result.added.length} employee(s)`);
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Failed to add payment');
@@ -44,19 +44,19 @@ function BulkAddModal({ runId, components, employeeCount, onClose, onDone }: {
   }
 
   return (
-    <Modal title="Add to All Employees" subtitle={`Same amount and reason, applied once to every one of the ${employeeCount} employee(s) in this run. Anyone who already has this component added in this run is skipped — safe to re-run.`} onClose={onClose}>
+    <Modal title="Add to All Employees" subtitle={`Same amount and reason, applied once to every one of the ${employeeCount} employee(s) in this run. Anyone who already has this component added in this run is skipped - safe to re-run.`} onClose={onClose}>
       <FormRow>
-        <label style={labelStyle}>Component *</label>
+        <label style={labelStyle}>Component</label>
         <select value={componentName} onChange={e => setComponentName(e.target.value)} style={inputStyle}>
           {components.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Amount (per employee) *</label>
+        <label style={labelStyle}>Amount (per employee)</label>
         <input type="number" min={0} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} />
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Reason *</label>
+        <label style={labelStyle}>Reason</label>
         <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -100,23 +100,23 @@ function AddPaymentModal({ runId, components, onClose, onCreated }: {
   }
 
   return (
-    <Modal title="Add Ad-hoc Payment" subtitle="A one-off amount for this run, added at face value — never prorated for LOP or joiner/exit." onClose={onClose}>
+    <Modal title="Add Ad-hoc Payment" subtitle="A one-off amount for this run, added at face value - never prorated for LOP or joiner/exit." onClose={onClose}>
       <FormRow>
-        <label style={labelStyle}>Employee *</label>
+        <label style={labelStyle}>Employee</label>
         <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employees.map(e => ({ id: e.userId, label: e.fullName }))} />
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Component *</label>
+        <label style={labelStyle}>Component</label>
         <select value={componentName} onChange={e => setComponentName(e.target.value)} style={inputStyle}>
           {components.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Amount *</label>
+        <label style={labelStyle}>Amount</label>
         <input type="number" min={0} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} />
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Reason *</label>
+        <label style={labelStyle}>Reason</label>
         <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

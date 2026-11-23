@@ -30,13 +30,20 @@ import { StatutoryOverrideTab } from './StatutoryOverrideTab';
 import { ArrearsTab } from './ArrearsTab';
 import './payroll.css';
 
+const LIFECYCLE: { key: PayrollRunStatus; label: string }[] = [
+  { key: 'DRAFT', label: 'Draft' },
+  { key: 'SUBMITTED', label: 'Submitted' },
+  { key: 'APPROVED', label: 'Approved' },
+  { key: 'DISBURSED', label: 'Disbursed' },
+];
+
 export type RunAction = 'regenerate' | 'submit' | 'approve' | 'disburse' | 'rollback';
 
-/** Which run-level actions are available for a given status — the client-side mirror of
+/** Which run-level actions are available for a given status - the client-side mirror of
  * PayrollRunService's own transition guards (submit requires DRAFT, approve requires SUBMITTED,
  * disburse requires APPROVED; rollback is allowed from SUBMITTED/APPROVED/DISBURSED, not DRAFT,
  * per that service's "rejected back to DRAFT while SUBMITTED, not just APPROVED/DISBURSED" note).
- * This is a hint only — the backend's own guard is the real enforcement either way. */
+ * This is a hint only - the backend's own guard is the real enforcement either way. */
 export function availableActions(status: PayrollRunStatus): RunAction[] {
   switch (status) {
     case 'DRAFT': return ['regenerate', 'submit'];
@@ -48,7 +55,7 @@ export function availableActions(status: PayrollRunStatus): RunAction[] {
 }
 
 // ── Step groups, matching Keka's own "Run Payroll" step-card layout (see the console's Javadoc-
-// equivalent note below) — NOT_AVAILABLE steps/sub-steps are disabled rather than omitted, so the
+// equivalent note below) - NOT_AVAILABLE steps/sub-steps are disabled rather than omitted, so the
 // shape of the real workflow is visible even before the backend behind them exists. ──
 
 type StepKey = 'overview' | 'payslips' | 'leave-attendance' | 'joiners-exits' | 'bonus-revisions-ot' | 'reimbursement-adhoc' | 'holds-arrears' | 'statutory-override' | 'cost-report';
@@ -66,7 +73,7 @@ const STEPS: TabDef<StepKey>[] = [
 ];
 
 // Overview's step-card grid, matching Keka's own "Run Payroll" dashboard (§3.1 of the restyle
-// spec) — every other step as a clickable card instead of leaving Overview a dead end. Excludes
+// spec) - every other step as a clickable card instead of leaving Overview a dead end. Excludes
 // 'overview' itself; tone values cycle through the app's existing semantic tokens (StatTile's own
 // convention) rather than introducing new colors.
 const OVERVIEW_CARDS: { key: StepKey; label: string; caption: string; icon: ReactNode; tone: string }[] = [
@@ -84,13 +91,13 @@ type LeaveAttendanceSubTab = 'leave-applied' | 'no-attendance' | 'lop-summary' |
 const LEAVE_ATTENDANCE_SUBTABS: TabDef<LeaveAttendanceSubTab>[] = [
   { key: 'leave-applied', label: 'Leave Applied' },
   { key: 'no-attendance', label: 'No Attendance' },
-  { key: 'lop-summary', label: 'LOP Summary', disabled: true, title: 'Not available in this release — use the Payslips tab\'s Recompute/Override LOP actions' },
-  { key: 'lop-reversal', label: 'LOP Reversal', disabled: true, title: 'Use the Payslips tab\'s Override LOP action on the historical cycle\'s own run — it now raises Arrears automatically when that cycle is already closed' },
+  { key: 'lop-summary', label: 'LOP Summary', disabled: true, title: 'Not available in this release - use the Payslips tab\'s Recompute/Override LOP actions' },
+  { key: 'lop-reversal', label: 'LOP Reversal', disabled: true, title: 'Use the Payslips tab\'s Override LOP action on the historical cycle\'s own run - it now raises Arrears automatically when that cycle is already closed' },
   { key: 'payable-units', label: 'Payable Units' },
 ];
 
 // "Salary Component Claim" and "Expenses" used to be two separate sub-tabs that rendered the
-// exact same component with no difference — reads as broken ("I clicked a different tab and
+// exact same component with no difference - reads as broken ("I clicked a different tab and
 // nothing changed") rather than two genuinely distinct views. Collapsed into one.
 type ReimbursementSubTab = 'salary-component-claim' | 'adhoc-payments' | 'adhoc-deductions';
 const REIMBURSEMENT_SUBTABS: TabDef<ReimbursementSubTab>[] = [
@@ -130,7 +137,7 @@ function RollbackModal({ onClose, onConfirm }: { onClose: () => void; onConfirm:
   return (
     <Modal title="Rollback Run" subtitle="Reverts this run back to DRAFT for reprocessing. Every payslip and review decision will be regenerated." onClose={onClose}>
       <FormRow>
-        <label style={labelStyle}>Reason *</label>
+        <label style={labelStyle}>Reason</label>
         <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }} />
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -143,7 +150,7 @@ function RollbackModal({ onClose, onConfirm }: { onClose: () => void; onConfirm:
 
 /**
  * The run console, structured the same way Keka's own "Run Payroll" screen is: a set of named
- * step-cards (not a flat tab bar) — Leave/Attendance/Payable Units, New Joinees & Exits, Bonus/
+ * step-cards (not a flat tab bar) - Leave/Attendance/Payable Units, New Joinees & Exits, Bonus/
  * Revisions/OT, Reimbursement/Adhoc/Deduction, Salaries on Hold & Arrears, Statutory Override —
  * each its own small wizard of sub-steps. Steps/sub-steps this codebase doesn't have a backend for
  * yet (New Joinees & Exits, Bonus/Revisions/OT, Statutory Override, LOP Summary/Reversal, Payable
@@ -152,12 +159,12 @@ function RollbackModal({ onClose, onConfirm }: { onClose: () => void; onConfirm:
  * once its backend exists.
  */
 const FAQ_ITEMS: FaqItem[] = [
-  { q: 'What does Regenerate do?', a: 'Rebuilds every payslip in this run from scratch using current data — updated LOP, ad-hoc payments, statutory rules, holds and arrears. Only available in Draft; it replaces the existing draft payslips, it doesn’t add to them.' },
+  { q: 'What does Regenerate do?', a: 'Rebuilds every payslip in this run from scratch using current data - updated LOP, ad-hoc payments, statutory rules, holds and arrears. Only available in Draft; it replaces the existing draft payslips, it doesn’t add to them.' },
   { q: 'What do Submit, Approve and Disburse actually change?', a: 'They move the run through its lifecycle: Submit sends a Draft for approval, Approve locks in the numbers as final, Disburse marks it as paid out. Which buttons you see depends on the run’s current status and your permissions.' },
-  { q: 'Can I undo an action after Approve or Disburse?', a: 'Use Rollback — it reverts the run back to Draft with a required reason, so you can fix something and regenerate. It’s available only at the stages where this app allows a reversal.' },
-  { q: 'Where do Arrears come from?', a: 'They’re never entered directly — a backdated salary revision, an LOP reversal, or releasing a salary hold automatically creates an arrears row, which the next regenerate picks up as a line item. The Arrears tab (under Holds & Arrears) is read-only, showing what’s pending or already applied.' },
-  { q: 'What’s the difference between a Processing Hold and a Payout Hold?', a: 'A Processing Hold excludes someone from this run entirely — regenerate and they’re skipped. A Payout Hold still includes them in the run’s numbers but holds back the actual disbursement for that person.' },
-  { q: 'Why can’t I edit a statutory deduction amount directly on a payslip?', a: 'Payslip line items are rebuilt on every regenerate, so a direct edit would be silently lost. Use Statutory Override instead — it persists independently of any one run and survives regeneration.' },
+  { q: 'Can I undo an action after Approve or Disburse?', a: 'Use Rollback - it reverts the run back to Draft with a required reason, so you can fix something and regenerate. It’s available only at the stages where this app allows a reversal.' },
+  { q: 'Where do Arrears come from?', a: 'They’re never entered directly - a backdated salary revision, an LOP reversal, or releasing a salary hold automatically creates an arrears row, which the next regenerate picks up as a line item. The Arrears tab (under Holds & Arrears) is read-only, showing what’s pending or already applied.' },
+  { q: 'What’s the difference between a Processing Hold and a Payout Hold?', a: 'A Processing Hold excludes someone from this run entirely - regenerate and they’re skipped. A Payout Hold still includes them in the run’s numbers but holds back the actual disbursement for that person.' },
+  { q: 'Why can’t I edit a statutory deduction amount directly on a payslip?', a: 'Payslip line items are rebuilt on every regenerate, so a direct edit would be silently lost. Use Statutory Override instead - it persists independently of any one run and survives regeneration.' },
 ];
 
 export default function PayrollRunDetailPage() {
@@ -192,7 +199,7 @@ export default function PayrollRunDetailPage() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  // Pay Group name only, for the header — there's no second pay group's worth of UI to build yet,
+  // Pay Group name only, for the header - there's no second pay group's worth of UI to build yet,
   // just a one-time reminder of which pay group this run belongs to (today's only real gap once a
   // company has more than one).
   useEffect(() => { payrollApi.listPayGroups(token).then(setPayGroups).catch(() => {}); }, [token]);
@@ -223,19 +230,25 @@ export default function PayrollRunDetailPage() {
         <ArrowLeft size={15} /> Back to Payroll Runs
       </button>
 
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
+      <div className="nf-pr-hero">
         <PageTitleBlock icon={Wallet}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>
             {(() => { const [y, m] = run.cycleEnd.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }); })()} Payroll
           </h1>
           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fmtDate(run.cycleStart)} – {fmtDate(run.cycleEnd)}</span>
+            <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fmtDate(run.cycleStart)} to {fmtDate(run.cycleEnd)}</span>
             <StatusBadge status={run.status} />
             {payGroupName && <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{payGroupName}</span>}
           </div>
+          <ol className="nf-pr-life" aria-label="Run progress">
+            {LIFECYCLE.map((l, i) => {
+              const at = LIFECYCLE.findIndex(x => x.key === run.status);
+              return <li key={l.key} className={i < at ? 'is-done' : i === at ? 'is-now' : ''}><button type="button" onClick={() => { setStep('overview'); document.querySelector('.nf-pr-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }} title="Show run status"><span className="nf-pr-life-dot">{i < at ? <CheckCircle2 size={13} /> : i + 1}</span>{l.label}</button></li>;
+            })}
+          </ol>
         </PageTitleBlock>
 
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div className="nf-pr-hero-actions">
           {actions.includes('regenerate') && (
             <BtnGhost disabled={busy} onClick={() => act(() => payrollApi.generateDraft({ payGroupId: run.payGroupId, referenceDate: run.cycleStart }, token), 'Draft regenerated')}>
               Regenerate
@@ -265,7 +278,7 @@ export default function PayrollRunDetailPage() {
         <StatTile tone="var(--ok)" icon={<IndianRupee size={20} />} label="Net Pay" value={fmtCurrency(run.totalNet)} onClick={() => setStep('payslips')} />
       </div>
 
-      <TabBar tabs={STEPS} active={step} onChange={setStep} ariaLabel="Payroll run steps" style={{ marginBottom: 18 }} />
+      <TabBar tabs={STEPS} active={step} onChange={setStep} ariaLabel="Payroll run steps" className="nf-tabs-card" style={{ marginBottom: 18 }} />
 
       {step === 'overview' && (
         <>
@@ -274,14 +287,18 @@ export default function PayrollRunDetailPage() {
               <StepCard key={c.key} icon={c.icon} tone={c.tone} label={c.label} caption={c.caption} onClick={() => setStep(c.key)} />
             ))}
           </div>
-          <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 13, padding: '15px 18px' }}>
+          <div className="nf-pr-panel">
             <SectionHead title="Run Status" />
-            <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, margin: 0 }}>
-            <div><dt style={labelStyle}>Submitted</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{fmtDateTime(run.submittedAt)}</dd></div>
-            <div><dt style={labelStyle}>Approved</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{fmtDateTime(run.approvedAt)}</dd></div>
-            <div><dt style={labelStyle}>Disbursed</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{fmtDateTime(run.disbursedAt)}</dd></div>
-            <div><dt style={labelStyle}>Pending Approval Stage</dt><dd style={{ margin: 0, color: 'var(--txt)' }}>{run.pendingApprovalStage ?? '–'}</dd></div>
-          </dl>
+            <dl className="nf-pr-rs">
+              {([
+                ['Submitted', fmtDateTime(run.submittedAt), !!run.submittedAt],
+                ['Approved', fmtDateTime(run.approvedAt), !!run.approvedAt],
+                ['Disbursed', fmtDateTime(run.disbursedAt), !!run.disbursedAt],
+                ['Pending Approval Stage', run.pendingApprovalStage ?? '-', !!run.pendingApprovalStage],
+              ] as [string, string, boolean][]).map(([k, v, on]) => (
+                <button type="button" key={k} className={on ? 'is-on' : ''} onClick={() => setStep('payslips')} title="Open the Payslips step"><dt>{k}</dt><dd>{v}</dd></button>
+              ))}
+            </dl>
           </div>
 
           {preApproval && (
@@ -290,22 +307,22 @@ export default function PayrollRunDetailPage() {
 
               <div className="nf-pr-tiles" style={{ marginBottom: 18 }}>
                 {([
-                  ['Gross Pay', preApproval.current.grossPay, preApproval.previous?.grossPay, 'var(--brand)'],
-                  ['Deductions', preApproval.current.totalDeductions, preApproval.previous?.totalDeductions, 'var(--warn)'],
-                  ['Net Pay', preApproval.current.netPay, preApproval.previous?.netPay, 'var(--ok)'],
-                  ['Employer Contributions', preApproval.current.employerContributions, preApproval.previous?.employerContributions, 'var(--info)'],
-                ] as const).map(([label, value, prevValue, tone]) => {
+                  ['Gross Pay', preApproval.current.grossPay, preApproval.previous?.grossPay, 'var(--brand)', 'payslips'],
+                  ['Deductions', preApproval.current.totalDeductions, preApproval.previous?.totalDeductions, 'var(--warn)', 'cost-report'],
+                  ['Net Pay', preApproval.current.netPay, preApproval.previous?.netPay, 'var(--ok)', 'payslips'],
+                  ['Employer Contributions', preApproval.current.employerContributions, preApproval.previous?.employerContributions, 'var(--info)', 'cost-report'],
+                ] as const).map(([label, value, prevValue, tone, goTo]) => {
                   const delta = prevValue != null ? value - prevValue : null;
                   const hint = delta == null ? 'No previous cycle to compare'
                     : delta === 0 ? 'No change vs last cycle'
-                    : `${delta > 0 ? '▲' : '▼'} ${fmtCurrency(Math.abs(delta))} vs last cycle`;
-                  return <StatTile key={label} tone={tone} icon={<IndianRupee size={20} />} label={label} value={fmtCurrency(value)} hint={hint} />;
+                    : `${delta > 0 ? 'Up' : 'Down'} ${fmtCurrency(Math.abs(delta))} vs last cycle`;
+                  return <StatTile key={label} tone={tone} icon={<IndianRupee size={20} />} label={label} value={fmtCurrency(value)} hint={hint} onClick={() => setStep(goTo)} />;
                 })}
               </div>
 
               <div className="nf-pr-tiles" style={{ marginBottom: 20 }}>
-                <StatTile tone="var(--info)" icon={<CheckCircle2 size={20} />} label="Processed" value={String(preApproval.processedCount)} />
-                <StatTile tone="var(--warn)" icon={<PauseCircle size={20} />} label="On Hold" value={String(preApproval.onHoldCount)} />
+                <StatTile tone="var(--info)" icon={<CheckCircle2 size={20} />} label="Processed" value={String(preApproval.processedCount)} onClick={() => setStep('payslips')} />
+                <StatTile tone="var(--warn)" icon={<PauseCircle size={20} />} label="On Hold" value={String(preApproval.onHoldCount)} onClick={() => setStep('holds-arrears')} />
                 <StatTile
                   tone="var(--risk)" icon={<AlertTriangle size={20} />} label="Needs Attention"
                   value={String(preApproval.needsAttentionCount)}
@@ -316,11 +333,11 @@ export default function PayrollRunDetailPage() {
 
               {showNeedsAttention && preApproval.needsAttentionDetails.length > 0 && (
                 <div style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 8 }}>
+                  <div className="nf-pr-subhead">
                     Employees needing attention before approval
                   </div>
                   <div style={panelStyle}>
-                    <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <table className="nf-pr-table nf-pr-aligned nf-pr-c2" style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead><tr>{['Employee', 'Reason(s)'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                       <tbody>
                         {preApproval.needsAttentionDetails.map(item => (
@@ -337,11 +354,11 @@ export default function PayrollRunDetailPage() {
 
               {preApproval.variances.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--txt)', marginBottom: 8 }}>
+                  <div className="nf-pr-subhead">
                     Employees whose net pay changed vs last cycle
                   </div>
                   <div style={panelStyle}>
-                    <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <table className="nf-pr-table nf-pr-aligned nf-pr-c5" style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead><tr>{['Employee', 'Previous Net', 'Current Net', 'Change', 'Likely Reason(s)'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                       <tbody>
                         {preApproval.variances.map(v => (
@@ -367,13 +384,13 @@ export default function PayrollRunDetailPage() {
             <div style={{ marginTop: 18 }}>
               <SectionHead title="Rollback History" />
               <div style={panelStyle}>
-                <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table className="nf-pr-table nf-pr-aligned nf-pr-c3" style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead><tr>{['When', 'By', 'Reason'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                   <tbody>
                     {rollbackHistory.map(h => (
                       <tr key={h.id}>
                         <td style={tdStyle}>{fmtDateTime(h.rolledBackAt)}</td>
-                        <td style={tdStyle}>{h.rolledBackBy ? nameFor(h.rolledBackBy) : '—'}</td>
+                        <td style={tdStyle}>{h.rolledBackBy ? nameFor(h.rolledBackBy) : '-'}</td>
                         <td style={tdStyle}>{h.reason}</td>
                       </tr>
                     ))}

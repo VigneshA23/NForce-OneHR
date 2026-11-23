@@ -30,7 +30,7 @@ function OverrideLopModal({ payGroupId, employeeId, cycleStart, onClose, onDone 
         overrideLopDays: overrideLopDays === '' ? null : Number(overrideLopDays),
         overrideReason: overrideReason.trim(),
       }, token);
-      showToast('success', 'LOP override saved — recompute the run to reflect it in the payslip');
+      showToast('success', 'LOP override saved - recompute the run to reflect it in the payslip');
       onDone();
       onClose();
     } catch (e) {
@@ -47,7 +47,7 @@ function OverrideLopModal({ payGroupId, employeeId, cycleStart, onClose, onDone 
         <input type="number" min={0} step="0.5" value={overrideLopDays} onChange={e => setOverrideLopDays(e.target.value)} style={inputStyle} placeholder="Leave blank to clear override" />
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Reason *</label>
+        <label style={labelStyle}>Reason</label>
         <textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -69,7 +69,7 @@ function RollbackPayslipModal({ onClose, onConfirm }: { onClose: () => void; onC
   return (
     <Modal title="Rollback This Employee's Payslip" subtitle="Recomputes just this employee's payslip, leaving the rest of the run untouched." onClose={onClose}>
       <FormRow>
-        <label style={labelStyle}>Reason *</label>
+        <label style={labelStyle}>Reason</label>
         <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -91,7 +91,7 @@ function PayslipDetailModal({ payslip, payGroupId, cycleStart, employeeName, can
   async function recompute() {
     try {
       await payrollApi.recomputeLop({ employeeId: payslip.employeeId, payGroupId, runId: payslip.payrollRunId }, token);
-      showToast('success', 'LOP recomputed — regenerate the run to reflect it in the payslip');
+      showToast('success', 'LOP recomputed - regenerate the run to reflect it in the payslip');
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Recompute failed');
     }
@@ -147,9 +147,9 @@ function PayslipDetailModal({ payslip, payGroupId, cycleStart, employeeName, can
   );
 }
 
-/** Centralized "Distribute Payslips" — one confirm for the whole run, never a per-employee send
+/** Centralized "Distribute Payslips" - one confirm for the whole run, never a per-employee send
  * button (deliberately removed from the row-level ActionDock). Publishing to the portal is what
- * actually makes a payslip appear under My Finance — a run reaching Approved/Disbursed no longer
+ * actually makes a payslip appear under My Finance - a run reaching Approved/Disbursed no longer
  * does that automatically. */
 function DistributeModal({ payslipCount, onClose, onConfirm }: {
   payslipCount: number; onClose: () => void; onConfirm: (channels: ('PORTAL' | 'EMAIL')[]) => Promise<void>;
@@ -167,7 +167,7 @@ function DistributeModal({ payslipCount, onClose, onConfirm }: {
   }
 
   return (
-    <Modal title="Distribute Payslips" subtitle={`Applies to all ${payslipCount} payslip${payslipCount === 1 ? '' : 's'} in this run — not selectable per employee.`} onClose={onClose}>
+    <Modal title="Distribute Payslips" subtitle={`Applies to all ${payslipCount} payslip${payslipCount === 1 ? '' : 's'} in this run - not selectable per employee.`} onClose={onClose}>
       <FormRow>
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13.5, color: 'var(--txt)', cursor: 'pointer', marginBottom: 12 }}>
           <input type="checkbox" checked={portal} onChange={e => setPortal(e.target.checked)} style={{ marginTop: 2 }} />
@@ -187,7 +187,7 @@ function DistributeModal({ payslipCount, onClose, onConfirm }: {
           <input type="checkbox" checked={false} disabled style={{ marginTop: 2 }} />
           <span>
             <div style={{ fontWeight: 600 }}>Microsoft Teams</div>
-            <div style={{ fontSize: 12 }}>Not connected — no Teams integration is configured for this workspace.</div>
+            <div style={{ fontSize: 12 }}>Not connected - no Teams integration is configured for this workspace.</div>
           </span>
         </label>
       </FormRow>
@@ -214,7 +214,7 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
   const { nameFor } = useEmployeeDirectory();
 
   // The rendered PDF (view/download-all/distribute) only exists for a payslip PayslipService
-  // itself will serve — APPROVED/DISBURSED only, same gate CostReportTab already applies to its
+  // itself will serve - APPROVED/DISBURSED only, same gate CostReportTab already applies to its
   // own PDF-adjacent data. A DRAFT/SUBMITTED run still has real figures to review, just not yet a
   // "payslip" to hand anyone.
   const viewable = runStatus === 'APPROVED' || runStatus === 'DISBURSED';
@@ -255,7 +255,7 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
     }
   }
 
-  // Bank-details ticket — bank details + net pay only, excludes Payout Hold and anyone missing
+  // Bank-details ticket - bank details + net pay only, excludes Payout Hold and anyone missing
   // bank details (same "needs attention" condition the Overview's Pre-Approval Summary flags).
   async function exportBankTransfer() {
     setExportingBank(true);
@@ -322,7 +322,7 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
       />
       {!viewable && (
         <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', marginBottom: 10 }}>
-          Payslip distribution unlocks once this run is Approved or Disbursed — click a row to review its figures for now.
+          Payslip distribution unlocks once this run is Approved or Disbursed - click a row to review its figures for now.
         </div>
       )}
       <FilterBar search={search} onSearchChange={setSearch} />
@@ -347,7 +347,7 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
               </tr>
             ))}
             {pageRows.length === 0 && (
-              <EmptyRow cols={5} msg={payslips.length === 0 ? 'No payslips yet — generate the draft first.' : 'No matches for your search.'} />
+              <EmptyRow cols={5} msg={payslips.length === 0 ? 'No payslips yet - generate the draft first.' : 'No matches for your search.'} />
             )}
           </tbody>
         </table>

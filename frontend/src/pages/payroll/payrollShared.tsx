@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom';
 import { X, Wallet, FileCheck2, Receipt, ClipboardList, PauseCircle, Undo2, Search, HelpCircle, ChevronDown } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import DashTile from '../../components/DashTile';
 import { useAuthStore } from '../../store/authStore';
 import { employeesApi, type EmployeeRecord } from '../../api/employees';
 import './payroll.css';
 
-/** Payslips/review items/ad-hoc entries carry only an employeeId — this resolves it to a name for
+/** Payslips/review items/ad-hoc entries carry only an employeeId - this resolves it to a name for
  * display and for the employee pickers on the ad-hoc payment/deduction/hold forms. One fetch per
- * page mount (the full org roster — this console is HR Admin/Super Admin only, who already have
+ * page mount (the full org roster - this console is HR Admin/Super Admin only, who already have
  * org-wide employee visibility), not per row. */
 export function useEmployeeDirectory() {
   const token = useAuthStore(s => s.token) ?? '';
@@ -26,7 +27,7 @@ export function useEmployeeDirectory() {
 
 // ── Shared styles (same shape as pages/assets/shared.tsx / pages/bench/ui.tsx) ──
 
-export const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflow: 'hidden' };
+export const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflowX: 'auto' };
 export const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', whiteSpace: 'nowrap', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
 export const tdStyle: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
 export const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
@@ -35,23 +36,23 @@ export const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, 
 export const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
 
 export function fmtCurrency(n?: number | null) {
-  if (n == null) return '–';
+  if (n == null) return '-';
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n);
 }
 
 export function fmtDate(s?: string | null) {
-  if (!s) return '–';
+  if (!s) return '-';
   return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export function fmtDateTime(s?: string | null) {
-  if (!s) return '–';
+  if (!s) return '-';
   return new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 // Semantic status/decision → the app's theme tokens (--ok/--warn/--risk/--info), never a fixed hex,
 // so badges follow the selected accent color and light/dark mode. Covers both PayrollRun statuses
-// and the C22/C23 review decisions (same badge component for both — they never appear in the same
+// and the C22/C23 review decisions (same badge component for both - they never appear in the same
 // column, so there's no ambiguity in sharing one map).
 const STATUS_TONE: Record<string, string> = {
   DRAFT: 'var(--txt-dim)',
@@ -92,7 +93,7 @@ export function SectionHead({ title, action }: { title: string; action?: ReactNo
 }
 
 // Same categorical order already validated and in use for the talent module's pie charts
-// (talent/DashboardTab.tsx's PIE_PALETTE) — reused rather than re-picked, so color identity for
+// (talent/DashboardTab.tsx's PIE_PALETTE) - reused rather than re-picked, so color identity for
 // "series N" stays consistent app-wide instead of drifting per feature.
 export const PIE_PALETTE = ['#B11116', '#4C8DD6', '#2FB67C', '#E0A93B', '#8B5FBF', 'var(--raised2)'];
 export const chartTooltipStyle = { contentStyle: { background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, color: 'var(--txt)' } };
@@ -108,19 +109,19 @@ export function ChartCard({ title, hint, children }: { title: string; hint?: str
   );
 }
 
-// Consistent "you can look but not touch" wording — several tabs used to just silently omit
+// Consistent "you can look but not touch" wording - several tabs used to just silently omit
 // their Add/Create button for a non-configuring viewer with no explanation at all, while others
 // (SalaryRevisionTab) already explained why. Same message everywhere now.
 export function NoPermissionNote({ action }: { action: string }) {
-  return <span style={{ fontSize: 13, color: 'var(--txt-dim)' }}>View only — you don't have permission to {action}.</span>;
+  return <span style={{ fontSize: 13, color: 'var(--txt-dim)' }}>View only. You don't have permission to {action}.</span>;
 }
 
 // The hand-rolled "Select… + employees.map(...)" dropdown used to be copy-pasted near-identically
 // across half a dozen tabs (Ad-hoc Payments/Deductions, Salary Holds, Statutory Override, Employee
-// Compensation, Salary Revision) — some scoped to the full org directory, others to just this
+// Compensation, Salary Revision) - some scoped to the full org directory, others to just this
 // run's own employees. `options` takes whichever list the caller already has and how it wants each
 // one labelled, so this stays agnostic to that distinction rather than picking one for everybody.
-// Type-to-search instead of a native <select> — with a full org roster, scrolling a plain
+// Type-to-search instead of a native <select> - with a full org roster, scrolling a plain
 // dropdown to find one person doesn't scale. Options are filtered by substring match against
 // their label as the admin types; selecting one is the only thing that changes `value`, so typing
 // and then clicking away without picking leaves the previous selection intact rather than
@@ -188,7 +189,7 @@ export function EmployeePicker({ value, onChange, options }: {
   );
 }
 
-// The filter/search strip that sits above a list table (Keka's "filter bar" pattern) — a search
+// The filter/search strip that sits above a list table (Keka's "filter bar" pattern) - a search
 // box plus whatever filter controls the caller already has real data for. Deliberately doesn't
 // fabricate dropdowns the underlying data can't back; `children` is where a caller adds its own
 // (e.g. a status <select>) using the same inputStyle-less, borderless look as the search box.
@@ -208,7 +209,7 @@ export function FilterBar({ search, onSearchChange, placeholder = 'Search employ
   );
 }
 
-/** Overview's step-card grid tile — a round pastel-tinted icon, a primary-coloured title link and
+/** Overview's step-card grid tile - a round pastel-tinted icon, a primary-coloured title link and
  * a grey caption, matching Keka's "Run Payroll" step cards. Reuses the same --mk tone convention
  * as StatTile, just without the big KPI number (this is a nav link, not a readout). */
 export function StepCard({ icon, tone, label, caption, onClick, disabled, disabledReason }: {
@@ -237,29 +238,13 @@ export function EmptyRow({ cols, msg }: { cols: number; msg: string }) {
 }
 
 /** KPI tile: label and icon on top, the number at the bottom, a coloured edge on the left. */
-// onClick is optional — most StatTile uses are pure KPI display (the run console's
+// onClick is optional - most StatTile uses are pure KPI display (the run console's
 // Employees/Gross/Deductions/Net row has nowhere to navigate to). Where a tile corresponds to an
 // actual section elsewhere on the page (Payroll Setup's per-section counts), passing onClick turns
-// it into a quick-nav button too — same visual, doubling as the thing the user asked for either way.
+// it into a quick-nav button too - same visual, doubling as the thing the user asked for either way.
 export function StatTile({ label, value, hint, icon, tone, onClick }: { label: string; value: string; hint?: string; icon: ReactNode; tone: string; onClick?: () => void }) {
-  const content = (
-    <>
-      <div className="nf-pr-tile-top">
-        <span className="nf-pr-tile-label">{label}</span>
-        <span className="nf-pr-tile-ico">{icon}</span>
-      </div>
-      <div className="nf-pr-tile-val">{value}</div>
-      {hint && <div className="nf-pr-tile-hint">{hint}</div>}
-    </>
-  );
-  if (onClick) {
-    return (
-      <button type="button" className="nf-pr-tile" style={{ ['--mk' as string]: tone, cursor: 'pointer', textAlign: 'left', width: '100%', font: 'inherit', color: 'inherit' }} onClick={onClick}>
-        {content}
-      </button>
-    );
-  }
-  return <div className="nf-pr-tile" style={{ ['--mk' as string]: tone }}>{content}</div>;
+  // Same themed tile as the dashboards, so the payroll console matches the rest of the app.
+  return <DashTile icon={icon} label={label} value={value} sub={hint} accent={tone} onClick={onClick} />;
 }
 
 // ── Modal wrapper ─────────────────────────────────────────
@@ -275,7 +260,7 @@ function modalIconFor(title: string): LucideIcon {
 }
 
 // A plain yes/no confirmation for an irreversible action with no other input to collect (removing
-// an ad-hoc payment, cancelling a deduction, releasing a hold, clearing an override) — distinct
+// an ad-hoc payment, cancelling a deduction, releasing a hold, clearing an override) - distinct
 // from the Reason-collecting modals (Rollback, Reject) elsewhere in this module, which already
 // have their own built-in pause-before-acting step. None of ActionDock's own danger-flagged items
 // had one until now; a misclick used to fire immediately.
@@ -322,7 +307,7 @@ export function Modal({ title, subtitle, onClose, children, wide }: { title: str
   );
 }
 
-// A focused full-screen task (Keka's pattern for big edits — Update Salary Structure, Revise
+// A focused full-screen task (Keka's pattern for big edits - Update Salary Structure, Revise
 // Salary): hides everything else, title + close top-left/right, caller-supplied action buttons
 // (Cancel/Save) in a sticky header bar instead of a modal footer. Scrollable body below.
 //
@@ -330,7 +315,7 @@ export function Modal({ title, subtitle, onClose, children, wide }: { title: str
 // this component is always mounted several levels deep inside a tab's own page content, and
 // `position: fixed` only measures against the true viewport when NO ancestor between it and
 // <body> has its own transform/filter/will-change (several of which this app's animated sections
-// apply elsewhere — see the .nf-section-enter comment in index.css for the same class of bug).
+// apply elsewhere - see the .nf-section-enter comment in index.css for the same class of bug).
 // A portal makes that ancestry irrelevant instead of having to prove none of it ever will.
 export function FullScreenTask({ title, subtitle, onClose, actions, children }: {
   title: string; subtitle?: ReactNode; onClose: () => void; actions: ReactNode; children: ReactNode;
@@ -359,7 +344,7 @@ export function FullScreenTask({ title, subtitle, onClose, actions, children }: 
   );
 }
 
-// Right-side slide-in panel for editing a single record (Keka's drawer pattern, §1.4) — a grey
+// Right-side slide-in panel for editing a single record (Keka's drawer pattern, §1.4) - a grey
 // read-only block for fields that can't change after creation, a scrollable form body, and a
 // sticky Discard/Update footer. Portalled onto <body> for the same reason FullScreenTask is.
 export function Drawer({ title, readOnlyBlock, onClose, children, footer }: {
@@ -387,7 +372,7 @@ export function Drawer({ title, readOnlyBlock, onClose, children, footer }: {
   );
 }
 
-// A pill toggle (Keka's switch pattern, §1.4) — --primary when on, light grey when off. A plain
+// A pill toggle (Keka's switch pattern, §1.4) - --primary when on, light grey when off. A plain
 // checkbox styled as a switch would be simpler, but role="switch" semantics communicate "this
 // flips a setting" better than a checkbox does for things like "Enabled"/"Active".
 export function ToggleSwitch({ checked, onChange, label, disabled }: {
@@ -415,7 +400,7 @@ export function ToggleSwitch({ checked, onChange, label, disabled }: {
   );
 }
 
-// Keka's import-wizard stepper (§1.4/§3.4) — a horizontal row of numbered circles, the active
+// Keka's import-wizard stepper (§1.4/§3.4) - a horizontal row of numbered circles, the active
 // step filled, earlier ones also filled (done), later ones outline-only.
 export function Stepper({ steps, activeIndex }: { steps: string[]; activeIndex: number }) {
   return (
@@ -447,7 +432,7 @@ export function FormRow({ children }: { children: ReactNode }) {
 
 export function BtnPrimary({ children, onClick, disabled, type = 'button' }: { children: ReactNode; onClick?: () => void; disabled?: boolean; type?: 'button' | 'submit' }) {
   return (
-    // display:inline-flex + alignItems:center — Tailwind's preflight (this app imports
+    // display:inline-flex + alignItems:center - Tailwind's preflight (this app imports
     // tailwindcss in index.css) resets every <svg> to display:block; inside a plain inline-block
     // button that forces a hard line break between an icon prefix and the label that follows it
     // (an icon with no following inline siblings is unaffected, which is why this went unnoticed
@@ -470,7 +455,7 @@ export function BtnGhost({ children, onClick, disabled }: { children: ReactNode;
 
 export type FaqItem = { q: string; a: ReactNode };
 
-/** A right-docked "how do I do this" panel — static, hand-written per page. Not the AI
+/** A right-docked "how do I do this" panel - static, hand-written per page. Not the AI
  * assistant (AssistantLauncher) and not the Help Desk knowledge base; a page-scoped quick
  * reference for the exact actions that page offers. Sticky so it stays in view while the page's
  * own content scrolls past it. All items start closed; an employee opens only what they need. */
@@ -513,7 +498,7 @@ export function FaqPanel({ items, title = 'FAQ' }: { items: FaqItem[]; title?: s
 }
 
 /** Wraps a page's existing content with the sticky FAQ panel on the right, so every payroll tab
- * can add one without re-deriving its own grid layout — the page's own content takes the
+ * can add one without re-deriving its own grid layout - the page's own content takes the
  * remaining space at `flex: 1`, the panel holds a fixed width beside it. */
 export function WithFaqPanel({ items, title, children }: { items: FaqItem[]; title?: string; children: ReactNode }) {
   return (

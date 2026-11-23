@@ -5,8 +5,8 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayrollClaimResponse } from '../../api/payroll';
 import { panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, EmptyRow, SectionHead, FilterBar } from './payrollShared';
 
-/** Keka's "Salary Component Claim"/"Expenses" steps — read-only visibility into expense claims HR
- * already routed "with payroll" in the Expenses module. Doesn't feed payslip math — see the
+/** Keka's "Salary Component Claim"/"Expenses" steps - read-only visibility into expense claims HR
+ * already routed "with payroll" in the Expenses module. Doesn't feed payslip math - see the
  * backend PayrollClaimService's own Javadoc for why this stays a reporting view. */
 export function SalaryComponentClaimTab({ runId }: { runId: string }) {
   const token = useAuthStore(s => s.token)!;
@@ -25,7 +25,7 @@ export function SalaryComponentClaimTab({ runId }: { runId: string }) {
     <div>
       <SectionHead title="Claims Cleared for Payroll" />
       <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
-        Expense claims HR has already routed "with payroll" from the Expenses module — visibility only, not a payslip input.
+        Expense claims HR has already routed "with payroll" from the Expenses module - visibility only, not a payslip input.
       </div>
       <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>

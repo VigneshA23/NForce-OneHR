@@ -19,7 +19,7 @@ import { BonusImportWizard } from './BonusImportWizard';
 /** Keka's "Revise Salary" full-screen task (§3.11), reused here for first-time assignment too —
  * same payrollApi.assignCompensation call either way, just framed as "Assign" when there's no
  * current compensation yet vs. "Revise" when there is. The "or Percentage Change" input is pure
- * client-side arithmetic over the same single `ctc` field the request actually sends — not a new
+ * client-side arithmetic over the same single `ctc` field the request actually sends - not a new
  * business concept, just a second way to arrive at the same number. */
 export function ReviseCompensationScreen({ employee, current, structures, payGroups, onClose, onSaved }: {
   employee: EmployeeRecord; current: EmployeeCompensationResponse | null; structures: SalaryStructureResponse[];
@@ -76,36 +76,36 @@ export function ReviseCompensationScreen({ employee, current, structures, payGro
         <PersonAvatar userId={employee.userId} name={employee.fullName} size={44} />
         <div>
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{employee.fullName}</div>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--brand)' }}>{employee.designationName ?? '—'}</div>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--brand)' }}>{employee.designationName ?? '-'}</div>
         </div>
         <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--line)' }} />
         <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
           <div><div style={labelStyle}>Date of Joining</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{fmtDate(employee.joiningDate)}</div></div>
-          <div><div style={labelStyle}>Legal Entity</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{legalEntity ?? '—'}</div></div>
-          <div><div style={labelStyle}>Department</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{employee.departmentName ?? '—'}</div></div>
+          <div><div style={labelStyle}>Legal Entity</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{legalEntity ?? '-'}</div></div>
+          <div><div style={labelStyle}>Department</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{employee.departmentName ?? '-'}</div></div>
           <div><div style={labelStyle}>Current CTC</div><div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)' }}>{current ? fmtCurrency(current.ctc) : 'Not set'}</div></div>
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) minmax(260px, 340px)', gap: 24, alignItems: 'start' }}>
-        {/* Left — new compensation details */}
+        {/* Left - new compensation details */}
         <div>
           <SectionHead title="New compensation details" />
           <FormRow>
-            <label style={labelStyle}>Pay Group *</label>
+            <label style={labelStyle}>Pay Group</label>
             <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
               {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}
             </select>
           </FormRow>
           <FormRow>
-            <label style={labelStyle}>Salary Structure *</label>
+            <label style={labelStyle}>Salary Structure</label>
             <select value={structureId} onChange={e => setStructureId(e.target.value)} style={inputStyle}>
               {structures.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </FormRow>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginBottom: 14 }}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>New Annual CTC {mode === 'amount' && '*'}</label>
+              <label style={labelStyle}>New Annual CTC</label>
               <input
                 type="number" min={0} value={amount}
                 onFocus={() => setMode('amount')}
@@ -115,7 +115,7 @@ export function ReviseCompensationScreen({ employee, current, structures, payGro
             </div>
             <span style={{ fontSize: 12.5, color: 'var(--txt-dim)', paddingBottom: 10 }}>or</span>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Percentage Change {mode === 'percent' && '*'}</label>
+              <label style={labelStyle}>Percentage Change</label>
               <input
                 type="number" step="0.1" value={percent} disabled={!current}
                 onFocus={() => setMode('percent')}
@@ -126,22 +126,22 @@ export function ReviseCompensationScreen({ employee, current, structures, payGro
             </div>
           </div>
           <FormRow>
-            <label style={labelStyle}>Effective From *</label>
+            <label style={labelStyle}>Effective From</label>
             <input type="date" value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} style={inputStyle} />
           </FormRow>
         </div>
 
-        {/* Right — compensation summary */}
+        {/* Right - compensation summary */}
         <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>Compensation Summary</div>
-          <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 16 }}>Effective from: {effectiveFrom ? fmtDate(effectiveFrom) : '—'}</div>
+          <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 16 }}>Effective from: {effectiveFrom ? fmtDate(effectiveFrom) : '-'}</div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
             <span style={labelStyle}>Current CTC</span>
-            <span style={{ fontSize: 15, color: 'var(--txt-mut)' }}>{current ? fmtCurrency(current.ctc) : '—'}</span>
+            <span style={{ fontSize: 15, color: 'var(--txt-mut)' }}>{current ? fmtCurrency(current.ctc) : '-'}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
             <span style={labelStyle}>New CTC</span>
-            <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--txt)' }}>{newCtc > 0 ? fmtCurrency(newCtc) : '—'}</span>
+            <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--txt)' }}>{newCtc > 0 ? fmtCurrency(newCtc) : '-'}</span>
           </div>
           {change != null && changePct != null && (
             <div style={{ paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5, color: change >= 0 ? 'var(--ok)' : 'var(--risk)' }}>
@@ -154,14 +154,14 @@ export function ReviseCompensationScreen({ employee, current, structures, payGro
   );
 }
 
-/** The "All Changes" view — every compensation row ever created, across every employee, newest
+/** The "All Changes" view - every compensation row ever created, across every employee, newest
  * first. "When" always comes straight from the row's own createdAt (reliable). "Changed By" is a
  * best-effort client-side join against GET /api/audit-logs?action=EMPLOYEE_COMPENSATION_ASSIGNED
- * by targetId — that's already the one place actor+timestamp is tracked for this action (see
+ * by targetId - that's already the one place actor+timestamp is tracked for this action (see
  * EmployeeCompensationService#listAllHistory's own comment), rather than duplicating it onto this
  * response. It can come back blank for a row a non-Super-Admin viewer didn't personally create —
  * the audit module scopes non-Super-Admins to their own actions only, same as everywhere else audit
- * data is shown in this app — or for a row predating this action's audit coverage. */
+ * data is shown in this app - or for a row predating this action's audit coverage. */
 export function AllChangesHistory() {
   const token = useAuthStore(s => s.token)!;
   const { nameFor } = useEmployeeDirectory();
@@ -182,7 +182,7 @@ export function AllChangesHistory() {
     <div>
       <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 10 }}>
         Every compensation assignment or revision, across every employee. "Changed by" is only as
-        complete as this account's own audit-history visibility — it may be blank for changes
+        complete as this account's own audit-history visibility - it may be blank for changes
         another admin made.
       </div>
       <FilterBar search={search} onSearchChange={setSearch} />
@@ -199,7 +199,7 @@ export function AllChangesHistory() {
                   <td style={tdStyle}>{fmtCurrency(r.ctc)}</td>
                   <td style={tdStyle}>{fmtDate(r.effectiveFrom)}</td>
                   <td style={tdStyle}>{r.effectiveTo ? fmtDate(r.effectiveTo) : 'Current'}</td>
-                  <td style={tdStyle}>{audit?.actorName ?? '—'}</td>
+                  <td style={tdStyle}>{audit?.actorName ?? '-'}</td>
                   <td style={tdStyle}>{fmtDateTime(r.createdAt)}</td>
                 </tr>
               );
@@ -221,11 +221,11 @@ const VIEW_MODES: TabDef<ViewMode>[] = [
 ];
 
 const FAQ_ITEMS: FaqItem[] = [
-  { q: 'What’s the difference between "Assign" and "Revise" Compensation?', a: 'Same screen, same action underneath — it’s labeled "Assign" when the employee has no compensation yet, and "Revise" once they do. Both create a new compensation row effective from the date you set.' },
+  { q: 'What’s the difference between "Assign" and "Revise" Compensation?', a: 'Same screen, same action underneath - it’s labeled "Assign" when the employee has no compensation yet, and "Revise" once they do. Both create a new compensation row effective from the date you set.' },
   { q: 'Does revising someone’s compensation change past payslips?', a: 'No. A new compensation row only affects payslips generated for cycles on or after its effective date; anything already generated stays exactly as it was.' },
-  { q: 'Where do I see every change made across all employees?', a: 'Switch to the "All Changes" view at the top — it lists every compensation revision org-wide with who made it and when, pulled from the audit log.' },
+  { q: 'Where do I see every change made across all employees?', a: 'Switch to the "All Changes" view at the top - it lists every compensation revision org-wide with who made it and when, pulled from the audit log.' },
   { q: 'What are the three Import buttons for?', a: 'Bulk-upload an Excel file instead of entering rows one by one: Salaries (new compensation per employee), Financial Info (bank/PAN/UAN), and Bonuses (one-off ad-hoc payments). Each walks through Upload → Match Columns → Preview before writing anything.' },
-  { q: 'Why does the employee picker clear itself after I save?', a: 'On purpose — so you don’t accidentally start revising the same person again. Search and pick the next employee from empty each time.' },
+  { q: 'Why does the employee picker clear itself after I save?', a: 'On purpose - so you don’t accidentally start revising the same person again. Search and pick the next employee from empty each time.' },
 ];
 
 export function EmployeeCompensationTab({ structures, payGroups }: { structures: SalaryStructureResponse[]; payGroups: PayGroupResponse[] }) {
@@ -248,7 +248,7 @@ export function EmployeeCompensationTab({ structures, payGroups }: { structures:
   }, [employeeId, token]);
 
   // Resets the picker back to empty after a successful save, rather than leaving the
-  // just-revised employee selected — explicitly asked for, so picking a different employee next
+  // just-revised employee selected - explicitly asked for, so picking a different employee next
   // doesn't start from whatever was left over from the last one.
   function onSaved() {
     setEmployeeId('');

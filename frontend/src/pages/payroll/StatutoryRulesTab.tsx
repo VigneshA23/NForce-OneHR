@@ -10,23 +10,23 @@ import {
 } from './payrollShared';
 
 const FAQ_ITEMS: FaqItem[] = [
-  { q: 'What actually gets computed from a rule saved here?', a: 'Only PF, ESI and Professional Tax are read by payroll when building a payslip. A rule saved under any other name (e.g. a TDS or Gratuity slab) is stored but never applied — the create form warns you about this as you type.' },
-  { q: 'How do I update a rate or ceiling (e.g. the PF wage ceiling)?', a: 'Click Revise on the PF/ESI/Professional Tax row and change the number that’s changing. It creates a new version effective from the date you set — the previous one is automatically closed out, not overwritten, so its full history stays visible.' },
+  { q: 'What actually gets computed from a rule saved here?', a: 'Only PF, ESI and Professional Tax are read by payroll when building a payslip. A rule saved under any other name (e.g. a TDS or Gratuity slab) is stored but never applied - the create form warns you about this as you type.' },
+  { q: 'How do I update a rate or ceiling (e.g. the PF wage ceiling)?', a: 'Click Revise on the PF/ESI/Professional Tax row and change the number that’s changing. It creates a new version effective from the date you set - the previous one is automatically closed out, not overwritten, so its full history stays visible.' },
   { q: 'Where do I see what changed and when?', a: 'Click History on any row to see every past version of that country + rule type, each with its own effective date range and values.' },
-  { q: 'Why does a Location show up in the warning banner?', a: 'Its Country text doesn’t exactly match the Country saved on any rule below (e.g. "India" vs "IN") — or it has no Country set at all. Payroll matches Country as plain text, so even a one-character difference means PF/ESI/Professional Tax get silently skipped for every employee at that Location. Fix the Location’s Country (People > Organization > Organization Structure > Locations) to match exactly.' },
-  { q: 'Why does a card say "Not Set Up"?', a: 'No rule exists yet for that type in any country. Until one is added, payroll silently skips that deduction on every payslip — it doesn’t fail or block the run.' },
+  { q: 'Why does a Location show up in the warning banner?', a: 'Its Country text doesn’t exactly match the Country saved on any rule below (e.g. "India" vs "IN") - or it has no Country set at all. Payroll matches Country as plain text, so even a one-character difference means PF/ESI/Professional Tax get silently skipped for every employee at that Location. Fix the Location’s Country (People > Organization > Organization Structure > Locations) to match exactly.' },
+  { q: 'Why does a card say "Not Set Up"?', a: 'No rule exists yet for that type in any country. Until one is added, payroll silently skips that deduction on every payslip - it doesn’t fail or block the run.' },
 ];
 
-// Only these three are actually read by StatutoryDeductionService.computeDeductions — TDS and
+// Only these three are actually read by StatutoryDeductionService.computeDeductions - TDS and
 // Gratuity are explicitly out of scope (see that service's own Javadoc: TDS needs a full annual
 // income-tax slab computation, Gratuity is an employer-side accrual, never a payslip line item).
-// A rule saved under any other name is valid data but will never be computed by payroll — the
+// A rule saved under any other name is valid data but will never be computed by payroll - the
 // note below the field says so; this list is deliberately not open to suggesting them.
 const RULE_TYPE_SUGGESTIONS = ['PF', 'ESI', 'PROFESSIONAL_TAX'];
 const RULE_TYPE_LABEL: Record<string, string> = { PF: 'Provident Fund', ESI: 'ESI', PROFESSIONAL_TAX: 'Professional Tax' };
 
 // slabConfig is always a flat JSON object of plain numbers (see StatutoryDeductionService's own
-// tests — e.g. {"employeeRate":0.12,"wageCeiling":25000}), never a fixed schema across rule
+// tests - e.g. {"employeeRate":0.12,"wageCeiling":25000}), never a fixed schema across rule
 // types. Generic camelCase -> "SPACED UPPERCASE" labeling (not a per-field description) is the
 // only honest way to show it structurally without guessing what a field means for a rule type
 // this UI doesn't otherwise understand.
@@ -40,7 +40,7 @@ function parseSlabConfig(slabConfig: string): [string, unknown][] | null {
   try {
     const parsed = JSON.parse(slabConfig);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return Object.entries(parsed);
-  } catch { /* not valid JSON — fall through */ }
+  } catch { /* not valid JSON - fall through */ }
   return null;
 }
 
@@ -72,7 +72,7 @@ function SlabConfigGrid({ slabConfig }: { slabConfig: string }) {
 }
 
 /** Percentage fields are stored in slabConfig as a plain decimal (0.12), same as
- * StatutoryDeductionService reads them — this is the only place that fraction/percent
+ * StatutoryDeductionService reads them - this is the only place that fraction/percent
  * conversion happens, so an HR admin only ever types "12", never "0.12". */
 function pctFromSlab(slab: Record<string, unknown>, key: string): string {
   const v = slab[key];
@@ -96,7 +96,7 @@ function ReviseRuleModal({ initial, onClose, onCreated }: {
     try { const p = JSON.parse(initial.slabConfig); return p && typeof p === 'object' ? p : {}; } catch { return {}; }
   })();
 
-  // Friendly fields for the three rule types payroll actually computes — HR never sees or types
+  // Friendly fields for the three rule types payroll actually computes - HR never sees or types
   // raw JSON for these. Rates are typed as plain percentages (e.g. "12"), converted to a decimal
   // only when building the request.
   const [employeeRatePct, setEmployeeRatePct] = useState(() => pctFromSlab(initialSlab, 'employeeRate'));
@@ -104,7 +104,7 @@ function ReviseRuleModal({ initial, onClose, onCreated }: {
   const [wageCeiling, setWageCeiling] = useState(() => numFromSlab(initialSlab, 'wageCeiling'));
   const [ptAmount, setPtAmount] = useState(() => numFromSlab(initialSlab, 'amount'));
 
-  // Fallback for any rule type outside the known three — same raw-JSON editor as before.
+  // Fallback for any rule type outside the known three - same raw-JSON editor as before.
   const [rawSlabConfig, setRawSlabConfig] = useState(initial?.slabConfig ?? '{\n  \n}');
   const [jsonError, setJsonError] = useState<string | null>(null);
 
@@ -158,45 +158,45 @@ function ReviseRuleModal({ initial, onClose, onCreated }: {
   return (
     <Modal
       title={initial ? `Revise ${RULE_TYPE_LABEL[initial.ruleType] ?? initial.ruleType} (${initial.country})` : 'Add / Revise Statutory Rule'}
-      subtitle="Creates a new version effective from the date below. The existing current rule for the same country + rule type is automatically closed out, not overwritten — its history is preserved."
+      subtitle="Creates a new version effective from the date below. The existing current rule for the same country + rule type is automatically closed out, not overwritten - its history is preserved."
       onClose={onClose}
     >
       <FormRow>
-        <label style={labelStyle}>Country *</label>
+        <label style={labelStyle}>Country</label>
         <input value={country} onChange={e => setCountry(e.target.value)} style={inputStyle} placeholder="e.g. India" disabled={!!initial} />
         <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4 }}>
-          Must exactly match the Country text saved on each employee's Location — e.g. "India", "USA" (case-sensitive, so "india" or "IN" won't match "India").
+          Must exactly match the Country text saved on each employee's Location - e.g. "India", "USA" (case-sensitive, so "india" or "IN" won't match "India").
         </div>
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Rule Type *</label>
+        <label style={labelStyle}>Rule Type</label>
         <input list="rule-type-suggestions" value={ruleType} onChange={e => setRuleType(e.target.value.toUpperCase())} style={inputStyle} placeholder="e.g. PF" disabled={!!initial} />
         <datalist id="rule-type-suggestions">
           {RULE_TYPE_SUGGESTIONS.map(t => <option key={t} value={t} />)}
         </datalist>
         {ruleType && !isKnownType && (
           <div style={{ fontSize: 12, color: 'var(--warn)', marginTop: 4 }}>
-            Payroll only computes PF, ESI and Professional Tax today — a rule saved under "{ruleType}" will be stored but never applied to a payslip.
+            Payroll only computes PF, ESI and Professional Tax today - a rule saved under "{ruleType}" will be stored but never applied to a payslip.
           </div>
         )}
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Effective From *</label>
+        <label style={labelStyle}>Effective From</label>
         <input type="date" value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} style={inputStyle} />
       </FormRow>
 
       {ruleType === 'PF' && (
         <>
           <FormRow>
-            <label style={labelStyle}>Employee PF Rate (%) *</label>
+            <label style={labelStyle}>Employee PF Rate (%)</label>
             <input type="number" step="0.01" value={employeeRatePct} onChange={e => setEmployeeRatePct(e.target.value)} style={inputStyle} placeholder="e.g. 12" />
           </FormRow>
           <FormRow>
-            <label style={labelStyle}>Employer PF Rate (%) <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional — prints "Employer PF" on the payslip)</span></label>
+            <label style={labelStyle}>Employer PF Rate (%) <span style={{ fontWeight: 400, textTransform: 'none' }}>(optional - prints "Employer PF" on the payslip)</span></label>
             <input type="number" step="0.01" value={employerRatePct} onChange={e => setEmployerRatePct(e.target.value)} style={inputStyle} placeholder="e.g. 12" />
           </FormRow>
           <FormRow>
-            <label style={labelStyle}>Wage Ceiling (₹ per month) *</label>
+            <label style={labelStyle}>Wage Ceiling (₹ per month)</label>
             <input type="number" value={wageCeiling} onChange={e => setWageCeiling(e.target.value)} style={inputStyle} placeholder="e.g. 25000" />
           </FormRow>
         </>
@@ -204,11 +204,11 @@ function ReviseRuleModal({ initial, onClose, onCreated }: {
       {ruleType === 'ESI' && (
         <>
           <FormRow>
-            <label style={labelStyle}>Employee ESI Rate (%) *</label>
+            <label style={labelStyle}>Employee ESI Rate (%)</label>
             <input type="number" step="0.01" value={employeeRatePct} onChange={e => setEmployeeRatePct(e.target.value)} style={inputStyle} placeholder="e.g. 0.75" />
           </FormRow>
           <FormRow>
-            <label style={labelStyle}>Eligibility Ceiling (₹ per month gross) *</label>
+            <label style={labelStyle}>Eligibility Ceiling (₹ per month gross)</label>
             <input type="number" value={wageCeiling} onChange={e => setWageCeiling(e.target.value)} style={inputStyle} placeholder="e.g. 21000" />
             <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginTop: 4 }}>All-or-nothing: anyone over this gross pay gets no ESI deduction at all this cycle.</div>
           </FormRow>
@@ -216,13 +216,13 @@ function ReviseRuleModal({ initial, onClose, onCreated }: {
       )}
       {ruleType === 'PROFESSIONAL_TAX' && (
         <FormRow>
-          <label style={labelStyle}>Amount (₹ per month) *</label>
+          <label style={labelStyle}>Amount (₹ per month)</label>
           <input type="number" value={ptAmount} onChange={e => setPtAmount(e.target.value)} style={inputStyle} placeholder="e.g. 200" />
         </FormRow>
       )}
       {ruleType && !isKnownType && (
         <FormRow>
-          <label style={labelStyle}>Slab Config (JSON) *</label>
+          <label style={labelStyle}>Slab Config (JSON)</label>
           <textarea
             value={rawSlabConfig}
             onChange={e => checkJson(e.target.value)}
@@ -253,12 +253,12 @@ function HistoryModal({ country, ruleType, otherCountryRules, onClose }: {
   }, [country, ruleType, token]);
 
   return (
-    <Modal title={`${ruleType} (${country}) — History`} onClose={onClose}>
+    <Modal title={`${ruleType} (${country}) - History`} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {history.map(r => (
           <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 12 }}>
             <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 10 }}>
-              {fmtDate(r.effectiveFrom)} – {r.effectiveTo ? fmtDate(r.effectiveTo) : 'Current'}
+              {fmtDate(r.effectiveFrom)} - {r.effectiveTo ? fmtDate(r.effectiveTo) : 'Current'}
             </div>
             <SlabConfigGrid slabConfig={r.slabConfig} />
           </div>
@@ -273,7 +273,7 @@ function HistoryModal({ country, ruleType, otherCountryRules, onClose }: {
             {otherCountryRules.map(r => (
               <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 12, opacity: 0.75 }}>
                 <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 10 }}>
-                  Country "{r.country}" — effective {fmtDate(r.effectiveFrom)} — no longer matches any Location, kept for reference only
+                  Country "{r.country}" - effective {fmtDate(r.effectiveFrom)} - no longer matches any Location, kept for reference only
                 </div>
                 <SlabConfigGrid slabConfig={r.slabConfig} />
               </div>
@@ -301,7 +301,7 @@ export function StatutoryRulesTab() {
 
   useEffect(reload, [token]);
 
-  // One row per rule type, ever — whichever was created most recently. Rules only ever get
+  // One row per rule type, ever - whichever was created most recently. Rules only ever get
   // retired by creating a new one under a different Country text (e.g. "IN" -> "India"), never
   // deleted, so a superseded row would otherwise sit in the main table forever looking like a
   // second live rule. It's surfaced instead inside the live row's own History modal.
@@ -326,11 +326,11 @@ export function StatutoryRulesTab() {
         }}>
           <TriangleAlert size={18} style={{ color: 'var(--warn)', flexShrink: 0, marginTop: 1 }} />
           <div style={{ fontSize: 13, color: 'var(--txt)' }}>
-            <strong>PF/ESI/Professional Tax will be silently skipped for {mismatches.reduce((n, m) => n + m.employeeCount, 0)} employee(s)</strong> — their Location's Country doesn't exactly match any rule below:
+            <strong>PF/ESI/Professional Tax will be silently skipped for {mismatches.reduce((n, m) => n + m.employeeCount, 0)} employee(s)</strong> - their Location's Country doesn't exactly match any rule below:
             <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
               {mismatches.map(m => (
                 <li key={m.locationId}>
-                  <strong>{m.locationName}</strong> — Country is {m.country ? `"${m.country}"` : 'not set'} ({m.employeeCount} employee{m.employeeCount === 1 ? '' : 's'})
+                  <strong>{m.locationName}</strong> - Country is {m.country ? `"${m.country}"` : 'not set'} ({m.employeeCount} employee{m.employeeCount === 1 ? '' : 's'})
                 </li>
               ))}
             </ul>
@@ -353,7 +353,7 @@ export function StatutoryRulesTab() {
               icon={rule ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
               label={RULE_TYPE_LABEL[type] ?? type}
               value={rule ? 'Configured' : 'Not Set Up'}
-              hint={rule ? `${rule.country} · effective ${fmtDate(rule.effectiveFrom)}` : 'No rule saved for this yet — payslips will skip this deduction'}
+              hint={rule ? `${rule.country} · effective ${fmtDate(rule.effectiveFrom)}` : 'No rule saved for this yet - payslips will skip this deduction'}
             />
           );
         })}
@@ -364,7 +364,7 @@ export function StatutoryRulesTab() {
         action={<BtnPrimary onClick={() => setShowCreate(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add / Revise Rule</BtnPrimary>}
       />
       <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
-        HR-editable config for statutory slabs (PF, ESI, Professional Tax, TDS, etc.) — version-dated, never hardcoded in application code.
+        HR-editable config for statutory slabs (PF, ESI, Professional Tax, TDS, etc.) - version-dated, never hardcoded in application code.
       </div>
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>

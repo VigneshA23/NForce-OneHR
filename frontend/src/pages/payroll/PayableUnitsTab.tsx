@@ -5,9 +5,9 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayslipResponse } from '../../api/payroll';
 import { panelStyle, thStyle, tdStyle, EmptyRow, SectionHead, FilterBar, useEmployeeDirectory } from './payrollShared';
 
-/** Keka's "Payable Units" step — the days-worked breakdown behind each payslip's proration, same
+/** Keka's "Payable Units" step - the days-worked breakdown behind each payslip's proration, same
  * per-employee numbers PayslipsTab's own detail modal already shows, just surfaced as its own
- * at-a-glance list. No new backend — Payslip already stores all four fields. */
+ * at-a-glance list. No new backend - Payslip already stores all four fields. */
 export function PayableUnitsTab({ runId }: { runId: string }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
@@ -43,7 +43,7 @@ export function PayableUnitsTab({ runId }: { runId: string }) {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <EmptyRow cols={6} msg={payslips.length === 0 ? 'No payslips yet — generate the draft first.' : 'No matches for your search.'} />
+              <EmptyRow cols={6} msg={payslips.length === 0 ? 'No payslips yet - generate the draft first.' : 'No matches for your search.'} />
             )}
           </tbody>
         </table>

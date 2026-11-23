@@ -47,7 +47,7 @@ function AddRuleModal({ components, payGroups, onClose, onCreated }: {
         { payGroupId: payGroupId || null, componentName, amount: Number(amount), reason: reason.trim() }, token);
       onCreated(rule);
       onClose();
-      showToast('success', 'Recurring payment rule created — it will apply from the next payroll run generated');
+      showToast('success', 'Recurring payment rule created - it will apply from the next payroll run generated');
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Failed to create rule');
     } finally {
@@ -56,9 +56,9 @@ function AddRuleModal({ components, payGroups, onClose, onCreated }: {
   }
 
   return (
-    <Modal title="Add Recurring Payment Rule" subtitle="Applied automatically to every employee on every payroll run generated from now on — no need to re-add it by hand each cycle." onClose={onClose}>
+    <Modal title="Add Recurring Payment Rule" subtitle="Applied automatically to every employee on every payroll run generated from now on - no need to re-add it by hand each cycle." onClose={onClose}>
       <FormRow>
-        <label style={labelStyle}>Component *</label>
+        <label style={labelStyle}>Component</label>
         <select value={componentName} onChange={e => setComponentName(e.target.value)} style={inputStyle}>
           {components.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
@@ -71,11 +71,11 @@ function AddRuleModal({ components, payGroups, onClose, onCreated }: {
         </select>
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Amount (per employee) *</label>
+        <label style={labelStyle}>Amount (per employee)</label>
         <input type="number" min={0} step="0.01" value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} />
       </FormRow>
       <FormRow>
-        <label style={labelStyle}>Reason *</label>
+        <label style={labelStyle}>Reason</label>
         <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -124,7 +124,7 @@ export function RecurringAdHocPaymentRulesTab({ catalog, payGroups, canConfigure
         ) : <NoPermissionNote action="add recurring payment rules" />}
       />
       <p style={{ marginTop: -6, marginBottom: 16, fontSize: 13, color: 'var(--txt-mut)' }}>
-        A standing allowance applied to every employee on every new or regenerated payroll run — set it up once here instead of adding it by hand every cycle under a run's Ad-hoc Payments tab.
+        A standing allowance applied to every employee on every new or regenerated payroll run - set it up once here instead of adding it by hand every cycle under a run's Ad-hoc Payments tab.
       </p>
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>

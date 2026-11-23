@@ -5,7 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayrollJoinersExitsResponse } from '../../api/payroll';
 import { panelStyle, thStyle, tdStyle, fmtDate, EmptyRow, SectionHead, FilterBar } from './payrollShared';
 
-/** Keka's "New Joinees & Exits" step — purely informational, who joined/left within this run's
+/** Keka's "New Joinees & Exits" step - purely informational, who joined/left within this run's
  * own cycle; joiner/exit proration is already applied to the payslip itself at generation time. */
 export function JoinersExitsTab({ runId }: { runId: string }) {
   const token = useAuthStore(s => s.token)!;

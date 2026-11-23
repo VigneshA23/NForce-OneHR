@@ -9,21 +9,21 @@ import {
 } from './payrollShared';
 
 const FAQ_ITEMS: FaqItem[] = [
-  { q: 'What is a salary structure?', a: 'A named template of components (Basic, HRA, LTA, etc.) with how each one is calculated — fixed amount, a percentage of another component, or whatever remains of gross. Employees are assigned one structure at a time via Employee Compensation.' },
-  { q: 'Why are the values shown here annual, not monthly?', a: 'Every figure on a structure (and in its editor) is the yearly amount, matching how CTC is normally quoted. Payroll divides by 12 — and applies LOP proration — when it actually builds a monthly payslip.' },
+  { q: 'What is a salary structure?', a: 'A named template of components (Basic, HRA, LTA, etc.) with how each one is calculated - fixed amount, a percentage of another component, or whatever remains of gross. Employees are assigned one structure at a time via Employee Compensation.' },
+  { q: 'Why are the values shown here annual, not monthly?', a: 'Every figure on a structure (and in its editor) is the yearly amount, matching how CTC is normally quoted. Payroll divides by 12 - and applies LOP proration - when it actually builds a monthly payslip.' },
   { q: 'How do I see exactly how a component is calculated?', a: 'Click any row to open its preview, which shows the plain-language formula for every component (e.g. "50% of Gross", "₹1,600/yr fixed"). Click Edit from there to change it.' },
-  { q: 'Can I change which components are in a structure after employees are assigned to it?', a: 'Yes — editing a structure changes it for every employee currently assigned to it, going forward. It never rewrites an already-generated payslip.' },
+  { q: 'Can I change which components are in a structure after employees are assigned to it?', a: 'Yes - editing a structure changes it for every employee currently assigned to it, going forward. It never rewrites an already-generated payslip.' },
 ];
 
 // Human-readable formula for one structure component, e.g. "50% of Gross", "₹19,200 /yr", "Remainder
 // (Gross minus every other component)". Values on SalaryStructureResponse are always ANNUAL (see
-// the "values are ANNUAL" note on the editor below) — this never re-derives a monthly figure.
+// the "values are ANNUAL" note on the editor below) - this never re-derives a monthly figure.
 function describeCalc(c: SalaryComponentResponse): string {
   let base: string;
   switch (c.calcType) {
     case 'FIXED': base = `${fmtCurrency(c.value)} /yr`; break;
     case 'PERCENT_OF_GROSS': base = `${c.value}% of Gross`; break;
-    case 'PERCENT_OF_COMPONENT': base = `${c.value}% of ${c.referenceComponentName ?? '—'}`; break;
+    case 'PERCENT_OF_COMPONENT': base = `${c.value}% of ${c.referenceComponentName ?? '-'}`; break;
     case 'BALANCING_REMAINDER': base = 'Remainder (Gross minus every other component)'; break;
     default: base = c.calcType;
   }
@@ -34,7 +34,7 @@ function describeCalc(c: SalaryComponentResponse): string {
 type DraftComponent = SalaryComponentRequest;
 
 // Same formula description as describeCalc, for a not-yet-saved draft row in the editor (column 2
-// of the structure editor) — a separate function rather than widening describeCalc's parameter
+// of the structure editor) - a separate function rather than widening describeCalc's parameter
 // type, since DraftComponent's fields are optional (not yet filled in) where the saved response's
 // are not.
 function describeDraftCalc(c: DraftComponent): string {
@@ -42,7 +42,7 @@ function describeDraftCalc(c: DraftComponent): string {
   switch (c.calcType) {
     case 'FIXED': base = `${fmtCurrency(c.value ?? 0)} /yr`; break;
     case 'PERCENT_OF_GROSS': base = `${c.value ?? 0}% of Gross`; break;
-    case 'PERCENT_OF_COMPONENT': base = `${c.value ?? 0}% of ${c.referenceComponentName || '—'}`; break;
+    case 'PERCENT_OF_COMPONENT': base = `${c.value ?? 0}% of ${c.referenceComponentName || '-'}`; break;
     case 'BALANCING_REMAINDER': base = 'Remainder (Gross minus every other component)'; break;
     default: base = c.calcType;
   }
@@ -80,7 +80,7 @@ function toComponentsPayload(components: DraftComponent[]): SalaryComponentReque
   }));
 }
 
-/** Column 3 of the structure editor — the selected component's own calculation fields and its
+/** Column 3 of the structure editor - the selected component's own calculation fields and its
  * catalog-defined characteristics (read-only; a structure can't override what the component
  * itself is, only how much of it to pay). */
 function ComponentDetailPane({ component, components, catalog, onChange }: {
@@ -199,7 +199,7 @@ function StructureEditorScreen({ structure, catalog, onClose, onSaved }: {
         ? await payrollApi.updateSalaryStructure(structure.id, payload, token)
         : await payrollApi.createSalaryStructure(payload, token);
       onSaved(saved);
-      showToast('success', structure ? 'Salary structure updated — takes effect on employees\' next payroll regenerate' : 'Salary structure created');
+      showToast('success', structure ? 'Salary structure updated - takes effect on employees\' next payroll regenerate' : 'Salary structure created');
       onClose();
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Failed to save structure');
@@ -209,7 +209,7 @@ function StructureEditorScreen({ structure, catalog, onClose, onSaved }: {
   }
 
   // Grouped by the catalog's own type (Earnings/Deductions/Reimbursements), same categories
-  // Salary Setup's own component picker already filters to — not a Keka-specific invention.
+  // Salary Setup's own component picker already filters to - not a Keka-specific invention.
   const grouped = new Map<string, number[]>();
   components.forEach((c, i) => {
     const type = catalog.find(cc => cc.name === c.componentName)?.type ?? 'Other';
@@ -231,19 +231,19 @@ function StructureEditorScreen({ structure, catalog, onClose, onSaved }: {
     >
       {structure && (
         <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 18 }}>
-          Changes apply going forward only — already-generated payslips keep their original amounts.
+          Changes apply going forward only - already-generated payslips keep their original amounts.
           Every employee currently on this structure picks up the new components on their next payroll regenerate.
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 26%) minmax(260px, 32%) minmax(260px, 1fr)', gap: 20, alignItems: 'start' }}>
-        {/* Column 1 — structure metadata */}
+        {/* Column 1 - structure metadata */}
         <div>
-          <FormRow><label style={labelStyle}>Name of the Structure *</label><input value={name} onChange={e => setName(e.target.value)} style={inputStyle} placeholder="e.g. Standard Structure" /></FormRow>
+          <FormRow><label style={labelStyle}>Name of the Structure</label><input value={name} onChange={e => setName(e.target.value)} style={inputStyle} placeholder="e.g. Standard Structure" /></FormRow>
           <FormRow><label style={labelStyle}>Grade</label><input value={grade} onChange={e => setGrade(e.target.value)} style={inputStyle} placeholder="e.g. L2" /></FormRow>
           <FormRow><label style={labelStyle}>Financial Year</label><input value={financialYear} onChange={e => setFinancialYear(e.target.value)} style={inputStyle} placeholder="e.g. 2026-27" /></FormRow>
         </div>
 
-        {/* Column 2 — component list, grouped */}
+        {/* Column 2 - component list, grouped */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={labelStyle}>Components (values are ANNUAL)</span>
@@ -283,11 +283,11 @@ function StructureEditorScreen({ structure, catalog, onClose, onSaved }: {
                 })}
               </div>
             ))}
-            {components.length === 0 && <EmptyRow cols={1} msg="No components yet — add one." />}
+            {components.length === 0 && <EmptyRow cols={1} msg="No components yet - add one." />}
           </div>
         </div>
 
-        {/* Column 3 — selected component's detail */}
+        {/* Column 3 - selected component's detail */}
         <div>
           {selected ? (
             <ComponentDetailPane component={selected} components={components} catalog={catalog} onChange={patch => updateComponent(selectedIndex, patch)} />
@@ -335,7 +335,7 @@ export function SalaryStructuresTab({ structures, catalog, onCreated, onUpdated 
   structures: SalaryStructureResponse[]; catalog: SalaryComponentCatalogResponse[];
   onCreated: (s: SalaryStructureResponse) => void; onUpdated: (s: SalaryStructureResponse) => void;
 }) {
-  // Holds just the id, not the structure object — the object itself always comes fresh from the
+  // Holds just the id, not the structure object - the object itself always comes fresh from the
   // `structures` prop (the parent's state, updated via onCreated/onUpdated), so an edit elsewhere
   // (or this one's own save) is reflected here without a second copy of the list to keep in sync.
   const [viewingId, setViewingId] = useState<string | null>(null);
@@ -357,12 +357,12 @@ export function SalaryStructuresTab({ structures, catalog, onCreated, onUpdated 
             {structures.map(s => (
               <tr key={s.id} onClick={() => setViewingId(s.id)} style={{ cursor: 'pointer' }}>
                 <td style={tdStyle}>{s.name}</td>
-                <td style={tdStyle}>{s.grade ?? '–'}</td>
-                <td style={tdStyle}>{s.financialYear ?? '–'}</td>
+                <td style={tdStyle}>{s.grade ?? '-'}</td>
+                <td style={tdStyle}>{s.financialYear ?? '-'}</td>
                 <td style={tdStyle}>{s.components.map(c => c.componentName).join(', ')}</td>
               </tr>
             ))}
-            {structures.length === 0 && <EmptyRow cols={4} msg="No salary structures yet — create one above." />}
+            {structures.length === 0 && <EmptyRow cols={4} msg="No salary structures yet - create one above." />}
           </tbody>
         </table>
       </div>

@@ -24,11 +24,11 @@ function downloadTemplate() {
 
 type RowResult = ParsedRow & { outcome?: 'imported' | 'failed'; outcomeMessage?: string };
 
-/** Keka's "Import Salaries with Effective Date" wizard (§3.4) — the one import this app can
+/** Keka's "Import Salaries with Effective Date" wizard (§3.4) - the one import this app can
  * genuinely back: every row just becomes the same payrollApi.assignCompensation call Revise
  * Salary already makes one at a time (same validation, same Arrears-on-backdating behavior), run
  * in bulk from a spreadsheet instead. Pay Group and Salary Structure are chosen once for the
- * whole batch rather than per row — Keka's own template doesn't carry them either. */
+ * whole batch rather than per row - Keka's own template doesn't carry them either. */
 export function SalaryImportWizard({ payGroups, structures, onClose, onImported }: {
   payGroups: PayGroupResponse[]; structures: SalaryStructureResponse[]; onClose: () => void; onImported: () => void;
 }) {
@@ -119,13 +119,13 @@ export function SalaryImportWizard({ payGroups, structures, onClose, onImported 
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
             <FormRow>
-              <label style={labelStyle}>Pay Group *</label>
+              <label style={labelStyle}>Pay Group</label>
               <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
                 {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}
               </select>
             </FormRow>
             <FormRow>
-              <label style={labelStyle}>Salary Structure *</label>
+              <label style={labelStyle}>Salary Structure</label>
               <select value={structureId} onChange={e => setStructureId(e.target.value)} style={inputStyle}>
                 {structures.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
@@ -137,7 +137,7 @@ export function SalaryImportWizard({ payGroups, structures, onClose, onImported 
             </div>
             <BtnPrimary onClick={() => fileInputRef.current?.click()}><Upload size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Upload Excel File</BtnPrimary>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-            {fileName && <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fileName} — {dataRows.length} row{dataRows.length === 1 ? '' : 's'} found</div>}
+            {fileName && <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fileName} - {dataRows.length} row{dataRows.length === 1 ? '' : 's'} found</div>}
           </div>
         </div>
       )}
@@ -147,7 +147,7 @@ export function SalaryImportWizard({ payGroups, structures, onClose, onImported 
           <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 16 }}>Match each required field to one of the columns found in "{fileName}".</div>
           {REQUIRED_FIELDS.map(f => (
             <FormRow key={f}>
-              <label style={labelStyle}>{REQUIRED_FIELD_LABEL[f]} *</label>
+              <label style={labelStyle}>{REQUIRED_FIELD_LABEL[f]}</label>
               <select value={mapping[f] ?? ''} onChange={e => setMapping(m => ({ ...m, [f]: e.target.value === '' ? undefined : Number(e.target.value) }))} style={inputStyle}>
                 <option value="">Select a column…</option>
                 {headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
@@ -180,7 +180,7 @@ export function SalaryImportWizard({ payGroups, structures, onClose, onImported 
                   <tr key={r.rowNumber}>
                     <td style={tdStyle}>{r.rowNumber}</td>
                     <td style={tdStyle}>{r.employeeCodeRaw}</td>
-                    <td style={tdStyle}>{r.employeeName ?? '—'}</td>
+                    <td style={tdStyle}>{r.employeeName ?? '-'}</td>
                     <td style={tdStyle}>{r.ctc != null ? fmtCurrency(r.ctc) : r.ctcRaw}</td>
                     <td style={tdStyle}>{r.effectiveFrom ? fmtDate(r.effectiveFrom) : r.effectiveFromRaw}</td>
                     <td style={tdStyle}>

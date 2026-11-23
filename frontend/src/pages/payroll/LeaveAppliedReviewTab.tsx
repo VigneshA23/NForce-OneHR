@@ -17,9 +17,9 @@ function RejectReasonModal({ onClose, onConfirm }: { onClose: () => void; onConf
     try { await onConfirm(reason.trim()); onClose(); } finally { setSubmitting(false); }
   }
   return (
-    <Modal title="Reject Leave-Applied Items" subtitle="Rejecting a penalty-sourced item cancels the penalty. Rejecting an unpaid-leave item only excludes it from this run's LOP — it is not a durable decision and resets on regenerate." onClose={onClose}>
+    <Modal title="Reject Leave-Applied Items" subtitle="Rejecting a penalty-sourced item cancels the penalty. Rejecting an unpaid-leave item only excludes it from this run's LOP - it is not a durable decision and resets on regenerate." onClose={onClose}>
       <FormRow>
-        <label style={labelStyle}>Reason *</label>
+        <label style={labelStyle}>Reason</label>
         <textarea value={reason} onChange={e => setReason(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
       </FormRow>
       <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
@@ -105,7 +105,7 @@ export function LeaveAppliedReviewTab({ runId, canConfigure }: { runId: string; 
                 <td style={tdStyle}><PersonCellById userId={item.employeeId} name={item.employeeName} /></td>
                 <td style={tdStyle}>{fmtDate(item.itemDate)}</td>
                 <td style={tdStyle}>{item.days}</td>
-                <td style={tdStyle}>{item.leaveTypeName ?? '–'}</td>
+                <td style={tdStyle}>{item.leaveTypeName ?? '-'}</td>
                 <td style={tdStyle}><StatusBadge status={item.decision} /></td>
               </tr>
             ))}

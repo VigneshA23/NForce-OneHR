@@ -24,7 +24,7 @@ function downloadTemplate() {
 
 type RowResult = FinancialParsedRow & { outcome?: 'imported' | 'failed'; outcomeMessage?: string };
 
-/** Keka's "Import Financial Information" wizard (§3.4) — every row becomes one
+/** Keka's "Import Financial Information" wizard (§3.4) - every row becomes one
  * payrollApi.updateEmployeeFinancialDetails call (the admin write path that had to be built for
  * this; see EmployeeFinancialDetailsService's own doc comment for why none existed before). */
 export function FinancialDetailsImportWizard({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
@@ -108,14 +108,14 @@ export function FinancialDetailsImportWizard({ onClose, onImported }: { onClose:
       {step === 0 && (
         <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
           <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 6 }}>
-            Updates bank and statutory details (PAN, UAN, ESI number) for multiple employees at once. Include only the columns you need to update — anything left out of your file is left unchanged.
+            Updates bank and statutory details (PAN, UAN, ESI number) for multiple employees at once. Include only the columns you need to update - anything left out of your file is left unchanged.
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 700, color: 'var(--brand)', background: 'var(--raised)', borderRadius: 20, padding: '4px 10px', cursor: 'pointer' }} onClick={downloadTemplate}>
             <Download size={13} /> Download Excel Template
           </div>
           <BtnPrimary onClick={() => fileInputRef.current?.click()}><Upload size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Upload Excel File</BtnPrimary>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-          {fileName && <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fileName} — {dataRows.length} row{dataRows.length === 1 ? '' : 's'} found</div>}
+          {fileName && <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fileName} - {dataRows.length} row{dataRows.length === 1 ? '' : 's'} found</div>}
         </div>
       )}
 
@@ -124,7 +124,7 @@ export function FinancialDetailsImportWizard({ onClose, onImported }: { onClose:
           <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 16 }}>Match each field to one of the columns found in "{fileName}". Leave a field as "Not in this file" to skip it entirely.</div>
           {FINANCIAL_REQUIRED_FIELDS.map(f => (
             <FormRow key={f}>
-              <label style={labelStyle}>{FINANCIAL_FIELD_LABEL[f]} *</label>
+              <label style={labelStyle}>{FINANCIAL_FIELD_LABEL[f]}</label>
               <select value={mapping[f] ?? ''} onChange={e => setMapping(m => ({ ...m, [f]: e.target.value === '' ? undefined : Number(e.target.value) }))} style={inputStyle}>
                 <option value="">Select a column…</option>
                 {headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
@@ -166,8 +166,8 @@ export function FinancialDetailsImportWizard({ onClose, onImported }: { onClose:
                   <tr key={r.rowNumber}>
                     <td style={tdStyle}>{r.rowNumber}</td>
                     <td style={tdStyle}>{r.employeeCodeRaw}</td>
-                    <td style={tdStyle}>{r.employeeName ?? '—'}</td>
-                    <td style={tdStyle}>{Object.keys(r.patch).map(k => FINANCIAL_FIELD_LABEL[k as FinancialField]).join(', ') || '—'}</td>
+                    <td style={tdStyle}>{r.employeeName ?? '-'}</td>
+                    <td style={tdStyle}>{Object.keys(r.patch).map(k => FINANCIAL_FIELD_LABEL[k as FinancialField]).join(', ') || '-'}</td>
                     <td style={tdStyle}>
                       {r.outcome === 'imported' && <span style={{ color: 'var(--ok)' }}>Imported</span>}
                       {r.outcome === 'failed' && <span style={{ color: 'var(--risk)' }}>{r.outcomeMessage}</span>}

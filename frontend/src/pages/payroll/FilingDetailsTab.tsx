@@ -13,13 +13,13 @@ import {
 } from './payrollShared';
 
 const FAQ_ITEMS: FaqItem[] = [
-  { q: 'What are Filing Details actually for?', a: "They record the registration numbers (PAN/TAN, PF and ESI establishment IDs, PT-registered locations) a pay group needs for statutory filings. They're reference data only — saving them doesn't change any payroll calculation." },
-  { q: 'How is this scoped?', a: 'Per pay group, via the selector at the top — the same scoping Payslip Settings uses. Switch pay groups to see or edit a different one’s filing details.' },
-  { q: 'How do I register a Professional Tax location?', a: 'Open the Professional Tax (PT) tab. Pick an existing state on the left, then "Add Location to <state>" — or "Add New PT State" to start one that isn’t listed yet.' },
-  { q: 'Is anything here validated against a government portal?', a: 'No. This app doesn’t integrate with any external tax authority — these fields are admin-entered and trusted as-is, the same as the Accounting Code field on Salary Components.' },
+  { q: 'What are Filing Details actually for?', a: "They record the registration numbers (PAN/TAN, PF and ESI establishment IDs, PT-registered locations) a pay group needs for statutory filings. They're reference data only - saving them doesn't change any payroll calculation." },
+  { q: 'How is this scoped?', a: 'Per pay group, via the selector at the top - the same scoping Payslip Settings uses. Switch pay groups to see or edit a different one’s filing details.' },
+  { q: 'How do I register a Professional Tax location?', a: 'Open the Professional Tax (PT) tab. Pick an existing state on the left, then "Add Location to <state>" - or "Add New PT State" to start one that isn’t listed yet.' },
+  { q: 'Is anything here validated against a government portal?', a: 'No. This app doesn’t integrate with any external tax authority - these fields are admin-entered and trusted as-is, the same as the Accounting Code field on Salary Components.' },
 ];
 
-/** A label/value field in an editable settings grid — the pattern every Filing Details panel
+/** A label/value field in an editable settings grid - the pattern every Filing Details panel
  * (Income Tax, PF, ESI) shares, matching Keka's own label/value grid (§3.8). */
 function SettingField({ label, value, onChange, placeholder }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string;
@@ -120,15 +120,15 @@ function LocationDrawer({ payGroupId, defaultState, initial, onClose, onSaved }:
 
   return (
     <Drawer
-      title={initial ? `Edit PT Location – ${initial.locationName}` : 'Add New PT Location'}
+      title={initial ? `Edit PT Location - ${initial.locationName}` : 'Add New PT Location'}
       onClose={onClose}
       footer={<>
         <BtnGhost onClick={onClose}>Discard</BtnGhost>
         <BtnPrimary onClick={submit} disabled={!valid || submitting}>{submitting ? 'Saving…' : initial ? 'Update' : 'Create'}</BtnPrimary>
       </>}
     >
-      <FormRow><label style={labelStyle}>State *</label><input value={stateName} onChange={e => setStateName(e.target.value)} style={inputStyle} placeholder="e.g. Telangana" /></FormRow>
-      <FormRow><label style={labelStyle}>Location *</label><input value={locationName} onChange={e => setLocationName(e.target.value)} style={inputStyle} placeholder="e.g. Hyderabad" /></FormRow>
+      <FormRow><label style={labelStyle}>State</label><input value={stateName} onChange={e => setStateName(e.target.value)} style={inputStyle} placeholder="e.g. Telangana" /></FormRow>
+      <FormRow><label style={labelStyle}>Location</label><input value={locationName} onChange={e => setLocationName(e.target.value)} style={inputStyle} placeholder="e.g. Hyderabad" /></FormRow>
       <FormRow><label style={labelStyle}>Establishment ID <span style={{ color: 'var(--txt-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(Optional)</span></label><input value={establishmentId} onChange={e => setEstablishmentId(e.target.value)} style={inputStyle} /></FormRow>
       <FormRow><label style={labelStyle}>Registration Date</label><input type="date" value={registrationDate} onChange={e => setRegistrationDate(e.target.value)} style={inputStyle} /></FormRow>
       <FormRow><label style={labelStyle}>Signatory</label><input value={signatory} onChange={e => setSignatory(e.target.value)} style={inputStyle} /></FormRow>
@@ -138,7 +138,7 @@ function LocationDrawer({ payGroupId, defaultState, initial, onClose, onSaved }:
   );
 }
 
-/** Keka's "PT Registered states" screen (§3.8) — a left list of states (derived from the
+/** Keka's "PT Registered states" screen (§3.8) - a left list of states (derived from the
  * locations themselves; there's no separate "states" record), a right panel of location cards for
  * whichever state is selected. */
 function ProfessionalTaxPanel({ payGroupId }: { payGroupId: string }) {
@@ -220,11 +220,11 @@ function ProfessionalTaxPanel({ payGroupId }: { payGroupId: string }) {
                       ]} />
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-                      <div><div style={labelStyle}>Establishment ID</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{l.establishmentId || '—'}</div></div>
-                      <div><div style={labelStyle}>Registration Date</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{l.registrationDate ? fmtDate(l.registrationDate) : '—'}</div></div>
-                      <div><div style={labelStyle}>Signatory</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{l.signatory || '—'}</div></div>
-                      <div><div style={labelStyle}>Signatory Designation</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{l.signatoryDesignation || '—'}</div></div>
-                      <div><div style={labelStyle}>Signatory Father's Name</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{l.signatoryFatherName || '—'}</div></div>
+                      <div><div style={labelStyle}>Establishment ID</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{l.establishmentId || '-'}</div></div>
+                      <div><div style={labelStyle}>Registration Date</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{l.registrationDate ? fmtDate(l.registrationDate) : '-'}</div></div>
+                      <div><div style={labelStyle}>Signatory</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{l.signatory || '-'}</div></div>
+                      <div><div style={labelStyle}>Signatory Designation</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{l.signatoryDesignation || '-'}</div></div>
+                      <div><div style={labelStyle}>Signatory Father's Name</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{l.signatoryFatherName || '-'}</div></div>
                     </div>
                   </div>
                 ))}
@@ -263,7 +263,7 @@ const FILING_VIEWS: TabDef<FilingView>[] = [
   { key: 'pt', label: 'Professional Tax (PT)' },
 ];
 
-/** Keka's "Filing Details" screen (§3.8) — scoped to one pay group at a time, same convention as
+/** Keka's "Filing Details" screen (§3.8) - scoped to one pay group at a time, same convention as
  * Employee Compensation's own employee picker (this app doesn't have Keka's nested
  * "Pay Group detail page with tabs" shell, so the pay group is chosen here instead of via URL). */
 export function FilingDetailsTab({ payGroups }: { payGroups: PayGroupResponse[] }) {
@@ -301,7 +301,7 @@ export function FilingDetailsTab({ payGroups }: { payGroups: PayGroupResponse[] 
   }
 
   if (payGroups.length === 0) {
-    return <div style={{ padding: 24, color: 'var(--txt-dim)' }}>Create a pay group first — filing details are scoped to one.</div>;
+    return <div style={{ padding: 24, color: 'var(--txt-dim)' }}>Create a pay group first - filing details are scoped to one.</div>;
   }
 
   return (

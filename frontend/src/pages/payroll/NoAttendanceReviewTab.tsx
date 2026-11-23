@@ -38,11 +38,11 @@ function DecideModal({ count, leaveTypes, onClose, onConfirm }: {
   return (
     <Modal
       title={count > 1 ? `Decide ${count} No-Attendance Days` : 'Decide No-Attendance Day'}
-      subtitle="Deducting from leave is a payroll-side record only — it does not debit the employee's actual leave balance."
+      subtitle="Deducting from leave is a payroll-side record only - it does not debit the employee's actual leave balance."
       onClose={onClose}
     >
       <FormRow>
-        <label style={labelStyle}>Action *</label>
+        <label style={labelStyle}>Action</label>
         <select value={action} onChange={e => setAction(e.target.value as Action)} style={inputStyle}>
           <option value="MARK_LOP">Mark LOP</option>
           <option value="DEDUCT_FROM_LEAVE">Deduct From Leave</option>
@@ -51,7 +51,7 @@ function DecideModal({ count, leaveTypes, onClose, onConfirm }: {
       </FormRow>
       {action === 'DEDUCT_FROM_LEAVE' && (
         <FormRow>
-          <label style={labelStyle}>Leave Type *</label>
+          <label style={labelStyle}>Leave Type</label>
           <select value={leaveTypeId} onChange={e => setLeaveTypeId(e.target.value)} style={inputStyle}>
             {leaveTypes.map(lt => <option key={lt.id} value={lt.id}>{lt.name}</option>)}
           </select>
@@ -59,7 +59,7 @@ function DecideModal({ count, leaveTypes, onClose, onConfirm }: {
       )}
       {action === 'NO_ACTION' && (
         <FormRow>
-          <label style={labelStyle}>Comment *</label>
+          <label style={labelStyle}>Comment</label>
           <textarea value={comment} onChange={e => setComment(e.target.value)} style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} />
         </FormRow>
       )}

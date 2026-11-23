@@ -1,7 +1,7 @@
 /* Payroll Run console — KPI tiles, table and modal presentation. Theme tokens only, so light/dark
  * and the accent setting keep working. Pattern mirrors pages/bench/bench.css + pages/assets/shared.tsx. */
 
-.nf-pr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.nf-pr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .nf-pr-tile { --mk: var(--brand); box-sizing: border-box; display: flex; flex-direction: column; min-height: 72px; padding: 10px 12px 8px 14px; border-radius: 11px; border: 1px solid color-mix(in srgb, var(--mk) 22%, var(--line)); border-left: 4px solid var(--mk); background: linear-gradient(135deg, var(--panel) 42%, color-mix(in srgb, var(--mk) 11%, var(--panel)) 100%); box-shadow: 0 2px 8px rgba(16, 24, 40, .05); }
 .nf-pr-tile-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .nf-pr-tile-label { padding-top: 1px; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--txt-mut); }
@@ -91,3 +91,58 @@ button.nf-pr-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rg
 }
 .nf-pr-card input:focus, .nf-pr-card select:focus, .nf-pr-card textarea:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
 .nf-pr-card input:disabled, .nf-pr-card select:disabled { background: var(--raised) !important; opacity: .75; cursor: not-allowed; }
+
+/* ── Run console: hero header, progress steps, run-status tiles. Theme tokens only. ── */
+.nf-pr-hero { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 18px; padding: 20px 24px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--line)); background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 62%); box-shadow: 0 8px 24px -14px color-mix(in srgb, var(--brand) 45%, transparent); }
+.nf-pr-hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.nf-pr-life { display: flex; flex-wrap: wrap; gap: 6px 8px; list-style: none; margin: 12px 0 0; padding: 0; }
+.nf-pr-life li { display: inline-flex; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--txt-dim); background: var(--raised); border: 1px solid var(--line); }
+.nf-pr-life li > button { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px 4px 5px; border: none; border-radius: 999px; background: none; color: inherit; font: inherit; cursor: pointer; }
+.nf-pr-life li > button:hover { background: color-mix(in srgb, var(--brand) 8%, transparent); }
+.nf-pr-life-dot { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: var(--txt-dim); background: var(--panel); border: 1px solid var(--line2); }
+.nf-pr-life li.is-done { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, var(--line)); background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
+.nf-pr-life li.is-done .nf-pr-life-dot { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: color-mix(in srgb, var(--ok) 14%, var(--panel)); }
+.nf-pr-life li.is-now { color: #fff; border-color: var(--brand); background: var(--brand); }
+.nf-pr-life li.is-now .nf-pr-life-dot { color: var(--brand); background: #fff; border-color: transparent; }
+
+.nf-pr-panel { padding: 16px 18px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--brand) 16%, var(--line)); background: linear-gradient(180deg, var(--raised), var(--panel)); box-shadow: 0 4px 14px rgba(16, 24, 40, .05); }
+.nf-pr-rs { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 0; }
+.nf-pr-rs > button { display: block; width: 100%; text-align: left; font: inherit; cursor: pointer; padding: 12px 14px; border-radius: 13px; border: 1px solid var(--line); background: var(--panel); transition: transform .15s, box-shadow .15s, border-color .15s; }
+.nf-pr-rs > button:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); box-shadow: 0 6px 16px rgba(16, 24, 40, .08); }
+.nf-pr-rs > button.is-on { border-color: color-mix(in srgb, var(--ok) 32%, var(--line)); background: color-mix(in srgb, var(--ok) 6%, var(--panel)); }
+.nf-pr-rs dt { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-dim); }
+.nf-pr-rs dd { margin: 5px 0 0; font-size: 14px; font-weight: 700; color: var(--txt); overflow-wrap: anywhere; }
+.nf-pr-table th { color: var(--brand); background: color-mix(in srgb, var(--brand) 7%, var(--raised)); }
+.nf-pr-subhead { margin-bottom: 10px; font-size: 14px; font-weight: 800; letter-spacing: -.01em; color: var(--txt); }
+/* One font everywhere in the run console, including form controls. */
+.nf-pr-hero, .nf-pr-panel, .nf-pr-tiles, .nf-pr-steps, .nf-pr-table, .nf-pr-card { font-family: inherit; }
+.nf-pr-hero button, .nf-pr-panel button, .nf-pr-tiles button, .nf-pr-steps button, .nf-pr-card input, .nf-pr-card select, .nf-pr-card textarea, .nf-pr-card button { font-family: inherit; }
+
+/* Payroll Runs list: cycle cards wrap instead of scrolling sideways, so every month is visible at any zoom. */
+.nf-pr-hero-select { min-width: 220px; max-width: 320px; flex: 0 1 300px; }
+/* The 8 cycle cards always split evenly (8 in a row, 4 by 2, or 2 by 4), never 7 plus one stray card. */
+.nf-pr-strip-wrap { container-type: inline-size; margin-bottom: 22px; }
+.nf-pr-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@container (min-width: 460px) { .nf-pr-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container (min-width: 1160px) { .nf-pr-strip { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+.nf-pr-cycle { --mk: var(--brand); display: flex; flex-direction: column; gap: 7px; min-width: 0; padding: 14px 15px; text-align: left; font: inherit; cursor: pointer; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--mk) 24%, var(--line)); border-top: 4px solid var(--mk); background: linear-gradient(160deg, var(--panel) 0%, color-mix(in srgb, var(--mk) 9%, var(--panel)) 100%); transition: transform .15s, box-shadow .15s; }
+.nf-pr-cycle:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--mk) 55%, transparent); }
+.nf-pr-cycle:disabled { cursor: default; }
+.nf-pr-cycle.is-current { box-shadow: 0 0 0 2px var(--brand); }
+.nf-pr-cycle.is-upcoming { opacity: .65; }
+.nf-pr-cycle-month { font-size: 14px; font-weight: 800; letter-spacing: -.01em; color: var(--txt); }
+.nf-pr-cycle-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--mk); }
+.nf-pr-cycle-net { font-size: 12px; font-weight: 600; color: var(--txt-mut); overflow-wrap: anywhere; }
+.nf-pr-cycle-net.is-empty { color: var(--txt-dim); font-weight: 500; }
+.nf-pr-table-clickable tbody tr:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+/* Overview tables (needs attention, net pay changes, rollback history) share one column grid, so the first
+   and second columns line up from one table to the next as you scroll down. */
+.nf-pr-aligned { table-layout: fixed; }
+.nf-pr-aligned th:nth-child(1) { width: 26%; }
+.nf-pr-c2 th:nth-child(2) { width: 74%; }
+.nf-pr-c3 th:nth-child(2) { width: 20%; }
+.nf-pr-c3 th:nth-child(3) { width: 54%; }
+.nf-pr-c5 th:nth-child(2), .nf-pr-c5 th:nth-child(3) { width: 20%; }
+.nf-pr-c5 th:nth-child(4) { width: 14%; }
+.nf-pr-c5 th:nth-child(5) { width: 20%; }

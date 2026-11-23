@@ -11,11 +11,11 @@ import {
 } from './payrollShared';
 
 const FAQ_ITEMS: FaqItem[] = [
-  { q: 'What’s the difference between the three tabs here?', a: 'Components is the master catalog — create, edit, activate or deactivate. Order of Components sets the sequence components print in. Accounting Code records an optional ledger/GL reference per component.' },
-  { q: 'What does "Shown on Payslip" actually control?', a: "When off, that component is left off the generated payslip PDF entirely — even though it still counts toward CTC and still appears in the salary structure. Useful for internal-only deductions you don't want an employee to see as a line item." },
-  { q: 'What does the Order of Components sequence actually affect?', a: 'The order components print in everywhere a component list is shown — payslip, pay register, reports and salary breakup. Drag the arrows into the order you want, then Save Order; it only takes effect once saved.' },
-  { q: 'Can I change a component’s type after creating it?', a: 'No — Component Type is fixed once a component exists (shown read-only in the Edit drawer). If you got it wrong, deactivate it and create a new one instead; a component already used by a structure or a processed payroll run can’t be deleted.' },
-  { q: 'What is Accounting Code used for?', a: 'Just a reference ledger/GL code for your own accounting system — this app doesn’t validate or sync it against anything external.' },
+  { q: 'What’s the difference between the three tabs here?', a: 'Components is the master catalog - create, edit, activate or deactivate. Order of Components sets the sequence components print in. Accounting Code records an optional ledger/GL reference per component.' },
+  { q: 'What does "Shown on Payslip" actually control?', a: "When off, that component is left off the generated payslip PDF entirely - even though it still counts toward CTC and still appears in the salary structure. Useful for internal-only deductions you don't want an employee to see as a line item." },
+  { q: 'What does the Order of Components sequence actually affect?', a: 'The order components print in everywhere a component list is shown - payslip, pay register, reports and salary breakup. Drag the arrows into the order you want, then Save Order; it only takes effect once saved.' },
+  { q: 'Can I change a component’s type after creating it?', a: 'No - Component Type is fixed once a component exists (shown read-only in the Edit drawer). If you got it wrong, deactivate it and create a new one instead; a component already used by a structure or a processed payroll run can’t be deleted.' },
+  { q: 'What is Accounting Code used for?', a: 'Just a reference ledger/GL code for your own accounting system - this app doesn’t validate or sync it against anything external.' },
 ];
 
 const TYPE_LABEL: Record<string, string> = {
@@ -39,7 +39,7 @@ function fromExisting(c: SalaryComponentCatalogResponse): ComponentForm {
   };
 }
 
-/** Keka's "Edit Salary Component" right drawer (§1.4) — a grey read-only COMPONENT TYPE block
+/** Keka's "Edit Salary Component" right drawer (§1.4) - a grey read-only COMPONENT TYPE block
  * (type can't change once a component exists; it's a free choice only while creating), an Enabled
  * toggle, then the component's own fields as a checklist. */
 function ComponentDrawer({ title, initial, isNew, onClose, onSubmit }: {
@@ -78,12 +78,12 @@ function ComponentDrawer({ title, initial, isNew, onClose, onSubmit }: {
         </div>
       )}
       <FormRow>
-        <label style={labelStyle}>Component Name *</label>
+        <label style={labelStyle}>Component Name</label>
         <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} placeholder="e.g. HRA" />
       </FormRow>
       {isNew && (
         <FormRow>
-          <label style={labelStyle}>Component Type *</label>
+          <label style={labelStyle}>Component Type</label>
           <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))} style={inputStyle}>
             {Object.entries(TYPE_LABEL).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
           </select>
@@ -110,10 +110,10 @@ function ComponentDrawer({ title, initial, isNew, onClose, onSubmit }: {
   );
 }
 
-/** Keka's "Order of components" screen (§3.8) — a single flat sequence across the whole catalog
+/** Keka's "Order of components" screen (§3.8) - a single flat sequence across the whole catalog
  * (not per-category: SalaryComponentService#reorder assigns position = index in whatever list it
  * gets, so this always sends every id, never a filtered subset, to avoid two categories' positions
- * colliding). Up/down arrows instead of drag-and-drop — no DnD library is already a dependency
+ * colliding). Up/down arrows instead of drag-and-drop - no DnD library is already a dependency
  * here, and arrows are just as usable for a list this short. */
 function OrderOfComponentsPanel({ catalog, onChanged }: { catalog: SalaryComponentCatalogResponse[]; onChanged: () => void }) {
   const token = useAuthStore(s => s.token)!;
@@ -159,7 +159,7 @@ function OrderOfComponentsPanel({ catalog, onChanged }: { catalog: SalaryCompone
         action={<BtnPrimary onClick={save} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save Order'}</BtnPrimary>}
       />
       <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
-        This order is used everywhere a component list appears — payslip, pay register, reports and salary breakup.
+        This order is used everywhere a component list appears - payslip, pay register, reports and salary breakup.
       </div>
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -192,7 +192,7 @@ function OrderOfComponentsPanel({ catalog, onChanged }: { catalog: SalaryCompone
   );
 }
 
-/** Keka's "Accounting code" screen (§3.8) — an optional ledger/GL code per component, admin-
+/** Keka's "Accounting code" screen (§3.8) - an optional ledger/GL code per component, admin-
  * entered only (no accounting-system integration exists to validate or fetch it from). */
 function AccountingCodePanel({ catalog, onChanged }: { catalog: SalaryComponentCatalogResponse[]; onChanged: () => void }) {
   const token = useAuthStore(s => s.token)!;
@@ -222,7 +222,7 @@ function AccountingCodePanel({ catalog, onChanged }: { catalog: SalaryComponentC
     <div>
       <SectionHead title="Accounting Code" />
       <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
-        An optional ledger code per component, for your own accounting system's reference — not validated against anything.
+        An optional ledger code per component, for your own accounting system's reference - not validated against anything.
       </div>
       <div style={panelStyle}>
         <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -350,7 +350,7 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
               </tr>
             ))}
             {filtered.length === 0 && (
-              <EmptyRow cols={8} msg={catalog.length === 0 ? 'No salary components yet — add one above.' : 'No matches for your search.'} />
+              <EmptyRow cols={8} msg={catalog.length === 0 ? 'No salary components yet - add one above.' : 'No matches for your search.'} />
             )}
           </tbody>
         </table>
@@ -360,7 +360,7 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
         <ComponentDrawer title="Add Salary Component" initial={emptyForm()} isNew onClose={() => setShowCreate(false)} onSubmit={create} />
       )}
       {editing && (
-        <ComponentDrawer title={`Edit Salary Component – ${editing.name}`} initial={fromExisting(editing)} isNew={false} onClose={() => setEditing(null)} onSubmit={form => update(editing.id, form)} />
+        <ComponentDrawer title={`Edit Salary Component - ${editing.name}`} initial={fromExisting(editing)} isNew={false} onClose={() => setEditing(null)} onSubmit={form => update(editing.id, form)} />
       )}
         </>
       )}

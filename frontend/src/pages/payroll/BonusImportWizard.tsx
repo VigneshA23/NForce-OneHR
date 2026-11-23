@@ -24,10 +24,10 @@ function downloadTemplate() {
 
 type RowResult = BonusParsedRow & { outcome?: 'imported' | 'failed'; outcomeMessage?: string };
 
-/** Keka's "Import Bonuses with Payout Date" wizard (§3.4) — each valid row becomes one
+/** Keka's "Import Bonuses with Payout Date" wizard (§3.4) - each valid row becomes one
  * payrollApi.addAdHocPayment call against whichever run's cycle already covers that payout date
  * (see bonusImportParsing#findRunForDate's own doc comment for why a date with no matching run
- * is reported, not queued). No new backend endpoint — this is pure client-side orchestration over
+ * is reported, not queued). No new backend endpoint - this is pure client-side orchestration over
  * GET /runs and the existing ad-hoc payment endpoint. */
 export function BonusImportWizard({ payGroups, onClose, onImported }: {
   payGroups: PayGroupResponse[]; onClose: () => void; onImported: () => void;
@@ -139,13 +139,13 @@ export function BonusImportWizard({ payGroups, onClose, onImported }: {
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <FormRow>
-              <label style={labelStyle}>Pay Group *</label>
+              <label style={labelStyle}>Pay Group</label>
               <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
                 {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}
               </select>
             </FormRow>
             <FormRow>
-              <label style={labelStyle}>Bonus Component *</label>
+              <label style={labelStyle}>Bonus Component</label>
               <select value={componentName} onChange={e => setComponentName(e.target.value)} style={inputStyle}>
                 {components.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
               </select>
@@ -156,7 +156,7 @@ export function BonusImportWizard({ payGroups, onClose, onImported }: {
             <input value={defaultReason} onChange={e => setDefaultReason(e.target.value)} style={inputStyle} placeholder="e.g. Annual bonus FY 2026-27" />
           </FormRow>
           <div style={{ fontSize: 12.5, color: 'var(--txt-dim)', marginBottom: 14 }}>
-            Each row's own payout date must fall inside an already-generated DRAFT cycle for this pay group — {runs.length === 0 ? 'no runs found for this pay group yet.' : `${runs.length} run${runs.length === 1 ? '' : 's'} found.`}
+            Each row's own payout date must fall inside an already-generated DRAFT cycle for this pay group - {runs.length === 0 ? 'no runs found for this pay group yet.' : `${runs.length} run${runs.length === 1 ? '' : 's'} found.`}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 700, color: 'var(--brand)', background: 'var(--raised)', borderRadius: 20, padding: '4px 10px', cursor: 'pointer' }} onClick={downloadTemplate}>
@@ -164,7 +164,7 @@ export function BonusImportWizard({ payGroups, onClose, onImported }: {
             </div>
             <BtnPrimary onClick={() => fileInputRef.current?.click()}><Upload size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Upload Excel File</BtnPrimary>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-            {fileName && <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fileName} — {dataRows.length} row{dataRows.length === 1 ? '' : 's'} found</div>}
+            {fileName && <div style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fileName} - {dataRows.length} row{dataRows.length === 1 ? '' : 's'} found</div>}
           </div>
         </div>
       )}
@@ -174,7 +174,7 @@ export function BonusImportWizard({ payGroups, onClose, onImported }: {
           <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 16 }}>Match each field to one of the columns found in "{fileName}".</div>
           {BONUS_REQUIRED_FIELDS.map(f => (
             <FormRow key={f}>
-              <label style={labelStyle}>{BONUS_FIELD_LABEL[f]} *</label>
+              <label style={labelStyle}>{BONUS_FIELD_LABEL[f]}</label>
               <select value={mapping[f] ?? ''} onChange={e => setMapping(m => ({ ...m, [f]: e.target.value === '' ? undefined : Number(e.target.value) }))} style={inputStyle}>
                 <option value="">Select a column…</option>
                 {headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
@@ -184,7 +184,7 @@ export function BonusImportWizard({ payGroups, onClose, onImported }: {
           <FormRow>
             <label style={labelStyle}>{BONUS_FIELD_LABEL.reason} <span style={{ color: 'var(--txt-dim)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
             <select value={mapping.reason ?? ''} onChange={e => setMapping(m => ({ ...m, reason: e.target.value === '' ? undefined : Number(e.target.value) }))} style={inputStyle}>
-              <option value="">Not in this file — use the default reason</option>
+              <option value="">Not in this file - use the default reason</option>
               {headers.map((h, i) => <option key={i} value={i}>{h || `Column ${i + 1}`}</option>)}
             </select>
           </FormRow>
@@ -214,10 +214,10 @@ export function BonusImportWizard({ payGroups, onClose, onImported }: {
                   <tr key={r.rowNumber}>
                     <td style={tdStyle}>{r.rowNumber}</td>
                     <td style={tdStyle}>{r.employeeCodeRaw}</td>
-                    <td style={tdStyle}>{r.employeeName ?? '—'}</td>
+                    <td style={tdStyle}>{r.employeeName ?? '-'}</td>
                     <td style={tdStyle}>{r.amount != null ? fmtCurrency(r.amount) : r.amountRaw}</td>
                     <td style={tdStyle}>{r.payoutDate ? fmtDate(r.payoutDate) : r.payoutDateRaw}</td>
-                    <td style={tdStyle}>{r.reason ?? '—'}</td>
+                    <td style={tdStyle}>{r.reason ?? '-'}</td>
                     <td style={tdStyle}>
                       {r.outcome === 'imported' && <span style={{ color: 'var(--ok)' }}>Imported</span>}
                       {r.outcome === 'failed' && <span style={{ color: 'var(--risk)' }}>{r.outcomeMessage}</span>}
