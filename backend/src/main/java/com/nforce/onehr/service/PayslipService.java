@@ -165,7 +165,7 @@ public class PayslipService {
                 e.getFullName(), e.getEmployeeCode(), e.getJoiningDate(),
                 e.getDepartment() == null ? null : e.getDepartment().getName(),
                 e.getDesignation() == null ? null : e.getDesignation().getTitle(),
-                "Bank Transfer", mask(e.getUanNumber()), mask(e.getPanNumber()),
+                paymentMode(e), mask(e.getUanNumber()), mask(e.getPanNumber()),
                 payslip.getCycleDays(), payslip.getLopDays(), BigDecimal.valueOf(payslip.getEmployedDays()).subtract(payslip.getLopDays()).max(BigDecimal.ZERO),
                 lines(items, EARNING_TYPES, components, ytd), lines(items, CONTRIBUTION_TYPES, components, ytd), lines(items, DEDUCTION_TYPES, components, ytd),
                 payslip.getGrossPay(), payslip.getTotalDeductions(), payslip.getNetPay());
@@ -289,9 +289,18 @@ public class PayslipService {
         return new PayslipExtras(
                 settings.isExcludeNaFields(), settings.getEarningsHeading(), settings.getDeductionsHeading(),
                 PayslipFields.decode(settings.getPayslipFields()),
-                mask(employee.getUanNumber()), employee.getEsiNumber(), mask(employee.getPanNumber()),
-                settings.getLogoAlignment(), leaveSummary, arrearBreakup,
+                mask(employee.getUanNumber()), employee.getEsiNumber(), mask(employee.getPanNumber()), paymentMode(employee),
+                settings.getLogoAlignment(), settings.getLogoSize(), settings.getLogoShape(), leaveSummary, arrearBreakup,
                 settings.isIncludeYtdColumn(), contributions);
+    }
+
+    /** "Bank Transfer" once both bank account number and IFSC are on file, else "Cash" — no separate
+     * payment-mode field exists on {@code Employee}; this is the same bank-details check {@link
+     * PayrollRunService#bankTransferExcel} already uses to decide who makes it into that export. */
+    private static String paymentMode(Employee employee) {
+        boolean hasBankDetails = employee.getBankAccountNumber() != null && !employee.getBankAccountNumber().isBlank()
+                && employee.getBankIfsc() != null && !employee.getBankIfsc().isBlank();
+        return hasBankDetails ? "Bank Transfer" : "Cash";
     }
 
     /** [componentName -> SUM(amount)] from the start of this cycle-end's fiscal year through this

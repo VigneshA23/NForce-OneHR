@@ -15,6 +15,8 @@ public class PayslipSettingsResponse {
     private String footerText;
     private boolean hasLogo;
     private String logoAlignment;
+    private int logoSize;
+    private String logoShape;
     private boolean excludeNaFields;
     private String earningsHeading;
     private String deductionsHeading;

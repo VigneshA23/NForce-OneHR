@@ -11,8 +11,9 @@ import {
 const FAQ_ITEMS: FaqItem[] = [
   { q: 'How do I password-protect payslips?', a: 'Turn on "Enable password protection for payslips" under General Settings. Each employee\'s own payslip is then encrypted with their PAN number in uppercase as the password — no separate password to set or share.' },
   { q: 'How do I change the title, footer, or section headings on payslips?', a: 'Document Header and Footer Text set the title prefix and footer note. Section Headings (in Body Customisation) rename "Earnings"/"Deductions" to whatever your company calls them — e.g. "Income"/"Outgoings".' },
-  { q: "How do I add my company's logo, and which side does it print on?", a: 'Use the Company Logo panel — upload a PNG or JPG under 500 KB, then choose Left or Right alignment. It prints next to the title on every generated payslip PDF for this pay group.' },
-  { q: 'What do the Payslip Fields and "Exclude N/A" options do?', a: 'Payslip Fields lets you choose which of Date of Joining, Department, Designation, UAN, ESI Number and PAN Number print, and in what order — toggle one off or drag it with the arrows. "Exclude N/A Payslip Fields" drops a field entirely when it\'s blank, instead of printing a dash.' },
+  { q: "How do I add my company's logo, and which side does it print on?", a: 'Use the Company Logo panel — upload a PNG or JPG under 500 KB, then choose Left or Right alignment, Square or Circle shape, and a size from 30 to 200pt. It prints next to the title on every generated payslip PDF for this pay group. Circle shows the whole logo, letterboxed inside the circle — it never crops part of it off.' },
+  { q: 'What do the Payslip Fields and "Exclude N/A" options do?', a: 'Payslip Fields lets you choose which of Date of Joining, Department, Designation, UAN, ESI Number, PAN Number and Payment Mode print, and in what order — toggle one off or drag it with the arrows. "Exclude N/A Payslip Fields" drops a field entirely when it\'s blank, instead of printing a dash.' },
+  { q: 'Where does Payment Mode come from?', a: 'It\'s not something you set directly — it reads "Bank Transfer" once an employee has both a bank account number and IFSC code on file, and "Cash" otherwise. Add or fix their bank details under Financial Details to change it.' },
   { q: 'What do Leave Summary and Arrear Breakup actually show?', a: "Leave Summary prints the employee's real leave balances for the year. Arrear Breakup lists each arrears record folded into this payslip's consolidated Arrears line, with its reason, period and amount — both pull from this app's real leave and arrears data, nothing fabricated." },
   { q: 'What does Include YTD actually add?', a: 'A Year-to-Date column next to every earning, deduction and contribution — the real cumulative total for this employee’s fiscal year through this payslip’s own cycle, not an estimate.' },
   { q: 'What are Employer Contributions, and why don’t they show by default?', a: 'Employer-side amounts like Employer PF — informational only, never subtracted from net pay. They only appear once a Statutory Rule has an employer rate configured and an "Employer PF" component exists in the catalog as type Contribution; until then this toggle has nothing to show.' },
@@ -20,11 +21,25 @@ const FAQ_ITEMS: FaqItem[] = [
   { q: 'Do these settings apply to every pay group?', a: 'No. Everything on this page is scoped to whichever pay group is selected at the top. Switch the dropdown to configure another one.' },
 ];
 
-const ALL_FIELD_KEYS: PayslipFieldKey[] = ['dateOfJoining', 'department', 'designation', 'uan', 'esi', 'pan'];
+const ALL_FIELD_KEYS: PayslipFieldKey[] = ['dateOfJoining', 'department', 'designation', 'uan', 'esi', 'pan', 'paymentMode'];
 const FIELD_LABEL: Record<PayslipFieldKey, string> = {
   dateOfJoining: 'Date of Joining', department: 'Department', designation: 'Designation',
-  uan: 'UAN', esi: 'ESI Number', pan: 'PAN Number',
+  uan: 'UAN', esi: 'ESI Number', pan: 'PAN Number', paymentMode: 'Payment Mode',
 };
+// Illustrative only — same masked shape a real payslip would show (see PayslipService#mask), not
+// tied to any real employee.
+const FIELD_SAMPLE_VALUE: Record<PayslipFieldKey, string> = {
+  dateOfJoining: '12 Aug 2024', department: 'QA', designation: 'QA Engineer I',
+  uan: 'XX5654', esi: '0987654323456789', pan: 'XXXXXUF34', paymentMode: 'Bank Transfer',
+};
+function sampleCyclePayPeriod(): string {
+  const now = new Date();
+  const end = new Date(now.getFullYear(), now.getMonth(), 25);
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 26);
+  const fmtDate = (d: Date) => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return `${fmtDate(start)} - ${fmtDate(end)}`;
+}
+const SAMPLE_PAY_PERIOD = sampleCyclePayPeriod();
 
 const SAMPLE_EARNINGS: [string, number][] = [
   ['Basic', 50000],
@@ -48,16 +63,33 @@ const fmt = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2,
  * preview is illustrative, the same SAMPLE-watermarked framing as before. */
 const CURRENT_MONTH_LABEL = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
-function PayslipPreview({ documentHeaderText, footerText, logoUrl, earningsHeading, deductionsHeading, logoAlignment }: {
+function PayslipPreview({ documentHeaderText, footerText, logoUrl, earningsHeading, deductionsHeading, logoAlignment, logoSize, logoShape, payslipFields }: {
   documentHeaderText: string; footerText: string; logoUrl: string | null; earningsHeading: string; deductionsHeading: string;
-  logoAlignment: 'LEFT' | 'RIGHT';
+  logoAlignment: 'LEFT' | 'RIGHT'; logoSize: number; logoShape: 'SQUARE' | 'CIRCLE'; payslipFields: PayslipFieldKey[];
 }) {
   const title = `${documentHeaderText.trim() || 'Payslip for'} ${CURRENT_MONTH_LABEL}`;
   const earningsLabel = earningsHeading.trim() || 'Earnings';
   const deductionsLabel = deductionsHeading.trim() || 'Deductions';
   const footer = footerText.trim() || 'This is a computer-generated payslip and does not require a signature.';
   const netPay = SAMPLE_GROSS - SAMPLE_TOTAL_DEDUCTIONS;
-  const logoImg = logoUrl && <img src={logoUrl} alt="Company logo" style={{ maxHeight: 40, maxWidth: 160, objectFit: 'contain' }} />;
+  // Same fields (and order) the real PDF prints — Employee Name/No. always shown above, Pay
+  // Period always last — so this preview actually answers "what will print," not just the title/logo.
+  const fieldPairs: [string, string][] = [
+    ...payslipFields.map((k): [string, string] => [FIELD_LABEL[k], FIELD_SAMPLE_VALUE[k]]),
+    ['Pay Period', SAMPLE_PAY_PERIOD],
+  ];
+  // Scaled down from the PDF's point-based logoSize so a 200pt logo doesn't swallow this preview
+  // card — the ratio stays the same, so bigger/smaller still reads as bigger/smaller here.
+  const previewPx = Math.round(logoSize * 0.6);
+  const logoImg = logoUrl && (
+    logoShape === 'CIRCLE'
+      ? (
+        <div style={{ width: previewPx, height: previewPx, borderRadius: '50%', overflow: 'hidden', background: 'var(--raised)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <img src={logoUrl} alt="Company logo" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+        </div>
+      )
+      : <img src={logoUrl} alt="Company logo" style={{ maxWidth: previewPx, maxHeight: previewPx, objectFit: 'contain' }} />
+  );
 
   return (
     <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 14, padding: 20 }}>
@@ -83,6 +115,14 @@ function PayslipPreview({ documentHeaderText, footerText, logoUrl, earningsHeadi
             <div style={{ position: 'relative', textAlign: 'center', fontSize: 11.5, color: 'var(--txt-dim)', marginBottom: 16 }}>NForce One Pvt. Ltd. · Asha Rao · EMP001</div>
           </>
         )}
+        <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16, rowGap: 6, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid var(--line)' }}>
+          {fieldPairs.map(([label, value]) => (
+            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5 }}>
+              <span style={{ color: 'var(--txt-dim)', fontWeight: 600 }}>{label}</span>
+              <span style={{ color: 'var(--txt)' }}>{value}</span>
+            </div>
+          ))}
+        </div>
         <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 4 }}>
           <div>
             <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginBottom: 6 }}>{earningsLabel}</div>
@@ -127,6 +167,8 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
   const [logoBusy, setLogoBusy] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [logoAlignment, setLogoAlignment] = useState<'LEFT' | 'RIGHT'>('RIGHT');
+  const [logoSize, setLogoSize] = useState(70);
+  const [logoShape, setLogoShape] = useState<'SQUARE' | 'CIRCLE'>('SQUARE');
   const [excludeNaFields, setExcludeNaFields] = useState(false);
   const [earningsHeading, setEarningsHeading] = useState('');
   const [deductionsHeading, setDeductionsHeading] = useState('');
@@ -144,6 +186,8 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
       setDocumentHeaderText(s.documentHeaderText ?? '');
       setFooterText(s.footerText ?? '');
       setLogoAlignment(s.logoAlignment);
+      setLogoSize(s.logoSize || 70);
+      setLogoShape(s.logoShape || 'SQUARE');
       setExcludeNaFields(s.excludeNaFields);
       setEarningsHeading(s.earningsHeading ?? '');
       setDeductionsHeading(s.deductionsHeading ?? '');
@@ -215,12 +259,14 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
     try {
       const updated = await payrollApi.updatePayslipSettings(payGroupId, {
         passwordProtected, documentHeaderText: documentHeaderText.trim() || undefined, footerText: footerText.trim() || undefined,
-        logoAlignment, excludeNaFields,
+        logoAlignment, logoSize, logoShape, excludeNaFields,
         earningsHeading: earningsHeading.trim() || undefined, deductionsHeading: deductionsHeading.trim() || undefined,
         includeLeaveSummary, includeArrearBreakup, includeYtdColumn, includeEmployerContributions, payslipFields,
       }, token);
       setSettings(updated);
       setPayslipFields(updated.payslipFields);
+      setLogoSize(updated.logoSize || 70);
+      setLogoShape(updated.logoShape || 'SQUARE');
       showToast('success', 'Payslip settings saved');
     } catch (e) {
       showToast('error', e instanceof Error ? e.message : 'Failed to save payslip settings');
@@ -266,7 +312,7 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>Company Logo</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div style={{
-                  width: 72, height: 48, borderRadius: 8, border: '1px dashed var(--line)', background: 'var(--raised)',
+                  width: 72, height: 72, borderRadius: logoShape === 'CIRCLE' ? '50%' : 8, border: '1px dashed var(--line)', background: 'var(--raised)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0,
                 }}>
                   {logoUrl
@@ -296,6 +342,30 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
                     </label>
                   ))}
                 </div>
+              </div>
+
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+                <div style={{ ...labelStyle, marginBottom: 8 }}>Company Logo Shape</div>
+                <div style={{ display: 'flex', gap: 18 }}>
+                  {(['SQUARE', 'CIRCLE'] as const).map(sh => (
+                    <label key={sh} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: 'var(--txt)', cursor: 'pointer' }}>
+                      <input type="radio" name="logoShape" checked={logoShape === sh} onChange={() => setLogoShape(sh)} />
+                      {sh === 'SQUARE' ? 'Square / as uploaded' : 'Circle'}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={labelStyle}>Company Logo Size</div>
+                  <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>{logoSize}pt</div>
+                </div>
+                <input
+                  type="range" min={30} max={200} step={5} value={logoSize}
+                  onChange={e => setLogoSize(Number(e.target.value))}
+                  style={{ width: '100%' }}
+                />
               </div>
             </div>
 
@@ -394,6 +464,7 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
           <PayslipPreview
             documentHeaderText={documentHeaderText} footerText={footerText} logoUrl={logoUrl}
             earningsHeading={earningsHeading} deductionsHeading={deductionsHeading} logoAlignment={logoAlignment}
+            logoSize={logoSize} logoShape={logoShape} payslipFields={payslipFields}
           />
         </div>
       )}

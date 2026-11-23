@@ -19,6 +19,10 @@ public class UpdatePayslipSettingsRequest {
 
     private String logoAlignment;
 
+    private int logoSize;
+
+    private String logoShape;
+
     private boolean excludeNaFields;
 
     @Size(max = 50)

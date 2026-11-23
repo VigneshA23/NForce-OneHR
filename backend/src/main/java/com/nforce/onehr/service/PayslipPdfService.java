@@ -10,8 +10,10 @@ import com.lowagie.text.PageSize;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
 import com.lowagie.text.Rectangle;
+import com.lowagie.text.pdf.PdfContentByte;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
+import com.lowagie.text.pdf.PdfTemplate;
 import com.lowagie.text.pdf.PdfWriter;
 import org.springframework.stereotype.Service;
 
@@ -39,7 +41,7 @@ import java.util.Locale;
 public class PayslipPdfService {
 
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH);
-    private static final Font TITLE = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 14);
+    private static final Font TITLE = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 12);
     private static final Font HEADING = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10);
     private static final Font BODY = FontFactory.getFont(FontFactory.HELVETICA, 9);
     private static final Font BOLD = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9);
@@ -70,11 +72,13 @@ public class PayslipPdfService {
      * behaviour — every pay group that's never touched these settings renders unchanged. */
     public record PayslipExtras(boolean excludeNaFields, String earningsHeading, String deductionsHeading,
                                  List<String> identityFields, String uanNumber, String esiNumber, String panNumber,
-                                 String logoAlignment, List<LeaveLine> leaveSummary, List<ArrearLine> arrearBreakup,
+                                 String paymentMode,
+                                 String logoAlignment, int logoSize, String logoShape,
+                                 List<LeaveLine> leaveSummary, List<ArrearLine> arrearBreakup,
                                  boolean includeYtd, List<Line> contributions) {
         public static PayslipExtras none() {
-            return new PayslipExtras(false, null, null, PayslipFields.DEFAULT_KEYS, null, null, null,
-                    "RIGHT", List.of(), List.of(), false, List.of());
+            return new PayslipExtras(false, null, null, PayslipFields.DEFAULT_KEYS, null, null, null, null,
+                    "RIGHT", 70, "SQUARE", List.of(), List.of(), false, List.of());
         }
     }
 
@@ -120,7 +124,7 @@ public class PayslipPdfService {
             }
             doc.open();
 
-            addHeader(doc, m);
+            addHeader(doc, writer, m);
 
             doc.add(employeeTable(m));
             doc.add(spacer());
@@ -166,15 +170,19 @@ public class PayslipPdfService {
      * (Keka restyle §3.9's "Company Logo Alignment"), company name and title stacked in the other
      * column. Any failure to decode the stored bytes (a corrupt upload) is swallowed and falls
      * back to the no-logo layout — a bad logo must never take the whole payslip down with it. */
-    private void addHeader(Document doc, PayslipPdfModel m) throws DocumentException {
+    private void addHeader(Document doc, PdfWriter writer, PayslipPdfModel m) throws DocumentException {
         String titlePrefix = m.documentHeaderText() != null && !m.documentHeaderText().isBlank()
                 ? m.documentHeaderText() : DEFAULT_TITLE_PREFIX;
         String titleText = titlePrefix + " " + m.periodLabel();
 
         if (m.logo() != null && m.logo().length > 0) {
             try {
-                Image image = Image.getInstance(m.logo());
-                image.scaleToFit(70, 50);
+                PayslipExtras extras = m.extras() != null ? m.extras() : PayslipExtras.none();
+                float size = extras.logoSize() > 0 ? extras.logoSize() : 70;
+                Image raw = Image.getInstance(m.logo());
+                Image image = "CIRCLE".equals(extras.logoShape())
+                        ? circularCrop(writer, raw, size)
+                        : squareFit(raw, size);
 
                 Paragraph textBlock = new Paragraph();
                 textBlock.add(new Phrase(titleText + "\n", HEADING));
@@ -191,13 +199,12 @@ public class PayslipPdfService {
                 PdfPCell logoCell = new PdfPCell(image, false);
                 logoCell.setBorder(Rectangle.NO_BORDER);
                 logoCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-                logoCell.setHorizontalAlignment("LEFT".equals(m.extras() != null ? m.extras().logoAlignment() : null)
-                        ? Element.ALIGN_LEFT : Element.ALIGN_RIGHT);
+                boolean logoOnLeft = "LEFT".equals(extras.logoAlignment());
+                logoCell.setHorizontalAlignment(logoOnLeft ? Element.ALIGN_LEFT : Element.ALIGN_RIGHT);
 
                 PdfPTable header = new PdfPTable(new float[] {3f, 1f});
                 header.setWidthPercentage(100);
                 header.setSpacingAfter(10);
-                boolean logoOnLeft = m.extras() != null && "LEFT".equals(m.extras().logoAlignment());
                 if (logoOnLeft) { header.addCell(logoCell); header.addCell(textCell); }
                 else { header.addCell(textCell); header.addCell(logoCell); }
                 doc.add(header);
@@ -241,6 +248,7 @@ public class PayslipPdfService {
                 case "uan" -> extras.uanNumber();
                 case "esi" -> extras.esiNumber();
                 case "pan" -> extras.panNumber();
+                case "paymentMode" -> extras.paymentMode();
                 default -> null;
             };
             if (extras.excludeNaFields() && (value == null || value.isBlank())) continue;
@@ -423,6 +431,38 @@ public class PayslipPdfService {
         c.setPadding(5);
         c.setHorizontalAlignment(align);
         t.addCell(c);
+    }
+
+    /** Scaled to fit a {@code size}x{@code size} box, aspect ratio preserved — the uploaded image's
+     * own shape (square, wide, tall) still shows exactly as uploaded, just bigger or smaller. */
+    private Image squareFit(Image source, float size) {
+        source.scaleToFit(size, size);
+        return source;
+    }
+
+    /** Fits {@code source} inside a circle inscribed in a {@code size}x{@code size} box, contain-fit
+     * (scaled so the longer side fits the box, centered, letterboxed) so the whole logo always stays
+     * visible — never cropped, even a wide or tall one. Built as its own {@link PdfTemplate} — a
+     * clipped region in the page's own content stream can't be undone once other content is drawn
+     * over it, so the crop has to happen on an isolated canvas that then gets treated as an ordinary
+     * {@link Image} everywhere else (same {@link PdfPCell}-based layout as the uncropped logo). */
+    private Image circularCrop(PdfWriter writer, Image source, float size) throws DocumentException {
+        PdfContentByte cb = writer.getDirectContent();
+        PdfTemplate tp = cb.createTemplate(size, size);
+        tp.saveState();
+        tp.circle(size / 2f, size / 2f, size / 2f);
+        tp.clip();
+        tp.newPath();
+
+        float scale = Math.min(size / source.getWidth(), size / source.getHeight());
+        float w = source.getWidth() * scale;
+        float h = source.getHeight() * scale;
+        float x = (size - w) / 2f;
+        float y = (size - h) / 2f;
+        tp.addImage(source, w, 0, 0, h, x, y);
+        tp.restoreState();
+
+        return Image.getInstance(tp);
     }
 
     private Paragraph spacer() {

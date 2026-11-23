@@ -47,6 +47,19 @@ public class PayslipSettings {
     @Builder.Default
     private String logoAlignment = "RIGHT";
 
+    // The logo's rendered bounding box, in points (matches the original hardcoded 70pt). Bigger
+    // than roughly 180 starts to crowd the title text, but nothing enforces a cap — it's letterhead
+    // sizing, not a business rule.
+    @Column(name = "logo_size", nullable = false)
+    @Builder.Default
+    private int logoSize = 70;
+
+    // "SQUARE" (default — scaled to fit the box, uploaded image's own shape, no cropping) or
+    // "CIRCLE" (cropped to a circle inscribed in that box, cover-fit so it fills the circle).
+    @Column(name = "logo_shape", nullable = false, length = 10)
+    @Builder.Default
+    private String logoShape = "SQUARE";
+
     // When true, a blank identity field (e.g. no PAN on file) is left off the payslip entirely
     // instead of printing as "-".
     @Column(name = "exclude_na_fields", nullable = false)

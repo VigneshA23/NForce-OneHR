@@ -187,6 +187,17 @@ class PayslipPdfServiceTest {
     }
 
     @Test
+    void render_paymentMode_printsWhenConfiguredAsAnIdentityField() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipPdfModel withField = withExtras(base, extrasWithPaymentMode(List.of("paymentMode"), "Bank Transfer"));
+
+        String text = text(service.render(withField));
+
+        assertTrue(text.contains("Payment Mode"), text);
+        assertTrue(text.contains("Bank Transfer"), text);
+    }
+
+    @Test
     void render_excludeNaFields_dropsABlankFieldInsteadOfPrintingADash() throws IOException {
         PayslipPdfModel base = new PayslipPdfModel("NForce One Pvt Ltd", "INR", "November 2026",
                 LocalDate.of(2026, 10, 26), LocalDate.of(2026, 11, 25),
@@ -242,6 +253,18 @@ class PayslipPdfServiceTest {
 
         assertTrue(text(service.render(left)).contains("Basic"));
         assertTrue(text(service.render(right)).contains("Basic"));
+    }
+
+    @Test
+    void render_logoSizeAndCircleShape_bothRenderWithoutError() throws IOException {
+        PayslipPdfModel base = model(List.of(new Line("Basic", bd("100.00"))), List.of(), bd("100.00"), bd("0"), bd("100.00"));
+        PayslipPdfModel withLogo = withLogo(base, ONE_PIXEL_PNG);
+
+        PayslipPdfModel square = withExtras(withLogo, extrasWithLogo("RIGHT", 120, "SQUARE"));
+        PayslipPdfModel circle = withExtras(withLogo, extrasWithLogo("RIGHT", 120, "CIRCLE"));
+
+        assertTrue(text(service.render(square)).contains("Basic"));
+        assertTrue(text(service.render(circle)).contains("Basic"));
     }
 
     @Test
@@ -305,8 +328,18 @@ class PayslipPdfServiceTest {
     private PayslipExtras extras(boolean excludeNaFields, String earningsHeading, String deductionsHeading,
                                  List<String> identityFields, String uan, String esi, String pan, String logoAlignment,
                                  List<LeaveLine> leaveSummary, List<ArrearLine> arrearBreakup, boolean includeYtd, List<Line> contributions) {
-        return new PayslipExtras(excludeNaFields, earningsHeading, deductionsHeading, identityFields, uan, esi, pan,
-                logoAlignment, leaveSummary, arrearBreakup, includeYtd, contributions);
+        return new PayslipExtras(excludeNaFields, earningsHeading, deductionsHeading, identityFields, uan, esi, pan, null,
+                logoAlignment, 70, "SQUARE", leaveSummary, arrearBreakup, includeYtd, contributions);
+    }
+
+    private PayslipExtras extrasWithPaymentMode(List<String> identityFields, String paymentMode) {
+        return new PayslipExtras(false, null, null, identityFields, null, null, null, paymentMode,
+                "RIGHT", 70, "SQUARE", List.of(), List.of(), false, List.of());
+    }
+
+    private PayslipExtras extrasWithLogo(String logoAlignment, int logoSize, String logoShape) {
+        return new PayslipExtras(false, null, null, PayslipFields.DEFAULT_KEYS, null, null, null, null,
+                logoAlignment, logoSize, logoShape, List.of(), List.of(), false, List.of());
     }
 
     private PayslipPdfModel withExtras(PayslipPdfModel base, PayslipExtras extras) {
