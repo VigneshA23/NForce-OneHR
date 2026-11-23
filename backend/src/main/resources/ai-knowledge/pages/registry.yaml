@@ -344,7 +344,7 @@ pages:
 
   - pageId: organization
     module: organization
-    permissions: ["organization:EDIT:ALL"]
+    permissions: ["organization:EDIT:ALL", "leave_configuration:VIEW:ALL"]
     variants:
       - roles: [HR_ADMIN]
         label: "Organization Structure"
@@ -393,7 +393,7 @@ pages:
 
   - pageId: masters
     module: organization
-    permissions: ["organization:EDIT:ALL"]
+    permissions: ["organization:EDIT:ALL", "leave_configuration:VIEW:ALL"]
     variants:
       # Same component as organization (OrgSetupPage), reached under a different key and label.
       - roles: [SUPER_ADMIN]

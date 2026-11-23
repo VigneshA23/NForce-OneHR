@@ -38,7 +38,7 @@ import { RecentNotificationsWidget } from '../components/RecentNotificationsWidg
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import { PieHoverTooltip } from '../components/PieHoverTooltip';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
-import { roundDays } from '../utils/leaveDays';
+import { roundDays, hasYearlyQuota, yearlyQuota } from '../utils/leaveDays';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -855,7 +855,7 @@ function usableRemaining(balances: LeaveBalance[]): number {
   // roundDays strips the IEEE-754 noise summing several BigDecimal-derived values can reintroduce
   // (e.g. 13.75 + 0.5 + 0 rendering as 14.249999999999998) - see utils/leaveDays.ts.
   return roundDays(balances
-    .filter(b => b.totalDays > 0)
+    .filter(hasYearlyQuota)
     .reduce((sum, b) => sum + Math.max(0, Number(b.remainingDays)), 0));
 }
 
@@ -1080,10 +1080,10 @@ function AttendanceCalendar({ token, config }: { token: string; config: Attendan
 const LEAVE_DONUT_COLORS = { available: '#7A0C10', consumed: '#E8B4B6' };
 
 function LeaveBalancePanel({ balances }: { balances: LeaveBalance[] }) {
-  const configured = useMemo(() => balances.filter(b => b.totalDays > 0), [balances]);
+  const configured = useMemo(() => balances.filter(hasYearlyQuota), [balances]);
 
   const totalRemaining = usableRemaining(balances);
-  const totalQuota = roundDays(configured.reduce((s, b) => s + Number(b.totalDays), 0));
+  const totalQuota = roundDays(configured.reduce((s, b) => s + yearlyQuota(b), 0));
   const totalConsumed = roundDays(Math.max(0, totalQuota - totalRemaining));
   const data = [
     { name: 'Available', value: totalRemaining },

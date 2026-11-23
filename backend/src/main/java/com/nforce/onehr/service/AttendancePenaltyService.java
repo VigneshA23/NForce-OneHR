@@ -12,7 +12,6 @@ import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.entity.AttendanceRequest;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.ExceptionType;
-import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.repository.AttendanceExceptionRepository;
@@ -21,7 +20,6 @@ import com.nforce.onehr.repository.AttendancePenaltySpecifications;
 import com.nforce.onehr.repository.AttendanceRequestRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
-import com.nforce.onehr.repository.LeaveBalanceRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.RegularizationRequestRepository;
@@ -93,7 +91,7 @@ public class AttendancePenaltyService {
     private final LeaveRequestRepository leaveRequestRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
-    private final LeaveBalanceRepository leaveBalanceRepository;
+    private final LeaveBalanceService leaveBalanceService;
     private final LeaveTypeRepository leaveTypeRepository;
     private final NotificationService notificationService;
     private final EmployeeService employeeService;
@@ -364,19 +362,17 @@ public class AttendancePenaltyService {
                     penalty.getId(), e.getMessage());
             return Map.of();
         }
-        int year = penalty.getIncidentDate().getYear();
+        int year = LeaveBalanceService.leaveYearOf(penalty.getIncidentDate());
         Map<String, BigDecimal> restored = new LinkedHashMap<>();
         for (Map.Entry<String, BigDecimal> entry : breakdown.entrySet()) {
             LeaveType type = leaveTypeRepository.findByCode(entry.getKey()).orElse(null);
             if (type == null) {
                 continue;
             }
-            leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(penalty.getEmployeeUserId(), type.getId(), year)
-                    .ifPresent(balance -> {
-                        balance.setUsedDays(balance.getUsedDays().subtract(entry.getValue()).max(BigDecimal.ZERO));
-                        leaveBalanceRepository.save(balance);
-                        restored.put(entry.getKey(), entry.getValue());
-                    });
+            // V309: bucket-aware credit (carried-forward first, mirroring how the debit drew on it).
+            if (leaveBalanceService.credit(penalty.getEmployeeUserId(), type, year, entry.getValue())) {
+                restored.put(entry.getKey(), entry.getValue());
+            }
         }
         return restored;
     }

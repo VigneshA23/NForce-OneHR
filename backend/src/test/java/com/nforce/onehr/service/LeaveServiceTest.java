@@ -93,6 +93,10 @@ class LeaveServiceTest {
             "CUSTOM_LEAVE_ADMIN", Map.of("leave:APPROVE", "ALL"),
             "CUSTOM_LEAVE_TEAM", Map.of("leave:APPROVE", "TEAM", "leave:VIEW", "ALL")));
     @Mock private com.nforce.onehr.repository.AttendancePenaltyRepository attendancePenaltyRepository;
+    @Mock private com.nforce.onehr.repository.LeaveEntitlementPolicyRepository policyRepository;
+    @Mock private com.nforce.onehr.repository.LeaveOccurrenceRepository occurrenceRepository;
+    @Mock private LeaveBalanceService leaveBalanceService; // replaced with the real one in setUp()
+    @Mock private LeaveYearEndService leaveYearEndService;
 
     @InjectMocks private LeaveService leaveService;
 
@@ -135,22 +139,17 @@ class LeaveServiceTest {
         lenient().when(userRepository.findById(employeeId)).thenReturn(Optional.of(employeeUser));
         lenient().when(userRepository.findById(managerId)).thenReturn(Optional.of(managerUser));
         lenient().when(auditSnapshot.toJson(any())).thenReturn("{}");
-        // Annual/Sick/Casual form the consolidated balance group (see LeaveService
-        // #isAnnualBalanceLeaveType) — findAll() backs #annualBalanceGroupTypeIds, and
-        // findByCode("ANNUAL") backs #annualLeaveType, both reached any time a grouped type's
-        // balance is looked up (submit/approve) or its available balance is calculated.
-        lenient().when(leaveTypeRepository.findAll()).thenReturn(List.of(annual, sick, casual));
+        // V309: every paid type keeps its OWN balance. Active regular paid types (the "use paid leave
+        // first" rule scans these) and, by default, a zero balance for any (employee, type, year) a test
+        // doesn't stub explicitly — the more specific eq(...) stubs in individual tests win.
+        lenient().when(leaveTypeRepository.findByActiveTrueOrderByNameAsc()).thenReturn(List.of(annual, casual, sick));
         lenient().when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        // Default: no other PENDING requests reserving balance — tests that care about pending
-        // reservation override this explicitly.
-        lenient().when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
-                        any(), any(), eq("PENDING"), any(), any()))
-                .thenReturn(BigDecimal.ZERO);
-        // update()'s exclude-self variants of the same two guards — same zero/false defaults,
-        // overridden explicitly by tests that care about them.
-        lenient().when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetweenAndIdNot(
-                        any(), any(), eq("PENDING"), any(), any(), any()))
-                .thenReturn(BigDecimal.ZERO);
+        lenient().when(leaveTypeRepository.findAllByOrderByNameAsc()).thenReturn(List.of(annual, casual, sick));
+        lenient().when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(any(), any(), any()))
+                .thenAnswer(inv -> Optional.of(LeaveBalance.builder().employeeUserId(inv.getArgument(0))
+                        .leaveType(typeById(inv.getArgument(1))).year(inv.getArgument(2))
+                        .totalDays(BigDecimal.ZERO).usedDays(BigDecimal.ZERO).build()));
+        // update()'s exclude-self overlap guard — false by default, overridden by tests that care.
         lenient().when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
                         any(), any(), any(), any(), any()))
                 .thenReturn(false);
@@ -166,13 +165,30 @@ class LeaveServiceTest {
                 employeeWeeklyOffPolicyAssignmentResolver, weeklyOffPolicyVersionResolver);
         lenient().when(workingDayService.weeklyOffDaysResolver(any()))
                 .thenAnswer(inv -> delegate.weeklyOffDaysResolver(inv.getArgument(0)));
+        // The REAL balance engine over this test's mocks — @InjectMocks builds LeaveService before
+        // these mocks are stubbed, so it is set here rather than injected.
+        org.springframework.test.util.ReflectionTestUtils.setField(leaveService, "leaveBalanceService",
+                new LeaveBalanceService(leaveTypeRepository, leaveBalanceRepository, leaveRequestRepository,
+                        policyRepository, occurrenceRepository, attendanceProperties));
     }
 
-    /** Stubs the PENDING-days-reserved sum for the fixture's employee/year (any group of type IDs). */
+    private LeaveType typeById(UUID id) {
+        return List.of(annual, sick, casual, lossOfPay, sabbatical).stream()
+                .filter(t -> t.getId().equals(id)).findFirst().orElse(annual);
+    }
+
+    /** Stubs one balance row for its (employee, type, any year). */
+    private void stubBalance(LeaveBalance b) {
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(b.getEmployeeUserId()), eq(b.getLeaveType().getId()), any()))
+                .thenReturn(Optional.of(b));
+    }
+
+    /** Stubs other PENDING requests reserving {@code days} of the fixture employee's Annual balance this year. */
     private void stubPendingReserved(BigDecimal days) {
-        when(leaveRequestRepository.sumTotalDaysByEmployeeUserIdAndLeaveTypeIdInAndStatusAndStartDateBetween(
-                        eq(employeeId), any(), eq("PENDING"), any(), any()))
-                .thenReturn(days);
+        List<LeaveRequest> pending = days.signum() == 0 ? List.of() : List.of(LeaveRequest.builder()
+                .id(UUID.randomUUID()).employeeUserId(employeeId).leaveType(annual)
+                .startDate(LocalDate.now()).endDate(LocalDate.now()).totalDays(days).status("PENDING").build());
+        when(leaveRequestRepository.findPendingOverlapping(eq(employeeId), any(), any(), any())).thenReturn(pending);
     }
 
     private CreateLeaveRequestRequest request(LocalDate start, LocalDate end, boolean halfDay, String reason) {
@@ -452,8 +468,7 @@ class LeaveServiceTest {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
         // 10 days still available on the (paid) Annual balance.
-        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
-                .thenReturn(List.of(balanceOf(new BigDecimal("15"), new BigDecimal("5"))));
+        stubBalance(balanceOf(new BigDecimal("15"), new BigDecimal("5")));
 
         // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
         // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
@@ -471,8 +486,7 @@ class LeaveServiceTest {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
         // Fully exhausted — nothing left to use before going unpaid.
-        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
-                .thenReturn(List.of(balanceOf(new BigDecimal("15"), new BigDecimal("15"))));
+        stubBalance(balanceOf(new BigDecimal("15"), new BigDecimal("15")));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
         // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
@@ -488,7 +502,6 @@ class LeaveServiceTest {
         assertEquals(LeaveTypeClassification.UNPAID, resp.getLeaveTypeClassification());
         // Confirms an Unpaid submission itself still never deducts from or writes to any balance
         // row — it only reads the paid balances to confirm none remain available.
-        verify(leaveBalanceRepository, never()).findByEmployeeUserIdAndLeaveTypeIdAndYear(any(), any(), any());
         verify(leaveBalanceRepository, never()).save(any());
     }
 
@@ -499,8 +512,7 @@ class LeaveServiceTest {
         // list as a positive balance.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
-        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any())).thenReturn(List.of());
-        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+                when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
         // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
         // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
@@ -546,8 +558,7 @@ class LeaveServiceTest {
     void submitRequest_unpaidLeaveType_rejectedWhenPaidBalanceAvailable() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
-        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
-                .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), BigDecimal.ZERO)));
+        stubBalance(balanceOf(annual, new BigDecimal("15"), BigDecimal.ZERO));
 
         // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
         // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
@@ -565,8 +576,7 @@ class LeaveServiceTest {
         // Same rule, a different Unpaid-classified type — proves the check isn't tied to "LOP".
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("SABBATICAL")).thenReturn(Optional.of(sabbatical));
-        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
-                .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), BigDecimal.ZERO)));
+        stubBalance(balanceOf(annual, new BigDecimal("15"), BigDecimal.ZERO));
 
         // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
         // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
@@ -604,8 +614,7 @@ class LeaveServiceTest {
     void submitRequest_unpaidLeaveType_allowedWhenPaidBalanceIsZero() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
-        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any()))
-                .thenReturn(List.of(balanceOf(annual, new BigDecimal("15"), new BigDecimal("15")))); // fully consumed
+        stubBalance(balanceOf(annual, new BigDecimal("15"), new BigDecimal("15"))); // fully consumed
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
         // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
@@ -625,8 +634,7 @@ class LeaveServiceTest {
         // balance" must be treated as zero (existing Unpaid behavior), not as an error.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("LOP")).thenReturn(Optional.of(lossOfPay));
-        when(leaveBalanceRepository.findByEmployeeUserIdAndYear(eq(employeeId), any())).thenReturn(List.of());
-        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+                when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
         // The next Monday, not a raw plusDays(5): guarantees a weekday regardless of which day the
         // suite runs on, so this 2-3 day range never lands on the Saturday/Sunday the Weekly Off
@@ -2347,7 +2355,7 @@ class LeaveServiceTest {
     }
 
     @Test
-    void listTeamBalances_returnsDirectReportsAnnualBalance_taggedByEmployee_hidingVestigialAndUnpaidRows() {
+    void listTeamBalances_returnsEachPaidTypesOwnBalance_taggedByEmployee_hidingUnpaidRows() {
         when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
         when(historyRepository.findCurrentDirectReportIds(managerId)).thenReturn(List.of(employeeId));
         int year = LocalDate.now().getYear();
@@ -2361,10 +2369,12 @@ class LeaveServiceTest {
 
         var result = leaveService.listTeamBalances(managerEmail);
 
-        assertEquals(1, result.size());
-        assertEquals(employeeId, result.get(0).getEmployeeUserId());
-        assertEquals("ANNUAL", result.get(0).getLeaveTypeCode());
-        assertEquals(0, new BigDecimal("12").compareTo(result.get(0).getRemainingDays()));
+        // V309: no consolidation — Sick is its own balance, not a vestigial row; unpaid never has one.
+        assertEquals(2, result.size());
+        assertTrue(result.stream().allMatch(r -> employeeId.equals(r.getEmployeeUserId())));
+        var byCode = result.stream().collect(java.util.stream.Collectors.toMap(r -> r.getLeaveTypeCode(), r -> r));
+        assertEquals(0, new BigDecimal("12").compareTo(byCode.get("ANNUAL").getRemainingDays()));
+        assertEquals(0, new BigDecimal("20").compareTo(byCode.get("SICK").getRemainingDays()));
     }
 
     @Test

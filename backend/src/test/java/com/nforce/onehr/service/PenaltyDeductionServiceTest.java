@@ -34,7 +34,7 @@ class PenaltyDeductionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new PenaltyDeductionService(leaveTypeRepository, leaveBalanceRepository, new AuditSnapshotSerializer(new ObjectMapper()));
+        service = new PenaltyDeductionService(leaveTypeRepository, TestLeaveBalances.over(leaveTypeRepository, leaveBalanceRepository), new AuditSnapshotSerializer(new ObjectMapper()));
     }
 
     private AttendancePenalty penalty(BigDecimal deductionDays) {

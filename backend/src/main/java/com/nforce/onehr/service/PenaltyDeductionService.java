@@ -1,9 +1,7 @@
 package com.nforce.onehr.service;
 
 import com.nforce.onehr.entity.AttendancePenalty;
-import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveType;
-import com.nforce.onehr.repository.LeaveBalanceRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -34,7 +32,7 @@ import java.util.Map;
 public class PenaltyDeductionService {
 
     private final LeaveTypeRepository leaveTypeRepository;
-    private final LeaveBalanceRepository leaveBalanceRepository;
+    private final LeaveBalanceService leaveBalanceService;
     private final AuditSnapshotSerializer snapshotSerializer;
 
     public void apply(AttendancePenalty penalty, String deductionMethod, String leavePriorityOrder) {
@@ -53,7 +51,6 @@ public class PenaltyDeductionService {
             return;
         }
 
-        int year = penalty.getIncidentDate().getYear();
         BigDecimal remaining = totalDays;
         Map<String, BigDecimal> breakdown = new LinkedHashMap<>();
 
@@ -65,19 +62,12 @@ public class PenaltyDeductionService {
             if (type == null) {
                 continue;
             }
-            LeaveBalance balance = leaveBalanceRepository
-                    .findByEmployeeUserIdAndLeaveTypeIdAndYear(penalty.getEmployeeUserId(), type.getId(), year)
-                    .orElse(null);
-            if (balance == null) {
+            // V309: the type's OWN balance for the incident's leave year (carried-forward first while it
+            // covers the date). Unpaid and per-occurrence (Maternity) types are never debited (returns 0).
+            BigDecimal deduct = leaveBalanceService.debitUpTo(penalty.getEmployeeUserId(), type, penalty.getIncidentDate(), remaining);
+            if (deduct.signum() <= 0) {
                 continue;
             }
-            BigDecimal available = balance.getTotalDays().subtract(balance.getUsedDays());
-            if (available.signum() <= 0) {
-                continue;
-            }
-            BigDecimal deduct = available.min(remaining);
-            balance.setUsedDays(balance.getUsedDays().add(deduct));
-            leaveBalanceRepository.save(balance);
             breakdown.merge(code, deduct, BigDecimal::add);
             remaining = remaining.subtract(deduct);
         }

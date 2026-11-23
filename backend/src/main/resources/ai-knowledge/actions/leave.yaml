@@ -1,10 +1,10 @@
 # Leave and Holidays.
 #
-# Authored from LeaveService, LeaveController and migrations V19/V122/V140/V153. Two things here
-# contradict what anyone would reasonably assume about an HR system, and both are stated plainly
-# because a plausible wrong answer about someone's leave is worse than no answer:
-#   1. There is no cancel or withdraw path. LeaveService has no CANCELLED status and no edit flow.
-#   2. Annual, Sick and Casual share one consolidated balance (V122), so spending one reduces all.
+# Authored from LeaveService, LeaveBalanceService, LeaveController and migrations V19/V140/V153/V309.
+# Stated plainly because a plausible wrong answer about someone's leave is worse than no answer:
+#   1. There is no cancel or withdraw path. LeaveService has no CANCELLED status.
+#   2. Since V309 every paid leave type has its OWN balance (the old Annual/Sick/Casual shared balance
+#      is gone); unpaid leave is unlimited; Maternity is granted per eligible occurrence.
 
 knowledge:
 
@@ -127,9 +127,16 @@ knowledge:
       stops two pending requests between them exceeding your entitlement. If a pending request is
       rejected, the days it was holding come back.
 
-      Annual, Sick and Casual leave draw on a single shared balance rather than three separate
-      ones. Taking annual leave therefore reduces what is available for sick and casual leave too.
-      This surprises people who expect separate pots.
+      Every paid leave type has its own separate balance: taking annual leave never reduces sick
+      or casual leave, and the other way round. Regular paid leave is granted per leave year
+      (January to December). Unpaid leave is unlimited and never uses a paid balance, but it can
+      only be applied for once your paid leave is used up. Maternity leave is granted once per
+      eligible occurrence, not every year; further requests for the same occurrence draw on the
+      same entitlement.
+
+      Some leave types let unused days carry forward into the next leave year, up to a maximum set
+      by HR. Carried-forward days are used before this year's days and expire on the date shown
+      with your balance; leave dated after that date can't use them.
 
       Your current balance for each leave type you hold is live data belonging to your record. The
       leave types listed there are the ones you can apply for.

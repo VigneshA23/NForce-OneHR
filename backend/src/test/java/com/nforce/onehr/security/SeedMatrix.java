@@ -37,6 +37,8 @@ public final class SeedMatrix {
             "\\('(EMPLOYEE|MANAGER|HR_ADMIN|SUPER_ADMIN)',\\s*'([a-z_]+)',\\s*'([A-Z]+)',\\s*'(OWN|TEAM|DEPARTMENT|LOCATION|ALL)'\\)");
     private static final Pattern PERMISSION = Pattern.compile(
             "\\('([a-z_]+)',\\s*'(VIEW|CREATE|EDIT|DELETE|APPROVE|REVERT|EXPORT|CONFIGURE)'\\)");
+    /** A migration that deliberately removes a permission says so: {@code -- retire-permission: module:ACTION}. */
+    static final Pattern RETIRE = Pattern.compile("retire-permission:\\s*([a-z_]+):([A-Z]+)");
     private static final List<String> SYSTEM = List.of("EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN");
 
     /** role code -> "module:ACTION" -> scope */
@@ -112,6 +114,12 @@ public final class SeedMatrix {
                 }
                 Matcher p = PERMISSION.matcher(sql);
                 while (p.find()) registered.add(p.group(1) + ":" + p.group(2));
+                Matcher r = RETIRE.matcher(sql);
+                while (r.find()) {
+                    String key = r.group(1) + ":" + r.group(2);
+                    registered.remove(key);
+                    matrix.values().forEach(grants -> grants.remove(key));
+                }
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);

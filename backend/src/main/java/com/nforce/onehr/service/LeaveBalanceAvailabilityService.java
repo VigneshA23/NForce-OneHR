@@ -20,11 +20,15 @@ public class LeaveBalanceAvailabilityService {
 
     private final LeaveBalanceRepository leaveBalanceRepository;
 
-    /** Sum of (totalDays - usedDays) across every PAID {@link com.nforce.onehr.entity.LeaveType} balance for the given calendar year. */
+    /**
+     * Unused days across every regular paid {@link com.nforce.onehr.entity.LeaveType} balance for the
+     * given leave year: current-year (totalDays - usedDays) plus carried-forward still unused and
+     * unexpired. Per-occurrence (Maternity) and unpaid types are not a general paid balance.
+     */
     public BigDecimal availablePaidDays(UUID employeeId, int year) {
         return leaveBalanceRepository.findByEmployeeUserIdAndYear(employeeId, year).stream()
-                .filter(b -> b.getLeaveType().isPaid())
-                .map(b -> b.getTotalDays().subtract(b.getUsedDays()))
+                .filter(b -> b.getLeaveType().isAnnualBalance())
+                .map(b -> b.getTotalDays().subtract(b.getUsedDays()).add(LeaveBalanceService.carriedForwardAvailable(b)))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 }

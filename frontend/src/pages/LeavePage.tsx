@@ -52,12 +52,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label style={labelStyle} className="nf-lv-lbl">{label}</label>{children}</div>;
 }
 
-// Mirrors LeaveService#isAnnualBalanceLeaveType — Annual/Sick/Casual are independently
-// selectable in the dropdown below, but the balance API returns only ONE row (Annual) for the
-// whole group, so a Sick/Casual selection must still resolve to that same row.
-const ANNUAL_BALANCE_GROUP_CODES = new Set(['ANNUAL', 'SICK', 'CASUAL']);
-function isAnnualBalanceLeaveType(code: string): boolean {
-  return ANNUAL_BALANCE_GROUP_CODES.has(code);
+// Every paid leave type has its own balance (V309) — a request always draws on its own type's row.
+// Regular paid (ANNUAL) balances are the ones that count toward "available leave" and the
+// use-paid-leave-first rule; unpaid rows are unlimited and Maternity-style rows are per occurrence.
+function isRegularPaid(b: LeaveBalance): boolean {
+  return !b.unlimited && (b.entitlementBasis ?? 'ANNUAL') === 'ANNUAL';
+}
+
+function shortDate(iso: string): string {
+  return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 const STATUS_COLOR: Record<string, string> = { PENDING: 'var(--warn)', APPROVED: 'var(--ok)', REJECTED: 'var(--risk)', PENALIZED: 'var(--risk)' };
@@ -104,7 +107,23 @@ const RING_RADIUS = 30;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; accent: string }) {
-  const total = Number(balance.totalDays);
+  if (balance.unlimited) {
+    return (
+      <div className="nf-section-enter nf-leave-balance-card" style={{
+        background: 'var(--panel)', border: '1px solid var(--line)', borderTop: '3px solid var(--line2)', borderRadius: 16,
+        boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', padding: '18px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 6,
+      }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{balance.leaveTypeName}</div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--txt)', fontFamily: 'Inter, sans-serif' }}>Unlimited</div>
+        <div style={{ fontSize: 12, color: 'var(--txt-mut)' }}>Unpaid — no balance limit, never uses your paid leave.</div>
+      </div>
+    );
+  }
+  const perOccurrence = balance.entitlementBasis === 'PER_OCCURRENCE';
+  const carried = Number(balance.carriedForwardDays ?? 0);
+  const pending = Number(balance.pendingDays ?? 0);
+  // Ring total = current-year entitlement + carried-forward, so "available of total" adds up.
+  const total = Number(balance.totalDays) + carried;
   const available = Math.max(0, Number(balance.remainingDays));
   // roundDays strips the IEEE-754 noise this subtraction can reintroduce even on two already-exact
   // BigDecimal-derived values (e.g. 15 - 13.7 rendering as 1.3000000000000007) - see utils/leaveDays.ts.
@@ -146,8 +165,25 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)' }}>
               <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--line2)', flexShrink: 0 }} />
-              Consumed <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{consumed}d</span>
+              {pending > 0 ? 'Used & pending' : 'Consumed'} <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{consumed}d</span>
             </div>
+            {pending > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{roundDays(pending)}d awaiting approval</div>
+            )}
+            {carried > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>
+                Includes {roundDays(carried)}d carried forward ({roundDays(Number(balance.carriedForwardRemainingDays ?? 0))}d left
+                {balance.carriedForwardExpiresOn ? `, expires ${shortDate(balance.carriedForwardExpiresOn)}` : ''})
+              </div>
+            )}
+            {perOccurrence && (
+              <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>
+                {Number(balance.totalDays)}d per eligible occurrence
+                {balance.occurrenceStartDate && balance.occurrenceWindowEndDate
+                  ? ` · current occurrence ${shortDate(balance.occurrenceStartDate)} – ${shortDate(balance.occurrenceWindowEndDate)}`
+                  : ' · full entitlement available'}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -155,12 +191,6 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
   );
 }
 
-// True if both leave-type codes draw from the same balance row — either literally the same
-// type, or both members of the consolidated Annual/Sick/Casual group (see
-// LeaveService#isAnnualBalanceLeaveType).
-function sameBalanceGroup(a: string, b: string): boolean {
-  return a === b || (isAnnualBalanceLeaveType(a) && isAnnualBalanceLeaveType(b));
-}
 
 function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, token }: {
   types: LeaveType[]; balances: LeaveBalance[]; editingRequest?: LeaveRequestRecord | null;
@@ -192,7 +222,7 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
   // selected in the form. A no-op for an originally-Unpaid request, which never reserved against
   // any balance row to begin with.
   const effectiveBalances = editingRequest && editingRequest.leaveTypeClassification === 'PAID'
-    ? balances.map(b => sameBalanceGroup(b.leaveTypeCode, editingRequest.leaveTypeCode)
+    ? balances.map(b => b.leaveTypeCode === editingRequest.leaveTypeCode && b.remainingDays != null
         ? { ...b, remainingDays: b.remainingDays + Number(editingRequest.totalDays) }
         : b)
     : balances;
@@ -200,18 +230,19 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
   // Early-UX only, mirroring the backend's own day-count formula (LeaveService#submitRequest) —
   // the backend independently re-validates against the same status-aware balance regardless of
   // what's computed here, so this can never be relied on to enforce the limit by itself.
-  const selectedBalance = effectiveBalances.find(b => sameBalanceGroup(b.leaveTypeCode, form.leaveTypeCode));
+  // Unlimited (unpaid) rows never limit a request.
+  const selectedBalance = effectiveBalances.find(b => b.leaveTypeCode === form.leaveTypeCode && !b.unlimited && b.remainingDays != null);
   const effectiveEndDate = form.halfDay ? form.startDate : form.endDate;
   const requestedDays = form.halfDay
     ? 0.5
     : (new Date(effectiveEndDate).getTime() - new Date(form.startDate).getTime()) / 86400000 + 1;
-  const exceedsBalance = !!selectedBalance && Number.isFinite(requestedDays) && requestedDays > selectedBalance.remainingDays;
+  const exceedsBalance = !!selectedBalance && Number.isFinite(requestedDays) && requestedDays > Number(selectedBalance.remainingDays);
 
   // Early-UX only, mirroring the backend's own classification-based rule (LeaveService#submitRequest)
   // — the backend independently re-validates against ALL of the employee's paid balances regardless
   // of what's checked here, so this can never be relied on to enforce the rule by itself.
   const selectedType = types.find(t => t.code === form.leaveTypeCode);
-  const hasAnyPaidBalance = effectiveBalances.some(b => b.remainingDays > 0);
+  const hasAnyPaidBalance = effectiveBalances.some(b => isRegularPaid(b) && Number(b.remainingDays) > 0);
   const blockedUnpaidWithPaidBalance = selectedType?.classification === 'UNPAID' && hasAnyPaidBalance;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -426,8 +457,9 @@ export default function LeavePage() {
   const [page, setPage] = useState(1);
 
   // ── Own-leave KPIs — derived client-side from `balances`/`requests` already loaded above. ──
-  const totalAvailable = useMemo(() => balances.reduce((s, b) => s + Math.max(0, Number(b.remainingDays)), 0), [balances]);
-  const totalUsed = useMemo(() => balances.reduce((s, b) => s + Math.max(0, Number(b.usedDays)), 0), [balances]);
+  // Regular paid balances only: unlimited unpaid leave and per-occurrence (Maternity) entitlement aren't a yearly allowance.
+  const totalAvailable = useMemo(() => roundDays(balances.filter(isRegularPaid).reduce((s, b) => s + Math.max(0, Number(b.remainingDays)), 0)), [balances]);
+  const totalUsed = useMemo(() => roundDays(balances.filter(isRegularPaid).reduce((s, b) => s + Math.max(0, Number(b.usedDays)), 0)), [balances]);
   const myPendingCount = useMemo(() => requests.filter(r => r.status === 'PENDING').length, [requests]);
   const todayIso = useMemo(() => { const n = new Date(); return toISODate(n.getFullYear(), n.getMonth(), n.getDate()); }, []);
   const upcoming = useMemo(

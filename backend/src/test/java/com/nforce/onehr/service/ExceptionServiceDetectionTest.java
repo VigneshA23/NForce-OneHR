@@ -118,7 +118,7 @@ class ExceptionServiceDetectionTest {
     void setUp() {
         AttendancePolicyEngine policyEngine = new ConfiguredAttendancePolicyEngine(versionRepository, tierRepository, lateHoursTierRepository);
         AuditSnapshotSerializer snapshotSerializer = new AuditSnapshotSerializer(new ObjectMapper());
-        PenaltyDeductionService penaltyDeductionService = new PenaltyDeductionService(leaveTypeRepository, leaveBalanceRepository, snapshotSerializer);
+        PenaltyDeductionService penaltyDeductionService = new PenaltyDeductionService(leaveTypeRepository, TestLeaveBalances.over(leaveTypeRepository, leaveBalanceRepository), snapshotSerializer);
         AttendancePenaltyEvaluationService penaltyEvaluationService =
                 new AttendancePenaltyEvaluationService(policyEngine, attendancePenaltyRepository, penaltyDeductionService,
                         notificationService, employeeService, employeeRepository, emailService, auditService, snapshotSerializer);

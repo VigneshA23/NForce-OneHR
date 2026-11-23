@@ -237,4 +237,12 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
 
     @Query("SELECT e FROM Employee e WHERE e.userId IN :ids AND e.lastWorkingDay BETWEEN :start AND :end")
     List<Employee> findExitsInRange(@Param("ids") Collection<UUID> ids, @Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    /** Lightweight [userId, fullName, employeeCode] rows of every non-deleted employee — the Leave Configuration employee picker. */
+    @Query("SELECT e.userId, e.fullName, e.employeeCode FROM Employee e JOIN e.user u WHERE u.deletedAt IS NULL ORDER BY e.fullName")
+    List<Object[]> findDirectoryRows();
+
+    /** User ids of every active, non-deleted employee — the leave year-end carry-forward population. */
+    @Query("SELECT e.userId FROM Employee e JOIN e.user u WHERE u.deletedAt IS NULL AND u.active = true")
+    List<java.util.UUID> findActiveEmployeeUserIds();
 }
