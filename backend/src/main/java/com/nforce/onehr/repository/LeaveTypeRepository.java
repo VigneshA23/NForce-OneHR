@@ -23,7 +23,7 @@ public interface LeaveTypeRepository extends JpaRepository<LeaveType, UUID> {
 
     /**
      * Every record that still points at a leave type, by id or by code — the deletion safeguard
-     * (V309). Balances, requests, occurrences and carry-forward history reference the id; payroll
+     * (V310). Balances, requests, occurrences and carry-forward history reference the id; payroll
      * no-attendance review items reference it by id without a FK; penalization policy versions
      * (leave_priority_order, comma-separated codes) and attendance penalties (leave_breakdown JSON,
      * keyed by code) reference the code. Anything above zero means "deactivate, don't delete".

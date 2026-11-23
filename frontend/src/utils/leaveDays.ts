@@ -19,7 +19,7 @@ export function roundDays(days: number): number {
 
 /**
  * A regular paid, per-leave-year balance with a quota — what "days left" totals add up. Unpaid
- * (unlimited) and per-occurrence (Maternity) rows are not a yearly allowance and are left out (V309).
+ * (unlimited) and per-occurrence (Maternity) rows are not a yearly allowance and are left out (V310).
  */
 export function hasYearlyQuota(b: LeaveBalance): boolean {
   return !b.unlimited && (b.entitlementBasis ?? 'ANNUAL') === 'ANNUAL' && yearlyQuota(b) > 0;

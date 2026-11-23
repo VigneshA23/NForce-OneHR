@@ -62,7 +62,7 @@ public class PenaltyDeductionService {
             if (type == null) {
                 continue;
             }
-            // V309: the type's OWN balance for the incident's leave year (carried-forward first while it
+            // V310: the type's OWN balance for the incident's leave year (carried-forward first while it
             // covers the date). Unpaid and per-occurrence (Maternity) types are never debited (returns 0).
             BigDecimal deduct = leaveBalanceService.debitUpTo(penalty.getEmployeeUserId(), type, penalty.getIncidentDate(), remaining);
             if (deduct.signum() <= 0) {

@@ -13,7 +13,7 @@ import {
 } from '../../api/leave';
 
 /**
- * Organization Masters / Organization Structure > Leave (V309). Three areas: Leave Types, Leave
+ * Organization Masters / Organization Structure > Leave (V310). Three areas: Leave Types, Leave
  * Entitlements (incl. an employee's balances and manual adjustment) and Carry-Forward Settings (incl.
  * year-end processing). Everything is gated by leave_configuration on the server; the buttons here
  * only follow the same permission: VIEW reads, CONFIGURE changes policy, EDIT adjusts a balance.

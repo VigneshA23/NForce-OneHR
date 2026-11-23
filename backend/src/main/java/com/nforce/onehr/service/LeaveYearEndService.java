@@ -33,7 +33,7 @@ import java.util.UUID;
 import static java.math.BigDecimal.ZERO;
 
 /**
- * Leave year-end carry-forward and carried-forward expiry (V309).
+ * Leave year-end carry-forward and carried-forward expiry (V310).
  *
  * <p>Everything here is a <b>reconciliation toward a target state</b>, so running it again — after a
  * crash, a failed employee, or simply every night — never double-counts:

@@ -36,7 +36,7 @@ public interface LeaveBalanceRepository extends JpaRepository<LeaveBalance, UUID
     List<LeaveBalance> findWithCarriedForwardExpiredBefore(@Param("today") java.time.LocalDate today);
 
     /**
-     * Race-safe lazy creation (V309): two requests creating the same (employee, type, year) row at
+     * Race-safe lazy creation (V310): two requests creating the same (employee, type, year) row at
      * once both succeed — the second insert is a no-op against the existing UNIQUE constraint.
      */
     @Modifying

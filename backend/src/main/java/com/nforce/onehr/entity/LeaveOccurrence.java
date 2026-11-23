@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * One eligible occurrence of a PER_OCCURRENCE leave type (e.g. Maternity, V309). Opened by the first
+ * One eligible occurrence of a PER_OCCURRENCE leave type (e.g. Maternity, V310). Opened by the first
  * request whose start date falls outside every earlier occurrence's window; every later request
  * starting inside [startDate, windowEndDate] draws from this same entitlement, so splitting leave
  * into several requests can never produce a fresh entitlement. Not a yearly balance: it never resets
