@@ -132,7 +132,7 @@ export function AdHocDeductionsTab({ runId, canConfigure }: { runId: string; can
         <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employeeIds.map(id => ({ id, label: nameFor(id) }))} />
       </div>
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>{['Component', 'Total', 'Installment', 'Remaining', 'Status', 'Reason', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>

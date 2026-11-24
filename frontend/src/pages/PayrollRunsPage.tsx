@@ -10,7 +10,7 @@ import { hasPermission } from '../lib/permissions';
 import { useToast } from '../context/ToastContext';
 import { payrollApi, type PayGroupResponse, type PayrollRunResponse } from '../api/payroll';
 import {
-  panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, StatusBadge, EmptyRow, SectionHead,
+  panelStyle, thStyle, tdStyle, fmtCurrency, fmtDate, fmtCycle, StatusBadge, EmptyRow, SectionHead,
   labelStyle, inputStyle,
 } from './payroll/payrollShared';
 import './payroll/payroll.css';
@@ -147,8 +147,8 @@ function MonthStrip({ payGroup, runs, canConfigure, generatingKey, onOpenRun, on
               {isGenerating ? 'Generating…' : TILE_LABEL[tile.status]}
             </span>
             {tile.run
-              ? <span className="nf-pr-cycle-net">{fmtCurrency(tile.run.totalNet)} net</span>
-              : <span className="nf-pr-cycle-net is-empty">{tile.status === 'UPCOMING' ? 'Not yet due' : canConfigure ? 'Click to generate' : 'No run'}</span>}
+              ? <span className="nf-pr-cycle-net">{fmtCurrency(tile.run.totalNet)}<span className="nf-pr-net-sfx"> net</span></span>
+              : <span className="nf-pr-cycle-net is-empty">{tile.status === 'UPCOMING' ? 'Not yet due' : canConfigure ? 'Generate' : 'No run'}</span>}
           </button>
         );
       })}
@@ -205,7 +205,7 @@ export default function PayrollRunsPage() {
 
   return (
     <div style={{ padding: '24px 28px' }}>
-      <div className="nf-pr-hero">
+      <div className="nf-page-hdr nf-pr-hdr nf-pr-hdr--near">
         <PageTitleBlock icon={Wallet}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Payroll Runs</h1>
           <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Generate, review and process each pay cycle's batch.</p>
@@ -219,9 +219,9 @@ export default function PayrollRunsPage() {
       </div>
 
       <div className="nf-pr-tiles" style={{ marginBottom: 18 }}>
-        <DashTile icon={<ListChecks size={20} />} label="Total Runs" value={String(runs.length)} accent="var(--brand)" />
+        <DashTile icon={<ListChecks size={20} />} label="Total Runs" value={String(runs.length)} sub="Pay cycles generated" accent="var(--brand)" />
         <DashTile icon={<Hourglass size={20} />} label="In Progress" value={String(runs.filter(r => r.status !== 'DISBURSED').length)} sub="Draft, submitted or approved" accent="var(--warn)" />
-        <DashTile icon={<CheckCircle2 size={20} />} label="Disbursed" value={String(runs.filter(r => r.status === 'DISBURSED').length)} accent="var(--ok)" />
+        <DashTile icon={<CheckCircle2 size={20} />} label="Disbursed" value={String(runs.filter(r => r.status === 'DISBURSED').length)} sub="Paid out and closed" accent="var(--ok)" />
         <DashTile icon={<IndianRupee size={20} />} label="Latest Net Pay" value={runs.length ? fmtCurrency([...runs].sort((a, b) => b.cycleEnd.localeCompare(a.cycleEnd))[0].totalNet) : fmtCurrency(0)} sub={runs.length ? 'Most recent cycle' : undefined} accent="var(--info)" />
       </div>
 
@@ -238,7 +238,7 @@ export default function PayrollRunsPage() {
 
       <SectionHead title="All Runs" />
       <div style={panelStyle}>
-        <table className="nf-pr-table nf-pr-table-clickable" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-table nf-pr-table-clickable nf-pr-center" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
               {['Cycle', 'Status', 'Employees', 'Gross', 'Deductions', 'Net', 'Created'].map(h => <th key={h} style={thStyle}>{h}</th>)}
@@ -247,7 +247,7 @@ export default function PayrollRunsPage() {
           <tbody>
             {pageRows.map(run => (
               <tr key={run.id} tabIndex={0} title="Open this run" onClick={() => navigate(`/payroll-runs/${run.id}`)} onKeyDown={e => { if (e.key === 'Enter') navigate(`/payroll-runs/${run.id}`); }}>
-                <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtDate(run.cycleStart)} to {fmtDate(run.cycleEnd)}</td>
+                <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{fmtCycle(run.cycleStart, run.cycleEnd)}</td>
                 <td style={tdStyle}><StatusBadge status={run.status} /></td>
                 <td style={tdStyle}>{run.employeeCount}</td>
                 <td style={tdStyle}>{fmtCurrency(run.totalGross)}</td>

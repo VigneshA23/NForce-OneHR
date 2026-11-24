@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Upload, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
+import { Upload, Trash2, ArrowUp, ArrowDown, FileSliders } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayGroupResponse, type PayslipSettingsResponse, type PayslipFieldKey } from '../../api/payroll';
@@ -92,60 +92,56 @@ function PayslipPreview({ documentHeaderText, footerText, logoUrl, earningsHeadi
   );
 
   return (
-    <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 14, padding: 20 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>Payslip Preview</div>
-      <div style={{ position: 'relative', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, padding: '20px 22px', overflow: 'hidden' }}>
-        <div style={{
-          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 54, fontWeight: 800, color: 'var(--txt)', opacity: 0.05, transform: 'rotate(-20deg)', pointerEvents: 'none',
-        }}>
-          SAMPLE
+    <section className="nf-ps">
+      <header className="nf-ps-head">
+        <div>
+          <h3 className="nf-ps-head-title">Payslip preview</h3>
+          <p className="nf-ps-head-sub">Updates as you change the settings</p>
         </div>
-        {logoImg ? (
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexDirection: logoAlignment === 'LEFT' ? 'row' : 'row-reverse' }}>
-            {logoImg}
-            <div style={{ flex: 1, textAlign: 'left' }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginBottom: 2 }}>{title}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--txt-dim)' }}>NForce One Pvt. Ltd. · Asha Rao · EMP001</div>
-            </div>
+        <span className="nf-ps-chip">Sample</span>
+      </header>
+
+      <div className="nf-ps-sheet">
+        <div className="nf-ps-mark" aria-hidden="true">SAMPLE</div>
+
+        <div className={`nf-ps-top${logoImg ? (logoAlignment === 'LEFT' ? ' has-logo' : ' has-logo is-right') : ''}`}>
+          {logoImg}
+          <div className="nf-ps-top-text">
+            <div className="nf-ps-title">{title}</div>
+            <div className="nf-ps-company">NForce One Pvt. Ltd. &middot; Asha Rao &middot; EMP001</div>
           </div>
-        ) : (
-          <>
-            <div style={{ position: 'relative', textAlign: 'center', fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>{title}</div>
-            <div style={{ position: 'relative', textAlign: 'center', fontSize: 11.5, color: 'var(--txt-dim)', marginBottom: 16 }}>NForce One Pvt. Ltd. · Asha Rao · EMP001</div>
-          </>
-        )}
-        <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16, rowGap: 6, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid var(--line)' }}>
+        </div>
+
+        <dl className="nf-ps-facts">
           {fieldPairs.map(([label, value]) => (
-            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5 }}>
-              <span style={{ color: 'var(--txt-dim)', fontWeight: 600 }}>{label}</span>
-              <span style={{ color: 'var(--txt)' }}>{value}</span>
+            <div key={label} className="nf-ps-fact">
+              <dt>{label}</dt>
+              <dd>{value}</dd>
             </div>
           ))}
+        </dl>
+
+        <div className="nf-ps-lists">
+          <table className="nf-ps-table">
+            <thead><tr><th colSpan={2}>{earningsLabel}</th></tr></thead>
+            <tbody>{SAMPLE_EARNINGS.map(([n, v]) => <tr key={n}><td>{n}</td><td className="nf-ps-num">{fmt(v)}</td></tr>)}</tbody>
+            <tfoot><tr><td>Gross {earningsLabel}</td><td className="nf-ps-num">{fmt(SAMPLE_GROSS)}</td></tr></tfoot>
+          </table>
+          <table className="nf-ps-table">
+            <thead><tr><th colSpan={2}>{deductionsLabel}</th></tr></thead>
+            <tbody>{SAMPLE_DEDUCTIONS.map(([n, v]) => <tr key={n}><td>{n}</td><td className="nf-ps-num">{fmt(v)}</td></tr>)}</tbody>
+            <tfoot><tr><td>Total {deductionsLabel}</td><td className="nf-ps-num">{fmt(SAMPLE_TOTAL_DEDUCTIONS)}</td></tr></tfoot>
+          </table>
         </div>
-        <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 4 }}>
-          <div>
-            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginBottom: 6 }}>{earningsLabel}</div>
-            {SAMPLE_EARNINGS.map(([n, v]) => (
-              <div key={n} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 4 }}><span>{n}</span><span>{fmt(v)}</span></div>
-            ))}
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, fontWeight: 700, color: 'var(--txt)', marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--line)' }}><span>Gross {earningsLabel}</span><span>{fmt(SAMPLE_GROSS)}</span></div>
-          </div>
-          <div>
-            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--txt-dim)', marginBottom: 6 }}>{deductionsLabel}</div>
-            {SAMPLE_DEDUCTIONS.map(([n, v]) => (
-              <div key={n} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 4 }}><span>{n}</span><span>{fmt(v)}</span></div>
-            ))}
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, fontWeight: 700, color: 'var(--txt)', marginTop: 6, paddingTop: 6, borderTop: '1px solid var(--line)' }}><span>Total {deductionsLabel}</span><span>{fmt(SAMPLE_TOTAL_DEDUCTIONS)}</span></div>
-          </div>
+
+        <div className="nf-ps-net">
+          <span>Net pay</span>
+          <strong>&#8377;{fmt(netPay)}</strong>
         </div>
-        <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--raised)', borderRadius: 6, padding: '8px 12px', marginTop: 14 }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt)' }}>Net Pay</span>
-          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--brand)' }}>₹{fmt(netPay)}</span>
-        </div>
-        <div style={{ position: 'relative', fontSize: 11, fontStyle: 'italic', color: 'var(--txt-dim)', borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 14 }}>{footer}</div>
+
+        <p className="nf-ps-foot">{footer}</p>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -282,8 +278,8 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
   return (
     <WithFaqPanel items={FAQ_ITEMS} title="Payslip Settings Help">
     <div>
-      <SectionHead title="Configure Payslip Settings" action={<BtnPrimary onClick={save} disabled={!settings || saving}>{saving ? 'Saving…' : 'Save Changes'}</BtnPrimary>} />
-      <div style={{ maxWidth: 320, marginBottom: 18 }}>
+      <SectionHead icon={FileSliders} title="Configure Payslip Settings" subtitle="Password protection, header, footer, logo and what prints on every payslip." action={<BtnPrimary onClick={save} disabled={!settings || saving}>{saving ? 'Saving…' : 'Save Changes'}</BtnPrimary>} />
+      <div className="nf-pr-pgsel">
         <label style={labelStyle}>Pay Group</label>
         <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
           {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}
@@ -295,7 +291,7 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) minmax(300px, 420px)', gap: 24, alignItems: 'start' }}>
           <div>
-            <div style={{ ...panelStyle, padding: '18px 20px', marginBottom: 16 }}>
+            <div className="nf-pr-pcard" style={{ ...panelStyle, padding: '18px 20px', marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>General Settings</div>
               <ToggleSwitch
                 checked={passwordProtected} onChange={setPasswordProtected}
@@ -308,7 +304,7 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
               )}
             </div>
 
-            <div style={{ ...panelStyle, padding: '18px 20px', marginBottom: 16 }}>
+            <div className="nf-pr-pcard" style={{ ...panelStyle, padding: '18px 20px', marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>Company Logo</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div style={{
@@ -369,7 +365,7 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
               </div>
             </div>
 
-            <div style={{ ...panelStyle, padding: '18px 20px', marginBottom: 16 }}>
+            <div className="nf-pr-pcard" style={{ ...panelStyle, padding: '18px 20px', marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>Header Customisation</div>
               <FormRow>
                 <label style={labelStyle}>Document Header</label>
@@ -377,7 +373,7 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
               </FormRow>
             </div>
 
-            <div style={{ ...panelStyle, padding: '18px 20px', marginBottom: 16 }}>
+            <div className="nf-pr-pcard" style={{ ...panelStyle, padding: '18px 20px', marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginBottom: 12 }}>Footer Customisation</div>
               <FormRow>
                 <label style={labelStyle}>Footer Text</label>
@@ -385,7 +381,7 @@ export function PayslipSettingsTab({ payGroups }: { payGroups: PayGroupResponse[
               </FormRow>
             </div>
 
-            <div style={{ ...panelStyle, padding: '18px 20px', marginBottom: 16 }}>
+            <div className="nf-pr-pcard" style={{ ...panelStyle, padding: '18px 20px', marginBottom: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>Body Customisation</div>
               <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 12 }}>What prints in the body of the payslip, beyond the earnings and deductions table.</div>
 

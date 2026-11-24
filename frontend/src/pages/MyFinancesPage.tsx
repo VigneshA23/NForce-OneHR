@@ -171,12 +171,10 @@ export default function MyFinancesPage() {
 
   return (
     <div style={{ padding: '24px 28px' }}>
-      <div style={{ marginBottom: 20 }}>
-        <PageTitleBlock icon={Wallet}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>My Finances</h1>
-          <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Your pay and tax information.</p>
-        </PageTitleBlock>
-      </div>
+      <PageTitleBlock icon={Wallet} card>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>My Finances</h1>
+        <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Your pay and tax information.</p>
+      </PageTitleBlock>
 
       <TabBar tabs={TOP_TABS} active={tab} onChange={k => navigate(`${BASE}/${k}`)} ariaLabel="My Finances sections" style={{ marginBottom: 16 }} />
       {SUBTABS[tab] && sub && (
@@ -227,7 +225,7 @@ function SummaryPanel({ data, onRequestChange, onViewPayslip, onUploadDocs, onSa
             <>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{formatPeriod(latest.period)}</div>
               <div style={{ fontSize: 12, color: 'var(--txt-mut)', margin: '2px 0 14px' }}>
-                {fmtDate(latest.cycleStart)} – {fmtDate(latest.cycleEnd)}
+                {fmtDate(latest.cycleStart)} to {fmtDate(latest.cycleEnd)}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
                 <ReadField label="Working Days" value={String(latest.workingDays)} />

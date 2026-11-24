@@ -44,7 +44,7 @@ export function ArrearsTab({ runId }: { runId: string }) {
       </div>
       <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Employee', 'Amount', 'Source', 'Source Cycle', 'Reason', 'Status'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {filtered.map(r => (

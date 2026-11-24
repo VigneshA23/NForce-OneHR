@@ -46,7 +46,7 @@ function parseSlabConfig(slabConfig: string): [string, unknown][] | null {
 
 function SlabConfigSummary({ slabConfig }: { slabConfig: string }) {
   const entries = parseSlabConfig(slabConfig);
-  if (!entries || entries.length === 0) return <span style={{ color: 'var(--txt-dim)' }}>—</span>;
+  if (!entries || entries.length === 0) return <span style={{ color: 'var(--txt-dim)' }}>-</span>;
   return (
     <span style={{ color: 'var(--txt-mut)' }}>
       {entries.map(([k, v]) => `${humanizeKey(k)}: ${v}`).join(' · ')}

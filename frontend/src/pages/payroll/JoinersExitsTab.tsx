@@ -32,7 +32,7 @@ export function JoinersExitsTab({ runId }: { runId: string }) {
 
       <SectionHead title={`New Joinees (${joiners.length})`} />
       <div style={{ ...panelStyle, marginBottom: 24 }}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Employee', 'Joining Date'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {joiners.map(j => (
@@ -50,7 +50,7 @@ export function JoinersExitsTab({ runId }: { runId: string }) {
 
       <SectionHead title={`Exits (${exits.length})`} />
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Employee', 'Last Working Day'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {exits.map(x => (

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, FileCheck, MapPin, Building2 } from 'lucide-react';
 import { ActionDock } from '../../components/ActionDock';
 import { TabBar, type TabDef } from '../../components/TabBar';
 import { useAuthStore } from '../../store/authStore';
@@ -48,7 +48,7 @@ function IncomeTaxPanel({ details, onSave, saving }: { details: PayGroupFilingDe
 
   return (
     <div>
-      <SectionHead title="Income Tax Filing Details" action={<BtnPrimary onClick={() => onSave(draft)} disabled={saving}>{saving ? 'Saving…' : 'Save'}</BtnPrimary>} />
+      <SectionHead icon={FileCheck} title="Income Tax Filing Details" subtitle="PAN, TAN and signatory details used on tax filings for this pay group." action={<BtnPrimary onClick={() => onSave(draft)} disabled={saving}>{saving ? 'Saving…' : 'Save'}</BtnPrimary>} />
       <div style={{ ...panelStyle, padding: '18px 22px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
           <SettingField label="PAN" value={draft.pan ?? ''} onChange={v => setDraft(d => ({ ...d, pan: v.toUpperCase() }))} placeholder="e.g. AAAAA0000A" />
@@ -72,7 +72,7 @@ function EstablishmentIdPanel({ title, fieldLabel, value, onSave, saving }: {
 
   return (
     <div>
-      <SectionHead title={title} action={<BtnPrimary onClick={() => onSave(draft)} disabled={saving}>{saving ? 'Saving…' : 'Save'}</BtnPrimary>} />
+      <SectionHead icon={Building2} title={title} subtitle="Registration number recorded for this pay group." action={<BtnPrimary onClick={() => onSave(draft)} disabled={saving}>{saving ? 'Saving…' : 'Save'}</BtnPrimary>} />
       <div style={{ ...panelStyle, padding: '18px 22px', maxWidth: 360 }}>
         <SettingField label={fieldLabel} value={draft} onChange={setDraft} placeholder="e.g. HYD1234567000" />
       </div>
@@ -176,7 +176,9 @@ function ProfessionalTaxPanel({ payGroupId }: { payGroupId: string }) {
   return (
     <div>
       <SectionHead
+        icon={MapPin}
         title="PT Registered States"
+        subtitle="Professional Tax states and locations registered for this pay group."
         action={<BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add New PT State</BtnPrimary>}
       />
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(200px, 260px) 1fr', gap: 18, alignItems: 'start' }}>
@@ -307,7 +309,7 @@ export function FilingDetailsTab({ payGroups }: { payGroups: PayGroupResponse[] 
   return (
     <WithFaqPanel items={FAQ_ITEMS} title="Filing Details Help">
     <div>
-      <div style={{ maxWidth: 320, marginBottom: 18 }}>
+      <div className="nf-pr-pgsel">
         <label style={labelStyle}>Pay Group</label>
         <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
           {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}

@@ -327,7 +327,7 @@ export function PayslipsTab({ runId, payGroupId, cycleStart, runStatus, canConfi
       )}
       <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
-        <table className="nf-pr-table nf-pr-table-clickable" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table nf-pr-table-clickable" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>{['Employee', 'Net', 'Published', 'Withheld', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>

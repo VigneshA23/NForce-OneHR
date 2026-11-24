@@ -87,7 +87,7 @@ export function LeaveAppliedReviewTab({ runId, canConfigure }: { runId: string; 
       />
       <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
               {canConfigure && <th style={thStyle}><input type="checkbox" checked={allPendingSelected} onChange={toggleAll} disabled={pendingIds.length === 0} /></th>}

@@ -76,10 +76,10 @@ export default function PayrollSetupPage() {
   const structureableCatalog = catalog.filter(c => ['EARNING', 'REIMBURSEMENT', 'DEDUCTION', 'CONTRIBUTION'].includes(c.type) && c.active);
 
   return (
-    <div style={{ padding: '24px 28px' }}>
-      <PageTitleBlock icon={Settings} style={{ marginBottom: 20 }}>
+    <div className="nf-pr-form" style={{ padding: '24px 28px' }}>
+      <PageTitleBlock icon={Settings} card>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Payroll Setup</h1>
-        <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Components, structures, pay groups and compensation - everything a payroll run needs before it can generate. Statutory rules live under Statutory Compliance.</p>
+        <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Components, structures, pay groups and compensation: everything a payroll run needs before it can generate. Statutory rules live under Statutory Compliance.</p>
       </PageTitleBlock>
 
       {/* Stat cards double as quick-nav buttons to their own tab - "where do I go to see my pay
@@ -92,7 +92,7 @@ export default function PayrollSetupPage() {
         />
         <StatTile
           tone="var(--brand)" icon={<FileStack size={20} />} label="Salary Structures"
-          value={String(structures.length)} hint={structures.length === 0 ? 'None created yet' : undefined}
+          value={String(structures.length)} hint={structures.length === 0 ? 'None created yet' : 'Ready to assign'}
           onClick={() => setSection('structures')}
         />
         <StatTile
@@ -107,7 +107,9 @@ export default function PayrollSetupPage() {
         />
       </div>
 
-      <TabBar tabs={SECTIONS} active={section} onChange={setSection} ariaLabel="Payroll setup sections" style={{ marginBottom: 18 }} />
+      <div className="nf-pr-settabs-wrap">
+        <TabBar tabs={SECTIONS} active={section} onChange={setSection} ariaLabel="Payroll setup sections" className="nf-tabs-card nf-pr-settabs" />
+      </div>
 
       {section === 'components' && <SalaryComponentsTab catalog={catalog} onChanged={reloadCatalog} />}
       {section === 'structures' && (

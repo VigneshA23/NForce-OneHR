@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { History, Upload } from 'lucide-react';
+import { History, Upload, Wallet, TrendingUp, TrendingDown } from 'lucide-react';
 import { PersonAvatar, PersonCellById } from '../../components/PersonCell';
 import { TabBar, type TabDef } from '../../components/TabBar';
 import { useAuthStore } from '../../store/authStore';
@@ -63,6 +63,7 @@ export function ReviseCompensationScreen({ employee, current, structures, payGro
   return (
     <FullScreenTask
       title={current ? 'Revise Salary' : 'Assign Compensation'}
+      subtitle={current ? 'Set a new CTC for this employee from a chosen date.' : 'Assign a salary structure and CTC to this employee.'}
       onClose={onClose}
       actions={(
         <>
@@ -72,82 +73,99 @@ export function ReviseCompensationScreen({ employee, current, structures, payGro
       )}
     >
       {/* Employee strip */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '14px 18px', borderRadius: 12, background: 'var(--raised)', marginBottom: 22 }}>
-        <PersonAvatar userId={employee.userId} name={employee.fullName} size={44} />
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)' }}>{employee.fullName}</div>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--brand)' }}>{employee.designationName ?? '-'}</div>
+      <section className="nf-pr-empstrip">
+        <PersonAvatar userId={employee.userId} name={employee.fullName} size={48} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--txt)', overflowWrap: 'anywhere' }}>{employee.fullName}</div>
+          <div className="nf-pr-empstrip-role">{employee.designationName ?? '-'}</div>
         </div>
-        <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--line)' }} />
-        <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
-          <div><div style={labelStyle}>Date of Joining</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{fmtDate(employee.joiningDate)}</div></div>
-          <div><div style={labelStyle}>Legal Entity</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{legalEntity ?? '-'}</div></div>
-          <div><div style={labelStyle}>Department</div><div style={{ fontSize: 13.5, color: 'var(--txt)' }}>{employee.departmentName ?? '-'}</div></div>
-          <div><div style={labelStyle}>Current CTC</div><div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--txt)' }}>{current ? fmtCurrency(current.ctc) : 'Not set'}</div></div>
+        <div className="nf-pr-empstrip-facts">
+          <div><div style={labelStyle}>Date of joining</div><div className="nf-pr-empstrip-v">{fmtDate(employee.joiningDate)}</div></div>
+          <div><div style={labelStyle}>Legal entity</div><div className="nf-pr-empstrip-v">{legalEntity ?? '-'}</div></div>
+          <div><div style={labelStyle}>Department</div><div className="nf-pr-empstrip-v">{employee.departmentName ?? '-'}</div></div>
+          <div><div style={labelStyle}>Current CTC</div><div className="nf-pr-empstrip-v" style={{ fontWeight: 800 }}>{current ? fmtCurrency(current.ctc) : 'Not set'}</div></div>
         </div>
-      </div>
+      </section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) minmax(260px, 340px)', gap: 24, alignItems: 'start' }}>
-        {/* Left - new compensation details */}
-        <div>
-          <SectionHead title="New compensation details" />
-          <FormRow>
-            <label style={labelStyle}>Pay Group</label>
-            <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
-              {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}
-            </select>
-          </FormRow>
-          <FormRow>
-            <label style={labelStyle}>Salary Structure</label>
-            <select value={structureId} onChange={e => setStructureId(e.target.value)} style={inputStyle}>
-              {structures.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </FormRow>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, marginBottom: 14 }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>New Annual CTC</label>
-              <input
-                type="number" min={0} value={amount}
-                onFocus={() => setMode('amount')}
-                onChange={e => { setMode('amount'); setAmount(e.target.value); }}
-                style={{ ...inputStyle, opacity: mode === 'amount' ? 1 : .6 }} placeholder="e.g. 1200000"
-              />
-            </div>
-            <span style={{ fontSize: 12.5, color: 'var(--txt-dim)', paddingBottom: 10 }}>or</span>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Percentage Change</label>
-              <input
-                type="number" step="0.1" value={percent} disabled={!current}
-                onFocus={() => setMode('percent')}
-                onChange={e => { setMode('percent'); setPercent(e.target.value); }}
-                style={{ ...inputStyle, opacity: !current ? .5 : mode === 'percent' ? 1 : .6 }} placeholder="e.g. 10"
-                title={!current ? 'Not available without a current compensation to change from' : undefined}
-              />
-            </div>
-          </div>
-          <FormRow>
-            <label style={labelStyle}>Effective From</label>
-            <input type="date" value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} style={inputStyle} />
-          </FormRow>
-        </div>
+      <div className="nf-pr-edwrap">
+        <div className="nf-pr-ed nf-pr-ed--comp">
+          {/* New compensation details */}
+          <section className="nf-pr-edcard">
+            <header className="nf-pr-edcard-head">
+              <span className="nf-pr-edcard-ico"><Wallet size={16} /></span>
+              <div>
+                <h3 className="nf-pr-edcard-title">New compensation details</h3>
+                <p className="nf-pr-edcard-sub">Choose the pay group and structure, then set the new CTC</p>
+              </div>
+            </header>
+            <div className="nf-pr-edcard-body">
+              <div className="nf-pr-2col">
+                <FormRow>
+                  <label style={labelStyle}>Pay group</label>
+                  <select value={payGroupId} onChange={e => setPayGroupId(e.target.value)} style={inputStyle}>
+                    {payGroups.map(pg => <option key={pg.id} value={pg.id}>{pg.name}</option>)}
+                  </select>
+                </FormRow>
+                <FormRow>
+                  <label style={labelStyle}>Salary structure</label>
+                  <select value={structureId} onChange={e => setStructureId(e.target.value)} style={inputStyle}>
+                    {structures.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </FormRow>
+              </div>
 
-        {/* Right - compensation summary */}
-        <div style={{ background: 'var(--raised)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 20px' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)', marginBottom: 4 }}>Compensation Summary</div>
-          <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 16 }}>Effective from: {effectiveFrom ? fmtDate(effectiveFrom) : '-'}</div>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-            <span style={labelStyle}>Current CTC</span>
-            <span style={{ fontSize: 15, color: 'var(--txt-mut)' }}>{current ? fmtCurrency(current.ctc) : '-'}</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
-            <span style={labelStyle}>New CTC</span>
-            <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--txt)' }}>{newCtc > 0 ? fmtCurrency(newCtc) : '-'}</span>
-          </div>
-          {change != null && changePct != null && (
-            <div style={{ paddingTop: 10, borderTop: '1px solid var(--line)', fontSize: 12.5, color: change >= 0 ? 'var(--ok)' : 'var(--risk)' }}>
-              {change >= 0 ? '+' : ''}{fmtCurrency(change)} ({changePct >= 0 ? '+' : ''}{changePct.toFixed(1)}%)
+              <FormRow>
+                <label style={labelStyle}>How do you want to set the new CTC?</label>
+                <div className="nf-pr-chips" role="radiogroup" aria-label="CTC entry mode">
+                  <button type="button" role="radio" aria-checked={mode === 'amount'} className={`nf-pr-chip${mode === 'amount' ? ' is-on' : ''}`} onClick={() => setMode('amount')}>Enter an amount</button>
+                  <button type="button" role="radio" aria-checked={mode === 'percent'} disabled={!current} className={`nf-pr-chip${mode === 'percent' ? ' is-on' : ''}`} onClick={() => setMode('percent')} title={!current ? 'Not available without a current compensation to change from' : undefined}>Change by a percentage</button>
+                </div>
+              </FormRow>
+
+              {mode === 'amount' ? (
+                <FormRow>
+                  <label style={labelStyle}>New annual CTC</label>
+                  <input type="number" min={0} value={amount} onChange={e => setAmount(e.target.value)} style={inputStyle} placeholder="e.g. 1200000" />
+                </FormRow>
+              ) : (
+                <FormRow>
+                  <label style={labelStyle}>Percentage change</label>
+                  <input type="number" step="0.1" value={percent} disabled={!current} onChange={e => setPercent(e.target.value)} style={inputStyle} placeholder="e.g. 10" />
+                </FormRow>
+              )}
+
+              <FormRow>
+                <label style={labelStyle}>Effective from</label>
+                <input type="date" value={effectiveFrom} onChange={e => setEffectiveFrom(e.target.value)} style={inputStyle} />
+              </FormRow>
             </div>
-          )}
+          </section>
+
+          {/* Compensation summary */}
+          <section className="nf-pr-edcard">
+            <header className="nf-pr-edcard-head">
+              <span className="nf-pr-edcard-ico">{change != null && change < 0 ? <TrendingDown size={16} /> : <TrendingUp size={16} />}</span>
+              <div>
+                <h3 className="nf-pr-edcard-title">Compensation summary</h3>
+                <p className="nf-pr-edcard-sub">Effective from {effectiveFrom ? fmtDate(effectiveFrom) : '-'}</p>
+              </div>
+            </header>
+            <div className="nf-pr-edcard-body">
+              <div className="nf-pr-sumrow">
+                <span style={labelStyle}>Current CTC</span>
+                <span className="nf-pr-sumrow-v">{current ? fmtCurrency(current.ctc) : '-'}</span>
+              </div>
+              <div className="nf-pr-sumrow is-new">
+                <span style={labelStyle}>New CTC</span>
+                <span className="nf-pr-sumrow-v is-big">{newCtc > 0 ? fmtCurrency(newCtc) : '-'}</span>
+              </div>
+              {change != null && changePct != null && newCtc > 0 && (
+                <div className={`nf-pr-delta ${change >= 0 ? 'is-up' : 'is-down'}`}>
+                  {change >= 0 ? 'Increase of ' : 'Decrease of '}{fmtCurrency(Math.abs(change))} ({changePct >= 0 ? '+' : ''}{changePct.toFixed(1)}%)
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       </div>
     </FullScreenTask>
@@ -187,7 +205,7 @@ export function AllChangesHistory() {
       </div>
       <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Employee', 'Structure', 'CTC', 'Effective From', 'Effective To', 'Changed By', 'When'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {filtered.map(r => {
@@ -224,7 +242,7 @@ const FAQ_ITEMS: FaqItem[] = [
   { q: 'What’s the difference between "Assign" and "Revise" Compensation?', a: 'Same screen, same action underneath - it’s labeled "Assign" when the employee has no compensation yet, and "Revise" once they do. Both create a new compensation row effective from the date you set.' },
   { q: 'Does revising someone’s compensation change past payslips?', a: 'No. A new compensation row only affects payslips generated for cycles on or after its effective date; anything already generated stays exactly as it was.' },
   { q: 'Where do I see every change made across all employees?', a: 'Switch to the "All Changes" view at the top - it lists every compensation revision org-wide with who made it and when, pulled from the audit log.' },
-  { q: 'What are the three Import buttons for?', a: 'Bulk-upload an Excel file instead of entering rows one by one: Salaries (new compensation per employee), Financial Info (bank/PAN/UAN), and Bonuses (one-off ad-hoc payments). Each walks through Upload → Match Columns → Preview before writing anything.' },
+  { q: 'What are the three Import buttons for?', a: 'Bulk-upload an Excel file instead of entering rows one by one: Salaries (new compensation per employee), Financial Info (bank/PAN/UAN), and Bonuses (one-off ad-hoc payments). Each walks through Upload > Match Columns > Preview before writing anything.' },
   { q: 'Why does the employee picker clear itself after I save?', a: 'On purpose - so you don’t accidentally start revising the same person again. Search and pick the next employee from empty each time.' },
 ];
 
@@ -275,7 +293,6 @@ export function EmployeeCompensationTab({ structures, payGroups }: { structures:
           <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, padding: '18px 22px', marginBottom: 20 }}>
             <SectionHead title="Employee Compensation" />
             <div style={{ maxWidth: 360, marginBottom: 14 }}>
-              <label style={labelStyle}>Employee</label>
               <EmployeePicker value={employeeId} onChange={setEmployeeId} options={employees.map(e => ({ id: e.userId, label: `${e.fullName} (${e.departmentName ?? 'No dept'})` }))} />
             </div>
             {employeeId && (
@@ -296,7 +313,7 @@ export function EmployeeCompensationTab({ structures, payGroups }: { structures:
             <div>
               <SectionHead title="Compensation History" action={<History size={15} style={{ color: 'var(--txt-dim)' }} />} />
               <div style={panelStyle}>
-                <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead><tr>{['Structure', 'CTC', 'Effective From', 'Effective To'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
                   <tbody>
                     {history.map(h => (

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Pencil, Ban, CheckCircle2 } from 'lucide-react';
+import { Plus, Pencil, Ban, CheckCircle2, Wallet } from 'lucide-react';
 import { ActionDock } from '../../components/ActionDock';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
@@ -11,7 +11,7 @@ import {
 
 const FAQ_ITEMS: FaqItem[] = [
   { q: 'What is a pay group, and do I need more than one?', a: 'A pay group defines a pay cycle (start/end/processing day), currency and legal entity that a set of employees is paid under. Most companies need just one - add more only for separate legal entities or genuinely different pay cycles/currencies.' },
-  { q: 'What do Cycle Start/End Day and Processing Day control?', a: 'Cycle Start/End define the pay period window (e.g. 26–25 means the 26th of the previous month through the 25th of this one). Processing Day is when payroll is actually run for that cycle - they don’t have to be the same day.' },
+  { q: 'What do Cycle Start/End Day and Processing Day control?', a: 'Cycle Start/End define the pay period window (e.g. 26 to 25 means the 26th of the previous month through the 25th of this one). Processing Day is when payroll is actually run for that cycle - they don’t have to be the same day.' },
   { q: 'What happens if I deactivate a pay group?', a: 'It stops appearing as an option for new assignments, but existing employees, runs and payslips already tied to it are untouched. Reactivate it any time with the same action.' },
   { q: 'Can I change Legal Entity or Currency later?', a: 'No - the drawer shows them as a read-only reference once a pay group exists, since changing currency or entity after payslips have been generated under it would be misleading. Create a new pay group instead. Address is the exception - it’s just letterhead text, so it stays editable any time.' },
 ];
@@ -52,6 +52,7 @@ function PayGroupDrawer({ title, initial, isNew, onClose, onSubmit }: {
   return (
     <Drawer
       title={title}
+      subtitle="Set the pay cycle and when payroll is processed."
       onClose={onClose}
       readOnlyBlock={!isNew ? (
         <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
@@ -74,6 +75,7 @@ function PayGroupDrawer({ title, initial, isNew, onClose, onSubmit }: {
           />
         </div>
       )}
+      <div className="nf-pr-dsec-title">Basics</div>
       <FormRow>
         <label style={labelStyle}>Name</label>
         <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} placeholder="e.g. Default pay group" />
@@ -99,9 +101,9 @@ function PayGroupDrawer({ title, initial, isNew, onClose, onSubmit }: {
           </FormRow>
         </>
       )}
-      <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
-        <div style={{ ...labelStyle, marginBottom: 10 }}>Pay Schedule</div>
-        <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 12 }}>Cycle Start/End define the pay cycle window (e.g. 26–25); Processing Day is when payroll is run for that cycle.</div>
+      <div style={{ marginTop: 22 }}>
+        <div className="nf-pr-dsec-title">Pay schedule</div>
+        <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 12 }}>Cycle Start and End define the pay cycle window (for example 26 to 25). Processing Day is when payroll is run for that cycle.</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
           <FormRow>
             <label style={labelStyle}>Cycle Start Day</label>
@@ -115,6 +117,10 @@ function PayGroupDrawer({ title, initial, isNew, onClose, onSubmit }: {
             <label style={labelStyle}>Processing Day</label>
             <input type="number" min={1} max={31} value={form.processingDay} onChange={e => setForm(f => ({ ...f, processingDay: Number(e.target.value) }))} style={inputStyle} />
           </FormRow>
+        </div>
+        <div className="nf-pr-formula">
+          <span className="nf-pr-formula-k">Schedule</span>
+          <span className="nf-pr-formula-v">Cycle runs from day {form.cycleStartDay} to day {form.cycleEndDay}, processed on day {form.processingDay}</span>
         </div>
       </div>
     </Drawer>
@@ -164,12 +170,14 @@ export function PayGroupsTab({ payGroups, onChanged }: { payGroups: PayGroupResp
     <WithFaqPanel items={FAQ_ITEMS} title="Pay Groups Help">
     <div>
       <SectionHead
+        icon={Wallet}
         title="Pay Groups"
+        subtitle="Each pay group has its own pay cycle, processing day and payslip settings."
         action={<BtnPrimary onClick={() => setShowCreate(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Pay Group</BtnPrimary>}
       />
       <FilterBar search={search} onSearchChange={setSearch} placeholder="Search pay group" />
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-table nf-pr-center" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>{['Name', 'Legal Entity', 'Currency', 'Cycle', 'Processing Day', 'Status', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>
@@ -179,7 +187,7 @@ export function PayGroupsTab({ payGroups, onChanged }: { payGroups: PayGroupResp
                 <td style={tdStyle}>{pg.name}</td>
                 <td style={tdStyle}>{pg.legalEntity ?? '-'}</td>
                 <td style={tdStyle}>{pg.currency}</td>
-                <td style={tdStyle}>{pg.cycleStartDay} - {pg.cycleEndDay}</td>
+                <td style={tdStyle}>{pg.cycleStartDay} to {pg.cycleEndDay}</td>
                 <td style={tdStyle}>{pg.processingDay}</td>
                 <td style={tdStyle}>{pg.active ? 'Active' : 'Inactive'}</td>
                 <td style={tdStyle}>

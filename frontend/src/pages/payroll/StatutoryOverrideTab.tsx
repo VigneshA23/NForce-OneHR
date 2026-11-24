@@ -124,7 +124,7 @@ export function StatutoryOverrideTab({ payGroupId, cycleStart, canConfigure }: {
         <div>
           <SectionHead title={`Overrides for ${nameFor(employeeId)}`} />
           <div style={panelStyle}>
-            <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>{['Rule Type', 'Cycle', 'Amount', 'Reason', 'Overridden At', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
               <tbody>
                 {overrides.map(o => (

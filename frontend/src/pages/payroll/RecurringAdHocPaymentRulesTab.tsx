@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pause, Play } from 'lucide-react';
+import { Plus, Pause, Play, Repeat } from 'lucide-react';
 import { ActionDock } from '../../components/ActionDock';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
@@ -118,16 +118,15 @@ export function RecurringAdHocPaymentRulesTab({ catalog, payGroups, canConfigure
   return (
     <div>
       <SectionHead
+        icon={Repeat}
         title="Recurring Payments"
+        subtitle="Standing payments added to every new or regenerated payroll run, so you do not add them by hand each cycle."
         action={canConfigure ? (
           <BtnPrimary onClick={() => setShowAdd(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Rule</BtnPrimary>
         ) : <NoPermissionNote action="add recurring payment rules" />}
       />
-      <p style={{ marginTop: -6, marginBottom: 16, fontSize: 13, color: 'var(--txt-mut)' }}>
-        A standing allowance applied to every employee on every new or regenerated payroll run - set it up once here instead of adding it by hand every cycle under a run's Ad-hoc Payments tab.
-      </p>
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>{['Component', 'Pay Group', 'Amount', 'Reason', 'Status', 'Created By', 'Created At', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>

@@ -21,7 +21,7 @@ export default function StatutoryCompliancePage() {
 
   return (
     <div style={{ padding: '24px 28px' }}>
-      <PageTitleBlock icon={ShieldCheck} style={{ marginBottom: 20 }}>
+      <PageTitleBlock icon={ShieldCheck} card>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Statutory Compliance</h1>
         <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>PF, ESI and Professional Tax rules by country, versioned by effective date - what every payslip's statutory deductions compute from.</p>
       </PageTitleBlock>

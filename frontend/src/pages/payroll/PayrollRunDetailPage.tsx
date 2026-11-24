@@ -12,7 +12,7 @@ import { hasPermission } from '../../lib/permissions';
 import { useToast } from '../../context/ToastContext';
 import { payrollApi, type PayrollRunResponse, type PayrollRunRollbackResponse, type PayrollRunStatus, type PayGroupResponse, type PreApprovalSummaryResponse } from '../../api/payroll';
 import {
-  fmtCurrency, fmtDate, fmtDateTime, StatusBadge, StatTile, StepCard, SectionHead, Modal, FormRow,
+  fmtCurrency, fmtDateTime, fmtCycle, StatusBadge, StatTile, StepCard, SectionHead, Modal, FormRow,
   labelStyle, inputStyle, BtnPrimary, BtnGhost, WithFaqPanel, useEmployeeDirectory, panelStyle, thStyle, tdStyle, type FaqItem,
 } from './payrollShared';
 import { PayslipsTab } from './PayslipsTab';
@@ -230,13 +230,13 @@ export default function PayrollRunDetailPage() {
         <ArrowLeft size={15} /> Back to Payroll Runs
       </button>
 
-      <div className="nf-pr-hero">
+      <div className="nf-page-hdr nf-pr-hdr">
         <PageTitleBlock icon={Wallet}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>
             {(() => { const [y, m] = run.cycleEnd.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }); })()} Payroll
           </h1>
           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fmtDate(run.cycleStart)} to {fmtDate(run.cycleEnd)}</span>
+            <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{fmtCycle(run.cycleStart, run.cycleEnd)}</span>
             <StatusBadge status={run.status} />
             {payGroupName && <span style={{ fontSize: 12.5, color: 'var(--txt-mut)' }}>{payGroupName}</span>}
           </div>
@@ -272,10 +272,10 @@ export default function PayrollRunDetailPage() {
       <WithFaqPanel items={FAQ_ITEMS} title="Payroll Run Help">
       <div>
       <div className="nf-pr-tiles" style={{ marginBottom: 18 }}>
-        <StatTile tone="var(--info)" icon={<Users size={20} />} label="Employees" value={String(run.employeeCount)} onClick={() => setStep('payslips')} />
-        <StatTile tone="var(--brand)" icon={<IndianRupee size={20} />} label="Gross Pay" value={fmtCurrency(run.totalGross)} onClick={() => setStep('payslips')} />
-        <StatTile tone="var(--warn)" icon={<MinusCircle size={20} />} label="Deductions" value={fmtCurrency(run.totalDeductions)} onClick={() => setStep('cost-report')} />
-        <StatTile tone="var(--ok)" icon={<IndianRupee size={20} />} label="Net Pay" value={fmtCurrency(run.totalNet)} onClick={() => setStep('payslips')} />
+        <StatTile tone="var(--info)" icon={<Users size={20} />} label="Employees" value={String(run.employeeCount)} hint="Paid in this cycle" onClick={() => setStep('payslips')} />
+        <StatTile tone="var(--brand)" icon={<IndianRupee size={20} />} label="Gross Pay" value={fmtCurrency(run.totalGross)} hint="Before deductions" onClick={() => setStep('payslips')} />
+        <StatTile tone="var(--warn)" icon={<MinusCircle size={20} />} label="Deductions" value={fmtCurrency(run.totalDeductions)} hint="Total withheld" onClick={() => setStep('cost-report')} />
+        <StatTile tone="var(--ok)" icon={<IndianRupee size={20} />} label="Net Pay" value={fmtCurrency(run.totalNet)} hint="Take-home total" onClick={() => setStep('payslips')} />
       </div>
 
       <TabBar tabs={STEPS} active={step} onChange={setStep} ariaLabel="Payroll run steps" className="nf-tabs-card" style={{ marginBottom: 18 }} />
@@ -321,8 +321,8 @@ export default function PayrollRunDetailPage() {
               </div>
 
               <div className="nf-pr-tiles" style={{ marginBottom: 20 }}>
-                <StatTile tone="var(--info)" icon={<CheckCircle2 size={20} />} label="Processed" value={String(preApproval.processedCount)} onClick={() => setStep('payslips')} />
-                <StatTile tone="var(--warn)" icon={<PauseCircle size={20} />} label="On Hold" value={String(preApproval.onHoldCount)} onClick={() => setStep('holds-arrears')} />
+                <StatTile tone="var(--info)" icon={<CheckCircle2 size={20} />} label="Processed" value={String(preApproval.processedCount)} hint="Included in this run" onClick={() => setStep('payslips')} />
+                <StatTile tone="var(--warn)" icon={<PauseCircle size={20} />} label="On Hold" value={String(preApproval.onHoldCount)} hint="Held back from this run" onClick={() => setStep('holds-arrears')} />
                 <StatTile
                   tone="var(--risk)" icon={<AlertTriangle size={20} />} label="Needs Attention"
                   value={String(preApproval.needsAttentionCount)}

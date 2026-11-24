@@ -87,7 +87,7 @@ export function CostReportTab({ runId, runStatus }: { runId: string; runStatus: 
 
       <SectionHead title="By Department" />
       <div style={{ ...panelStyle, marginBottom: 24 }}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>{['Department', 'Employees', 'Gross', 'Deductions', 'Net'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>
@@ -108,7 +108,7 @@ export function CostReportTab({ runId, runStatus }: { runId: string; runStatus: 
 
       <SectionHead title="By Project" />
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>{['Project', 'Gross', 'Deductions', 'Net'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
           </thead>

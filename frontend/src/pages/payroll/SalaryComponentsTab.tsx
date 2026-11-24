@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Ban, CheckCircle2, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, Pencil, Ban, CheckCircle2, ArrowUp, ArrowDown, Check, Receipt, ListOrdered, Landmark } from 'lucide-react';
 import { ActionDock } from '../../components/ActionDock';
 import { TabBar, type TabDef } from '../../components/TabBar';
 import { useAuthStore } from '../../store/authStore';
@@ -7,7 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { payrollApi, type SalaryComponentCatalogResponse } from '../../api/payroll';
 import {
   panelStyle, thStyle, tdStyle, EmptyRow, Drawer, FormRow, labelStyle, inputStyle,
-  BtnPrimary, BtnGhost, SectionHead, ToggleSwitch, FilterBar, WithFaqPanel, type FaqItem,
+  BtnPrimary, BtnGhost, SectionHead, FilterBar, WithFaqPanel, type FaqItem,
 } from './payrollShared';
 
 const FAQ_ITEMS: FaqItem[] = [
@@ -58,9 +58,10 @@ function ComponentDrawer({ title, initial, isNew, onClose, onSubmit }: {
   return (
     <Drawer
       title={title}
+      subtitle="Set how this component behaves in CTC, tax and payslips."
       onClose={onClose}
       readOnlyBlock={!isNew ? (
-        <div><div style={labelStyle}>Component Type</div><div style={{ fontSize: 14, color: 'var(--txt)' }}>{TYPE_LABEL[form.type] ?? form.type}</div></div>
+        <div><div style={labelStyle}>Component Type</div><div style={{ fontSize: 14, fontWeight: 700, color: 'var(--txt)' }}>{TYPE_LABEL[form.type] ?? form.type}</div></div>
       ) : undefined}
       footer={(
         <>
@@ -70,13 +71,17 @@ function ComponentDrawer({ title, initial, isNew, onClose, onSubmit }: {
       )}
     >
       {!isNew && (
-        <div style={{ marginBottom: 18 }}>
-          <ToggleSwitch
-            checked={form.active} onChange={v => setForm(f => ({ ...f, active: v }))}
-            label={<span style={{ fontSize: 13.5, color: 'var(--txt)' }}>{form.active ? 'This component is Enabled' : 'This component is Disabled'}</span>}
-          />
+        <div className="nf-pr-dsec">
+          <button type="button" role="switch" aria-checked={form.active} className={`nf-pr-opt${form.active ? ' is-on' : ''}`} onClick={() => setForm(f => ({ ...f, active: !f.active }))}>
+            <span className="nf-pr-opt-box">{form.active && <Check size={13} />}</span>
+            <span>
+              <span className="nf-pr-opt-title">{form.active ? 'This component is enabled' : 'This component is disabled'}</span>
+              <span className="nf-pr-opt-hint">Disabled components are hidden from new structures.</span>
+            </span>
+          </button>
         </div>
       )}
+      <div className="nf-pr-dsec-title">Basics</div>
       <FormRow>
         <label style={labelStyle}>Component Name</label>
         <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} style={inputStyle} placeholder="e.g. HRA" />
@@ -94,16 +99,21 @@ function ComponentDrawer({ title, initial, isNew, onClose, onSubmit }: {
         <input value={form.taxSection} onChange={e => setForm(f => ({ ...f, taxSection: e.target.value }))} style={inputStyle} placeholder="e.g. 10(13A)" />
       </FormRow>
 
-      <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
-        <div style={{ ...labelStyle, marginBottom: 10 }}>Characteristics</div>
+      <div className="nf-pr-dsec-title" style={{ marginTop: 22 }}>Characteristics</div>
+      <div className="nf-pr-opts">
         {([
-          ['taxable', 'Taxable'], ['includedInCtc', 'Included in CTC'],
-          ['shownOnPayslip', 'Shown on Payslip'], ['prorateOnLop', 'Prorate on LOP'],
-        ] as const).map(([key, label]) => (
-          <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13.5, color: 'var(--txt)', marginBottom: 12, cursor: 'pointer' }}>
-            <input type="checkbox" checked={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))} />
-            {label}
-          </label>
+          ['taxable', 'Taxable', 'Counted when income tax is worked out.'],
+          ['includedInCtc', 'Included in CTC', 'Part of the annual cost to company.'],
+          ['shownOnPayslip', 'Shown on payslip', 'Printed as a line on the payslip.'],
+          ['prorateOnLop', 'Prorate on LOP', 'Reduced for loss of pay days.'],
+        ] as const).map(([key, label, hint]) => (
+          <button key={key} type="button" role="switch" aria-checked={form[key]} className={`nf-pr-opt${form[key] ? ' is-on' : ''}`} onClick={() => setForm(f => ({ ...f, [key]: !f[key] }))}>
+            <span className="nf-pr-opt-box">{form[key] && <Check size={13} />}</span>
+            <span>
+              <span className="nf-pr-opt-title">{label}</span>
+              <span className="nf-pr-opt-hint">{hint}</span>
+            </span>
+          </button>
         ))}
       </div>
     </Drawer>
@@ -155,14 +165,13 @@ function OrderOfComponentsPanel({ catalog, onChanged }: { catalog: SalaryCompone
   return (
     <div>
       <SectionHead
+        icon={ListOrdered}
         title="Order of Components"
+        subtitle="This order is used everywhere a component list appears: payslip, pay register, reports and salary breakup."
         action={<BtnPrimary onClick={save} disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save Order'}</BtnPrimary>}
       />
-      <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
-        This order is used everywhere a component list appears - payslip, pay register, reports and salary breakup.
-      </div>
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-table nf-pr-center-seq" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Sequence', 'Component Name', 'Component Type', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {order.map((c, i) => (
@@ -220,12 +229,13 @@ function AccountingCodePanel({ catalog, onChanged }: { catalog: SalaryComponentC
 
   return (
     <div>
-      <SectionHead title="Accounting Code" />
-      <div style={{ fontSize: 13, color: 'var(--txt-mut)', marginBottom: 14 }}>
-        An optional ledger code per component, for your own accounting system's reference - not validated against anything.
-      </div>
+      <SectionHead
+        icon={Landmark}
+        title="Accounting Code"
+        subtitle="An optional ledger code per component, for your own accounting system's reference. It is not validated against anything."
+      />
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-table nf-pr-center" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Component Name', 'Component Type', 'Accounting Code', ''].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {catalog.map(c => {
@@ -303,31 +313,33 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
   const filtered = catalog.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()));
 
   return (
+    <>
+    <TabBar tabs={COMPONENT_VIEWS} active={view} onChange={setView} className="nf-boxedtabs" ariaLabel="Salary component views" style={{ marginBottom: 18 }} />
     <WithFaqPanel items={FAQ_ITEMS} title="Salary Components Help">
     <div>
-      <TabBar tabs={COMPONENT_VIEWS} active={view} onChange={setView} className="nf-boxedtabs" ariaLabel="Salary component views" style={{ marginBottom: 18 }} />
-
       {view === 'order' && <OrderOfComponentsPanel catalog={catalog} onChanged={onChanged} />}
       {view === 'accounting-code' && <AccountingCodePanel catalog={catalog} onChanged={onChanged} />}
 
       {view === 'components' && (
         <>
       <SectionHead
+        icon={Receipt}
         title="Salary Components"
+        subtitle="Every earning, deduction, reimbursement and contribution a salary structure can use."
         action={<BtnPrimary onClick={() => setShowCreate(true)}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Add Component</BtnPrimary>}
       />
       <FilterBar search={search} onSearchChange={setSearch} placeholder="Search component" />
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+        <table className="nf-pr-table nf-pr-center nf-pr-compact-th" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 720 }}>
           <thead>
             <tr>
-              <th style={{ ...thStyle, width: '21%', whiteSpace: 'normal' }}>Name</th>
-              <th style={{ ...thStyle, width: '12%', whiteSpace: 'normal' }}>Type</th>
-              <th style={{ ...thStyle, width: '9%', whiteSpace: 'normal' }}>Taxable</th>
+              <th style={{ ...thStyle, width: '20%', whiteSpace: 'normal' }}>Name</th>
+              <th style={{ ...thStyle, width: '13%', whiteSpace: 'normal' }}>Type</th>
+              <th style={{ ...thStyle, width: '10%', whiteSpace: 'normal' }}>Taxable</th>
               <th style={{ ...thStyle, width: '9%', whiteSpace: 'normal' }}>In CTC</th>
-              <th style={{ ...thStyle, width: '10%', whiteSpace: 'normal' }}>On Payslip</th>
+              <th style={{ ...thStyle, width: '11%', whiteSpace: 'normal' }}>On Payslip</th>
               <th style={{ ...thStyle, width: '12%', whiteSpace: 'normal' }}>Prorate on LOP</th>
-              <th style={{ ...thStyle, width: '9%', whiteSpace: 'normal' }}>Status</th>
+              <th style={{ ...thStyle, width: '10%', whiteSpace: 'normal' }}>Status</th>
               <th style={thStyle} className="nf-dock-cell" />
             </tr>
           </thead>
@@ -366,5 +378,6 @@ export function SalaryComponentsTab({ catalog, onChanged }: { catalog: SalaryCom
       )}
     </div>
     </WithFaqPanel>
+    </>
   );
 }

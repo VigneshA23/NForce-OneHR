@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Check, X, Layers, Calculator, FileText, ListChecks, FileStack } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useToast } from '../../context/ToastContext';
 import { payrollApi, type SalaryStructureResponse, type SalaryComponentResponse, type SalaryComponentRequest, type SalaryComponentCatalogResponse } from '../../api/payroll';
@@ -50,6 +50,10 @@ function describeDraftCalc(c: DraftComponent): string {
   return base;
 }
 
+const GROUP_TONE: Record<string, string> = {
+  EARNING: 'var(--ok)', DEDUCTION: 'var(--risk)', REIMBURSEMENT: 'var(--info)', CONTRIBUTION: 'var(--warn)',
+};
+
 const GROUP_LABEL: Record<string, string> = {
   EARNING: 'Earnings', DEDUCTION: 'Deductions', REIMBURSEMENT: 'Reimbursements', CONTRIBUTION: 'Contributions',
 };
@@ -80,69 +84,96 @@ function toComponentsPayload(components: DraftComponent[]): SalaryComponentReque
   }));
 }
 
-/** Column 3 of the structure editor - the selected component's own calculation fields and its
+/** Column 3 of the structure editor: the selected component's own calculation fields and its
  * catalog-defined characteristics (read-only; a structure can't override what the component
  * itself is, only how much of it to pay). */
+const CALC_OPTIONS: { key: DraftComponent['calcType']; label: string }[] = [
+  { key: 'FIXED', label: 'Fixed amount' },
+  { key: 'PERCENT_OF_GROSS', label: '% of Gross' },
+  { key: 'PERCENT_OF_COMPONENT', label: '% of a component' },
+  { key: 'BALANCING_REMAINDER', label: 'Balancing remainder' },
+];
+
 function ComponentDetailPane({ component, components, catalog, onChange }: {
   component: DraftComponent; components: DraftComponent[]; catalog: SalaryComponentCatalogResponse[];
   onChange: (patch: Partial<DraftComponent>) => void;
 }) {
   const catalogEntry = catalog.find(cc => cc.name === component.componentName);
   return (
-    <div style={{ ...panelStyle, padding: '18px 20px' }}>
-      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--txt)', marginBottom: 14 }}>{component.componentName || 'Unnamed component'}</div>
-
-      <FormRow>
-        <label style={labelStyle}>Component</label>
-        <select value={component.componentName} onChange={e => onChange({ componentName: e.target.value })} style={inputStyle}>
-          <option value="">Select…</option>
-          {catalog.map(cc => <option key={cc.id} value={cc.name}>{cc.name}</option>)}
-        </select>
-      </FormRow>
-      <FormRow>
-        <label style={labelStyle}>Calc Type</label>
-        <select value={component.calcType} onChange={e => onChange({ calcType: e.target.value as DraftComponent['calcType'] })} style={inputStyle}>
-          <option value="FIXED">Fixed</option>
-          <option value="PERCENT_OF_GROSS">% of Gross</option>
-          <option value="PERCENT_OF_COMPONENT">% of Another Component</option>
-          <option value="BALANCING_REMAINDER">Balancing Remainder</option>
-        </select>
-      </FormRow>
-      {component.calcType !== 'BALANCING_REMAINDER' && (
+    <section className="nf-pr-edcard">
+      <header className="nf-pr-edcard-head">
+        <span className="nf-pr-edcard-ico"><Calculator size={16} /></span>
+        <div>
+          <h3 className="nf-pr-edcard-title">{component.componentName || 'Unnamed component'}</h3>
+          <p className="nf-pr-edcard-sub">How this component is calculated</p>
+        </div>
+      </header>
+      <div className="nf-pr-edcard-body">
         <FormRow>
-          <label style={labelStyle}>Value</label>
-          <input type="number" min={0} value={component.value ?? ''} onChange={e => onChange({ value: Number(e.target.value) })} style={inputStyle} />
-        </FormRow>
-      )}
-      {component.calcType === 'PERCENT_OF_COMPONENT' && (
-        <FormRow>
-          <label style={labelStyle}>Of Component</label>
-          <select value={component.referenceComponentName ?? ''} onChange={e => onChange({ referenceComponentName: e.target.value })} style={inputStyle}>
+          <label style={labelStyle}>Component</label>
+          <select value={component.componentName} onChange={e => onChange({ componentName: e.target.value })} style={inputStyle}>
             <option value="">Select…</option>
-            {components.filter(other => other !== component && !!other.componentName).map(other => (
-              <option key={other.componentName} value={other.componentName}>{other.componentName}</option>
-            ))}
+            {catalog.map(cc => <option key={cc.id} value={cc.name}>{cc.name}</option>)}
           </select>
         </FormRow>
-      )}
 
-      {catalogEntry && (
-        <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--line)' }}>
-          <div style={{ ...labelStyle, marginBottom: 10 }}>Characteristics</div>
-          {[
-            ['Taxable', catalogEntry.taxable],
-            ['Included in CTC', catalogEntry.includedInCtc],
-            ['Shown on Payslip', catalogEntry.shownOnPayslip],
-            ['Prorated on LOP', catalogEntry.prorateOnLop],
-          ].map(([label, on]) => (
-            <div key={label as string} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 13 }}>
-              <span style={{ color: on ? 'var(--ok)' : 'var(--txt-dim)' }}>{on ? '✓' : '✕'}</span>
-              <span style={{ color: on ? 'var(--txt)' : 'var(--txt-dim)' }}>{label}</span>
-            </div>
-          ))}
+        <FormRow>
+          <label style={labelStyle}>Calculation</label>
+          <div className="nf-pr-chips" role="radiogroup" aria-label="Calculation type">
+            {CALC_OPTIONS.map(o => (
+              <button
+                key={o.key} type="button" role="radio" aria-checked={component.calcType === o.key}
+                className={`nf-pr-chip${component.calcType === o.key ? ' is-on' : ''}`}
+                onClick={() => onChange({ calcType: o.key })}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </FormRow>
+
+        {component.calcType !== 'BALANCING_REMAINDER' && (
+          <FormRow>
+            <label style={labelStyle}>{component.calcType === 'FIXED' ? 'Amount per year' : 'Percentage'}</label>
+            <input type="number" min={0} value={component.value ?? ''} onChange={e => onChange({ value: Number(e.target.value) })} style={inputStyle} />
+          </FormRow>
+        )}
+        {component.calcType === 'PERCENT_OF_COMPONENT' && (
+          <FormRow>
+            <label style={labelStyle}>Of component</label>
+            <select value={component.referenceComponentName ?? ''} onChange={e => onChange({ referenceComponentName: e.target.value })} style={inputStyle}>
+              <option value="">Select…</option>
+              {components.filter(other => other !== component && !!other.componentName).map(other => (
+                <option key={other.componentName} value={other.componentName}>{other.componentName}</option>
+              ))}
+            </select>
+          </FormRow>
+        )}
+
+        <div className="nf-pr-formula">
+          <span className="nf-pr-formula-k">Formula</span>
+          <span className="nf-pr-formula-v">{describeDraftCalc(component)}</span>
         </div>
-      )}
-    </div>
+
+        {catalogEntry && (
+          <div className="nf-pr-chars">
+            <div style={{ ...labelStyle, marginBottom: 10 }}>Characteristics</div>
+            <div className="nf-pr-chars-grid">
+              {([
+                ['Taxable', catalogEntry.taxable],
+                ['Included in CTC', catalogEntry.includedInCtc],
+                ['Shown on payslip', catalogEntry.shownOnPayslip],
+                ['Prorated on LOP', catalogEntry.prorateOnLop],
+              ] as [string, boolean][]).map(([label, on]) => (
+                <span key={label} className={`nf-pr-char${on ? ' is-on' : ''}`}>
+                  {on ? <Check size={13} /> : <X size={13} />}{label}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -221,6 +252,7 @@ function StructureEditorScreen({ structure, catalog, onClose, onSaved }: {
   return (
     <FullScreenTask
       title={structure ? 'Update Salary Structure' : 'Create Salary Structure'}
+      subtitle={structure ? 'Edit the components and how each one is calculated.' : 'Name the structure, then add the components and how each one is calculated.'}
       onClose={onClose}
       actions={(
         <>
@@ -230,72 +262,100 @@ function StructureEditorScreen({ structure, catalog, onClose, onSaved }: {
       )}
     >
       {structure && (
-        <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 18 }}>
-          Changes apply going forward only - already-generated payslips keep their original amounts.
+        <div className="nf-pr-ednote">
+          Changes apply going forward only: already-generated payslips keep their original amounts.
           Every employee currently on this structure picks up the new components on their next payroll regenerate.
         </div>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 26%) minmax(260px, 32%) minmax(260px, 1fr)', gap: 20, alignItems: 'start' }}>
-        {/* Column 1 - structure metadata */}
-        <div>
-          <FormRow><label style={labelStyle}>Name of the Structure</label><input value={name} onChange={e => setName(e.target.value)} style={inputStyle} placeholder="e.g. Standard Structure" /></FormRow>
-          <FormRow><label style={labelStyle}>Grade</label><input value={grade} onChange={e => setGrade(e.target.value)} style={inputStyle} placeholder="e.g. L2" /></FormRow>
-          <FormRow><label style={labelStyle}>Financial Year</label><input value={financialYear} onChange={e => setFinancialYear(e.target.value)} style={inputStyle} placeholder="e.g. 2026-27" /></FormRow>
-        </div>
-
-        {/* Column 2 - component list, grouped */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={labelStyle}>Components (values are ANNUAL)</span>
-            <BtnGhost onClick={addComponent}><Plus size={13} style={{ marginRight: 5, verticalAlign: 'text-bottom' }} />Add</BtnGhost>
-          </div>
-          <div style={panelStyle}>
-            {[...grouped.entries()].map(([type, indices]) => (
-              <div key={type}>
-                <div style={{ padding: '8px 14px', fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--txt-dim)', background: 'var(--raised)', borderBottom: '1px solid var(--line)' }}>
-                  {GROUP_LABEL[type] ?? type}
+      <div className="nf-pr-edwrap">
+        <div className="nf-pr-ed">
+          {/* Column 1: structure details and a live summary */}
+          <div className="nf-pr-edcol">
+            <section className="nf-pr-edcard">
+              <header className="nf-pr-edcard-head">
+                <span className="nf-pr-edcard-ico"><FileText size={16} /></span>
+                <div>
+                  <h3 className="nf-pr-edcard-title">Structure details</h3>
+                  <p className="nf-pr-edcard-sub">Name it so it is easy to find when assigning pay</p>
                 </div>
-                {indices.map(i => {
-                  const c = components[i];
-                  const isSelected = i === selectedIndex;
-                  return (
-                    <div
-                      key={i} onClick={() => setSelectedIndex(i)}
-                      style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 14px',
-                        cursor: 'pointer', borderBottom: '1px solid var(--line)',
-                        background: isSelected ? 'color-mix(in srgb, var(--brand) 10%, var(--panel))' : 'var(--panel)',
-                      }}
-                    >
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--txt)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {c.componentName || 'Unnamed component'}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--txt-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {describeDraftCalc(c)}
-                        </div>
-                      </div>
-                      <button type="button" onClick={e => { e.stopPropagation(); removeComponent(i); }} style={{ background: 'none', border: 'none', color: 'var(--txt-dim)', cursor: 'pointer', padding: 4, flexShrink: 0 }} aria-label="Remove component">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  );
-                })}
+              </header>
+              <div className="nf-pr-edcard-body">
+                <FormRow><label style={labelStyle}>Name of the structure</label><input value={name} onChange={e => setName(e.target.value)} style={inputStyle} placeholder="e.g. Standard Structure" /></FormRow>
+                <FormRow><label style={labelStyle}>Grade</label><input value={grade} onChange={e => setGrade(e.target.value)} style={inputStyle} placeholder="e.g. L2" /></FormRow>
+                <FormRow><label style={labelStyle}>Financial year</label><input value={financialYear} onChange={e => setFinancialYear(e.target.value)} style={inputStyle} placeholder="e.g. 2026-27" /></FormRow>
               </div>
-            ))}
-            {components.length === 0 && <EmptyRow cols={1} msg="No components yet - add one." />}
-          </div>
-        </div>
+            </section>
 
-        {/* Column 3 - selected component's detail */}
-        <div>
-          {selected ? (
-            <ComponentDetailPane component={selected} components={components} catalog={catalog} onChange={patch => updateComponent(selectedIndex, patch)} />
-          ) : (
-            <div style={{ ...panelStyle, padding: '24px 20px', textAlign: 'center', color: 'var(--txt-dim)', fontSize: 13 }}>
-              Select a component on the left to edit its calculation.
+            <section className="nf-pr-edcard">
+              <header className="nf-pr-edcard-head">
+                <span className="nf-pr-edcard-ico"><ListChecks size={16} /></span>
+                <div>
+                  <h3 className="nf-pr-edcard-title">Ready to save?</h3>
+                  <p className="nf-pr-edcard-sub">{components.length} component{components.length === 1 ? '' : 's'} in this structure</p>
+                </div>
+              </header>
+              <div className="nf-pr-edcard-body">
+                <ul className="nf-pr-check">
+                  <li className={name.trim() ? 'is-ok' : ''}>{name.trim() ? <Check size={14} /> : <X size={14} />}Structure has a name</li>
+                  <li className={components.length > 0 ? 'is-ok' : ''}>{components.length > 0 ? <Check size={14} /> : <X size={14} />}At least one component</li>
+                  <li className={componentsAreValid(components) ? 'is-ok' : ''}>{componentsAreValid(components) ? <Check size={14} /> : <X size={14} />}Every component is filled in</li>
+                </ul>
+              </div>
+            </section>
+          </div>
+
+          {/* Column 2: component list, grouped by type */}
+          <section className="nf-pr-edcard">
+            <header className="nf-pr-edcard-head">
+              <span className="nf-pr-edcard-ico"><Layers size={16} /></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h3 className="nf-pr-edcard-title">Components</h3>
+                <p className="nf-pr-edcard-sub">All values are yearly amounts</p>
+              </div>
+              <BtnPrimary onClick={addComponent}><Plus size={13} style={{ marginRight: 5, verticalAlign: 'text-bottom' }} />Add</BtnPrimary>
+            </header>
+            <div className="nf-pr-edcard-body nf-pr-edlist">
+              {[...grouped.entries()].map(([type, indices]) => (
+                <div key={type} className="nf-pr-grp" style={{ ['--gk' as string]: GROUP_TONE[type] ?? 'var(--txt-dim)' }}>
+                  <div className="nf-pr-grp-head">
+                    <span>{GROUP_LABEL[type] ?? type}</span>
+                    <span className="nf-pr-grp-count">{indices.length}</span>
+                  </div>
+                  {indices.map(i => {
+                    const c = components[i];
+                    return (
+                      <div
+                        key={i} role="button" tabIndex={0}
+                        className={`nf-pr-comp${i === selectedIndex ? ' is-sel' : ''}`}
+                        onClick={() => setSelectedIndex(i)}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedIndex(i); } }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div className="nf-pr-comp-name">{c.componentName || 'Unnamed component'}</div>
+                          <div className="nf-pr-comp-calc">{describeDraftCalc(c)}</div>
+                        </div>
+                        <button type="button" className="nf-pr-comp-del" onClick={e => { e.stopPropagation(); removeComponent(i); }} aria-label="Remove component">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              {components.length === 0 && <div className="nf-pr-edempty">No components yet. Use Add to create one.</div>}
             </div>
-          )}
+          </section>
+
+          {/* Column 3: selected component's detail */}
+          <div className="nf-pr-edcol">
+            {selected ? (
+              <ComponentDetailPane component={selected} components={components} catalog={catalog} onChange={patch => updateComponent(selectedIndex, patch)} />
+            ) : (
+              <section className="nf-pr-edcard">
+                <div className="nf-pr-edcard-body nf-pr-edempty">Select a component to edit its calculation.</div>
+              </section>
+            )}
+          </div>
         </div>
       </div>
     </FullScreenTask>
@@ -307,7 +367,7 @@ function StructurePreviewModal({ structure, onClose, onEdit }: {
 }) {
   return (
     <Modal title={structure.name} subtitle={[structure.grade, structure.financialYear].filter(Boolean).join(' · ') || null} onClose={onClose} wide>
-      <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
+      <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
         <thead>
           <tr>{['Component', 'Type', 'Calculation', 'Taxable', 'In CTC', 'On Payslip'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
         </thead>
@@ -346,12 +406,12 @@ export function SalaryStructuresTab({ structures, catalog, onCreated, onUpdated 
   return (
     <WithFaqPanel items={FAQ_ITEMS} title="Salary Structures Help">
     <div>
-      <SectionHead title="Salary Structures" action={<BtnPrimary onClick={() => setEditing('new')}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Create Structure</BtnPrimary>} />
+      <SectionHead icon={FileStack} title="Salary Structures" subtitle="Reusable pay templates. Assign one to an employee together with their CTC." action={<BtnPrimary onClick={() => setEditing('new')}><Plus size={14} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Create Structure</BtnPrimary>} />
       <div style={{ fontSize: 12, color: 'var(--txt-dim)', marginBottom: 10 }}>
         Click a row to see the full calculation for each component, or edit it.
       </div>
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-table nf-pr-center-mid" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Name', 'Grade', 'Financial Year', 'Components'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {structures.map(s => (

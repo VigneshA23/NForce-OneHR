@@ -93,7 +93,7 @@ button.nf-pr-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rg
 .nf-pr-card input:disabled, .nf-pr-card select:disabled { background: var(--raised) !important; opacity: .75; cursor: not-allowed; }
 
 /* ── Run console: hero header, progress steps, run-status tiles. Theme tokens only. ── */
-.nf-pr-hero { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 18px; padding: 20px 24px; border-radius: 20px; border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--line)); background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 62%); box-shadow: 0 8px 24px -14px color-mix(in srgb, var(--brand) 45%, transparent); }
+.nf-pr-hdr { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 18px; }
 .nf-pr-hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 .nf-pr-life { display: flex; flex-wrap: wrap; gap: 6px 8px; list-style: none; margin: 12px 0 0; padding: 0; }
 .nf-pr-life li { display: inline-flex; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--txt-dim); background: var(--raised); border: 1px solid var(--line); }
@@ -115,16 +115,40 @@ button.nf-pr-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rg
 .nf-pr-table th { color: var(--brand); background: color-mix(in srgb, var(--brand) 7%, var(--raised)); }
 .nf-pr-subhead { margin-bottom: 10px; font-size: 14px; font-weight: 800; letter-spacing: -.01em; color: var(--txt); }
 /* One font everywhere in the run console, including form controls. */
-.nf-pr-hero, .nf-pr-panel, .nf-pr-tiles, .nf-pr-steps, .nf-pr-table, .nf-pr-card { font-family: inherit; }
-.nf-pr-hero button, .nf-pr-panel button, .nf-pr-tiles button, .nf-pr-steps button, .nf-pr-card input, .nf-pr-card select, .nf-pr-card textarea, .nf-pr-card button { font-family: inherit; }
+.nf-pr-hdr, .nf-pr-panel, .nf-pr-tiles, .nf-pr-steps, .nf-pr-table, .nf-pr-card { font-family: inherit; }
+.nf-pr-hdr button, .nf-pr-panel button, .nf-pr-tiles button, .nf-pr-steps button, .nf-pr-card input, .nf-pr-card select, .nf-pr-card textarea, .nf-pr-card button { font-family: inherit; }
 
 /* Payroll Runs list: cycle cards wrap instead of scrolling sideways, so every month is visible at any zoom. */
-.nf-pr-hero-select { min-width: 220px; max-width: 320px; flex: 0 1 300px; }
+.nf-pr-hero-select { display: flex; align-items: center; gap: 10px; flex: 0 1 auto; min-width: 0; margin-right: 8px; }
+.nf-pr-hero-select label { margin: 0 !important; white-space: nowrap; }
+.nf-pr-hero-select select { width: auto; min-width: 0; max-width: 100%; field-sizing: content; padding: 8px 4px 8px 13px !important; cursor: pointer; }
+.nf-page-hdr.nf-pr-hdr { padding: 14px 22px !important; margin-bottom: 14px; }
+@media (max-width: 720px) { .nf-pr-hero-select { width: 100%; } .nf-pr-hero-select select { flex: 1; } }
 /* The 8 cycle cards always split evenly (8 in a row, 4 by 2, or 2 by 4), never 7 plus one stray card. */
 .nf-pr-strip-wrap { container-type: inline-size; margin-bottom: 22px; }
 .nf-pr-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 @container (min-width: 460px) { .nf-pr-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@container (min-width: 1160px) { .nf-pr-strip { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+/* All eight months stay on one row from a fairly narrow card up (zoomed in included); the card text tightens to fit. */
+@container (min-width: 840px) {
+  .nf-pr-strip { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 8px; }
+  .nf-pr-strip .nf-pr-cycle { padding: 10px 7px 11px; gap: 5px; border-radius: 13px; }
+  .nf-pr-strip .nf-pr-cycle-month { font-size: 13px; }
+  .nf-pr-strip .nf-pr-cycle-state { gap: 4px; font-size: 10.5px; }
+  .nf-pr-strip .nf-pr-cycle-state svg { display: none; }
+  .nf-pr-strip .nf-pr-cycle-state, .nf-pr-strip .nf-pr-cycle-net { white-space: nowrap; }
+  .nf-pr-strip .nf-pr-cycle-net { font-size: 10.5px; overflow-wrap: normal; }
+  .nf-pr-strip .nf-pr-net-sfx { display: none; }
+}
+@container (min-width: 1160px) {
+  .nf-pr-strip { gap: 12px; }
+  .nf-pr-strip .nf-pr-cycle { padding: 14px 15px; gap: 7px; border-radius: 16px; }
+  .nf-pr-strip .nf-pr-cycle-month { font-size: 14px; }
+  .nf-pr-strip .nf-pr-cycle-state { gap: 6px; font-size: 12px; }
+  .nf-pr-strip .nf-pr-cycle-state svg { display: inline; width: 14px; height: 14px; }
+  .nf-pr-strip .nf-pr-cycle-state, .nf-pr-strip .nf-pr-cycle-net { white-space: normal; }
+  .nf-pr-strip .nf-pr-cycle-net { font-size: 12px; }
+  .nf-pr-strip .nf-pr-net-sfx { display: inline; }
+}
 .nf-pr-cycle { --mk: var(--brand); display: flex; flex-direction: column; gap: 7px; min-width: 0; padding: 14px 15px; text-align: left; font: inherit; cursor: pointer; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--mk) 24%, var(--line)); border-top: 4px solid var(--mk); background: linear-gradient(160deg, var(--panel) 0%, color-mix(in srgb, var(--mk) 9%, var(--panel)) 100%); transition: transform .15s, box-shadow .15s; }
 .nf-pr-cycle:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--mk) 55%, transparent); }
 .nf-pr-cycle:disabled { cursor: default; }
@@ -146,3 +170,258 @@ button.nf-pr-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rg
 .nf-pr-c5 th:nth-child(2), .nf-pr-c5 th:nth-child(3) { width: 20%; }
 .nf-pr-c5 th:nth-child(4) { width: 14%; }
 .nf-pr-c5 th:nth-child(5) { width: 20%; }
+
+/* Search strip: one border around the whole bar, none around the input inside it (the global search-input
+   rule added a second outline and a fixed height, which showed as a box inside a box). */
+.nf-pr-filterbar-search input { border: none !important; background: none !important; height: auto !important; box-shadow: none !important; outline: none; padding-left: 0; padding-right: 0; }
+.nf-pr-filterbar-search { min-width: 0; }
+.nf-pr-filterbar:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent); }
+
+/* ── Salary structure editor: sectioned cards, grouped component list, chip pickers. Theme tokens only. ── */
+.nf-pr-fullscreen-head { background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 70%); border-bottom: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line)); }
+.nf-pr-edwrap { container-type: inline-size; }
+.nf-pr-ed { display: grid; gap: 18px; align-items: start; grid-template-columns: minmax(0, 1fr); }
+@container (min-width: 760px) { .nf-pr-ed { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+@container (min-width: 1100px) { .nf-pr-ed { grid-template-columns: minmax(240px, 26%) minmax(0, 1fr) minmax(280px, 34%); } }
+.nf-pr-edcol { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.nf-pr-ednote { margin-bottom: 16px; padding: 12px 16px; border-radius: 12px; font-size: 12.5px; line-height: 1.5; color: var(--txt-mut); background: color-mix(in srgb, var(--info) 8%, var(--panel)); border: 1px solid color-mix(in srgb, var(--info) 25%, var(--line)); }
+.nf-pr-edcard { min-width: 0; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--brand) 16%, var(--line)); background: var(--panel); box-shadow: 0 8px 22px -14px color-mix(in srgb, var(--brand) 35%, transparent); overflow: hidden; }
+.nf-pr-edcard-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 9%, var(--panel)) 0%, var(--panel) 75%); border-bottom: 1px solid var(--line); }
+.nf-pr-edcard-ico { flex-shrink: 0; width: 34px; height: 34px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 26%, transparent); }
+.nf-pr-edcard-title { margin: 0; font-size: 14.5px; font-weight: 800; letter-spacing: -.01em; color: var(--txt); overflow-wrap: anywhere; }
+.nf-pr-edcard-sub { margin: 2px 0 0; font-size: 12px; color: var(--txt-mut); }
+.nf-pr-edcard-body { padding: 16px 18px 18px; }
+.nf-pr-edcard input:not([type='checkbox']):not([type='radio']), .nf-pr-edcard select { background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 11px !important; padding: 10px 13px !important; transition: border-color .15s, box-shadow .15s; }
+.nf-pr-edcard input:focus, .nf-pr-edcard select:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+
+.nf-pr-edlist { display: flex; flex-direction: column; gap: 14px; }
+.nf-pr-grp { --gk: var(--txt-dim); border-radius: 14px; border: 1px solid color-mix(in srgb, var(--gk) 22%, var(--line)); overflow: hidden; }
+.nf-pr-grp-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--gk); background: color-mix(in srgb, var(--gk) 9%, var(--raised)); border-bottom: 1px solid color-mix(in srgb, var(--gk) 20%, var(--line)); }
+.nf-pr-grp-count { min-width: 20px; padding: 1px 7px; border-radius: 999px; text-align: center; color: var(--gk); background: color-mix(in srgb, var(--gk) 14%, var(--panel)); }
+.nf-pr-comp { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; cursor: pointer; background: var(--panel); border-bottom: 1px solid var(--line); border-left: 3px solid transparent; transition: background .12s, border-color .12s; }
+.nf-pr-comp:last-child { border-bottom: none; }
+.nf-pr-comp:hover { background: color-mix(in srgb, var(--brand) 5%, var(--panel)); }
+.nf-pr-comp:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.nf-pr-comp.is-sel { border-left-color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); }
+.nf-pr-comp-name { font-size: 13.5px; font-weight: 700; color: var(--txt); overflow-wrap: anywhere; }
+.nf-pr-comp-calc { margin-top: 2px; font-size: 12px; color: var(--txt-dim); overflow-wrap: anywhere; }
+.nf-pr-comp-del { flex-shrink: 0; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border: none; border-radius: 9px; background: none; color: var(--txt-dim); }
+.nf-pr-comp-del:hover { color: var(--risk); background: color-mix(in srgb, var(--risk) 10%, transparent); }
+.nf-pr-edempty { padding: 22px 16px; text-align: center; font-size: 13px; color: var(--txt-dim); }
+
+.nf-pr-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.nf-pr-chip { padding: 8px 14px; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--txt-mut); background: var(--raised); border: 1px solid var(--line2); border-radius: 999px; transition: background .15s, border-color .15s, color .15s; }
+.nf-pr-chip:hover { border-color: color-mix(in srgb, var(--brand) 40%, var(--line2)); color: var(--txt); }
+.nf-pr-chip.is-on { color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border-color: var(--brand); }
+.nf-pr-formula { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding: 12px 14px; border-radius: 13px; background: color-mix(in srgb, var(--brand) 6%, var(--raised)); border: 1px dashed color-mix(in srgb, var(--brand) 35%, var(--line2)); }
+.nf-pr-formula-k { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--txt-dim); }
+.nf-pr-formula-v { font-size: 13.5px; font-weight: 700; color: var(--txt); overflow-wrap: anywhere; }
+.nf-pr-chars { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.nf-pr-chars-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.nf-pr-char { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--txt-dim); background: var(--raised); border: 1px solid var(--line); }
+.nf-pr-char.is-on { color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, var(--panel)); border-color: color-mix(in srgb, var(--ok) 30%, var(--line)); }
+.nf-pr-check { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.nf-pr-check li { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--txt-dim); }
+.nf-pr-check li svg { flex-shrink: 0; padding: 2px; width: 20px; height: 20px; border-radius: 50%; color: var(--txt-dim); background: var(--raised); }
+.nf-pr-check li.is-ok { color: var(--txt); }
+.nf-pr-check li.is-ok svg { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--panel)); }
+
+/* ── Side drawer (add or edit one record): icon header, themed fields, switch cards. ── */
+.nf-pr-drawer-head { background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 11%, var(--panel)) 0%, var(--panel) 72%); }
+.nf-pr-drawer-ico { flex-shrink: 0; width: 40px; height: 40px; border-radius: 13px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-pr-drawer-title { font-size: 16px; font-weight: 800; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.nf-pr-drawer-sub { margin-top: 2px; font-size: 12.5px; color: var(--txt-mut); }
+.nf-pr-drawer-close { width: 34px; height: 34px; align-items: center; justify-content: center; background: var(--raised); border: 1px solid var(--line); border-radius: 11px; }
+.nf-pr-drawer-readonly { background: color-mix(in srgb, var(--brand) 5%, var(--raised)); }
+.nf-pr-drawer-panel label { color: var(--txt-mut) !important; font-weight: 600 !important; letter-spacing: .04em !important; }
+.nf-pr-drawer-panel input:not([type='checkbox']):not([type='radio']):not([type='file']), .nf-pr-drawer-panel select, .nf-pr-drawer-panel textarea { background: var(--panel) !important; border: 1px solid var(--line2) !important; border-radius: 11px !important; padding: 10px 13px !important; transition: border-color .15s, box-shadow .15s; }
+.nf-pr-drawer-panel input:focus, .nf-pr-drawer-panel select:focus, .nf-pr-drawer-panel textarea:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.nf-pr-drawer-footer { background: var(--raised); }
+.nf-pr-dsec { margin-bottom: 18px; }
+.nf-pr-dsec-title { margin-bottom: 12px; font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; color: var(--brand); }
+.nf-pr-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.nf-pr-opt { display: flex; align-items: flex-start; gap: 11px; width: 100%; padding: 12px 14px; text-align: left; font: inherit; cursor: pointer; border-radius: 13px; background: var(--raised); border: 1px solid var(--line2); transition: background .15s, border-color .15s; }
+.nf-pr-opt:hover { border-color: color-mix(in srgb, var(--brand) 40%, var(--line2)); }
+.nf-pr-opt.is-on { background: color-mix(in srgb, var(--brand) 8%, var(--panel)); border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); }
+.nf-pr-opt-box { flex-shrink: 0; width: 20px; height: 20px; margin-top: 1px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: #fff; background: var(--panel); border: 1.5px solid var(--line2); }
+.nf-pr-opt.is-on .nf-pr-opt-box { background: var(--brand); border-color: var(--brand); }
+.nf-pr-opt-title { display: block; font-size: 13.5px; font-weight: 700; color: var(--txt); }
+.nf-pr-opt-hint { display: block; margin-top: 2px; font-size: 12px; line-height: 1.35; color: var(--txt-dim); }
+
+/* ── Switch cards (ToggleSwitch): the whole row is the click target. ── */
+.nf-pr-switch { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; padding: 12px 14px; text-align: left; font: inherit; font-size: 13.5px; font-weight: 600; color: var(--txt); cursor: pointer; border-radius: 13px; background: var(--raised); border: 1px solid var(--line2); transition: background .15s, border-color .15s; }
+.nf-pr-switch:hover:not(:disabled) { border-color: color-mix(in srgb, var(--brand) 40%, var(--line2)); }
+.nf-pr-switch.is-on { background: color-mix(in srgb, var(--brand) 7%, var(--panel)); border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); }
+.nf-pr-switch:disabled { opacity: .6; cursor: not-allowed; }
+.nf-pr-switch-text { min-width: 0; overflow-wrap: anywhere; }
+.nf-pr-switch-track { flex-shrink: 0; position: relative; width: 38px; height: 22px; border-radius: 999px; background: var(--line2); transition: background .15s; }
+.nf-pr-switch.is-on .nf-pr-switch-track { background: var(--brand); }
+.nf-pr-switch-knob { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: left .15s; }
+.nf-pr-switch.is-on .nf-pr-switch-knob { left: 19px; }
+
+/* ── Payroll Setup forms: one control style across every tab (inputs, selects, text areas, radios). ── */
+.nf-pr-form label { color: var(--txt-mut); font-weight: 600; letter-spacing: .04em; }
+.nf-pr-form input:not([type='checkbox']):not([type='radio']):not([type='file']):not(.nf-pr-filterbar-search input), .nf-pr-form select, .nf-pr-form textarea { background: var(--panel); border: 1px solid var(--line2); border-radius: 11px; padding: 10px 13px; font-family: inherit; transition: border-color .15s, box-shadow .15s; }
+.nf-pr-form input:not([type='checkbox']):not([type='radio']):not([type='file']):not(.nf-pr-filterbar-search input):hover, .nf-pr-form select:hover, .nf-pr-form textarea:hover { border-color: color-mix(in srgb, var(--brand) 35%, var(--line2)); }
+.nf-pr-form input:not([type='checkbox']):not([type='radio']):not([type='file']):not(.nf-pr-filterbar-search input):focus, .nf-pr-form select:focus, .nf-pr-form textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.nf-pr-form input[type='checkbox'], .nf-pr-form input[type='radio'] { accent-color: var(--brand); width: 16px; height: 16px; }
+
+/* ── Assign or revise compensation ── */
+.nf-pr-ed--comp { grid-template-columns: minmax(0, 1fr); }
+@container (min-width: 900px) { .nf-pr-ed--comp { grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); } }
+.nf-pr-empstrip { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; padding: 16px 20px; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line)); background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 9%, var(--panel)) 0%, var(--panel) 70%); }
+.nf-pr-empstrip-role { margin-top: 2px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); }
+.nf-pr-empstrip-facts { display: flex; flex-wrap: wrap; gap: 14px 28px; margin-left: auto; }
+.nf-pr-empstrip-v { font-size: 13.5px; font-weight: 600; color: var(--txt); overflow-wrap: anywhere; }
+.nf-pr-2col { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0 14px; }
+.nf-pr-chip:disabled { opacity: .5; cursor: not-allowed; }
+.nf-pr-sumrow { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 12px 14px; margin-bottom: 10px; border-radius: 13px; background: var(--raised); border: 1px solid var(--line); }
+.nf-pr-sumrow.is-new { background: color-mix(in srgb, var(--brand) 7%, var(--panel)); border-color: color-mix(in srgb, var(--brand) 32%, var(--line)); }
+.nf-pr-sumrow-v { font-size: 15px; font-weight: 700; color: var(--txt-mut); overflow-wrap: anywhere; text-align: right; }
+.nf-pr-sumrow-v.is-big { font-size: 20px; font-weight: 800; color: var(--txt); }
+.nf-pr-delta { padding: 10px 14px; border-radius: 12px; font-size: 13px; font-weight: 700; }
+.nf-pr-delta.is-up { color: var(--ok); background: color-mix(in srgb, var(--ok) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--ok) 28%, var(--line)); }
+.nf-pr-delta.is-down { color: var(--risk); background: color-mix(in srgb, var(--risk) 9%, var(--panel)); border: 1px solid color-mix(in srgb, var(--risk) 28%, var(--line)); }
+
+/* Payslip Settings sections: the title becomes a themed header strip across the top of each card. */
+.nf-pr-pcard { overflow: hidden !important; }
+.nf-pr-pcard > div:first-child { margin: -18px -20px 16px !important; padding: 13px 20px; font-size: 14px !important; font-weight: 800 !important; letter-spacing: -.01em; background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 9%, var(--panel)) 0%, var(--panel) 75%); border-bottom: 1px solid var(--line); }
+
+/* ── Payslip preview: a sheet with a themed header band, aligned facts, one shared earnings and deductions
+   table, and a brand-coloured net pay bar. Theme tokens only, so it follows the accent colour and dark mode. ── */
+.nf-ps { container-type: inline-size; border-radius: 18px; border: 1px solid color-mix(in srgb, var(--brand) 16%, var(--line)); background: var(--raised); padding: 16px; }
+.nf-ps-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.nf-ps-head-title { margin: 0; font-size: 14.5px; font-weight: 800; letter-spacing: -.01em; color: var(--txt); }
+.nf-ps-head-sub { margin: 2px 0 0; font-size: 12px; color: var(--txt-mut); }
+.nf-ps-chip { flex-shrink: 0; padding: 3px 11px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent); }
+.nf-ps-sheet { position: relative; overflow: hidden; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 10px 26px -16px color-mix(in srgb, var(--brand) 40%, transparent); }
+.nf-ps-mark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 64px; font-weight: 900; letter-spacing: .1em; color: var(--txt); opacity: .035; transform: rotate(-20deg); pointer-events: none; }
+.nf-ps-top { position: relative; display: flex; align-items: center; gap: 14px; padding: 18px 20px; background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 14%, var(--panel)) 0%, color-mix(in srgb, var(--brand) 4%, var(--panel)) 100%); border-bottom: 3px solid var(--brand); }
+.nf-ps-top.has-logo.is-right { flex-direction: row-reverse; }
+.nf-ps-top-text { flex: 1; min-width: 0; text-align: center; }
+.nf-ps-top.has-logo .nf-ps-top-text { text-align: left; }
+.nf-ps-top.has-logo.is-right .nf-ps-top-text { text-align: right; }
+.nf-ps-title { font-size: 15px; font-weight: 800; letter-spacing: -.01em; color: var(--txt); overflow-wrap: anywhere; }
+.nf-ps-company { margin-top: 3px; font-size: 12px; color: var(--txt-mut); overflow-wrap: anywhere; }
+.nf-ps-facts { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; margin: 0; border-bottom: 1px solid var(--line); }
+.nf-ps-fact { padding: 10px 20px; border-bottom: 1px solid var(--line); min-width: 0; }
+.nf-ps-fact:nth-child(odd) { border-right: 1px solid var(--line); }
+.nf-ps-fact:nth-last-child(-n+2):nth-child(odd), .nf-ps-fact:last-child { border-bottom: none; }
+.nf-ps-fact dt { font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--txt-dim); }
+.nf-ps-fact dd { margin: 3px 0 0; font-size: 13px; font-weight: 600; color: var(--txt); overflow-wrap: anywhere; }
+.nf-ps-table { position: relative; width: 100%; table-layout: fixed; border-collapse: collapse; }
+.nf-ps-table th { padding: 10px 20px 8px; text-align: left; font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand); background: color-mix(in srgb, var(--brand) 6%, var(--raised)); border-bottom: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line)); }
+.nf-ps-table td { padding: 7px 8px 7px 20px; font-size: 12.5px; color: var(--txt-mut); vertical-align: top; overflow-wrap: anywhere; }
+.nf-ps-table td.nf-ps-num { padding-left: 4px; padding-right: 20px; text-align: right; font-variant-numeric: tabular-nums; color: var(--txt); white-space: nowrap; }
+.nf-ps-table tbody tr:first-child td { padding-top: 12px; }
+.nf-ps-table tfoot td { padding-top: 10px; padding-bottom: 10px; font-weight: 800; color: var(--txt); border-top: 1px solid var(--line2); background: color-mix(in srgb, var(--brand) 4%, var(--panel)); }
+.nf-ps-net { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 20px 0; padding: 13px 18px; border-radius: 13px; color: #fff; background: linear-gradient(120deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000)); box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--brand) 70%, transparent); }
+.nf-ps-net span { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .92; }
+.nf-ps-net strong { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.nf-ps-foot { position: relative; margin: 14px 20px 18px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11.5px; font-style: italic; color: var(--txt-dim); }
+.nf-ps-lists { position: relative; }
+.nf-ps-lists .nf-ps-table + .nf-ps-table { margin-top: 10px; }
+.nf-ps-lists .nf-ps-table td.nf-ps-num { width: 38%; }
+@container (max-width: 300px) {
+  .nf-ps-facts { grid-template-columns: minmax(0, 1fr); }
+  .nf-ps-fact:nth-child(odd) { border-right: none; }
+  .nf-ps-fact:nth-last-child(-n+2):nth-child(odd) { border-bottom: 1px solid var(--line); }
+}
+@container (max-width: 400px) {
+  .nf-ps-table th, .nf-ps-table td { padding-left: 14px; }
+  .nf-ps-table td.nf-ps-num { padding-right: 14px; }
+  .nf-ps-fact { padding-left: 14px; padding-right: 14px; }
+  .nf-ps-net, .nf-ps-foot { margin-left: 12px; margin-right: 12px; }
+}
+
+/* ── Help bar: a slim full-width bar under the page content, collapsed until opened; the questions open in two columns. ── */
+.nf-pr-withfaq { display: flex; flex-direction: column; gap: 18px; container-type: inline-size; }
+.nf-pr-faqbar { border-radius: 16px; border: 1px solid color-mix(in srgb, var(--brand) 16%, var(--line)); background: var(--panel); box-shadow: 0 8px 22px -16px color-mix(in srgb, var(--brand) 35%, transparent); overflow: hidden; }
+.nf-pr-faqbar-head { width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px 18px; text-align: left; font: inherit; cursor: pointer; border: none; background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 8%, var(--panel)) 0%, var(--panel) 75%); }
+.nf-pr-faqbar-ico { flex-shrink: 0; width: 30px; height: 30px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 26%, transparent); }
+.nf-pr-faqbar-title { font-size: 14px; font-weight: 800; color: var(--txt); }
+.nf-pr-faqbar-count { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--txt-mut); }
+.nf-pr-faqbar-chev { flex-shrink: 0; color: var(--txt-dim); transition: transform .2s; }
+.nf-pr-faqbar.is-open .nf-pr-faqbar-chev { transform: rotate(180deg); color: var(--brand); }
+.nf-pr-faqbar-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 14px 18px 18px; border-top: 1px solid var(--line); }
+.nf-pr-faqq { align-self: start; border-radius: 12px; border: 1px solid var(--line); background: var(--raised); }
+.nf-pr-faqq.is-open { border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); background: color-mix(in srgb, var(--brand) 5%, var(--panel)); }
+.nf-pr-faqq-btn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 14px; text-align: left; font: inherit; font-size: 13px; font-weight: 700; color: var(--txt); cursor: pointer; border: none; background: none; }
+.nf-pr-faqq-chev { flex-shrink: 0; color: var(--txt-dim); transition: transform .2s; }
+.nf-pr-faqq.is-open .nf-pr-faqq-chev { transform: rotate(180deg); color: var(--brand); }
+.nf-pr-faqq-a { padding: 0 14px 13px; font-size: 12.5px; line-height: 1.6; color: var(--txt-mut); }
+@container (max-width: 760px) { .nf-pr-faqbar-body { grid-template-columns: minmax(0, 1fr); } }
+/* Summary tiles in a row are always the same height, whether or not one has a caption. */
+.nf-pr-tiles { align-items: stretch; }
+.nf-pr-tiles > * { height: 100%; }
+
+/* Payroll Runs: the Pay Group field sits in the right corner of the header, in line with the right edge of the tiles below. */
+.nf-pr-hdr--near { justify-content: space-between; }
+.nf-page-hdr.nf-pr-hdr--near { padding-right: 14px !important; }
+.nf-pr-hdr--near .nf-pr-hero-select { margin-right: 0; margin-left: auto; }
+
+/* Payroll Runs table: every column after Cycle is centred, header and values alike, so each value sits under its heading. */
+.nf-pr-center th:nth-child(n+2), .nf-pr-center td:nth-child(n+2) { text-align: center !important; }
+
+/* Payroll Setup tab bar: always one line. The tabs share the width evenly and tighten (smaller text, then no icons) as the
+   space shrinks; only an extreme zoom falls back to scrolling the row sideways, never to a second line. */
+.nf-pr-settabs-wrap { container-type: inline-size; margin-bottom: 18px; }
+.nf-pr-settabs.nf-tabs { flex-wrap: nowrap !important; gap: 2px; padding: 8px; overflow-x: auto !important; scrollbar-width: none; }
+.nf-pr-settabs.nf-tabs::-webkit-scrollbar { display: none; }
+.nf-pr-settabs.nf-tabs .nf-tab { flex: 1 1 auto; min-width: 0; justify-content: center; padding: 9px 8px; font-size: 13px; white-space: nowrap; }
+.nf-pr-settabs.nf-tabs .nf-tab svg { flex-shrink: 0; }
+@container (max-width: 1180px) {
+  .nf-pr-settabs.nf-tabs { gap: 0; padding: 6px; }
+  .nf-pr-settabs.nf-tabs .nf-tab { padding: 8px 6px; font-size: 12px; gap: 5px; }
+}
+@container (max-width: 980px) {
+  .nf-pr-settabs.nf-tabs .nf-tab svg { display: none; }
+}
+@container (max-width: 800px) {
+  .nf-pr-settabs.nf-tabs .nf-tab { padding: 8px 5px; font-size: 11px; }
+}
+/* Order of Components: sequence, type and the move buttons are centred under their headings; the name stays left. */
+.nf-pr-center-seq th:nth-child(n+3), .nf-pr-center-seq td:nth-child(n+3) { text-align: center !important; }
+.nf-pr-center-seq td:nth-child(n+3) > * { margin-left: auto; margin-right: auto; }
+
+/* Tables with many short columns: the headings keep their own space (tighter side padding and letter spacing), wrap only between
+   words, never inside one, so neighbouring headings can no longer run into each other at any zoom. */
+.nf-pr-compact-th th { padding-left: 6px !important; padding-right: 6px !important; letter-spacing: .06em !important; font-size: 10.5px !important; overflow-wrap: normal !important; word-break: normal !important; hyphens: none; }
+.nf-pr-compact-th td { padding-left: 6px !important; padding-right: 6px !important; }
+.nf-pr-compact-th th:first-child, .nf-pr-compact-th td:first-child { padding-left: 16px !important; }
+/* Salary Structures list: the short columns (grade, financial year) are centred under their headings; the name and the long
+   component list stay left-aligned. */
+.nf-pr-center-mid th:nth-child(2), .nf-pr-center-mid td:nth-child(2), .nf-pr-center-mid th:nth-child(3), .nf-pr-center-mid td:nth-child(3) { text-align: center !important; }
+
+
+/* Order of Components: the sequence starts at the left corner of the list (left-aligned like a row label), and the name, type and move
+   buttons split the rest of the width evenly to the right edge. */
+.nf-pr-center-seq { table-layout: fixed; }
+.nf-pr-center-seq th:nth-child(1) { width: 12%; }
+.nf-pr-center-seq th:nth-child(2), .nf-pr-center-seq th:nth-child(3), .nf-pr-center-seq th:nth-child(4) { width: 29.333%; }
+.nf-pr-center-seq th:nth-child(1), .nf-pr-center-seq td:nth-child(1) { text-align: left !important; }
+.nf-pr-center-seq td:nth-child(4) > * { margin-left: auto; margin-right: auto; }
+
+/* ── Section tile (SectionHead with an icon): the page-header look, one step smaller, for the heading of a section inside a tab. ── */
+.nf-pr-sechead { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; padding: 14px 18px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line)); background: linear-gradient(100deg, var(--panel) 45%, color-mix(in srgb, var(--brand) 7%, var(--panel)) 100%); box-shadow: 0 8px 22px -16px color-mix(in srgb, var(--brand) 40%, transparent); }
+.nf-pr-sechead-ico { flex-shrink: 0; width: 38px; height: 38px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; color: var(--brand); background: color-mix(in srgb, var(--brand) 13%, var(--panel)); border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent); }
+.nf-pr-sechead-text { flex: 1; min-width: 200px; }
+.nf-pr-sechead-title { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -.01em; color: var(--txt); }
+.nf-pr-sechead-sub { margin: 3px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--txt-mut); }
+.nf-pr-sechead-action { flex-shrink: 0; margin-left: auto; }
+
+/* Search strip: the magnifier and the text sit right next to each other and the bar is slim. (The global search-box rule adds a wide left
+   padding and a fixed height to every search input; inside this strip the strip itself is the box.) */
+.nf-pr-filterbar { padding: 3px 14px; margin-bottom: 12px; }
+.nf-pr-filterbar-search { gap: 10px; }
+.nf-pr-filterbar .nf-pr-filterbar-search input[placeholder]:not(#a):not(#b) { padding-left: 0 !important; padding-right: 0 !important; height: 36px !important; }
+
+/* Employee picker: a magnifier sits in the left of the box and the text starts right after it (no empty gap). */
+.nf-pr-picker-ico { position: absolute !important; left: 14px !important; top: 50% !important; transform: translateY(-50%); color: var(--txt-dim); pointer-events: none; z-index: 1; }
+input.nf-pr-picker-input:not(#a):not(#b) { padding-left: 38px !important; }
+
+/* Pay Group chooser at the top of a tab: the label sits beside a compact dropdown (sized to the name), not above a wide box. */
+.nf-pr-pgsel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.nf-pr-pgsel label { margin: 0 !important; white-space: nowrap; }
+.nf-pr-pgsel select { width: auto !important; min-width: 0; max-width: 100%; field-sizing: content; padding: 8px 4px 8px 13px !important; cursor: pointer; }
+

@@ -76,7 +76,7 @@ function CurrentCtcReport() {
     <div>
       <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Employee', 'Structure', 'CTC', 'Effective From'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {filtered.map(r => (
@@ -126,7 +126,7 @@ function CurrentSalaryStructureReport() {
       <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
         <div style={{ overflowX: 'auto' }}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Employee', 'Structure', 'CTC', 'Effective From', ...columns].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {filtered.map(r => {
@@ -185,7 +185,7 @@ function EmployeeCtcRangeReport() {
       </div>
       <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Employee', 'Structure', 'CTC', 'Effective From', 'Effective To'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {filtered.map(r => (
@@ -225,7 +225,7 @@ function FinancialInformationReport() {
       <FilterBar search={search} onSearchChange={setSearch} />
       <div style={panelStyle}>
         <div style={{ overflowX: 'auto' }}>
-        <table className="nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Employee', 'Employee Code', 'Bank Name', 'Bank Account', 'IFSC', 'PAN', 'UAN', 'ESI'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {filtered.map(r => (
@@ -313,7 +313,7 @@ export default function PayrollReportsPage() {
 
   return (
     <div style={{ padding: '24px 28px' }}>
-      <PageTitleBlock icon={BarChart3} style={{ marginBottom: 20 }}>
+      <PageTitleBlock icon={BarChart3} card>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: '-.01em', color: 'var(--txt)' }}>Payroll Reports</h1>
         <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>CTC, salary structure, revision history and financial details, across every employee.</p>
       </PageTitleBlock>

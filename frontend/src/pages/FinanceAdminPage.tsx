@@ -9,7 +9,7 @@ import { DeclarationPanel, PreviousIncomePanel, FormsPanel } from './MyTaxPanels
 import { adminTaxApi, financeAdminApi, CATEGORY_LABEL, type FinancialDetails, type QueueRow, type Partner, type TaxRules, type Slab, type DeclCategory } from '../api/myTax';
 import { panelStyle, thStyle, tdStyle, inputStyle, labelStyle, fmtCurrency, fmtDate, fmtDateTime, SectionHead, BtnPrimary, BtnGhost, EmployeePicker } from './payroll/payrollShared';
 
-// US-F15 / F11 / F17 / F18 — Super Admin finance console. The server gates every call on payroll:CONFIGURE:ALL.
+// US-F15 / F11 / F17 / F18 - Super Admin finance console. The server gates every call on payroll:CONFIGURE:ALL.
 
 const muted = { fontSize: 13, color: 'var(--txt-mut)' } as const;
 const TOP: TabDef<string>[] = [
@@ -34,12 +34,10 @@ export default function FinanceAdminPage() {
   const [tab, setTab] = useState('employee');
   return (
     <div style={{ padding: '24px 28px' }}>
-      <div style={{ marginBottom: 20 }}>
-        <PageTitleBlock icon={Wallet}>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: 'var(--txt)' }}>Employee Finances</h1>
-          <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Super Admin view of pay, tax and finance settings. Every change is logged.</p>
-        </PageTitleBlock>
-      </div>
+      <PageTitleBlock icon={Wallet} card>
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: 'var(--txt)' }}>Employee Finances</h1>
+        <p style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--txt-mut)' }}>Super Admin view of pay, tax and finance settings. Every change is logged.</p>
+      </PageTitleBlock>
       <TabBar tabs={TOP} active={tab} onChange={setTab} ariaLabel="Finance admin sections" style={{ marginBottom: 16 }} />
       {tab === 'employee' && <EmployeeView token={token} api={api} userId={userId} onPick={id => navigate(`/finances/${id}`)} />}
       {tab === 'proofs' && <ProofQueue api={api} />}
@@ -236,7 +234,7 @@ function WindowsCard({ api }: { api: ReturnType<typeof financeAdminApi> }) {
           <strong style={{ width: 170, color: 'var(--txt)' }}>{k === 'DECLARATION' ? 'Investment Declaration' : k === 'PROOF' ? 'Proof Submission' : 'Tax Regime Change'}</strong>
           <Field label="Opens"><input type="date" style={inputStyle} value={form[k].opensOn} onChange={e => setForm(f => ({ ...f, [k]: { ...f[k], opensOn: e.target.value } }))} /></Field>
           <Field label="Closes"><input type="date" style={inputStyle} value={form[k].closesOn} onChange={e => setForm(f => ({ ...f, [k]: { ...f[k], closesOn: e.target.value } }))} /></Field>
-          {k !== 'REGIME' && <label style={{ fontSize: 13 }}><input type="checkbox" checked={form[k].monthly} onChange={e => setForm(f => ({ ...f, [k]: { ...f[k], monthly: e.target.checked } }))} /> Only 1st–22nd of each month</label>}
+          {k !== 'REGIME' && <label style={{ fontSize: 13 }}><input type="checkbox" checked={form[k].monthly} onChange={e => setForm(f => ({ ...f, [k]: { ...f[k], monthly: e.target.checked } }))} /> Only 1st to 22nd of each month</label>}
           <BtnPrimary onClick={() => save(k)}>Save</BtnPrimary>
         </div>
       ))}
@@ -389,7 +387,7 @@ function AuditLog({ api }: { api: ReturnType<typeof financeAdminApi> }) {
             {data?.map(r => (
               <tr key={r.id}>
                 <td style={tdStyle}>{fmtDateTime(r.at)}</td><td style={tdStyle}>{r.action.replace(/_/g, ' ').toLowerCase()}</td>
-                <td style={tdStyle}>{r.actor ?? '—'}</td><td style={tdStyle}>{r.employee ?? '—'}</td>
+                <td style={tdStyle}>{r.actor ?? '-'}</td><td style={tdStyle}>{r.employee ?? '-'}</td>
                 <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{r.after ?? ''}</td>
               </tr>
             ))}

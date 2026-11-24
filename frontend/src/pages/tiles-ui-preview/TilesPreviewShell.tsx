@@ -13,6 +13,7 @@
 import { useSearchParams, Routes, Route } from 'react-router-dom';
 import PayrollRunDetailPage from '../payroll/PayrollRunDetailPage';
 import PayrollRunsPage from '../PayrollRunsPage';
+import PayrollSetupPage from '../payroll/PayrollSetupPage';
 import {
   Users, Sparkles, Award, AlertTriangle, Wallet, CheckCircle2, Hourglass, CalendarClock,
   Inbox, CircleDot, Clock, Lock, MessageSquareText, Zap, Activity, Gauge, CalendarCheck,
@@ -127,6 +128,7 @@ const PAGES: { key: string; label: string; title: string; subtitle: string }[] =
   { key: 'docs-compliance-page', label: 'Documents & Compliance (HR)', title: 'Documents & Compliance', subtitle: 'HR view with sample data: three tabs and the review dialog. Approve, reject and remind only change this preview.' },
   { key: 'employee-edit', label: 'Edit Employee popup', title: 'Employee Master: Edit popup', subtitle: 'Open the popup for an active or an inactive employee. Saving only changes this preview.' },
   { key: 'employee-master-page', label: 'Employee Master (full page)', title: 'Employee Master', subtitle: 'The real page with sample employees and the themed table header.' },
+  { key: 'payroll-setup-page', label: 'Payroll Setup (full page)', title: 'Payroll Setup', subtitle: 'The real Payroll Setup page with sample components, a structure and a pay group. Nothing to click first.' },
   { key: 'payroll-runs-page', label: 'Payroll Runs list (first page)', title: 'Payroll Runs', subtitle: 'The real Payroll Runs list with a sample pay group and runs. Nothing to click first.' },
   { key: 'payroll-run-page', label: 'Payroll Run details (full page)', title: 'Payroll Run details', subtitle: 'The real run console with a sample run. Add &status=DRAFT, SUBMITTED, APPROVED or DISBURSED to the URL.' },
   { key: 'skill-modal', label: 'Add Skill dialog', title: 'Add Skill', subtitle: 'The real dialog with the search icon clear of the placeholder text.' },
@@ -1379,6 +1381,51 @@ function SkillModalMock() {
   return ready ? <SkillModal token="mock" existing={null} onClose={() => {}} onSaved={() => {}} /> : null;
 }
 
+function PayrollSetupMock() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    // Mock only: sample components, one structure and one pay group, with a Super Admin payroll session; restored on leave.
+    const prevFetch = window.fetch;
+    const prevAuth = useAuthStore.getState();
+    const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    const comp = (id: string, name: string, type: string, i: number) => ({ id, name, type, taxable: type === 'EARNING', taxSection: null, includedInCtc: type !== 'REIMBURSEMENT', shownOnPayslip: true, prorateOnLop: type === 'EARNING', active: i !== 9, displayOrder: i, accountingCode: null });
+    const catalog = [['Basic', 'EARNING'], ['HRA', 'EARNING'], ['Special Allowance', 'EARNING'], ['Conveyance', 'EARNING'], ['Provident Fund', 'DEDUCTION'], ['Professional Tax', 'DEDUCTION'], ['Fuel Reimbursement', 'REIMBURSEMENT'], ['Employer PF', 'CONTRIBUTION'], ['Gratuity', 'CONTRIBUTION'], ['Old Bonus', 'EARNING']].map(([n, t], i) => comp('c' + i, n, t, i));
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).split('?')[0];
+      if (path.endsWith('/api/payroll/salary-components')) return json(catalog);
+      if (path.endsWith('/api/payroll/salary-structures')) return json([{ id: 's1', name: 'Standard Grade L2', grade: 'L2', financialYear: '2026-27', createdAt: '2026-10-01T09:00:00', components: [
+        { id: 'k1', componentId: 'c0', componentName: 'Basic', type: 'EARNING', taxable: true, includedInCtc: true, shownOnPayslip: true, prorateOnLop: true, calcType: 'PERCENT_OF_GROSS', value: 50, referenceComponentName: null, cap: null, useLowerOfCap: false },
+        { id: 'k2', componentId: 'c1', componentName: 'HRA', type: 'EARNING', taxable: true, includedInCtc: true, shownOnPayslip: true, prorateOnLop: true, calcType: 'PERCENT_OF_COMPONENT', value: 40, referenceComponentName: 'Basic', cap: null, useLowerOfCap: false },
+        { id: 'k3', componentId: 'c2', componentName: 'Special Allowance', type: 'EARNING', taxable: true, includedInCtc: true, shownOnPayslip: true, prorateOnLop: true, calcType: 'BALANCING_REMAINDER', value: null, referenceComponentName: null, cap: null, useLowerOfCap: false },
+        { id: 'k4', componentId: 'c4', componentName: 'Provident Fund', type: 'DEDUCTION', taxable: false, includedInCtc: false, shownOnPayslip: true, prorateOnLop: false, calcType: 'FIXED', value: 21600, referenceComponentName: null, cap: null, useLowerOfCap: false },
+      ] }]);
+      if (path.endsWith('/api/payroll/pay-groups')) return json([{ id: 'g1', name: 'NForce One Pvt Ltd', legalEntity: 'NForce One Pvt Ltd', address: null, frequency: 'MONTHLY', currency: 'INR', cycleStartDay: 26, cycleEndDay: 25, processingDay: 31, active: true }]);
+      if (path.endsWith('/payslip-settings')) return json({ payGroupId: 'g1', passwordProtected: true, documentHeaderText: 'NForce One Pvt Ltd', footerText: 'This is a system generated payslip.', hasLogo: false, logoAlignment: 'LEFT', logoSize: 64, logoShape: 'SQUARE',
+        excludeNaFields: true, earningsHeading: 'Earnings', deductionsHeading: 'Deductions', includeLeaveSummary: true, includeArrearBreakup: false, includeYtdColumn: true, includeEmployerContributions: false, payslipFields: ['department', 'designation', 'pan'] });
+      if (path.endsWith('/filing-details')) return json({ payGroupId: 'g1', pan: null, tan: null, pfEstablishmentId: null, esiEstablishmentId: null, incomeTaxSignatory: null, incomeTaxSignatoryDesignation: null, ptLocations: [] });
+      const comp = (id: string, emp: string, ctc: number, from: string, to: string | null) => ({ id, employeeId: emp, payGroupId: 'g1', structureId: 's1', structureName: 'Standard Grade L2', ctc, effectiveFrom: from, effectiveTo: to, createdAt: from + 'T09:00:00' });
+      if (path.endsWith('/employee-compensation/history')) return json([comp('h1', 'e0', 1200000, '2026-06-01', null), comp('h2', 'e1', 900000, '2026-04-01', '2026-09-30'), comp('h3', 'e1', 1000000, '2026-10-01', null)]);
+      if (/\/employee-compensation\/employee\/[^/]+\/history$/.test(path)) return json([comp('h1', 'e0', 1200000, '2026-06-01', null)]);
+      if (path.endsWith('/recurring-ad-hoc-payment-rules')) return json([
+        { id: 'r1', payGroupId: null, payGroupName: 'All pay groups', componentName: 'Fuel Reimbursement', componentType: 'REIMBURSEMENT', amount: 2500, reason: 'Monthly fuel allowance', active: true, createdByName: 'Anil Kumar', createdAt: '2026-10-02T10:00:00' },
+        { id: 'r2', payGroupId: 'g1', payGroupName: 'NForce One Pvt Ltd', componentName: 'Conveyance', componentType: 'EARNING', amount: 1600, reason: 'Travel support', active: false, createdByName: 'Hr Admin', createdAt: '2026-09-15T10:00:00' }]);
+      if (path.endsWith('/pt-locations')) return json([
+        { id: 'p1', payGroupId: 'g1', stateName: 'Telangana', locationName: 'Hyderabad', establishmentId: 'PT-TS-1042', registrationDate: '2024-04-01', signatory: 'Asha Rao', signatoryDesignation: 'Director', signatoryFatherName: 'R Rao' },
+        { id: 'p2', payGroupId: 'g1', stateName: 'Karnataka', locationName: 'Bangalore', establishmentId: 'PT-KA-2210', registrationDate: '2025-01-15', signatory: 'Asha Rao', signatoryDesignation: 'Director', signatoryFatherName: 'R Rao' }]);
+      if (path.endsWith('/api/employees')) return json(['Sri vidya', 'Praveen Gurram', 'Ramesh A'].map((n, k) => ({
+        userId: 'e' + k, employeeCode: 'NF-2026' + (1001 + k), fullName: n, email: n.split(' ')[0].toLowerCase() + '@nforceone.com', role: 'EMPLOYEE',
+        businessUnitId: null, businessUnitName: null, departmentId: 'd1', departmentName: 'Engineering', designationId: 'g1', designationName: 'Software Engineer',
+        locationId: null, locationName: 'Hyderabad', shiftId: null, shiftName: null, employmentType: 'FULL_TIME', workMode: 'ONSITE', joiningDate: '2025-06-02', active: true, currentManager: null })));
+      if (path.includes('/api/payroll/') || path.includes('/api/employees')) return json([]);
+      return prevFetch(input, init);
+    }) as typeof window.fetch;
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: { permissions: { payroll: { VIEW: ['ALL'], CONFIGURE: ['ALL'] } } } as never });
+    setReady(true);
+    return () => { window.fetch = prevFetch; useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions }); };
+  }, []);
+  return ready ? <PayrollSetupPage /> : null;
+}
+
 function PayrollRunsListMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -2261,6 +2308,8 @@ function Tiles({ page }: { page: string }) {
       return <HrRequestsMock />;
     case 'skill-modal':
       return <SkillModalMock />;
+    case 'payroll-setup-page':
+      return <PayrollSetupMock />;
     case 'payroll-runs-page':
       return <PayrollRunsListMock />;
     case 'payroll-run-page':

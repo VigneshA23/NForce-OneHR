@@ -27,10 +27,10 @@ export function useEmployeeDirectory() {
 
 // ── Shared styles (same shape as pages/assets/shared.tsx / pages/bench/ui.tsx) ──
 
-export const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', overflowX: 'auto' };
+export const panelStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid color-mix(in srgb, var(--brand) 14%, var(--line))', borderRadius: 16, boxShadow: '0 8px 22px -14px color-mix(in srgb, var(--brand) 35%, transparent)', overflowX: 'auto' };
 export const thStyle: React.CSSProperties = { padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 800, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '.09em', borderBottom: '1px solid color-mix(in srgb, var(--brand) 22%, var(--line))', whiteSpace: 'nowrap', background: 'color-mix(in srgb, var(--brand) 7%, var(--raised))' };
 export const tdStyle: React.CSSProperties = { padding: '13px 16px', fontSize: 13.5, color: 'var(--txt-mut)', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
-export const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--shell)', border: '1px solid var(--line2)', borderRadius: 6, padding: '9px 11px', color: 'var(--txt)', fontSize: 13, boxSizing: 'border-box', outline: 'none' };
+export const inputStyle: React.CSSProperties = { width: '100%', background: 'var(--panel)', border: '1px solid var(--line2)', borderRadius: 11, padding: '10px 13px', color: 'var(--txt)', fontSize: 13.5, fontFamily: 'inherit', boxSizing: 'border-box', outline: 'none' };
 export const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '.06em' };
 export const overlayStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 500 };
 export const modalStyle: React.CSSProperties = { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, width: '94vw', maxWidth: 480, boxShadow: '0 24px 64px rgba(0,0,0,.55)', maxHeight: '90vh', overflowY: 'auto' };
@@ -43,6 +43,17 @@ export function fmtCurrency(n?: number | null) {
 export function fmtDate(s?: string | null) {
   if (!s) return '-';
   return new Date(s).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** A pay cycle as one short phrase: the year once when both ends are in the same year ("26 Oct to 25 Nov 2026"),
+ * both years when the cycle crosses a year ("26 Dec 2026 to 25 Jan 2027"). */
+export function fmtCycle(start?: string | null, end?: string | null) {
+  if (!start || !end) return '-';
+  const a = new Date(start);
+  const b = new Date(end);
+  if (a.getFullYear() !== b.getFullYear()) return `${fmtDate(start)} to ${fmtDate(end)}`;
+  const short = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  return `${short(a)} to ${short(b)} ${b.getFullYear()}`;
 }
 
 export function fmtDateTime(s?: string | null) {
@@ -83,7 +94,20 @@ export function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export function SectionHead({ title, action }: { title: string; action?: ReactNode }) {
+export function SectionHead({ title, action, icon: Icon, subtitle }: { title: string; action?: ReactNode; icon?: LucideIcon; subtitle?: string }) {
+  if (Icon) {
+    // Section tile: the same look as the page header cards (icon chip, title, short description, action on the right).
+    return (
+      <div className="nf-pr-sechead">
+        <span className="nf-pr-sechead-ico"><Icon size={18} /></span>
+        <div className="nf-pr-sechead-text">
+          <h2 className="nf-pr-sechead-title">{title}</h2>
+          {subtitle && <p className="nf-pr-sechead-sub">{subtitle}</p>}
+        </div>
+        {action && <div className="nf-pr-sechead-action">{action}</div>}
+      </div>
+    );
+  }
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, letterSpacing: '-.01em', fontFamily: 'Inter, sans-serif', color: 'var(--txt)' }}>{title}</h2>
@@ -149,7 +173,10 @@ export function EmployeePicker({ value, onChange, options }: {
 
   return (
     <div style={{ position: 'relative' }}>
+      <Search size={15} className="nf-pr-picker-ico" aria-hidden="true" />
       <input
+        className="nf-pr-picker-input"
+        aria-label="Employee"
         value={open ? query : selectedLabel}
         onFocus={() => { setQuery(''); setOpen(true); setHighlighted(0); }}
         onChange={e => { setQuery(e.target.value); setOpen(true); setHighlighted(0); }}
@@ -347,9 +374,10 @@ export function FullScreenTask({ title, subtitle, onClose, actions, children }: 
 // Right-side slide-in panel for editing a single record (Keka's drawer pattern, §1.4) - a grey
 // read-only block for fields that can't change after creation, a scrollable form body, and a
 // sticky Discard/Update footer. Portalled onto <body> for the same reason FullScreenTask is.
-export function Drawer({ title, readOnlyBlock, onClose, children, footer }: {
-  title: string; readOnlyBlock?: ReactNode; onClose: () => void; children: ReactNode; footer: ReactNode;
+export function Drawer({ title, subtitle, readOnlyBlock, onClose, children, footer }: {
+  title: string; subtitle?: string; readOnlyBlock?: ReactNode; onClose: () => void; children: ReactNode; footer: ReactNode;
 }) {
+  const HeadIcon = modalIconFor(title);
   useEffect(() => {
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -360,7 +388,11 @@ export function Drawer({ title, readOnlyBlock, onClose, children, footer }: {
     <div className="nf-pr-drawer-overlay" onClick={onClose}>
       <div className="nf-pr-drawer-panel" role="dialog" aria-label={title} onClick={e => e.stopPropagation()}>
         <div className="nf-pr-drawer-head">
-          <div className="nf-pr-drawer-title">{title}</div>
+          <span className="nf-pr-drawer-ico"><HeadIcon size={18} /></span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="nf-pr-drawer-title">{title}</div>
+            {subtitle && <div className="nf-pr-drawer-sub">{subtitle}</div>}
+          </div>
           <button type="button" className="nf-pr-drawer-close" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
         {readOnlyBlock && <div className="nf-pr-drawer-readonly">{readOnlyBlock}</div>}
@@ -375,28 +407,22 @@ export function Drawer({ title, readOnlyBlock, onClose, children, footer }: {
 // A pill toggle (Keka's switch pattern, §1.4) - --primary when on, light grey when off. A plain
 // checkbox styled as a switch would be simpler, but role="switch" semantics communicate "this
 // flips a setting" better than a checkbox does for things like "Enabled"/"Active".
-export function ToggleSwitch({ checked, onChange, label, disabled }: {
-  checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; disabled?: boolean;
+export function ToggleSwitch({ checked, onChange, label, hint, disabled }: {
+  checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; hint?: ReactNode; disabled?: boolean;
 }) {
   function toggle() { if (!disabled) onChange(!checked); }
   return (
-    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 10, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? .6 : 1 }}>
-      <span
-        role="switch" aria-checked={checked} aria-disabled={disabled} tabIndex={disabled ? -1 : 0}
-        onClick={toggle}
-        onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } }}
-        style={{
-          width: 36, height: 20, borderRadius: 999, flexShrink: 0, position: 'relative', display: 'inline-block',
-          background: checked ? 'var(--brand)' : 'var(--line2)', transition: 'background .15s',
-        }}
-      >
-        <span style={{
-          position: 'absolute', top: 2, left: checked ? 18 : 2, width: 16, height: 16, borderRadius: '50%',
-          background: '#fff', transition: 'left .15s', boxShadow: '0 1px 3px rgba(0,0,0,.3)',
-        }} />
+    <button
+      type="button" role="switch" aria-checked={checked} disabled={disabled}
+      className={`nf-pr-switch${checked ? ' is-on' : ''}`}
+      onClick={toggle}
+    >
+      <span className="nf-pr-switch-text">
+        {label}
+        {hint && <span className="nf-pr-opt-hint">{hint}</span>}
       </span>
-      {label}
-    </label>
+      <span className="nf-pr-switch-track" aria-hidden="true"><span className="nf-pr-switch-knob" /></span>
+    </button>
   );
 }
 
@@ -460,40 +486,33 @@ export type FaqItem = { q: string; a: ReactNode };
  * reference for the exact actions that page offers. Sticky so it stays in view while the page's
  * own content scrolls past it. All items start closed; an employee opens only what they need. */
 export function FaqPanel({ items, title = 'FAQ' }: { items: FaqItem[]; title?: string }) {
+  const [open, setOpen] = useState(false);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   return (
-    <div style={{ ...panelStyle, width: 300, flexShrink: 0, position: 'sticky', top: 16, padding: '16px 0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 18px 14px', borderBottom: '1px solid var(--line)' }}>
-        <HelpCircle size={15} style={{ color: 'var(--brand)' }} />
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txt)' }}>{title}</div>
-      </div>
-      <div>
-        {items.map((item, i) => {
-          const open = openIndex === i;
-          return (
-            <div key={i} style={{ borderBottom: i < items.length - 1 ? '1px solid var(--line)' : 'none' }}>
-              <button
-                type="button"
-                onClick={() => setOpenIndex(open ? null : i)}
-                style={{
-                  width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
-                  background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer',
-                  padding: '12px 18px', fontSize: 12.5, fontWeight: 600, color: 'var(--txt)',
-                }}
-              >
-                <span>{item.q}</span>
-                <ChevronDown size={14} style={{ color: 'var(--txt-dim)', flexShrink: 0, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
-              </button>
-              {open && (
-                <div style={{ padding: '0 18px 14px', fontSize: 12, lineHeight: 1.6, color: 'var(--txt-mut)' }}>
-                  {item.a}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <section className={`nf-pr-faqbar${open ? ' is-open' : ''}`}>
+      <button type="button" className="nf-pr-faqbar-head" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+        <span className="nf-pr-faqbar-ico"><HelpCircle size={16} /></span>
+        <span className="nf-pr-faqbar-title">{title}</span>
+        <span className="nf-pr-faqbar-count">{items.length} questions</span>
+        <ChevronDown size={16} className="nf-pr-faqbar-chev" />
+      </button>
+      {open && (
+        <div className="nf-pr-faqbar-body">
+          {items.map((item, i) => {
+            const isOpen = openIndex === i;
+            return (
+              <div key={i} className={`nf-pr-faqq${isOpen ? ' is-open' : ''}`}>
+                <button type="button" className="nf-pr-faqq-btn" aria-expanded={isOpen} onClick={() => setOpenIndex(isOpen ? null : i)}>
+                  <span>{item.q}</span>
+                  <ChevronDown size={14} className="nf-pr-faqq-chev" />
+                </button>
+                {isOpen && <div className="nf-pr-faqq-a">{item.a}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -501,9 +520,11 @@ export function FaqPanel({ items, title = 'FAQ' }: { items: FaqItem[]; title?: s
  * can add one without re-deriving its own grid layout - the page's own content takes the
  * remaining space at `flex: 1`, the panel holds a fixed width beside it. */
 export function WithFaqPanel({ items, title, children }: { items: FaqItem[]; title?: string; children: ReactNode }) {
+  // The help sits in a slim full-width bar under the content (collapsed until opened), so the page content keeps the whole
+  // width and nothing is left hanging in a side column at any zoom.
   return (
-    <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-      <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+    <div className="nf-pr-withfaq">
+      <div style={{ minWidth: 0 }}>{children}</div>
       <FaqPanel items={items} title={title} />
     </div>
   );
