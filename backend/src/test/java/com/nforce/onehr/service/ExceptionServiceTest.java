@@ -80,7 +80,7 @@ class ExceptionServiceTest {
                 workHoursShortageCalculationService, attendancePolicyEngine, attendancePenaltyRepository,
                 attendancePenaltyService, shiftVersionResolver, shiftRepository, SeedMatrix.permissionService(java.util.Map.of(
                         "CUSTOM_EXC_ADMIN", java.util.Map.of("exceptions:VIEW", "ALL", "attendance:VIEW", "ALL"),
-                        "CUSTOM_ATT_TEAM", java.util.Map.of("attendance:VIEW", "TEAM"))));
+                        "CUSTOM_ATT_TEAM", java.util.Map.of("attendance:VIEW", "TEAM"))), org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
         // Default: employeeId is the only account holding the EMPLOYEE role — matches
         // EmployeeService.listEmployees()'s own definition of who counts as an employee.
         lenient().when(userRepository.findAttendancePolicySubjectIds()).thenReturn(Set.of(employeeId));

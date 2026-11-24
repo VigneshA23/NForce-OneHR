@@ -13,7 +13,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -93,6 +95,7 @@ public class ExceptionService {
     // resolving an employee's current/live Shift.
     private final ShiftRepository shiftRepository;
     private final EffectivePermissionService effectivePermissionService;
+    private final PlatformTransactionManager transactionManager;
 
     /**
      * Gap-033/034: every discrepancy type a corrected Attendance record could invalidate — a
@@ -199,8 +202,13 @@ public class ExceptionService {
      * instead — the correct place, since it's the one signal (Employee#lastWorkingDay) actually
      * meant to record employment end, and it applies uniformly to this scheduled path and the
      * dashboard-triggered one.
+     *
+     * <p>One transaction per employee, deliberately NOT one for the whole run: the app-wide
+     * spring.transaction.default-timeout (30s) cut the single company-wide transaction off
+     * mid-detection every night, rolling back every exception and penalty it had found — nobody
+     * was penalized from mid-October on. Per employee, one slow or failing employee costs only
+     * their own evaluation, and everyone else's commits.
      */
-    @Transactional
     public void runScheduledPenaltyEvaluation(int lookbackDays) {
         LocalDate today = LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())).toLocalDate();
         LocalDate to = today.minusDays(1);
@@ -212,10 +220,22 @@ public class ExceptionService {
         // their manager) about a missing check-out etc., and Managers/HR/Super Admins punch in too.
         // Penalties stay EMPLOYEE-only — see evaluatePolicy.
         Set<UUID> scopeIds = userRepository.findAllNonDeletedUserIds();
-        if (scopeIds.isEmpty()) {
-            return;
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        // ponytail: 5 min per employee is generous for a 60-day window; raise if a backlog after downtime needs more.
+        tx.setTimeout(300);
+        int failed = 0;
+        for (UUID employeeId : scopeIds) {
+            try {
+                tx.executeWithoutResult(s -> detectExceptions(List.of(employeeId), from, to));
+            } catch (RuntimeException e) {
+                failed++;
+                log.error("Scheduled penalty evaluation failed for employee {} ({} to {}) — retried on the next run",
+                        employeeId, from, to, e);
+            }
         }
-        detectExceptions(new java.util.ArrayList<>(scopeIds), from, to);
+        if (failed > 0) {
+            log.warn("Scheduled penalty evaluation: {} of {} account(s) failed", failed, scopeIds.size());
+        }
     }
 
     /**

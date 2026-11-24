@@ -25,6 +25,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -138,7 +139,7 @@ class ExceptionServiceDetectionTest {
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
                 workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
                 workHoursShortageCalculationService, policyEngine, attendancePenaltyRepository, attendancePenaltyService,
-                shiftVersionResolver, shiftRepository, SeedMatrix.permissionService());
+                shiftVersionResolver, shiftRepository, SeedMatrix.permissionService(), org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
 
         lenient().when(employeeShiftAssignmentResolver.resolve(any(), any())).thenAnswer(inv ->
                 EmployeeShiftAssignment.builder().employeeUserId(employeeId).shift(currentEmployeeShift).effectiveFrom(LocalDate.MIN).build());
@@ -782,6 +783,23 @@ class ExceptionServiceDetectionTest {
         assertEquals(expectedFrom, fromCaptor.getValue());
         assertEquals(expectedTo, toCaptor.getValue());
         assertTrue(toCaptor.getValue().isBefore(expectedToday), "must never evaluate today, an in-progress day");
+    }
+
+    // Each employee is evaluated in its own transaction: one failing (or timing out) must not stop
+    // the rest — a single company-wide transaction used to lose everyone's penalties every night.
+    @Test
+    void runScheduledPenaltyEvaluation_oneEmployeeFails_othersStillEvaluated() {
+        UUID failing = UUID.randomUUID();
+        when(userRepository.findAllNonDeletedUserIds()).thenReturn(new java.util.LinkedHashSet<>(List.of(failing, employeeId)));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(eq(List.of(failing)), any(), any()))
+                .thenThrow(new org.springframework.transaction.TransactionTimedOutException("deadline passed"));
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(eq(List.of(employeeId)), any(), any()))
+                .thenReturn(List.of());
+        lenient().when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of());
+
+        exceptionService.runScheduledPenaltyEvaluation(7);
+
+        verify(attendanceRepository).findByEmployeeUserIdInAndWorkDateBetween(eq(List.of(employeeId)), any(), any());
     }
 
     @Test
