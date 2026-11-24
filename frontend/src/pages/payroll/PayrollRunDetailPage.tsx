@@ -278,7 +278,9 @@ export default function PayrollRunDetailPage() {
         <StatTile tone="var(--ok)" icon={<IndianRupee size={20} />} label="Net Pay" value={fmtCurrency(run.totalNet)} hint="Take-home total" onClick={() => setStep('payslips')} />
       </div>
 
-      <TabBar tabs={STEPS} active={step} onChange={setStep} ariaLabel="Payroll run steps" className="nf-tabs-card" style={{ marginBottom: 18 }} />
+      <div className="nf-pr-settabs-wrap nf-pr-steptabs-wrap">
+        <TabBar tabs={STEPS} active={step} onChange={setStep} ariaLabel="Payroll run steps" className="nf-tabs-card nf-pr-settabs" />
+      </div>
 
       {step === 'overview' && (
         <>

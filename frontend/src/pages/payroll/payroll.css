@@ -425,3 +425,15 @@ input.nf-pr-picker-input:not(#a):not(#b) { padding-left: 38px !important; }
 .nf-pr-pgsel label { margin: 0 !important; white-space: nowrap; }
 .nf-pr-pgsel select { width: auto !important; min-width: 0; max-width: 100%; field-sizing: content; padding: 8px 4px 8px 13px !important; cursor: pointer; }
 
+/* Run steps tab bar: nine tabs, so it tightens earlier than the Setup bar (smaller text first, then no icons), always on one line. */
+@container (max-width: 1500px) {
+  .nf-pr-steptabs-wrap .nf-pr-settabs.nf-tabs { gap: 0; padding: 6px; }
+  .nf-pr-steptabs-wrap .nf-pr-settabs.nf-tabs .nf-tab { padding: 8px 6px; font-size: 12px; gap: 5px; }
+}
+@container (max-width: 1280px) {
+  .nf-pr-steptabs-wrap .nf-pr-settabs.nf-tabs .nf-tab svg { display: none; }
+}
+@container (max-width: 1000px) {
+  .nf-pr-steptabs-wrap .nf-pr-settabs.nf-tabs .nf-tab { padding: 8px 4px; font-size: 11px; }
+}
+
