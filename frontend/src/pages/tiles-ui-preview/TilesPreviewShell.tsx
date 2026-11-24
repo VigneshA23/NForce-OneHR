@@ -1961,6 +1961,9 @@ function DirectoryMock() {
   return ready ? <DirectoryPage /> : null;
 }
 
+// Preview only: a session that can do everything, so row actions (the Manage button) render with sample data.
+const ALLOW_ALL_PERMISSIONS = { permissions: new Proxy({}, { get: () => ({ VIEW: ['ALL'], CREATE: ['ALL'], EDIT: ['ALL'], DELETE: ['ALL'], CONFIGURE: ['ALL'], APPROVE: ['ALL'], MANAGE: ['ALL'] }), has: () => true }) };
+
 function UserMgmtMock() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -1991,11 +1994,11 @@ function UserMgmtMock() {
       if (url.includes('/api/')) return json([]);
       return prevFetch(input, init);
     }) as typeof window.fetch;
-    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: ALLOW_ALL_PERMISSIONS as never });
     setReady(true);
     return () => {
       window.fetch = prevFetch;
-      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions });
     };
   }, []);
   return ready ? <UserManagementPage /> : null;
@@ -2019,11 +2022,11 @@ function OrgMastersMock() {
       if (url.includes('/api/')) return json([]);
       return prevFetch(input, init);
     }) as typeof window.fetch;
-    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' } });
+    useAuthStore.setState({ token: 'mock-token', user: { email: 'admin@example.com', fullName: 'Anil Kumar', mustChangePassword: false, role: 'SUPER_ADMIN' }, permissions: ALLOW_ALL_PERMISSIONS as never });
     setReady(true);
     return () => {
       window.fetch = prevFetch;
-      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user });
+      useAuthStore.setState({ token: prevAuth.token, user: prevAuth.user, permissions: prevAuth.permissions });
     };
   }, []);
   return ready ? <OrgSetupPage /> : null;

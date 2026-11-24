@@ -1931,3 +1931,8 @@ input[placeholder^="Search"]:not([style*="border: none"]):not(:is(.nf-filter-sea
   .nf-main-content table th, .nf-main-content table td { padding-left: 7px !important; padding-right: 7px !important; }
 }
 
+/* Row action control (Manage): the button never breaks its label, and any table cell that holds it keeps enough width for it, so the
+   "text may wrap anywhere" table rule above can no longer squeeze the Actions column and push the button past the table edge. */
+.nf-dock-trigger { white-space: nowrap; }
+td:has(.nf-dock) { min-width: 124px; overflow-wrap: normal !important; word-break: normal; }
+
