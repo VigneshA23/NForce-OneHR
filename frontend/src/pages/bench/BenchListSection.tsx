@@ -77,6 +77,7 @@ export default function BenchListSection({ token }: { token: string }) {
   const [taxonomy, setTaxonomy] = useState<Skill[]>([]);
   const [bucket, setBucket] = useState('');
   const [skillIds, setSkillIds] = useState<string[]>([]);
+  const [skillQuery, setSkillQuery] = useState('');
   const [mode, setMode] = useState<'AND' | 'OR'>('OR');
   const [rows, setRows] = useState<BenchListRow[] | null>(null);
   const benchPaged = usePaged(rows ?? []);
@@ -95,6 +96,9 @@ export default function BenchListSection({ token }: { token: string }) {
   }, [token, bucket, skillIds, mode]);
 
   useEffect(load, [load]);
+
+  const q = skillQuery.trim().toLowerCase();
+  const visibleSkills = taxonomy.filter(s => skillIds.includes(s.id) || s.skill.toLowerCase().includes(q));
 
   function toggleSkill(id: string) {
     setSkillIds(prev => (prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]));
@@ -123,9 +127,11 @@ export default function BenchListSection({ token }: { token: string }) {
           </div>
           <div style={{ flex: 1, minWidth: 260 }}>
             <label style={labelStyle}>Skills ({skillIds.length} selected)</label>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <input value={skillQuery} onChange={e => setSkillQuery(e.target.value)} placeholder="Search skills…" aria-label="Search skills" style={{ ...inputStyle, marginBottom: 8 }} />
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', maxHeight: 140, overflowY: 'auto' }}>
               {taxonomy.length === 0 && <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No skills in the taxonomy yet. Add some in Settings.</span>}
-              {taxonomy.map(s => (
+              {taxonomy.length > 0 && visibleSkills.length === 0 && <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No skill matches "{skillQuery}".</span>}
+              {visibleSkills.map(s => (
                 <button key={s.id} type="button" onClick={() => toggleSkill(s.id)} aria-pressed={skillIds.includes(s.id)}
                   className={skillIds.includes(s.id) ? 'nf-bn-chip is-on' : 'nf-bn-chip'}>
                   {s.skill}

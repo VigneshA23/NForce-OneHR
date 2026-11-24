@@ -27,10 +27,10 @@ public class EmailService {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("h:mm a");
 
-    /** Served as a static asset (frontend/public/nforce-logo.png, same source BrandMark.tsx uses)
+    /** The header image is served as a static asset (frontend/public/email-header.jpg)
      * and linked by URL rather than inlined as base64 — most mail clients (Gmail, Outlook) strip
      * or refuse to render data: URI images in the message body, so a fetchable URL is required
-     * for the logo to actually show up in a delivered email. Requires the resolved base URL to be
+     * for the header to actually show up in a delivered email. Requires the resolved base URL to be
      * reachable from wherever the recipient opens the email — a local dev base-url won't render
      * for real recipients outside that machine's network. */
     @Value("${resend.api-key}")
@@ -314,16 +314,15 @@ public class EmailService {
                 <!DOCTYPE html>
                 <html lang="en">
                 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#F1F5F9;font-family:Inter,Arial,sans-serif;">
-                  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#F1F5F9;padding:40px 16px;">
+                <body style="margin:0;padding:0;background:#F8FAFC;font-family:Inter,Arial,sans-serif;">
+                  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background:#F8FAFC;padding:40px 16px;">
                     <tr><td align="center">
-                      <table width="560" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;max-width:560px;background:#ffffff;border-radius:16px;overflow:hidden;">
-                        <tr><td align="center" style="background:#B11116;padding:34px 36px 30px;">
-                          <div style="font-family:'Space Grotesk',Arial,sans-serif;font-size:24px;font-weight:700;color:#ffffff;letter-spacing:-0.02em;line-height:1.2;">NForce OneHR</div>
-                          <div style="font-family:Inter,Arial,sans-serif;font-size:14px;color:#F3C4C6;margin-top:6px;">Your people. One platform.</div>
+                      <table width="560" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;max-width:560px;background:#ffffff;border:1px solid #CBD5E1;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(15,23,42,.08);">
+                        <tr><td style="padding:0;font-size:0;line-height:0;">
+                          <img src="{{header}}" width="560" alt="NForce OneHR" style="display:block;width:100%;max-width:100%;height:auto;border:0;">
                         </td></tr>
                         <tr><td style="padding:40px 40px 32px;">
-                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:26px;font-weight:700;color:#111827;margin:0 0 10px;letter-spacing:-0.01em;">{{heading}}</h1>
+                          <h1 style="font-family:'Space Grotesk',Arial,sans-serif;font-size:26px;font-weight:700;color:#0F172A;margin:0 0 10px;letter-spacing:-0.01em;">{{heading}}</h1>
                           <p style="font-size:15px;line-height:1.75;color:#6B7280;margin:0 0 32px;">{{intro}}</p>
                           {{content}}
                           {{button}}
@@ -338,6 +337,7 @@ public class EmailService {
                 </body>
                 </html>
                 """
+                .replace("{{header}}", baseUrl + "/email-header.jpg")
                 .replace("{{heading}}", heading)
                 .replace("{{intro}}", intro)
                 .replace("{{content}}", content)
