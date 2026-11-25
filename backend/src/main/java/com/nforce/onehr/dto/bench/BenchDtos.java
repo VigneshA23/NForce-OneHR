@@ -22,6 +22,11 @@ public final class BenchDtos {
                                LocalDate startDate, long daysOnBench, String agingBucket,
                                int matchScore, List<String> skills) {}
 
+    /** One ended bench episode, kept for reporting (US-A06 AC-2). projectName is set when it ended by allocation. */
+    public record BenchHistoryRow(UUID id, UUID employeeId, String employeeName, BenchReasonCode reasonCode,
+                                  LocalDate startDate, LocalDate endDate, long durationDays,
+                                  com.nforce.onehr.entity.BenchCloseReason closeReason, String closeNote, String projectName) {}
+
     public record EligibleEmployee(UUID userId, String fullName, String employeeCode) {}
     public record DashboardPoint(LocalDate date, int benchedCount, int totalHeadcount) {}
 

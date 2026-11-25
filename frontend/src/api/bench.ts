@@ -49,7 +49,22 @@ export interface BenchStatusRecord {
   active: boolean;
   agingBucket: string | null;
   closeReason: BenchCloseReason | null;
+  closeNote?: string | null;
   allocationId: string | null;
+}
+
+/** One ended bench episode, kept for reporting (US-A06). */
+export interface BenchHistoryRow {
+  id: string;
+  employeeId: string;
+  employeeName: string | null;
+  reasonCode: BenchReasonCode;
+  startDate: string;
+  endDate: string;
+  durationDays: number;
+  closeReason: BenchCloseReason | null;
+  closeNote: string | null;
+  projectName: string | null;
 }
 
 export interface TeamBenchRecord {
@@ -118,6 +133,8 @@ export const benchApi = {
 
   end: (token: string, id: string, payload: EndBenchPayload) =>
     send<BenchStatusRecord>(token, `/api/bench-status/${id}/end`, 'PATCH', payload),
+
+  history: (token: string) => send<BenchHistoryRow[]>(token, '/api/bench-status/history', 'GET'),
 
   team: (token: string) => send<TeamBenchRecord[]>(token, '/api/bench-status/team', 'GET'),
 

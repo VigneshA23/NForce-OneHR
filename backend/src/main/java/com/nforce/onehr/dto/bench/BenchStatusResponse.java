@@ -20,4 +20,5 @@ public class BenchStatusResponse {
     private String agingBucket;
     private BenchCloseReason closeReason;
     private UUID allocationId;
+    private String closeNote;
 }

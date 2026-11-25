@@ -152,6 +152,7 @@ class BenchStatusServiceTest {
         EndBenchRequest req = new EndBenchRequest();
         req.setEndDate(LocalDate.of(2026, 9, 1));
         req.setCloseReason(BenchCloseReason.OTHER);
+        req.setCloseNote("n/a");
 
         assertThrows(IllegalArgumentException.class, () -> service.end(ACTOR_EMAIL, bench.getId(), req));
     }
@@ -243,6 +244,64 @@ class BenchStatusServiceTest {
 
         assertThrows(IllegalStateException.class, () -> service.end(ACTOR_EMAIL, bench.getId(), null));
         verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void end_closeReasonOther_needsANote() {
+        BenchStatus bench = activeBench(employeeId, LocalDate.of(2026, 9, 1));
+        when(benchRepository.findById(bench.getId())).thenReturn(Optional.of(bench));
+        EndBenchRequest req = new EndBenchRequest();
+        req.setCloseReason(BenchCloseReason.OTHER);
+        req.setCloseNote("   ");
+
+        assertThrows(IllegalArgumentException.class, () -> service.end(ACTOR_EMAIL, bench.getId(), req));
+        assertTrue(bench.isActive());
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void end_recordsTheNoteAndDurationInTheAuditSnapshot() {
+        BenchStatus bench = activeBench(employeeId, LocalDate.now().minusDays(10));
+        when(benchRepository.findById(bench.getId())).thenReturn(Optional.of(bench));
+        when(snapshotSerializer.toJson(any())).thenReturn("before", "after");
+        EndBenchRequest req = new EndBenchRequest();
+        req.setCloseReason(BenchCloseReason.OTHER);
+        req.setCloseNote("Moved to a client site");
+
+        BenchStatusResponse res = service.end(ACTOR_EMAIL, bench.getId(), req);
+
+        org.mockito.ArgumentCaptor<java.util.Map<String, Object>> fields = org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+        verify(snapshotSerializer, times(2)).toJson(fields.capture());
+        java.util.Map<String, Object> after = fields.getAllValues().get(1);
+        assertEquals("Moved to a client site", after.get("closeNote"));
+        assertEquals(10L, after.get("durationDays"));
+        assertEquals("Moved to a client site", res.getCloseNote());
+        assertEquals(10L, res.getDurationDays());
+    }
+
+    @Test
+    void history_listsEndedEpisodesWithDuration() {
+        BenchStatus ended = activeBench(employeeId, LocalDate.of(2026, 10, 20));
+        ended.setActive(false);
+        ended.setEndDate(LocalDate.of(2026, 11, 25));
+        ended.setCloseReason(BenchCloseReason.RESIGNED);
+        ended.setCloseNote("Notice served");
+        when(benchRepository.findByActiveFalseOrderByEndDateDescStartDateDesc()).thenReturn(List.of(ended));
+        when(employeeRepository.findAllById(any())).thenReturn(List.of(employee));
+
+        var rows = service.history();
+
+        assertEquals(1, rows.size());
+        assertEquals(36L, rows.get(0).durationDays());
+        assertEquals(BenchCloseReason.RESIGNED, rows.get(0).closeReason());
+        assertEquals("Notice served", rows.get(0).closeNote());
+    }
+
+    @Test
+    void history_isEmptyWhenNothingHasEnded() {
+        when(benchRepository.findByActiveFalseOrderByEndDateDescStartDateDesc()).thenReturn(List.of());
+
+        assertTrue(service.history().isEmpty());
     }
 
     // ---- US-A02 ----

@@ -16,5 +16,6 @@ public class EndBenchRequest {
     private LocalDate endDate;
     private UUID allocationId;
     private BenchCloseReason closeReason;
+    @jakarta.validation.constraints.Size(max = 500, message = "Close note must be 500 characters or fewer")
     private String closeNote;
 }

@@ -51,9 +51,16 @@ public class BenchStatusController {
     /** US-A06: end a bench episode — with an allocation, or with a close-out reason. */
     @PatchMapping("/{id}/end")
     @PreAuthorize("hasAuthority('bench:EDIT:ALL')")
-    public BenchStatusResponse end(@PathVariable UUID id, @RequestBody(required = false) EndBenchRequest req,
+    public BenchStatusResponse end(@PathVariable UUID id, @Valid @RequestBody(required = false) EndBenchRequest req,
                                     Principal principal) {
         return service.end(principal.getName(), id, req == null ? new EndBenchRequest() : req);
+    }
+
+    /** US-A06 AC-2: ended bench episodes (start, end, duration, how they closed), newest first. Never deleted, so this is the reporting history. */
+    @GetMapping("/history")
+    @PreAuthorize("hasAuthority('bench:VIEW:ALL')")
+    public List<com.nforce.onehr.dto.bench.BenchDtos.BenchHistoryRow> history() {
+        return service.history();
     }
 
     /** US-A02: the caller's own benched direct reports. The team is derived from the principal, never a request parameter. */

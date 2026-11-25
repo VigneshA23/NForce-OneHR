@@ -4,6 +4,7 @@ import com.nforce.onehr.dto.bench.BenchStatusRequest;
 import com.nforce.onehr.dto.bench.BenchStatusResponse;
 import com.nforce.onehr.dto.bench.EndBenchRequest;
 import com.nforce.onehr.dto.bench.TeamBenchResponse;
+import com.nforce.onehr.entity.BenchCloseReason;
 import com.nforce.onehr.entity.BenchStatus;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.Project;
@@ -26,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -130,6 +132,10 @@ public class BenchStatusService {
             }
         } else if (req.getCloseReason() == null) {
             throw new IllegalArgumentException("A close-out reason is required when ending bench without an allocation");
+        } else if (req.getCloseReason() == BenchCloseReason.OTHER
+                && (req.getCloseNote() == null || req.getCloseNote().isBlank())) {
+            // "Other" says nothing on its own, so a report reader needs the note to know why bench ended.
+            throw new IllegalArgumentException("A note is required when the close reason is Other");
         }
         LocalDate endDate = req.getEndDate() != null ? req.getEndDate() : LocalDate.now();
         if (endDate.isBefore(bench.getStartDate())) {
@@ -145,6 +151,32 @@ public class BenchStatusService {
         String after = snapshot(saved);
         AuditService.afterCommit(() -> auditService.log(actorId, AUDIT_ACTION, saved.getEmployeeUserId(), before, after));
         return toResponse(saved, findEmployee(saved.getEmployeeUserId()));
+    }
+
+    /** US-A06 AC-2: every ended episode with its duration, for reporting. Two batched lookups, no per-row queries. */
+    @Transactional(readOnly = true)
+    public List<com.nforce.onehr.dto.bench.BenchDtos.BenchHistoryRow> history() {
+        List<BenchStatus> ended = benchRepository.findByActiveFalseOrderByEndDateDescStartDateDesc();
+        if (ended.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, Employee> employees = employeeRepository
+                .findAllById(ended.stream().map(BenchStatus::getEmployeeUserId).collect(Collectors.toSet())).stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e));
+        Map<UUID, ProjectAllocation> allocations = allocationRepository
+                .findAllById(ended.stream().map(BenchStatus::getAllocationId).filter(Objects::nonNull).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(ProjectAllocation::getId, a -> a));
+        Map<UUID, String> projectNames = projectRepository
+                .findAllById(allocations.values().stream().map(ProjectAllocation::getProjectId).collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(Project::getId, Project::getName));
+        return ended.stream().map(b -> {
+            Employee e = employees.get(b.getEmployeeUserId());
+            ProjectAllocation a = b.getAllocationId() == null ? null : allocations.get(b.getAllocationId());
+            return new com.nforce.onehr.dto.bench.BenchDtos.BenchHistoryRow(b.getId(), b.getEmployeeUserId(),
+                    e == null ? null : e.getFullName(), b.getReasonCode(), b.getStartDate(), b.getEndDate(),
+                    durationDays(b), b.getCloseReason(), b.getCloseNote(),
+                    a == null ? null : projectNames.get(a.getProjectId()));
+        }).toList();
     }
 
     @Transactional(readOnly = true)
@@ -201,6 +233,7 @@ public class BenchStatusService {
         fields.put("durationDays", durationDays(b));
         fields.put("active", b.isActive());
         fields.put("closeReason", b.getCloseReason());
+        fields.put("closeNote", b.getCloseNote());
         fields.put("allocationId", b.getAllocationId());
         return snapshotSerializer.toJson(fields);
     }
@@ -223,6 +256,7 @@ public class BenchStatusService {
                 .agingBucket(b.getAgingBucket())
                 .closeReason(b.getCloseReason())
                 .allocationId(b.getAllocationId())
+                .closeNote(b.getCloseNote())
                 .build();
     }
 

@@ -24,6 +24,7 @@ function EndBenchPanel({ token, row, onDone, onCancel }: { token: string; row: B
   async function submit() {
     setError('');
     if (!allocationId && !closeReason) { setError('Link an allocation, or choose a reason for closing without one'); return; }
+    if (!allocationId && closeReason === 'OTHER' && !note.trim()) { setError('Add a note explaining why bench is ending (required when the reason is Other)'); return; }
     setSaving(true);
     try {
       await benchApi.end(token, row.id, allocationId
@@ -58,7 +59,7 @@ function EndBenchPanel({ token, row, onDone, onCancel }: { token: string; row: B
           </select>
         </div>
         <div>
-          <label style={labelStyle}>Note (optional)</label>
+          <label style={labelStyle}>{!allocationId && closeReason === 'OTHER' ? 'Note (required)' : 'Note (optional)'}</label>
           <input value={note} onChange={e => setNote(e.target.value)} maxLength={500} style={inputStyle} />
         </div>
       </div>

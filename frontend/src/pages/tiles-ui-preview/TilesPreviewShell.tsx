@@ -947,6 +947,11 @@ function BenchMock() {
     const day = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
     const names = ['Lalith Kumar Ratnala', 'Sanjukta Rao', 'Abuzar Siddiqui', 'Sri vidya', 'Praveen Gurram', 'Vyshnavi Guthala'];
     const emps = names.map((n, i) => ({ userId: 'u' + i, employeeCode: 'NF-2026' + (1000 + i), fullName: n, email: n.split(' ')[0].toLowerCase() + '@nforceone.com', role: 'EMPLOYEE', departmentName: 'Engineering', designationName: 'Engineer', joiningDate: '2026-01-10', active: true }));
+    let ended: Array<Record<string, unknown>> = [
+      { id: 'h1', employeeId: 'u3', employeeName: names[3], reasonCode: 'PROJECT_ENDED', startDate: day(-60), endDate: day(-24), durationDays: 36, closeReason: null, closeNote: null, projectName: 'Customer Portal Revamp' },
+      { id: 'h2', employeeId: 'u4', employeeName: names[4], reasonCode: 'NEW_JOINER_UNALLOCATED', startDate: day(-45), endDate: day(-30), durationDays: 15, closeReason: 'RETURNED_TO_ACTIVE', closeNote: null, projectName: null },
+      { id: 'h3', employeeId: 'u5', employeeName: names[5], reasonCode: 'ROLE_ENDED', startDate: day(-90), endDate: day(-70), durationDays: 20, closeReason: 'OTHER', closeNote: 'Moved to a client site', projectName: null },
+    ];
     let benched = [
       { id: 'b1', employeeId: 'u0', employeeName: names[0], reasonCode: 'PROJECT_ENDED', startDate: day(-22), daysOnBench: 22, agingBucket: '16-30 days', matchScore: 2, skills: ['Java', 'Spring Boot'] },
       { id: 'b2', employeeId: 'u1', employeeName: names[1], reasonCode: 'NEW_JOINER_UNALLOCATED', startDate: day(-41), daysOnBench: 41, agingBucket: '31-60 days', matchScore: 1, skills: ['React'] },
@@ -965,7 +970,8 @@ function BenchMock() {
       if (path.endsWith('/api/bench-status/team')) return json(benched.slice(0, 2).map(b => ({ employeeId: b.employeeId, employeeName: b.employeeName, reasonCode: b.reasonCode, startDate: b.startDate, daysOnBench: b.daysOnBench, lastProject: b.id === 'b1' ? 'Customer Portal Revamp' : null })));
       if (path.endsWith('/api/bench-status/aging-config')) { if (method === 'PUT') aging = JSON.parse(String(init?.body ?? '{}')); return json(aging); }
       if (/\/api\/bench-status\/[^/]+\/allocations$/.test(path)) return json([{ id: 'a1', projectName: 'Customer Portal Revamp', capacityPercent: 100, startDate: day(1), endDate: day(120) }]);
-      if (/\/api\/bench-status\/[^/]+\/end$/.test(path)) { const id = path.split('/').slice(-2)[0]; benched = benched.filter(b => b.id !== id); return json({}); }
+      if (path.endsWith('/api/bench-status/history')) return json(ended);
+      if (/\/api\/bench-status\/[^/]+\/end$/.test(path)) { const id = path.split('/').slice(-2)[0]; const hit = benched.find(b => b.id === id); const body = JSON.parse(String(init?.body ?? '{}')); if (hit) ended = [{ id: hit.id, employeeId: hit.employeeId, employeeName: hit.employeeName, reasonCode: hit.reasonCode, startDate: hit.startDate, endDate: day(0), durationDays: hit.daysOnBench, closeReason: body.closeReason ?? null, closeNote: body.closeNote ?? null, projectName: body.allocationId ? 'Customer Portal Revamp' : null }, ...ended]; benched = benched.filter(b => b.id !== id); return json({}); }
       if (path.endsWith('/api/bench-status') && method === 'POST') {
         const b = JSON.parse(String(init?.body ?? '{}')); const e = emps.find(x => x.userId === b.employeeId);
         benched = [...benched, { id: 'b' + Date.now(), employeeId: b.employeeId, employeeName: e?.fullName ?? '', reasonCode: b.reasonCode, startDate: b.startDate, daysOnBench: 0, agingBucket: '0-15 days', matchScore: 0, skills: [] }];

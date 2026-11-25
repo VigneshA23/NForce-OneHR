@@ -10,13 +10,15 @@ import BenchListSection from './bench/BenchListSection';
 import MarkBenchSection from './bench/MarkBenchSection';
 import SettingsSection from './bench/SettingsSection';
 import TeamBenchSection from './bench/TeamBenchSection';
+import BenchHistorySection from './bench/BenchHistorySection';
 
-type BenchTab = 'overview' | 'list' | 'mark' | 'team' | 'settings';
+type BenchTab = 'overview' | 'list' | 'mark' | 'history' | 'team' | 'settings';
 
 const HR_TABS: TabDef<BenchTab>[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'list', label: 'Bench list' },
   { key: 'mark', label: 'Mark on bench' },
+  { key: 'history', label: 'History' },
   { key: 'team', label: 'My team' },
   { key: 'settings', label: 'Settings' },
 ];
@@ -52,6 +54,7 @@ export default function BenchPage() {
           {tab === 'overview' && <OverviewSection token={token} />}
           {tab === 'list' && <BenchListSection token={token} />}
           {tab === 'mark' && <MarkBenchSection token={token} onMarked={name => { setFlash(`${name} is now on bench.`); setTab('list'); }} />}
+          {tab === 'history' && <BenchHistorySection token={token} />}
           {tab === 'team' && <TeamBenchSection token={token} />}
           {tab === 'settings' && <SettingsSection token={token} />}
         </>

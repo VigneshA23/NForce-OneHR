@@ -23,4 +23,7 @@ public interface BenchStatusRepository extends JpaRepository<BenchStatus, UUID> 
     List<BenchStatus> findByActiveTrue();
 
     long countByActiveTrue();
+
+    /** Ended episodes, most recently ended first (US-A06 reporting history). */
+    List<BenchStatus> findByActiveFalseOrderByEndDateDescStartDateDesc();
 }
