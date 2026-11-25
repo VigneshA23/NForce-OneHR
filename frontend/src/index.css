@@ -1548,7 +1548,7 @@ input[type="date"] {
    scale with the tile itself and never cross its outline at narrow widths or higher browser zoom. */
 .nf-dash-tile { container-type: inline-size; overflow: hidden; transition: transform .15s, box-shadow .15s; }
 .nf-dash-tile:hover { transform: translateY(-2px); }
-.nf-dash-value { font-size: clamp(20px, 17cqw, 30px); }
+.nf-dash-value { font-size: clamp(14px, min(17cqw, calc(86cqw / (var(--nf-dv-chars, 4) * .62))), 30px); }
 .nf-dash-icon { width: clamp(30px, 22cqw, 42px); height: clamp(30px, 22cqw, 42px); }
 .nf-dash-icon > svg { width: 50%; height: 50%; }
 @media (prefers-reduced-motion: reduce) { .nf-dash-tile:hover { transform: none; } }

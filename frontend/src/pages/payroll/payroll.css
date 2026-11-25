@@ -27,7 +27,7 @@ button.nf-pr-tile:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rg
 
 /* Overview's step-card grid — same round-icon/left-accent language as .nf-pr-tile, but each card
    is a nav link into another step rather than a KPI readout. */
-.nf-pr-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.nf-pr-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; container-type: inline-size; }
 .nf-pr-stepcard { --mk: var(--brand); display: flex; align-items: flex-start; gap: 12px; text-align: left; box-sizing: border-box; padding: 13px 15px; border-radius: 13px; border: 1px solid color-mix(in srgb, var(--mk) 20%, var(--line)); background: var(--panel); cursor: pointer; font: inherit; color: inherit; transition: transform .15s, box-shadow .15s; }
 .nf-pr-stepcard:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(16, 24, 40, .08); }
 .nf-pr-stepcard:disabled { cursor: not-allowed; opacity: .55; }
@@ -448,3 +448,8 @@ input.nf-pr-picker-input:not(#a):not(#b) { padding-left: 38px !important; }
 .nf-pr-structs th:nth-child(2), .nf-pr-structs td:nth-child(2) { min-width: 76px; }
 .nf-pr-structs th:nth-child(3), .nf-pr-structs td:nth-child(3) { min-width: 120px; }
 .nf-pr-structs td:nth-child(4) { min-width: 200px; overflow-wrap: anywhere !important; }
+/* Overview step cards: always two rows of four at any zoom; the card compacts (icon above the text, smaller type) as the width drops. */
+.nf-pr-steps .nf-pr-stepcard { min-width: 0; }
+.nf-pr-steps .nf-pr-stepcard-title, .nf-pr-steps .nf-pr-stepcard-caption { overflow-wrap: normal; word-break: normal; }
+@container (max-width: 1100px) { .nf-pr-steps .nf-pr-stepcard { flex-direction: column; gap: 8px; padding: 11px 12px; } .nf-pr-steps .nf-pr-stepcard-title { font-size: 12.5px; } .nf-pr-steps .nf-pr-stepcard-caption { font-size: 11.5px; } }
+@container (max-width: 760px) { .nf-pr-steps .nf-pr-stepcard-caption { display: none; } .nf-pr-steps .nf-pr-stepcard-title { font-size: 12px; } }

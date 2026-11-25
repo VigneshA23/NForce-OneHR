@@ -62,7 +62,7 @@ export default function DashTile({ icon, label, value, sub, accent, onClick, tit
         </div>
       </div>
       {!isAction && (
-        <div className="nf-dash-value" style={{ fontWeight: 800, color: 'var(--txt)', lineHeight: 1, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontFamily: '"Space Grotesk", sans-serif' }}>
+        <div className="nf-dash-value" style={{ ['--nf-dv-chars' as string]: Math.max(String(value ?? '').length, 4), fontWeight: 800, color: 'var(--txt)', lineHeight: 1, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontFamily: '"Space Grotesk", sans-serif' }}>
           {value}
         </div>
       )}
