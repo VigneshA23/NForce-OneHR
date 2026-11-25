@@ -437,3 +437,14 @@ input.nf-pr-picker-input:not(#a):not(#b) { padding-left: 38px !important; }
   .nf-pr-steptabs-wrap .nf-pr-settabs.nf-tabs .nf-tab { padding: 8px 4px; font-size: 11px; }
 }
 
+
+.nf-pr-center-mid th:nth-child(2) { min-width: 78px; }
+.nf-pr-center-mid th:nth-child(3) { min-width: 96px; }
+.nf-pr-center-mid th:nth-child(1) { min-width: 120px; }
+/* Salary Structures list: headings never split mid-word at any zoom; the Components column takes the spare width. */
+.nf-pr-structs th, .nf-pr-structs td { overflow-wrap: normal !important; word-break: normal !important; }
+.nf-pr-structs th { white-space: nowrap !important; }
+.nf-pr-structs th:nth-child(1), .nf-pr-structs td:nth-child(1) { min-width: 130px; }
+.nf-pr-structs th:nth-child(2), .nf-pr-structs td:nth-child(2) { min-width: 76px; }
+.nf-pr-structs th:nth-child(3), .nf-pr-structs td:nth-child(3) { min-width: 120px; }
+.nf-pr-structs td:nth-child(4) { min-width: 200px; overflow-wrap: anywhere !important; }

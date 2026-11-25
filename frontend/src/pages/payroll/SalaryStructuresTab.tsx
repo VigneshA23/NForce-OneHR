@@ -411,7 +411,7 @@ export function SalaryStructuresTab({ structures, catalog, onCreated, onUpdated 
         Click a row to see the full calculation for each component, or edit it.
       </div>
       <div style={panelStyle}>
-        <table className="nf-pr-table nf-pr-center-mid" style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="nf-pr-table nf-pr-center-mid nf-pr-compact-th nf-pr-structs" style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr>{['Name', 'Grade', 'Financial Year', 'Components'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {structures.map(s => (
