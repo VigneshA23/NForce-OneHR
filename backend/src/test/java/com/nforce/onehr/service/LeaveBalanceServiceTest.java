@@ -149,7 +149,7 @@ class LeaveBalanceServiceTest {
         put(sick, Y, "15", "15");
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.requireAvailable(emp, sick, LocalDate.of(Y, 4, 6), LocalDate.of(Y, 4, 6), BigDecimal.ONE, null));
-        assertEquals("Leave request exceeds your available Sick Leave balance of 0 days.", ex.getMessage());
+        assertEquals("Not enough " + Y + " Sick Leave: 0 days available, 1 requested.", ex.getMessage());
     }
 
     // ── pending reservations ──
@@ -175,13 +175,51 @@ class LeaveBalanceServiceTest {
         LocalDate end = LocalDate.of(Y + 1, 1, 1);
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.requireAvailable(emp, annual, start, end, new BigDecimal("3"), null));
-        assertTrue(ex.getMessage().contains("for " + Y), ex.getMessage());
+        assertEquals("Not enough " + Y + " Annual Leave: 1 day available, 2 requested.", ex.getMessage());
 
         thisYear.setUsedDays(new BigDecimal("13"));
         service.requireAvailable(emp, annual, start, end, new BigDecimal("3"), null);
         service.consume(emp, annual, start, end, new BigDecimal("3"));
         assertDays("15", thisYear.getUsedDays());
         assertDays("1", nextYear.getUsedDays());
+    }
+
+    @Test
+    void crossYearRequest_shortInTheNextYearOnly_namesThatYear() {
+        put(annual, Y, "15", "0");
+        put(annual, Y + 1, "15", "14");
+        LocalDate start = LocalDate.of(Y, 12, 30);
+        LocalDate end = LocalDate.of(Y + 1, 1, 2); // 2 days in Y, 2 in Y + 1
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.requireAvailable(emp, annual, start, end, new BigDecimal("4"), null));
+        assertEquals("Not enough " + (Y + 1) + " Annual Leave: 1 day available, 2 requested.", ex.getMessage());
+    }
+
+    @Test
+    void crossYearRequest_createsTheMissingNextYearRow_andFitsBothYears() {
+        LeaveBalance thisYear = put(annual, Y, "15", "0");
+        LocalDate start = LocalDate.of(Y, 12, 30);
+        LocalDate end = LocalDate.of(Y + 1, 1, 2);
+
+        service.requireAvailable(emp, annual, start, end, new BigDecimal("4"), null);
+        verify(balanceRepo).insertIfAbsent(emp, annual.getId(), Y + 1, BigDecimal.ZERO);
+
+        service.consume(emp, annual, start, end, new BigDecimal("4"));
+        assertDays("2", thisYear.getUsedDays());
+        assertDays("2", table.get(annual.getId() + ":" + (Y + 1)).getUsedDays());
+    }
+
+    @Test
+    void pendingCrossYearRequest_reservesOnlyItsOwnDaysInEachYear() {
+        LeaveBalance thisYear = put(annual, Y, "15", "0");
+        LeaveBalance nextYear = put(annual, Y + 1, "15", "0");
+        LeaveRequest r = pending(annual, LocalDate.of(Y, 12, 29), LocalDate.of(Y + 1, 1, 1), "4"); // 3 in Y, 1 in Y + 1
+        when(requestRepo.findPendingOverlapping(eq(emp), eq(annual.getId()), any(), any())).thenReturn(List.of(r));
+
+        assertDays("3", service.position(thisYear, null).pendingDays());
+        assertDays("1", service.position(nextYear, null).pendingDays());
+        assertDays("12", service.position(thisYear, null).remaining());
+        assertDays("14", service.position(nextYear, null).remaining());
     }
 
     @Test

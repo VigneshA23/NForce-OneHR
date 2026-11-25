@@ -274,9 +274,11 @@ public class LeaveBalanceService {
                     .add(p.upcomingCredits())
                     .add(p.carriedForwardAvailable().min(p.pendingCarryForwardEligible().add(eligible)));
             if (supply.compareTo(demand) < 0) {
+                // YE-03: name the leave year that is short — a cross-year request is checked per year.
                 BigDecimal left = supply.subtract(p.pendingDays()).max(ZERO);
-                throw new IllegalArgumentException("Leave request exceeds your available " + type.getName() + " balance"
-                        + (segments.size() > 1 ? " for " + year : "") + " of " + formatDays(left) + " days.");
+                throw new IllegalArgumentException("Not enough " + year + " " + type.getName() + ": " + formatDays(left)
+                        + (left.compareTo(BigDecimal.ONE) == 0 ? " day" : " days") + " available, "
+                        + formatDays(seg.getValue()) + " requested.");
             }
         }
     }

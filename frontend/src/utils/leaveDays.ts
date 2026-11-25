@@ -68,3 +68,14 @@ export function daysByYear(startIso: string, endIso: string, halfDay: boolean): 
   }
   return out;
 }
+
+/**
+ * "2026: 2d · 2027: 2d" for a request spanning two leave years (each portion is charged to its own
+ * year's balance — YE-03), or null for the usual single-year request.
+ */
+export function yearBreakdownLabel(startIso?: string | null, endIso?: string | null, halfDay?: boolean | null): string | null {
+  if (!startIso || !endIso || startIso.slice(0, 4) === endIso.slice(0, 4)) return null;
+  const parts = daysByYear(startIso, endIso, !!halfDay);
+  if (parts.size < 2) return null;
+  return [...parts.entries()].map(([y, d]) => `${y}: ${roundDays(d)}d`).join(' · ');
+}

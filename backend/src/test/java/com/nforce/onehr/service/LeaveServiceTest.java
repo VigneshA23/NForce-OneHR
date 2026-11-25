@@ -469,6 +469,17 @@ class LeaveServiceTest {
     }
 
     @Test
+    void requestResponse_showsAPerYearBreakdown_onlyForACrossYearRequest() {
+        LeaveRequest crossYear = LeaveRequest.builder().startDate(LocalDate.of(2026, 12, 29)).endDate(LocalDate.of(2027, 1, 1))
+                .totalDays(new BigDecimal("4")).build();
+        Map<Integer, BigDecimal> split = LeaveService.yearBreakdown(crossYear);
+        assertEquals(0, new BigDecimal("3").compareTo(split.get(2026)));
+        assertEquals(0, BigDecimal.ONE.compareTo(split.get(2027)));
+        assertNull(LeaveService.yearBreakdown(LeaveRequest.builder().startDate(LocalDate.of(2026, 12, 1))
+                .endDate(LocalDate.of(2026, 12, 3)).totalDays(new BigDecimal("3")).build()));
+    }
+
+    @Test
     void submitRequest_halfDayAcrossMultipleDates_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
@@ -492,7 +503,7 @@ class LeaveServiceTest {
         LocalDate start = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(start, start.plusDays(4), false, "Too long"), employeeEmail));
-        assertEquals("Leave request exceeds your available Annual Leave balance of 2 days.", ex.getMessage());
+        assertEquals("Not enough " + start.getYear() + " Annual Leave: 2 days available, 5 requested.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
     }
 
@@ -716,7 +727,7 @@ class LeaveServiceTest {
         // 4 available; requesting 5 (one day over) must be rejected.
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(start, start.plusDays(4), false, "One day too many"), employeeEmail));
-        assertEquals("Leave request exceeds your available Annual Leave balance of 4 days.", ex.getMessage());
+        assertEquals("Not enough " + start.getYear() + " Annual Leave: 4 days available, 5 requested.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
     }
 
@@ -750,7 +761,7 @@ class LeaveServiceTest {
         stubWorkingDays(day);
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(day, day, true, "No balance left"), employeeEmail));
-        assertEquals("Leave request exceeds your available Annual Leave balance of 0 days.", ex.getMessage());
+        assertEquals("Not enough " + day.getYear() + " Annual Leave: 0 days available, 0.5 requested.", ex.getMessage());
     }
 
     @Test
@@ -768,7 +779,7 @@ class LeaveServiceTest {
         // Only 2 days available (15 - 0 - 13); requesting 3 must be rejected.
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(start, start.plusDays(2), false, "Third request"), employeeEmail));
-        assertEquals("Leave request exceeds your available Annual Leave balance of 2 days.", ex.getMessage());
+        assertEquals("Not enough " + start.getYear() + " Annual Leave: 2 days available, 3 requested.", ex.getMessage());
         verify(leaveRequestRepository, never()).save(any());
     }
 
@@ -805,7 +816,7 @@ class LeaveServiceTest {
         // the available 4 is rejected the same way).
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(start, start.plusDays(4), false, "Over by one"), employeeEmail));
-        assertEquals("Leave request exceeds your available Annual Leave balance of 4 days.", ex.getMessage());
+        assertEquals("Not enough " + start.getYear() + " Annual Leave: 4 days available, 5 requested.", ex.getMessage());
     }
 
     @Test
@@ -843,7 +854,7 @@ class LeaveServiceTest {
         stubWorkingDays(day);
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(day, day, true, "Half day"), employeeEmail));
-        assertEquals("Leave request exceeds your available Annual Leave balance of 0 days.", ex.getMessage());
+        assertEquals("Not enough " + day.getYear() + " Annual Leave: 0 days available, 0.5 requested.", ex.getMessage());
     }
 
     // ── Previous-date and overlapping-request restrictions ─────────────────────────────────
@@ -1393,7 +1404,7 @@ class LeaveServiceTest {
         LocalDate start = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(start, start.plusDays(4), false, "Fifth day over"), employeeEmail));
-        assertEquals("Leave request exceeds your available Annual Leave balance of 4 days.", ex.getMessage());
+        assertEquals("Not enough " + start.getYear() + " Annual Leave: 4 days available, 5 requested.", ex.getMessage());
     }
 
     @Test

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { roundDays, daysByYear, viewableBalanceYears, yearlyQuota } from './leaveDays';
+import { roundDays, daysByYear, viewableBalanceYears, yearlyQuota, yearBreakdownLabel } from './leaveDays';
 
 describe('roundDays', () => {
   it('strips IEEE-754 noise from a subtraction of two exact 2-decimal values', () => {
@@ -46,5 +46,15 @@ describe('yearlyQuota of an expected (not yet started) year', () => {
   it('is the expected quota, not the 0 credited so far', () => {
     expect(yearlyQuota({ leaveTypeCode: 'PAID', leaveTypeName: 'Paid Leave', year: 2027, expected: true,
       totalDays: 0, usedDays: 0, remainingDays: 0, annualQuotaDays: 15 })).toBe(15);
+  });
+});
+
+describe('yearBreakdownLabel', () => {
+  it('labels each year of a cross-year request', () => {
+    expect(yearBreakdownLabel('2026-12-29', '2027-01-01', false)).toBe('2026: 3d · 2027: 1d');
+  });
+  it('is null for a single-year request', () => {
+    expect(yearBreakdownLabel('2026-12-01', '2026-12-04', false)).toBeNull();
+    expect(yearBreakdownLabel(null, null, false)).toBeNull();
   });
 });

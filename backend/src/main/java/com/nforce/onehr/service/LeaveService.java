@@ -938,6 +938,15 @@ public class LeaveService {
         return days.stripTrailingZeros().toPlainString();
     }
 
+    /** Per-leave-year days of a request spanning two leave years (YE-03); null for the usual single-year request. */
+    static Map<Integer, BigDecimal> yearBreakdown(LeaveRequest r) {
+        if (r.getStartDate() == null || r.getEndDate() == null
+                || LeaveBalanceService.leaveYearOf(r.getStartDate()) == LeaveBalanceService.leaveYearOf(r.getEndDate())) {
+            return null;
+        }
+        return LeaveBalanceService.daysByYear(r.getStartDate(), r.getEndDate(), r.getTotalDays());
+    }
+
     private LeaveRequestResponse toRequestResponse(LeaveRequest r) {
         return LeaveRequestResponse.builder()
                 .id(r.getId())
@@ -953,6 +962,7 @@ public class LeaveService {
                 .halfDay(r.isHalfDay())
                 .halfDaySession(r.getHalfDaySession())
                 .totalDays(r.getTotalDays())
+                .daysByYear(yearBreakdown(r))
                 .status(r.getStatus())
                 .employeeReason(r.getEmployeeReason())
                 .decisionReason(r.getDecisionReason())
@@ -986,6 +996,7 @@ public class LeaveService {
                 .halfDay(r.isHalfDay())
                 .halfDaySession(r.getHalfDaySession())
                 .totalDays(r.getTotalDays())
+                .daysByYear(yearBreakdown(r))
                 .status(r.getStatus())
                 .employeeReason(r.getEmployeeReason())
                 .decisionReason(r.getDecisionReason())

@@ -12,7 +12,7 @@ import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { useToast } from '../context/ToastContext';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
-import { daysByYear, roundDays, viewableBalanceYears } from '../utils/leaveDays';
+import { daysByYear, roundDays, viewableBalanceYears, yearBreakdownLabel } from '../utils/leaveDays';
 
 // Notification types that mean "this employee's own leave balance/status may have changed" —
 // mirrors the backend's LeaveService notification events (LEAVE_APPROVED/LEAVE_REJECTED). Every
@@ -764,7 +764,14 @@ export default function LeavePage() {
                       </div>
                     </td>
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.startDate}{r.startDate !== r.endDate ? ` to ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}</td>
-                    <td style={tdStyle}><span className="nf-rep-code">{r.totalDays}</span></td>
+                    <td style={tdStyle}>
+                      <span className="nf-rep-code">{r.totalDays}</span>
+                      {yearBreakdownLabel(r.startDate, r.endDate, r.halfDay) && (
+                        <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3, whiteSpace: 'nowrap' }} title="Each part is charged to that year's balance">
+                          {yearBreakdownLabel(r.startDate, r.endDate, r.halfDay)}
+                        </div>
+                      )}
+                    </td>
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}>
                       <div style={{ overflowWrap: 'anywhere' }} title={r.employeeReason}>{r.employeeReason}</div>

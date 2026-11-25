@@ -127,6 +127,8 @@ export interface LeaveRequestRecord {
   halfDay: boolean;
   halfDaySession: 'FIRST_HALF' | 'SECOND_HALF' | null;
   totalDays: number;
+  /** Leave year -> days, only for a request spanning two leave years (each part uses its own year's balance). */
+  daysByYear?: Record<string, number> | null;
   /** PENALIZED = read-only row synthesized from an attendance penalty's leave deduction (own requests only). */
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'PENALIZED';
   employeeReason: string;
