@@ -18,10 +18,16 @@ public class LeaveTypeResponse {
     private String classification;
     private String entitlementBasis;
     private boolean active;
+    /** PAID / UNPAID for the two built-in types (can't be deleted, deactivated or reclassified); null otherwise. */
+    private String systemKey;
 
     private Integer occurrenceWindowMonths;
     /** Policy days in force this leave year; null for unpaid (unlimited). */
     private BigDecimal currentEntitlementDays;
+    /** YEARLY or MONTHLY crediting in force this leave year (annual paid types only). */
+    private String currentCreditFrequency;
+    /** Admin view only: who this type applies to. */
+    private LeaveConfigDtos.EligibilityConfig eligibility;
     private boolean carryForwardEnabled;
     private BigDecimal carryForwardMaxDays;
     private Integer carryForwardExpiryMonths;

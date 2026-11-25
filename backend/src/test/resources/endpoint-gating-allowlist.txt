@@ -131,6 +131,7 @@ KudosController#send | SERVICE - permission / eligibility enforced in the servic
 KudosController#sent | SELF - own data only (ownership checked in the service)
 LeaveController#listTypes | OPEN - readable by any signed-in user (or public auth flow)
 LeaveController#myBalances | SELF - own data only (ownership checked in the service)
+LeaveController#myTypes | SELF - own data only (ownership checked in the service)
 LeaveController#myRequests | SELF - own data only (ownership checked in the service)
 LeaveController#peers | OPEN - readable by any signed-in user (or public auth flow)
 LeaveController#submitRequest | SELF - own data only (ownership checked in the service)

@@ -17,6 +17,9 @@ public interface LeaveTypeRepository extends JpaRepository<LeaveType, UUID> {
 
     boolean existsByCodeIgnoreCase(String code);
 
+    /** The built-in Paid / Unpaid type (LeaveType.SYSTEM_PAID / SYSTEM_UNPAID). */
+    Optional<LeaveType> findBySystemKey(String systemKey);
+
     List<LeaveType> findByActiveTrueOrderByNameAsc();
 
     List<LeaveType> findAllByOrderByNameAsc();

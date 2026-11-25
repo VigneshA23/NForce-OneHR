@@ -82,6 +82,7 @@ public class LeaveService {
     private final LeaveRequestRepository leaveRequestRepository;
     // V310: every balance read/write (per-type balances, carried-forward, occurrences) goes through here.
     private final LeaveBalanceService leaveBalanceService;
+    private final LeaveEligibilityService leaveEligibilityService;
     private final LeaveYearEndService leaveYearEndService;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -110,6 +111,17 @@ public class LeaveService {
                 .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
                         .classification(t.getClassification()).entitlementBasis(t.getEntitlementBasis())
                         .active(true).build())
+                .collect(Collectors.toList());
+    }
+
+    /** Active types the caller may apply for: {@link #listTypes()} narrowed by each type's "applies to" rules. */
+    @Transactional(readOnly = true)
+    public List<LeaveTypeResponse> listMyTypes(String actorEmail) {
+        User actor = requireActor(actorEmail);
+        return leaveEligibilityService.eligibleTypes(actor.getId(), leaveTypeRepository.findByActiveTrueOrderByNameAsc()).stream()
+                .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
+                        .classification(t.getClassification()).entitlementBasis(t.getEntitlementBasis())
+                        .systemKey(t.getSystemKey()).active(true).build())
                 .collect(Collectors.toList());
     }
 
@@ -157,6 +169,9 @@ public class LeaveService {
                 .orElseThrow(() -> new IllegalArgumentException("Unknown leave type: " + req.getLeaveTypeCode()));
         if (!type.isActive()) {
             throw new IllegalArgumentException(type.getName() + " is no longer available for new requests.");
+        }
+        if (!leaveEligibilityService.isEligible(actor.getId(), type)) {
+            throw new IllegalArgumentException(type.getName() + " does not apply to you.");
         }
 
         if (req.getEndDate().isBefore(req.getStartDate())) {
@@ -256,8 +271,12 @@ public class LeaveService {
         LeaveType type = leaveTypeRepository.findByCode(req.getLeaveTypeCode())
                 .orElseThrow(() -> new IllegalArgumentException("Unknown leave type: " + req.getLeaveTypeCode()));
         // A request already on a since-deactivated type may still be edited; switching TO one may not.
-        if (!type.isActive() && !type.getId().equals(existing.getLeaveType().getId())) {
+        boolean typeChanged = !type.getId().equals(existing.getLeaveType().getId());
+        if (!type.isActive() && typeChanged) {
             throw new IllegalArgumentException(type.getName() + " is no longer available for new requests.");
+        }
+        if (typeChanged && !leaveEligibilityService.isEligible(actor.getId(), type)) {
+            throw new IllegalArgumentException(type.getName() + " does not apply to you.");
         }
 
         if (req.getEndDate().isBefore(req.getStartDate())) {
@@ -298,6 +317,9 @@ public class LeaveService {
                 "totalDays", existing.getTotalDays(),
                 "reason", existing.getEmployeeReason()));
 
+        if (typeChanged) {
+            existing.setOriginalLeaveTypeName(null); // the pre-merge label no longer describes this request
+        }
         existing.setLeaveType(type);
         existing.setStartDate(req.getStartDate());
         existing.setEndDate(req.getEndDate());
@@ -882,6 +904,7 @@ public class LeaveService {
                 .employeeCode(employeeCode(r.getEmployeeUserId()))
                 .leaveTypeCode(r.getLeaveType().getCode())
                 .leaveTypeName(r.getLeaveType().getName())
+                .originalLeaveTypeName(r.getOriginalLeaveTypeName())
                 .leaveTypeClassification(r.getLeaveType().getClassification())
                 .startDate(r.getStartDate())
                 .endDate(r.getEndDate())
@@ -914,6 +937,7 @@ public class LeaveService {
                 .employeeCode(codesById.get(r.getEmployeeUserId()))
                 .leaveTypeCode(r.getLeaveType().getCode())
                 .leaveTypeName(r.getLeaveType().getName())
+                .originalLeaveTypeName(r.getOriginalLeaveTypeName())
                 .leaveTypeClassification(r.getLeaveType().getClassification())
                 .startDate(r.getStartDate())
                 .endDate(r.getEndDate())

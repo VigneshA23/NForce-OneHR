@@ -16,6 +16,8 @@ public class LeaveRequestResponse {
     private String employeeCode;
     private String leaveTypeCode;
     private String leaveTypeName;
+    /** The request's type before every type was merged into Paid / Unpaid (V314), e.g. "Sick Leave"; null otherwise. */
+    private String originalLeaveTypeName;
     private String leaveTypeClassification;
     private LocalDate startDate;
     private LocalDate endDate;

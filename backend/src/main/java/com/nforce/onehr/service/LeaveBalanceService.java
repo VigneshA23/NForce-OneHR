@@ -25,6 +25,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Function;
@@ -45,6 +46,12 @@ import static java.math.BigDecimal.ZERO;
  *   <li><b>UNPAID</b> types: unlimited — nothing is ever created, read or deducted.</li>
  * </ul>
  * Pending requests reserve days in each leave-year bucket they touch; approval deducts.
+ *
+ * <p>V314: {@code total_days} is what has been <b>credited</b> so far ({@link LeaveAccrualService}).
+ * Requests and approvals may also use the credits still to come this year (leave in advance), so
+ * {@code used_days} can exceed {@code total_days}; later credits recover it. What is shown as the
+ * balance, the "use paid leave before unpaid" rule and penalty debits use credited days only.
+ * Types an employee isn't eligible for ({@link LeaveEligibilityService}) get no new balance rows.
  */
 @Service
 @RequiredArgsConstructor
@@ -59,6 +66,8 @@ public class LeaveBalanceService {
     private final LeaveEntitlementPolicyRepository policyRepository;
     private final LeaveOccurrenceRepository occurrenceRepository;
     private final AttendanceProperties attendanceProperties;
+    private final LeaveAccrualService accrualService;
+    private final LeaveEligibilityService eligibilityService;
 
     // ── Leave year ──────────────────────────────────────────────────────────────────────────────
     // January–December: there is no organisation-level leave-year setting. Every leave-year
@@ -119,41 +128,57 @@ public class LeaveBalanceService {
                 .orElse(ZERO));
     }
 
-    /** The (employee, type, year) balance, created from the policy in force if it doesn't exist yet. */
+    /**
+     * The (employee, type, year) balance, created (0 credited) if it doesn't exist yet and brought up
+     * to date with every credit due by today, so new hires and new types are credited immediately.
+     */
     @Transactional
     public LeaveBalance ensureBalance(UUID employeeUserId, LeaveType type, int year) {
         if (!type.isAnnualBalance()) {
             throw new IllegalArgumentException(type.getName() + " does not keep a yearly balance");
         }
+        if (leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(employeeUserId, type.getId(), year).isEmpty()) {
+            leaveBalanceRepository.insertIfAbsent(employeeUserId, type.getId(), year, ZERO);
+        }
+        accrualService.accrue(employeeUserId, type, year);
         return leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(employeeUserId, type.getId(), year)
-                .orElseGet(() -> {
-                    leaveBalanceRepository.insertIfAbsent(employeeUserId, type.getId(), year,
-                            entitlementDays(type, year).orElse(ZERO));
-                    return leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(employeeUserId, type.getId(), year)
-                            .orElseThrow();
-                });
+                .orElseThrow();
     }
 
-    /** Opening balances for every active regular paid type for {@code year} (new hires, new types). Idempotent. */
+    /** Opening balances for every active regular paid type the employee is eligible for (new hires, new types). Idempotent. */
     @Transactional
     public void ensureBalances(UUID employeeUserId, int year) {
-        for (LeaveType type : leaveTypeRepository.findByActiveTrueOrderByNameAsc()) {
-            if (type.isAnnualBalance()) ensureBalance(employeeUserId, type, year);
-        }
+        for (LeaveType type : eligibleAnnualTypes(employeeUserId)) ensureBalance(employeeUserId, type, year);
+    }
+
+    private List<LeaveType> eligibleAnnualTypes(UUID employeeUserId) {
+        return eligibilityService.eligibleTypes(employeeUserId, leaveTypeRepository.findByActiveTrueOrderByNameAsc().stream()
+                .filter(LeaveType::isAnnualBalance).toList());
     }
 
     // ── Position (what's left) ──────────────────────────────────────────────────────────────────
 
     /** One balance row with its pending reservations, as of today. */
     public record AnnualPosition(LeaveBalance balance, BigDecimal currentAvailable, BigDecimal carriedForwardAvailable,
-                                 BigDecimal pendingDays, BigDecimal pendingCarryForwardEligible, boolean carryForwardOpen) {
+                                 BigDecimal pendingDays, BigDecimal pendingCarryForwardEligible, boolean carryForwardOpen,
+                                 LeaveAccrualService.Projection projection) {
         /** Carried-forward days still usable: all of them before expiry; afterwards only what pending leave dated before expiry claims. */
         public BigDecimal usableCarryForward() {
             return carryForwardOpen ? carriedForwardAvailable : carriedForwardAvailable.min(pendingCarryForwardEligible);
         }
 
+        /** From credited days only; negative when leave was taken in advance. */
         public BigDecimal remaining() {
             return currentAvailable.add(usableCarryForward()).subtract(pendingDays);
+        }
+
+        /** Credits still to come this year, which a request may already use. */
+        public BigDecimal upcomingCredits() {
+            return projection.upcomingDays();
+        }
+
+        public BigDecimal availableToApply() {
+            return remaining().add(upcomingCredits());
         }
     }
 
@@ -173,7 +198,8 @@ public class LeaveBalanceService {
                 carriedForwardAvailable(b),
                 pending,
                 pendingEligible,
-                cutoff == null || !today().isAfter(cutoff));
+                cutoff == null || !today().isAfter(cutoff),
+                accrualService.project(b.getEmployeeUserId(), b.getLeaveType(), year));
     }
 
     static BigDecimal carriedForwardAvailable(LeaveBalance b) {
@@ -245,6 +271,7 @@ public class LeaveBalanceService {
             BigDecimal eligible = daysOnOrBefore(start, end, totalDays, year, b.getCarriedForwardExpiresOn());
             BigDecimal demand = p.pendingDays().add(seg.getValue());
             BigDecimal supply = p.currentAvailable()
+                    .add(p.upcomingCredits())
                     .add(p.carriedForwardAvailable().min(p.pendingCarryForwardEligible().add(eligible)));
             if (supply.compareTo(demand) < 0) {
                 BigDecimal left = supply.subtract(p.pendingDays()).max(ZERO);
@@ -288,7 +315,9 @@ public class LeaveBalanceService {
                 fromCf = cfAvailable.min(eligible);
             }
             BigDecimal fromCurrent = days.subtract(fromCf);
-            if (fromCurrent.compareTo(current) > 0) {
+            // Credits still to come this year may be used in advance (used_days then exceeds total_days).
+            BigDecimal upcoming = accrualService.project(employeeUserId, type, seg.getKey()).upcomingDays();
+            if (fromCurrent.compareTo(current.add(upcoming)) > 0) {
                 throw insufficient();
             }
             b.setCarriedForwardUsedDays(b.getCarriedForwardUsedDays().add(fromCf));
@@ -317,8 +346,7 @@ public class LeaveBalanceService {
     @Transactional
     public BigDecimal availablePaidDays(UUID employeeUserId, int year, UUID excludeRequestId) {
         BigDecimal total = ZERO;
-        for (LeaveType type : leaveTypeRepository.findByActiveTrueOrderByNameAsc()) {
-            if (!type.isAnnualBalance()) continue;
+        for (LeaveType type : eligibleAnnualTypes(employeeUserId)) {
             total = total.add(position(ensureBalance(employeeUserId, type, year), excludeRequestId).remaining().max(ZERO));
         }
         return total;
@@ -334,6 +362,7 @@ public class LeaveBalanceService {
     @Transactional
     public BigDecimal debitUpTo(UUID employeeUserId, LeaveType type, LocalDate date, BigDecimal max) {
         if (!type.isAnnualBalance() || max == null || max.signum() <= 0) return ZERO;
+        if (!eligibilityService.isEligible(employeeUserId, type)) return ZERO; // falls through to the next type or LOP
         LeaveBalance b = ensureBalance(employeeUserId, type, leaveYearOf(date));
         LocalDate cutoff = b.getCarriedForwardExpiresOn();
         BigDecimal cfAvailable = cutoff == null || !date.isAfter(cutoff) ? carriedForwardAvailable(b) : ZERO;
@@ -375,20 +404,30 @@ public class LeaveBalanceService {
     public List<LeaveBalanceResponse> balancesFor(UUID employeeUserId, int year) {
         Map<UUID, LeaveBalance> rows = leaveBalanceRepository.findByEmployeeUserIdAndYear(employeeUserId, year).stream()
                 .collect(Collectors.toMap(b -> b.getLeaveType().getId(), Function.identity(), (a, b) -> a));
+        List<LeaveType> all = leaveTypeRepository.findAllByOrderByNameAsc();
+        Set<UUID> eligible = eligibilityService.eligibleTypes(employeeUserId, all).stream().map(LeaveType::getId)
+                .collect(Collectors.toSet());
         List<LeaveBalanceResponse> out = new ArrayList<>();
-        for (LeaveType type : leaveTypeRepository.findAllByOrderByNameAsc()) {
+        for (LeaveType type : all) {
+            boolean canUse = type.isActive() && eligible.contains(type.getId());
             if (type.isAnnualBalance()) {
                 LeaveBalance b = rows.get(type.getId());
-                if (b == null) {
-                    if (!type.isActive()) continue;
-                    b = ensureBalance(employeeUserId, type, year);
+                if (canUse) {
+                    b = ensureBalance(employeeUserId, type, year); // also catches up any credit due
+                } else if (b == null || isEmpty(b)) {
+                    // A balance kept after losing eligibility (or deactivation) stays visible unless empty.
+                    continue;
                 }
                 out.add(toResponse(b));
-            } else if (type.isActive()) {
+            } else if (canUse) {
                 out.add(type.isPerOccurrence() ? occurrenceResponse(employeeUserId, type) : unlimitedResponse(type, year));
             }
         }
         return out;
+    }
+
+    private static boolean isEmpty(LeaveBalance b) {
+        return b.getTotalDays().signum() == 0 && b.getUsedDays().signum() == 0 && b.getCarriedForwardDays().signum() == 0;
     }
 
     /** Existing regular-paid balance rows of several employees (My Team) — read-only, nothing created. */
@@ -424,6 +463,12 @@ public class LeaveBalanceService {
                 .carriedForwardExpiredDays(b.getCarriedForwardExpiredDays())
                 .carriedForwardRemainingDays(p.usableCarryForward())
                 .carriedForwardExpiresOn(b.getCarriedForwardExpiresOn())
+                .creditFrequency(p.projection().frequency())
+                .annualQuotaDays(b.getTotalDays().add(p.upcomingCredits()))
+                .upcomingCreditDays(p.upcomingCredits())
+                .availableToApplyDays(p.availableToApply())
+                .nextCreditDate(p.projection().nextCreditDate())
+                .nextCreditDays(p.projection().nextCreditDays())
                 .build();
     }
 

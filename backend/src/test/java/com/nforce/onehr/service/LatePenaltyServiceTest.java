@@ -59,8 +59,8 @@ class LatePenaltyServiceTest {
         when(attendanceRepository.countByEmployeeUserIdAndWorkDateBetweenAndStatus(
                 employeeId, workDate.withDayOfMonth(1), workDate.withDayOfMonth(workDate.lengthOfMonth()), "LATE"))
                 .thenReturn(3L);
-        LeaveType casual = LeaveType.builder().id(UUID.randomUUID()).code("CASUAL").name("Casual Leave").build();
-        when(leaveTypeRepository.findByCode("CASUAL")).thenReturn(Optional.of(casual));
+        LeaveType casual = LeaveType.builder().id(UUID.randomUUID()).code("PAID").name("Paid Leave").systemKey(LeaveType.SYSTEM_PAID).build();
+        when(leaveTypeRepository.findBySystemKey(LeaveType.SYSTEM_PAID)).thenReturn(Optional.of(casual));
         when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(employeeId, casual.getId(), workDate.getYear()))
                 .thenReturn(Optional.of(LeaveBalance.builder().employeeUserId(employeeId).leaveType(casual)
                         .year(workDate.getYear()).totalDays(new BigDecimal("20")).usedDays(BigDecimal.ZERO).build()));
@@ -119,12 +119,12 @@ class LatePenaltyServiceTest {
     }
 
     @Test
-    void legacyPenalty_stillSkippedWhenNoCasualBalanceConfigured_regardlessOfPolicyGate() {
+    void legacyPenalty_stillSkippedWhenNoPaidLeaveTypeConfigured_regardlessOfPolicyGate() {
         when(penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(employee, workDate)).thenReturn(null);
         when(attendanceRepository.countByEmployeeUserIdAndWorkDateBetweenAndStatus(
                 employeeId, workDate.withDayOfMonth(1), workDate.withDayOfMonth(workDate.lengthOfMonth()), "LATE"))
                 .thenReturn(3L);
-        when(leaveTypeRepository.findByCode("CASUAL")).thenReturn(Optional.empty());
+        when(leaveTypeRepository.findBySystemKey(LeaveType.SYSTEM_PAID)).thenReturn(Optional.empty());
 
         latePenaltyService.applyIfDue(employee, workDate);
 

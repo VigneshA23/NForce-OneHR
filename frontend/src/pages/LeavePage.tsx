@@ -122,13 +122,18 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
   const perOccurrence = balance.entitlementBasis === 'PER_OCCURRENCE';
   const carried = Number(balance.carriedForwardDays ?? 0);
   const pending = Number(balance.pendingDays ?? 0);
-  // Ring total = current-year entitlement + carried-forward, so "available of total" adds up.
+  // Ring total = days credited so far this year + carried-forward, so "available of total" adds up.
   const total = Number(balance.totalDays) + carried;
-  const available = Math.max(0, Number(balance.remainingDays));
+  const balanceDays = Number(balance.remainingDays);
+  const available = Math.max(0, balanceDays);
+  // V314: monthly crediting. A negative balance = days taken in advance of credits still to come.
+  const inAdvance = balanceDays < 0 ? roundDays(-balanceDays) : 0;
+  const monthly = balance.creditFrequency === 'MONTHLY';
+  const quota = balance.annualQuotaDays != null ? Number(balance.annualQuotaDays) : null;
   // roundDays strips the IEEE-754 noise this subtraction can reintroduce even on two already-exact
   // BigDecimal-derived values (e.g. 15 - 13.7 rendering as 1.3000000000000007) - see utils/leaveDays.ts.
   const consumed = roundDays(Math.max(0, total - available));
-  const isEmptyQuota = total <= 0;
+  const isEmptyQuota = total <= 0 && !(quota != null && quota > 0);
   const availablePct = isEmptyQuota ? 0 : Math.min(100, Math.round((available / total) * 100));
   const ringOffset = RING_CIRCUMFERENCE * (1 - availablePct / 100);
   const ringColor = isEmptyQuota ? 'var(--line2)' : availablePct <= 15 ? 'var(--risk)' : accent;
@@ -169,6 +174,18 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
             </div>
             {pending > 0 && (
               <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{roundDays(pending)}d awaiting approval</div>
+            )}
+            {inAdvance > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--warn, #b7791f)', marginTop: 4, fontWeight: 600 }}>
+                {inAdvance}d taken in advance, covered by your next credits
+              </div>
+            )}
+            {!perOccurrence && monthly && quota != null && (
+              <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>
+                {roundDays(Number(balance.totalDays))}d of {roundDays(quota)}d credited this year
+                {balance.nextCreditDate && balance.nextCreditDays != null
+                  ? ` · next +${roundDays(Number(balance.nextCreditDays))}d on ${shortDate(balance.nextCreditDate)}` : ''}
+              </div>
             )}
             {carried > 0 && (
               <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>
@@ -223,7 +240,11 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
   // any balance row to begin with.
   const effectiveBalances = editingRequest && editingRequest.leaveTypeClassification === 'PAID'
     ? balances.map(b => b.leaveTypeCode === editingRequest.leaveTypeCode && b.remainingDays != null
-        ? { ...b, remainingDays: b.remainingDays + Number(editingRequest.totalDays) }
+        ? {
+            ...b,
+            remainingDays: b.remainingDays + Number(editingRequest.totalDays),
+            availableToApplyDays: b.availableToApplyDays != null ? b.availableToApplyDays + Number(editingRequest.totalDays) : b.availableToApplyDays,
+          }
         : b)
     : balances;
 
@@ -236,7 +257,14 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
   const requestedDays = form.halfDay
     ? 0.5
     : (new Date(effectiveEndDate).getTime() - new Date(form.startDate).getTime()) / 86400000 + 1;
-  const exceedsBalance = !!selectedBalance && Number.isFinite(requestedDays) && requestedDays > Number(selectedBalance.remainingDays);
+  // Monthly-credited leave may use the rest of the year's quota in advance (availableToApplyDays).
+  const applyLimit = selectedBalance
+    ? Number(selectedBalance.availableToApplyDays ?? selectedBalance.remainingDays)
+    : null;
+  const exceedsBalance = !!selectedBalance && Number.isFinite(requestedDays) && applyLimit != null && requestedDays > applyLimit;
+  const advanceDays = selectedBalance && Number.isFinite(requestedDays) && !exceedsBalance
+    ? roundDays(Math.max(0, requestedDays - Math.max(0, Number(selectedBalance.remainingDays))))
+    : 0;
 
   // Early-UX only, mirroring the backend's own classification-based rule (LeaveService#submitRequest)
   // — the backend independently re-validates against ALL of the employee's paid balances regardless
@@ -253,7 +281,7 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
     if (form.startDate < today) { setError('Leave cannot be requested for a date before today.'); return; }
     if (form.halfDay && !form.halfDaySession) { setError('Select First Half or Second Half.'); return; }
     if (exceedsBalance && selectedBalance) {
-      setError(`Leave request exceeds your available ${selectedBalance.leaveTypeName} balance of ${selectedBalance.remainingDays} days.`);
+      setError(`Leave request exceeds your available ${selectedBalance.leaveTypeName} balance of ${roundDays(Math.max(0, applyLimit ?? 0))} days.`);
       return;
     }
     if (blockedUnpaidWithPaidBalance) {
@@ -302,8 +330,16 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
               </Field>
               {selectedBalance && (
                 <div className={`nf-lv-bal${exceedsBalance ? ' over' : ''}`}>
-                  Available: {selectedBalance.remainingDays} day{selectedBalance.remainingDays === 1 ? '' : 's'}
+                  Available: {roundDays(Math.max(0, Number(selectedBalance.remainingDays)))} day{Number(selectedBalance.remainingDays) === 1 ? '' : 's'}
+                  {applyLimit != null && applyLimit > Math.max(0, Number(selectedBalance.remainingDays)) && (
+                    <> · up to {roundDays(applyLimit)} including credits still to come this year</>
+                  )}
                   {exceedsBalance && ' - this request exceeds your available balance'}
+                </div>
+              )}
+              {advanceDays > 0 && (
+                <div className="nf-lv-warn">
+                  {advanceDays} day{advanceDays === 1 ? '' : 's'} of this request will be taken in advance and covered by your upcoming monthly credits.
                 </div>
               )}
               {blockedUnpaidWithPaidBalance && (
@@ -387,7 +423,7 @@ export default function LeavePage() {
 
   useEffect(() => {
     setLeaveError('');
-    Promise.all([leaveApi.listTypes(token), leaveApi.listBalances(token), leaveApi.listMine(token)])
+    Promise.all([leaveApi.listMyTypes(token), leaveApi.listBalances(token), leaveApi.listMine(token)])
       .then(([t, b, r]) => { setTypes(t); setBalances(b); setRequests(r); })
       .catch(e => setLeaveError(e instanceof Error ? e.message : 'Failed to load leave data'))
       .finally(() => setLoading(false));
@@ -586,6 +622,9 @@ export default function LeavePage() {
                         <span className="nf-opp-ico"><CalendarDays size={17} /></span>
                         <span>
                           {r.leaveTypeName}
+                          {r.originalLeaveTypeName && r.originalLeaveTypeName !== r.leaveTypeName && (
+                            <span style={{ display: 'block', fontSize: 11, color: 'var(--txt-dim)' }}>was {r.originalLeaveTypeName}</span>
+                          )}
                           {r.leaveTypeClassification === 'UNPAID' && (
                             <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.03em' }}>
                               (Unpaid)

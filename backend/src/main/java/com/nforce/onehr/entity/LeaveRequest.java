@@ -24,6 +24,10 @@ public class LeaveRequest {
     @JoinColumn(name = "leave_type_id", nullable = false)
     private LeaveType leaveType;
 
+    /** The type's name before V314 merged every type into Paid / Unpaid (e.g. "Sick Leave"); null otherwise. */
+    @Column(name = "original_leave_type_name", length = 50)
+    private String originalLeaveTypeName;
+
     @Column(name = "start_date", nullable = false)
     private LocalDate startDate;
 

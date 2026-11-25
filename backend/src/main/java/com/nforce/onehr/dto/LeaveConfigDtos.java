@@ -12,6 +12,7 @@ import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /** Request/response shapes of the Leave Configuration endpoints (Organization Masters > Leave). */
@@ -19,13 +20,15 @@ public final class LeaveConfigDtos {
 
     private LeaveConfigDtos() {}
 
-    public record EntitlementPolicyResponse(UUID id, Integer effectiveYear, BigDecimal days, String createdByName,
-                                            LocalDateTime createdAt) {}
+    public record EntitlementPolicyResponse(UUID id, Integer effectiveYear, BigDecimal days, String creditFrequency,
+                                            String createdByName, LocalDateTime createdAt) {}
 
     /** A new entitlement from {@code effectiveYear}; existing balances change only if {@code applyToExistingBalances}. */
     public record EntitlementChangeRequest(
             @NotNull @Min(2000) @Max(2100) Integer effectiveYear,
             @NotNull @DecimalMin("0") @DecimalMax("999") BigDecimal days,
+            /** YEARLY (all at once) or MONTHLY; null keeps the frequency in force for that year. */
+            @Pattern(regexp = "YEARLY|MONTHLY") String creditFrequency,
             boolean applyToExistingBalances) {}
 
     public record CarryForwardSettingsRequest(
@@ -44,6 +47,22 @@ public final class LeaveConfigDtos {
                                                String leaveTypeCode, String leaveTypeName, Integer fromYear,
                                                BigDecimal unusedDays, BigDecimal carriedDays, BigDecimal lapsedDays,
                                                LocalDate expiresOn, LocalDateTime processedAt, LocalDateTime updatedAt) {}
+
+    /** Who a leave type applies to (V314). Empty lists = no restriction of that kind. */
+    public record EligibilityConfig(
+            @Size(max = 10) List<String> genders,
+            @Size(max = 500) List<String> departmentIds,
+            @Size(max = 500) List<String> locationIds,
+            @Size(max = 20) List<String> employmentTypes,
+            @Size(max = 5000) List<UUID> includeEmployeeIds,
+            @Size(max = 5000) List<UUID> excludeEmployeeIds) {}
+
+    public record EligibilityPreview(int eligibleCount, int totalCount) {}
+
+    /** One month's credit, for the balance's credit history. */
+    public record AccrualCreditResponse(Integer year, Integer month, BigDecimal days, String source, LocalDateTime creditedAt) {}
+
+    public record AccrualRunResult(Integer year, int employeesChecked, int creditsAdded, int failures) {}
 
     public record YearEndRunResult(Integer fromYear, int balancesChecked, int transfersCreated,
                                    int expiriesUpdated, int failures) {}

@@ -31,6 +31,12 @@ public class LeaveController {
         return leaveService.listTypes();
     }
 
+    /** The active leave types the caller may apply for (their "applies to" rules), for the request form. */
+    @GetMapping("/types/mine")
+    public List<LeaveTypeResponse> myTypes(Principal principal) {
+        return leaveService.listMyTypes(principal.getName());
+    }
+
     @GetMapping("/balances")
     public List<LeaveBalanceResponse> myBalances(Principal principal) {
         return leaveService.listMyBalances(principal.getName());

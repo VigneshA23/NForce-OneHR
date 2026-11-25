@@ -245,4 +245,15 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
     /** User ids of every active, non-deleted employee — the leave year-end carry-forward population. */
     @Query("SELECT e.userId FROM Employee e JOIN e.user u WHERE u.deletedAt IS NULL AND u.active = true")
     List<java.util.UUID> findActiveEmployeeUserIds();
+
+    String LEAVE_PROFILE_SELECT = "SELECT new com.nforce.onehr.dto.LeaveEmployeeProfile(e.userId, e.gender, d.id, l.id, "
+            + "e.employmentType, e.joiningDate, e.lastWorkingDay, u.active, u.deletedAt) "
+            + "FROM Employee e JOIN e.user u LEFT JOIN e.department d LEFT JOIN e.location l ";
+
+    /** Leave crediting / "applies to" facts of every non-deleted employee (V314). */
+    @Query(LEAVE_PROFILE_SELECT + "WHERE u.deletedAt IS NULL")
+    List<com.nforce.onehr.dto.LeaveEmployeeProfile> findLeaveProfiles();
+
+    @Query(LEAVE_PROFILE_SELECT + "WHERE e.userId = :userId")
+    Optional<com.nforce.onehr.dto.LeaveEmployeeProfile> findLeaveProfile(@Param("userId") UUID userId);
 }
