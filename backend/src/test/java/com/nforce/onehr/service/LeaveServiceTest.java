@@ -168,8 +168,10 @@ class LeaveServiceTest {
         // The REAL balance engine over this test's mocks — @InjectMocks builds LeaveService before
         // these mocks are stubbed, so it is set here rather than injected.
         org.springframework.test.util.ReflectionTestUtils.setField(leaveService, "leaveBalanceService",
-                new LeaveBalanceService(leaveTypeRepository, leaveBalanceRepository, leaveRequestRepository,
+                TestLeaveBalances.over(leaveTypeRepository, leaveBalanceRepository, leaveRequestRepository,
                         policyRepository, occurrenceRepository, attendanceProperties));
+        org.springframework.test.util.ReflectionTestUtils.setField(leaveService, "leaveEligibilityService",
+                TestLeaveBalances.everyoneEligible());
     }
 
     private LeaveType typeById(UUID id) {

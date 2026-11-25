@@ -19,7 +19,7 @@ import java.util.Optional;
 
 /**
  * Legacy fallback: every 3rd late arrival in a calendar month costs half a day, deducted from
- * Casual Leave. Shared by every check-in entry point (AttendanceService.checkIn and
+ * the built-in Paid Leave type (Casual Leave before V314). Shared by every check-in entry point (AttendanceService.checkIn and
  * WebClockInService's self-service remote check-in) so the penalty applies identically no matter
  * how the employee checked in — this used to live only inside AttendanceService, which meant a
  * Web Check-in never triggered it.
@@ -37,7 +37,7 @@ public class LatePenaltyService {
 
     private static final int LATE_PENALTY_EVERY_N = 3;
     private static final BigDecimal LATE_PENALTY_DAYS = new BigDecimal("0.5");
-    private static final String LATE_PENALTY_LEAVE_TYPE_CODE = "CASUAL";
+    private static final String LATE_PENALTY_LEAVE_TYPE = LeaveType.SYSTEM_PAID; // the built-in Paid Leave type (was CASUAL before V314)
     private static final String STATUS_LATE = "LATE";
 
     private final AttendanceRepository attendanceRepository;
@@ -51,7 +51,7 @@ public class LatePenaltyService {
     /**
      * Only call for a genuine new late arrival — never for a lunch-break/session resume, since
      * lateness is a once-per-day fact tied to the day's first check-in.
-     * A missing Casual Leave balance for the year is logged and skipped rather than thrown — a
+     * A missing Paid Leave balance for the year is logged and skipped rather than thrown — a
      * leave-balance misconfiguration must never block someone from checking in.
      */
     @Transactional
@@ -70,17 +70,17 @@ public class LatePenaltyService {
             return;
         }
 
-        Optional<LeaveType> leaveType = leaveTypeRepository.findByCode(LATE_PENALTY_LEAVE_TYPE_CODE);
+        Optional<LeaveType> leaveType = leaveTypeRepository.findBySystemKey(LATE_PENALTY_LEAVE_TYPE);
         if (leaveType.isEmpty()) {
             log.warn("Late-arrival penalty skipped for employee {}: leave type {} not configured",
-                    employee.getUserId(), LATE_PENALTY_LEAVE_TYPE_CODE);
+                    employee.getUserId(), LATE_PENALTY_LEAVE_TYPE);
             return;
         }
         Optional<LeaveBalance> balanceOpt = leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(
                 employee.getUserId(), leaveType.get().getId(), workDate.getYear());
         if (balanceOpt.isEmpty()) {
             log.warn("Late-arrival penalty skipped for employee {}: no {} balance configured for {}",
-                    employee.getUserId(), LATE_PENALTY_LEAVE_TYPE_CODE, workDate.getYear());
+                    employee.getUserId(), LATE_PENALTY_LEAVE_TYPE, workDate.getYear());
             return;
         }
 
@@ -94,7 +94,7 @@ public class LatePenaltyService {
         notificationService.send(employee.getUserId(), "ATTENDANCE",
                 "Half-day deducted for late arrivals",
                 "You've been late " + lateCountThisMonth + " times this month, so " + LATE_PENALTY_DAYS
-                        + " day has been deducted from your Casual Leave balance.",
+                        + " day has been deducted from your " + leaveType.get().getName() + " balance.",
                 "/attendance");
     }
 }

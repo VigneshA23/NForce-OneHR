@@ -58,7 +58,7 @@ class LeaveConfigEndpointsSecurityTest {
         @Bean LeaveConfigController leaveConfigController() {
             UserRepository users = mock(UserRepository.class);
             when(users.findByEmail(any())).thenReturn(Optional.of(User.builder().id(UUID.randomUUID()).email("user@test.com").build()));
-            return new LeaveConfigController(mock(LeaveTypeService.class), mock(LeaveYearEndService.class), users);
+            return new LeaveConfigController(mock(LeaveTypeService.class), mock(LeaveYearEndService.class), mock(com.nforce.onehr.service.LeaveAccrualService.class), users);
         }
     }
 

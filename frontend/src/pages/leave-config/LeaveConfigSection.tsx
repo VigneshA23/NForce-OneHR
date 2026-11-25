@@ -8,18 +8,25 @@ import { useCan } from '../../lib/access';
 import { useToast } from '../../context/ToastContext';
 import {
   leaveConfigApi,
-  type CarryForwardPriority, type CarryForwardTransfer, type DirectoryEmployee, type EntitlementPolicy,
-  type LeaveBalance, type LeaveType, type LeaveTypeClassification,
+  type AccrualCredit, type CarryForwardPriority, type CarryForwardTransfer, type CreditFrequency, type DirectoryEmployee,
+  type EligibilityConfig, type EntitlementPolicy, type LeaveBalance, type LeaveType, type LeaveTypeClassification,
 } from '../../api/leave';
+import { orgApi } from '../../api/org';
+import { AppliesToEditor, EMPTY_ELIGIBILITY, appliesToSummary, sameEligibility, type NamedOption } from './AppliesTo';
 
 /**
- * Organization Masters / Organization Structure > Leave (V310). Three areas: Leave Types, Leave
- * Entitlements (incl. an employee's balances and manual adjustment) and Carry-Forward Settings (incl.
- * year-end processing). Everything is gated by leave_configuration on the server; the buttons here
+ * Organization Masters / Organization Structure > Leave (V310, V314). Three areas: Leave Types (incl.
+ * who each type applies to), Leave Entitlements (yearly quota, all-at-once or monthly crediting, an
+ * employee's balances and manual adjustment) and Carry-Forward Settings (incl. year-end processing). Everything is gated by leave_configuration on the server; the buttons here
  * only follow the same permission: VIEW reads, CONFIGURE changes policy, EDIT adjusts a balance.
  */
 
 type Area = 'types' | 'entitlements' | 'carryforward';
+
+/** Departments, locations and employees for the "applies to" editor and summaries. */
+interface Lookups { departments: NamedOption[]; locations: NamedOption[]; employees: DirectoryEmployee[] }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -62,6 +69,46 @@ function entitlementLabel(t: LeaveType): string {
   if (t.classification === 'UNPAID') return 'Unlimited';
   if (t.entitlementBasis === 'PER_OCCURRENCE') return `${days(t.currentEntitlementDays)} days per occurrence`;
   return `${days(t.currentEntitlementDays)} days per year`;
+}
+
+function frequencyLabel(f: CreditFrequency | null | undefined): string {
+  return f === 'MONTHLY' ? 'Monthly' : 'All at once';
+}
+
+/** One month's share of a yearly quota, as the server credits it (exact over the year). */
+function monthlyShare(quota: number): number {
+  return Math.round((quota / 12) * 100) / 100;
+}
+
+function CreditFrequencyField({ value, onChange, quota, name }: {
+  value: CreditFrequency; onChange(v: CreditFrequency): void; quota: number; name: string;
+}) {
+  const share = isNaN(quota) || quota <= 0 ? null : monthlyShare(quota);
+  return (
+    <fieldset style={{ border: 'none', padding: 0, margin: '0 0 14px' }}>
+      <legend style={labelS}>Crediting</legend>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+          <input type="radio" name={name} checked={value === 'MONTHLY'} onChange={() => onChange('MONTHLY')} style={{ marginTop: 3 }} />
+          <span>
+            Monthly, on the 1st of each month
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--txt-dim)' }}>
+              {share != null ? `About ${days(share)} day(s) a month. ` : ''}Employees may apply for up to the full year's quota in advance; later credits cover it.
+            </span>
+          </span>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+          <input type="radio" name={name} checked={value === 'YEARLY'} onChange={() => onChange('YEARLY')} style={{ marginTop: 3 }} />
+          <span>
+            All at once, on 1 January
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--txt-dim)' }}>
+              Someone who joins mid-year gets the months left (counting the joining month), rounded to half a day.
+            </span>
+          </span>
+        </label>
+      </div>
+    </fieldset>
+  );
 }
 
 function Badge({ tone, children }: { tone: 'ok' | 'warn' | 'dim' | 'info'; children: React.ReactNode }) {
@@ -126,10 +173,14 @@ function Table({ head, children, empty }: { head: string[]; children: React.Reac
 
 // ── Leave type dialog ──────────────────────────────────────────────────────────
 
-function LeaveTypeDialog({ editRow, token, onClose, onSaved }: {
-  editRow?: LeaveType; token: string; onClose(): void; onSaved(saved: LeaveType): void;
+function LeaveTypeDialog({ editRow, token, lookups, onClose, onSaved }: {
+  editRow?: LeaveType; token: string; lookups: Lookups; onClose(): void; onSaved(saved: LeaveType): void;
 }) {
   const isEdit = !!editRow;
+  const isSystem = !!editRow?.systemKey;
+  const originalEligibility = editRow?.eligibility ?? EMPTY_ELIGIBILITY;
+  const [eligibility, setEligibility] = useState<EligibilityConfig>(originalEligibility);
+  const [frequency, setFrequency] = useState<CreditFrequency>('MONTHLY');
   const [name, setName] = useState(editRow?.name ?? '');
   const [code, setCode] = useState(editRow?.code ?? '');
   const [classification, setClassification] = useState<LeaveTypeClassification>(editRow?.classification ?? 'PAID');
@@ -169,9 +220,13 @@ function LeaveTypeDialog({ editRow, token, onClose, onSaved }: {
         : await leaveConfigApi.createType({
             code: code.trim(), name: name.trim(), classification,
             ...(classification === 'PAID' ? { entitlementBasis: basis, entitlementDays: daysN } : {}),
+            ...(classification === 'PAID' && basis === 'ANNUAL' ? { creditFrequency: frequency } : {}),
             ...(perOccurrence ? { occurrenceWindowMonths: monthsN } : {}),
           }, token);
-      onSaved(saved);
+      const final = sameEligibility(eligibility, originalEligibility)
+        ? saved
+        : await leaveConfigApi.updateEligibility(saved.id, eligibility, token);
+      onSaved(final);
       onClose();
     } catch (err) {
       setError(errMsg(err));
@@ -181,7 +236,7 @@ function LeaveTypeDialog({ editRow, token, onClose, onSaved }: {
   }
 
   return (
-    <Dialog title={isEdit ? 'Edit Leave Type' : 'Add Leave Type'} kind={isEdit ? 'edit' : 'add'} onClose={onClose}>
+    <Dialog title={isEdit ? 'Edit Leave Type' : 'Add Leave Type'} kind={isEdit ? 'edit' : 'add'} width={580} onClose={onClose}>
       <form onSubmit={submit}>
         <div style={{ marginBottom: 14 }}>
           <label style={labelS} htmlFor="lt-name">Leave Type Name *</label>
@@ -194,20 +249,21 @@ function LeaveTypeDialog({ editRow, token, onClose, onSaved }: {
         </div>
         <fieldset style={{ border: 'none', padding: 0, margin: '0 0 14px' }}>
           <legend style={labelS}>Classification *</legend>
-          <div style={{ display: 'flex', gap: 20 }}>
+          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
             {(['PAID', 'UNPAID'] as const).map(c => (
-              <label key={c} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: 'pointer' }}>
-                <input type="radio" name="lt-classification" checked={classification === c} onChange={() => setClassification(c)} />
+              <label key={c} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: isSystem ? 'default' : 'pointer' }}>
+                <input type="radio" name="lt-classification" checked={classification === c} disabled={isSystem} onChange={() => setClassification(c)} />
                 {c === 'PAID' ? 'Paid' : 'Unpaid (unlimited, never uses paid balances)'}
               </label>
             ))}
           </div>
+          {isSystem && <p style={{ ...hintS, margin: '6px 0 0', fontSize: 11.5 }}>Built-in type: it can be renamed and restricted, but not reclassified.</p>}
         </fieldset>
         {classification === 'PAID' && (
           <>
             <div style={{ marginBottom: 14 }}>
               <label style={labelS} htmlFor="lt-basis">Entitlement basis</label>
-              <select id="lt-basis" style={inputS} value={basis} disabled={referenced}
+              <select id="lt-basis" style={inputS} value={basis} disabled={referenced || isSystem}
                 onChange={e => {
                   const v = e.target.value as 'ANNUAL' | 'PER_OCCURRENCE';
                   setBasis(v);
@@ -224,6 +280,9 @@ function LeaveTypeDialog({ editRow, token, onClose, onSaved }: {
                 <input id="lt-days" type="number" min={0} max={999} step={0.5} style={inputS} value={entitlement} onChange={e => setEntitlement(e.target.value)} />
               </div>
             )}
+            {!isEdit && basis === 'ANNUAL' && (
+              <CreditFrequencyField value={frequency} onChange={setFrequency} quota={Number(entitlement)} name="lt-frequency" />
+            )}
             {basis === 'PER_OCCURRENCE' && (
               <div style={{ marginBottom: 14 }}>
                 <label style={labelS} htmlFor="lt-window">Occurrence window (months) *</label>
@@ -236,8 +295,10 @@ function LeaveTypeDialog({ editRow, token, onClose, onSaved }: {
           </>
         )}
         {isEdit && classification === 'PAID' && !becomingPaid && (
-          <p style={{ ...hintS, fontSize: 11.5 }}>Change the number of days under Leave Entitlements, with an effective year.</p>
+          <p style={{ ...hintS, fontSize: 11.5 }}>Change the number of days and how they're credited under Leave Entitlements, with an effective year.</p>
         )}
+        <AppliesToEditor value={eligibility} onChange={setEligibility} departments={lookups.departments} locations={lookups.locations}
+          employees={lookups.employees} token={token} />
         <FormError error={error} />
         <DialogActions busy={busy} label={isEdit ? 'Save Changes' : 'Add'} onCancel={onClose} />
       </form>
@@ -272,8 +333,8 @@ type Confirm = { title: string; body: string; confirmLabel?: string; danger?: bo
 
 // ── Area 1: Leave Types ────────────────────────────────────────────────────────
 
-function LeaveTypesArea({ types, token, canConfigure, reload }: {
-  types: LeaveType[]; token: string; canConfigure: boolean; reload(): Promise<void>;
+function LeaveTypesArea({ types, token, canConfigure, lookups, reload }: {
+  types: LeaveType[]; token: string; canConfigure: boolean; lookups: Lookups; reload(): Promise<void>;
 }) {
   const { showToast } = useToast();
   const [dialog, setDialog] = useState<{ row?: LeaveType; key: number } | null>(null);
@@ -329,6 +390,7 @@ function LeaveTypesArea({ types, token, canConfigure, reload }: {
 
   function items(t: LeaveType): KebabItem[] {
     if (!canConfigure) return [];
+    if (t.systemKey) return [{ label: 'Edit', onClick: () => setDialog({ row: t, key: Date.now() }) }];
     return [
       { label: 'Edit', onClick: () => setDialog({ row: t, key: Date.now() }) },
       { label: t.active ? 'Deactivate' : 'Reactivate', onClick: () => toggle(t), dividerBefore: true },
@@ -340,19 +402,28 @@ function LeaveTypesArea({ types, token, canConfigure, reload }: {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <p style={{ ...hintS, margin: 0, maxWidth: 640 }}>
-          Every paid leave type keeps its own balance. Unpaid types are unlimited and never use a paid balance.
-          Types already used by requests or balances can be deactivated but not deleted.
+          Paid Leave and Unpaid Leave are built in: they can be renamed and restricted but not removed. Every paid type keeps
+          its own balance; unpaid types are unlimited. Use "Applies to" to limit a type to some employees (e.g. Maternity to
+          female employees). Types already used by requests or balances can be deactivated but not deleted.
         </p>
         {canConfigure && <button style={primaryBtn()} onClick={() => setDialog({ key: Date.now() })}>Add Leave Type</button>}
       </div>
-      <Table head={['Leave Type', 'Code', 'Classification', 'Entitlement', 'Usage', 'Status', '']}
+      <Table head={['Leave Type', 'Code', 'Classification', 'Entitlement', 'Applies to', 'Usage', 'Status', '']}
         empty={types.length === 0 && 'No leave types configured yet. Add one to start collecting leave requests.'}>
         {types.map(t => (
           <tr key={t.id}>
-            <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 500 }}>{t.name}</td>
+            <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 500 }}>
+              {t.name}{t.systemKey && <span style={{ marginLeft: 8 }}><Badge tone="info">Built-in</Badge></span>}
+            </td>
             <td style={{ ...tdS, fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{t.code}</td>
             <td style={tdS}><Badge tone={t.classification === 'PAID' ? 'ok' : 'warn'}>{t.classification === 'PAID' ? 'Paid' : 'Unpaid'}</Badge></td>
-            <td style={tdS}>{entitlementLabel(t)}</td>
+            <td style={tdS}>
+              {entitlementLabel(t)}
+              {t.classification === 'PAID' && t.entitlementBasis === 'ANNUAL' && (
+                <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{frequencyLabel(t.currentCreditFrequency)}</div>
+              )}
+            </td>
+            <td style={{ ...tdS, maxWidth: 260 }}>{appliesToSummary(t, lookups.departments, lookups.locations)}</td>
             <td style={tdS}>{t.referenceCount ?? 0}</td>
             <td style={tdS}><Badge tone={t.active ? 'ok' : 'dim'}>{t.active ? 'Active' : 'Inactive'}</Badge></td>
             <td style={{ ...tdS, textAlign: 'right', width: 52 }}><KebabMenu items={items(t)} /></td>
@@ -360,7 +431,7 @@ function LeaveTypesArea({ types, token, canConfigure, reload }: {
         ))}
       </Table>
       {dialog && (
-        <LeaveTypeDialog key={dialog.key} editRow={dialog.row} token={token} onClose={() => setDialog(null)}
+        <LeaveTypeDialog key={dialog.key} editRow={dialog.row} token={token} lookups={lookups} onClose={() => setDialog(null)}
           onSaved={saved => { showToast('success', dialog.row ? 'Leave type updated' : `"${saved.name}" created`); void reload(); }} />
       )}
       {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
@@ -374,6 +445,7 @@ function EntitlementDialog({ type, token, onClose, onSaved }: { type: LeaveType;
   const [history, setHistory] = useState<EntitlementPolicy[] | null>(null);
   const [year, setYear] = useState(String(CURRENT_YEAR + 1));
   const [value, setValue] = useState(String(type.currentEntitlementDays ?? ''));
+  const [frequency, setFrequency] = useState<CreditFrequency>(type.currentCreditFrequency ?? 'YEARLY');
   const [apply, setApply] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -391,7 +463,10 @@ function EntitlementDialog({ type, token, onClose, onSaved }: { type: LeaveType;
     setBusy(true);
     setError('');
     try {
-      await leaveConfigApi.changeEntitlement(type.id, { effectiveYear: y, days: d, applyToExistingBalances: apply && !perOccurrence }, token);
+      await leaveConfigApi.changeEntitlement(type.id, {
+        effectiveYear: y, days: d, applyToExistingBalances: apply && !perOccurrence,
+        ...(perOccurrence ? {} : { creditFrequency: frequency }),
+      }, token);
       onSaved();
       onClose();
     } catch (err) {
@@ -406,7 +481,7 @@ function EntitlementDialog({ type, token, onClose, onSaved }: { type: LeaveType;
         <p style={hintS}>
           {perOccurrence
             ? 'Days granted for each eligible occurrence. An occurrence already open keeps the entitlement it started with.'
-            : 'Days granted per leave year from the effective year onwards. Balances that already exist keep their figure unless you choose to update them.'}
+            : 'Days granted per leave year from the effective year onwards, and how they reach employees. Months not credited yet follow the new figure; days already credited stay unless you choose to update them.'}
         </p>
         <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 140px' }}>
@@ -418,20 +493,23 @@ function EntitlementDialog({ type, token, onClose, onSaved }: { type: LeaveType;
             <input id="ent-days" type="number" min={0} max={999} step={0.5} style={inputS} value={value} onChange={e => setValue(e.target.value)} />
           </div>
         </div>
+        {!perOccurrence && <CreditFrequencyField value={frequency} onChange={setFrequency} quota={Number(value)} name="ent-frequency" />}
         {!perOccurrence && (
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 16, cursor: 'pointer' }}>
             <input type="checkbox" checked={apply} onChange={e => setApply(e.target.checked)} style={{ marginTop: 2 }} />
-            Also update balances that already exist for these years (used and carried-forward days are kept).
+            Also re-credit days already credited in these years at the new figure (used and carried-forward days are kept).
           </label>
         )}
         <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '.04em' }}>History</h3>
         <div style={{ marginBottom: 16 }}>
           {history === null ? <p style={hintS}>Loading…</p> : (
-            <Table head={['From year', 'Days', 'Set by']} empty={history.length === 0 && 'No entitlement configured yet.'}>
+            <Table head={perOccurrence ? ['From year', 'Days', 'Set by'] : ['From year', 'Days', 'Crediting', 'Set by']}
+              empty={history.length === 0 && 'No entitlement configured yet.'}>
               {history.map(h => (
                 <tr key={h.id}>
                   <td style={tdS}>{h.effectiveYear <= 2000 ? 'Default (all years)' : h.effectiveYear}</td>
                   <td style={tdS}>{days(h.days)}</td>
+                  {!perOccurrence && <td style={tdS}>{frequencyLabel(h.creditFrequency)}</td>}
                   <td style={tdS}>{h.createdByName}</td>
                 </tr>
               ))}
@@ -457,7 +535,7 @@ function AdjustDialog({ balance, employeeName, token, onClose, onSaved }: {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const ent = Number(entitlement), cf = Number(carried);
-    if (entitlement.trim() === '' || isNaN(ent) || ent < 0) { setError('Entitlement must be zero or more'); return; }
+    if (entitlement.trim() === '' || isNaN(ent) || ent < 0) { setError('Credited days must be zero or more'); return; }
     if (carried.trim() === '' || isNaN(cf) || cf < 0) { setError('Carried-forward days must be zero or more'); return; }
     if (!reason.trim()) { setError('A reason is required — it is recorded in the audit log'); return; }
     setBusy(true);
@@ -476,11 +554,12 @@ function AdjustDialog({ balance, employeeName, token, onClose, onSaved }: {
     <Dialog title={`Adjust ${balance.leaveTypeName} — ${balance.year}`} width={460} onClose={onClose}>
       <form onSubmit={submit}>
         <p style={hintS}>
-          {employeeName}. Used so far: {days(balance.usedDays)} day(s). The previous and new values, your reason and your name are recorded in the audit log.
+          {employeeName}. Used so far: {days(balance.usedDays)} day(s). Credited days can be set below what is used (the employee then owes
+          days). Monthly credits still to come are added on top. The previous and new values, your reason and your name are recorded in the audit log.
         </p>
         <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 140px' }}>
-            <label style={labelS} htmlFor="adj-ent">Entitlement (days)</label>
+            <label style={labelS} htmlFor="adj-ent">Credited this year (days)</label>
             <input id="adj-ent" type="number" min={0} max={999} step={0.25} style={inputS} value={entitlement} onChange={e => setEntitlement(e.target.value)} />
           </div>
           <div style={{ flex: '1 1 140px' }}>
@@ -499,6 +578,47 @@ function AdjustDialog({ balance, employeeName, token, onClose, onSaved }: {
   );
 }
 
+function CreditHistoryDialog({ balance, employeeName, token, onClose }: {
+  balance: LeaveBalance; employeeName: string; token: string; onClose(): void;
+}) {
+  const [rows, setRows] = useState<AccrualCredit[] | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    leaveConfigApi.creditHistory(balance.balanceId!, token).then(setRows).catch(e => setError(errMsg(e)));
+  }, [balance.balanceId, token]);
+  const migrated = rows?.some(r => r.source === 'MIGRATION');
+  return (
+    <Dialog title={`${balance.leaveTypeName} credits — ${balance.year}`} width={460} onClose={onClose}>
+      <p style={hintS}>{employeeName}. {frequencyLabel(balance.creditFrequency)} crediting.</p>
+      <FormError error={error} />
+      {rows === null ? <p style={hintS}>Loading…</p> : migrated ? (
+        <p style={hintS}>
+          This balance existed before monthly crediting was introduced, so the year counts as fully credited:
+          {' '}{days(balance.totalDays)} day(s), the old leave types added together.
+        </p>
+      ) : (
+        <Table head={['Month', 'Days', 'Credited on']} empty={rows.length === 0 && 'Nothing credited yet.'}>
+          {rows.map(r => (
+            <tr key={r.month}>
+              <td style={tdS}>{MONTHS[r.month - 1]} {r.year}</td>
+              <td style={{ ...tdS, color: 'var(--txt)' }}>{days(r.days)}</td>
+              <td style={tdS}>{fmtDate(r.creditedAt)}</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+      {balance.nextCreditDate && (
+        <p style={{ ...hintS, marginTop: 12 }}>
+          Next: {days(balance.nextCreditDays)} day(s) on {fmtDate(balance.nextCreditDate)}; {days(balance.upcomingCreditDays)} still to come this year.
+        </p>
+      )}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+        <button type="button" style={secondaryBtn} onClick={onClose}>Close</button>
+      </div>
+    </Dialog>
+  );
+}
+
 function EmployeeBalances({ token, canEdit }: { token: string; canEdit: boolean }) {
   const { showToast } = useToast();
   const [employees, setEmployees] = useState<DirectoryEmployee[]>([]);
@@ -508,6 +628,7 @@ function EmployeeBalances({ token, canEdit }: { token: string; canEdit: boolean 
   const [rows, setRows] = useState<LeaveBalance[] | null>(null);
   const [error, setError] = useState('');
   const [adjusting, setAdjusting] = useState<LeaveBalance | null>(null);
+  const [credits, setCredits] = useState<LeaveBalance | null>(null);
 
   useEffect(() => {
     leaveConfigApi.employees(token).then(setEmployees).catch(e => setError(errMsg(e)));
@@ -547,16 +668,24 @@ function EmployeeBalances({ token, canEdit }: { token: string; canEdit: boolean 
       </div>
       <FormError error={error} />
       {selected && rows && (
-        <Table head={['Leave Type', 'Entitlement', 'Carried forward', 'Used', 'Pending', 'Available', '']}
+        <Table head={['Leave Type', 'Credited', 'Carried forward', 'Used', 'Pending', 'Balance', 'Can still apply', '']}
           empty={rows.length === 0 && 'No leave types apply.'}>
           {rows.map(b => (
             <tr key={b.leaveTypeCode}>
               <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 500 }}>{b.leaveTypeName}</td>
               {b.unlimited ? (
-                <td style={tdS} colSpan={5}><Badge tone="info">Unlimited</Badge></td>
+                <td style={tdS} colSpan={6}><Badge tone="info">Unlimited</Badge></td>
               ) : (
                 <>
-                  <td style={tdS}>{days(b.totalDays)}{b.entitlementBasis === 'PER_OCCURRENCE' ? ' / occurrence' : ''}</td>
+                  <td style={tdS}>
+                    {days(b.totalDays)}{b.entitlementBasis === 'PER_OCCURRENCE' ? ' / occurrence' : ''}
+                    {b.entitlementBasis === 'ANNUAL' && b.annualQuotaDays != null && (
+                      <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
+                        of {days(b.annualQuotaDays)} · {frequencyLabel(b.creditFrequency)}
+                        {b.nextCreditDate ? ` · next ${days(b.nextCreditDays)} on ${fmtDate(b.nextCreditDate)}` : ''}
+                      </div>
+                    )}
+                  </td>
                   <td style={tdS}>
                     {b.entitlementBasis === 'ANNUAL' ? (
                       <>
@@ -572,10 +701,15 @@ function EmployeeBalances({ token, canEdit }: { token: string; canEdit: boolean 
                   </td>
                   <td style={tdS}>{days(b.usedDays)}</td>
                   <td style={tdS}>{days(b.pendingDays)}</td>
-                  <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{days(b.remainingDays)}</td>
+                  <td style={{ ...tdS, fontWeight: 600, color: (b.remainingDays ?? 0) < 0 ? 'var(--warn, #b7791f)' : 'var(--txt)' }}>
+                    {days(b.remainingDays)}
+                    {(b.remainingDays ?? 0) < 0 && <div style={{ fontSize: 11, fontWeight: 400 }}>taken in advance</div>}
+                  </td>
+                  <td style={tdS}>{b.entitlementBasis === 'ANNUAL' ? days(b.availableToApplyDays) : days(b.remainingDays)}</td>
                 </>
               )}
-              <td style={{ ...tdS, textAlign: 'right' }}>
+              <td style={{ ...tdS, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                {b.balanceId && <button style={{ ...secondaryBtn, marginRight: canEdit ? 6 : 0 }} onClick={() => setCredits(b)}>Credits</button>}
                 {canEdit && b.balanceId && <button style={secondaryBtn} onClick={() => setAdjusting(b)}>Adjust</button>}
               </td>
             </tr>
@@ -585,6 +719,9 @@ function EmployeeBalances({ token, canEdit }: { token: string; canEdit: boolean 
       {adjusting && selected && (
         <AdjustDialog balance={adjusting} employeeName={label(selected)} token={token} onClose={() => setAdjusting(null)}
           onSaved={() => { showToast('success', 'Balance adjusted'); void load(); }} />
+      )}
+      {credits && selected && (
+        <CreditHistoryDialog balance={credits} employeeName={label(selected)} token={token} onClose={() => setCredits(null)} />
       )}
     </div>
   );
@@ -598,10 +735,12 @@ function EntitlementsArea({ types, token, canConfigure, canEdit, reload }: {
   return (
     <div>
       <p style={hintS}>
-        Regular paid leave is granted per leave year (January–December), each type on its own balance. Per-occurrence
-        leave such as Maternity is granted once per eligible occurrence, not every year. Unpaid leave is unlimited.
+        Regular paid leave has a yearly quota (January–December), each type on its own balance, credited either all at once
+        on 1 January or a twelfth on the 1st of each month. With monthly crediting employees may apply for up to the whole
+        year's quota in advance. Per-occurrence leave such as Maternity is granted once per eligible occurrence. Unpaid leave
+        is unlimited.
       </p>
-      <Table head={['Leave Type', 'Basis', `Entitlement in ${CURRENT_YEAR}`, '']} empty={types.length === 0 && 'No leave types configured yet.'}>
+      <Table head={['Leave Type', 'Basis', `Entitlement in ${CURRENT_YEAR}`, 'Crediting', '']} empty={types.length === 0 && 'No leave types configured yet.'}>
         {types.map(t => (
           <tr key={t.id}>
             <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 500 }}>
@@ -609,6 +748,9 @@ function EntitlementsArea({ types, token, canConfigure, canEdit, reload }: {
             </td>
             <td style={tdS}>{t.classification === 'UNPAID' ? 'Unpaid' : t.entitlementBasis === 'PER_OCCURRENCE' ? 'Per occurrence' : 'Per leave year'}</td>
             <td style={tdS}>{t.classification === 'UNPAID' ? <Badge tone="info">Unlimited</Badge> : entitlementLabel(t)}</td>
+            <td style={tdS}>
+              {t.classification === 'PAID' && t.entitlementBasis === 'ANNUAL' ? frequencyLabel(t.currentCreditFrequency) : '–'}
+            </td>
             <td style={{ ...tdS, textAlign: 'right' }}>
               {t.classification === 'PAID' && (
                 <button style={secondaryBtn} onClick={() => setEditing(t)}>{canConfigure ? 'Change' : 'History'}</button>
@@ -623,7 +765,37 @@ function EntitlementsArea({ types, token, canConfigure, canEdit, reload }: {
       ) : (
         <EntitlementHistoryDialog type={editing} token={token} onClose={() => setEditing(null)} />
       ))}
+      <CreditingRun token={token} canConfigure={canConfigure} />
       <EmployeeBalances token={token} canEdit={canEdit} />
+    </div>
+  );
+}
+
+function CreditingRun({ token, canConfigure }: { token: string; canConfigure: boolean }) {
+  const { showToast } = useToast();
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    setBusy(true);
+    try {
+      const r = await leaveConfigApi.runAccrual(token);
+      showToast(r.failures > 0 ? 'error' : 'success',
+        `${r.creditsAdded} employee balance(s) credited${r.failures > 0 ? `, ${r.failures} failed — run again to retry` : ''}`);
+    } catch (e) {
+      showToast('error', errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div style={{ marginTop: 28 }}>
+      <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Crediting</h2>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <p style={{ ...hintS, maxWidth: 640 }}>
+          Runs automatically every night: whatever is due is credited, once. New joiners get their joining month in full.
+          Nothing more is credited after an employee's last working month, or for a type that no longer applies to them.
+        </p>
+        {canConfigure && <button style={primaryBtn(busy)} disabled={busy} onClick={run}>{busy ? 'Crediting…' : 'Run crediting now'}</button>}
+      </div>
     </div>
   );
 }
@@ -634,7 +806,7 @@ function EntitlementHistoryDialog({ type, token, onClose }: { type: LeaveType; t
   useEffect(() => { leaveConfigApi.listEntitlements(type.id, token).then(setHistory).catch(e => setError(errMsg(e))); }, [type.id, token]);
   return (
     <ConfirmDialog title={`${type.name} entitlement history`} onClose={onClose}
-      body={error || (history === null ? 'Loading…' : history.map(h => `${h.effectiveYear <= 2000 ? 'Default' : `From ${h.effectiveYear}`}: ${days(h.days)} days`).join(' · ') || 'None')} />
+      body={error || (history === null ? 'Loading…' : history.map(h => `${h.effectiveYear <= 2000 ? 'Default' : `From ${h.effectiveYear}`}: ${days(h.days)} days${type.entitlementBasis === 'ANNUAL' ? `, ${frequencyLabel(h.creditFrequency).toLowerCase()}` : ''}`).join(' · ') || 'None')} />
   );
 }
 
@@ -810,10 +982,25 @@ export default function LeaveConfigSection({ token }: { token: string }) {
   const [types, setTypes] = useState<LeaveType[] | null>(null);
   const [error, setError] = useState('');
 
+  const [lookups, setLookups] = useState<Lookups>({ departments: [], locations: [], employees: [] });
+
   const reload = useCallback(async () => {
     try { setTypes(await leaveConfigApi.listTypes(token)); setError(''); } catch (e) { setError(errMsg(e)); }
   }, [token]);
   useEffect(() => { if (token) void reload(); }, [token, reload]);
+  useEffect(() => {
+    if (!token) return;
+    // Best effort: without them the "applies to" editor just offers fewer choices.
+    Promise.all([
+      orgApi.listDepartments(token).catch(() => []),
+      orgApi.listLocations(token).catch(() => []),
+      leaveConfigApi.employees(token).catch(() => []),
+    ]).then(([d, l, e]) => setLookups({
+      departments: d.filter(x => x.active).map(x => ({ id: x.id, name: x.name })),
+      locations: l.filter(x => x.active).map(x => ({ id: x.id, name: x.name })),
+      employees: e,
+    }));
+  }, [token]);
 
   const tabs = useMemo(() => [
     { key: 'types' as const, label: 'Leave Types' },
@@ -828,7 +1015,7 @@ export default function LeaveConfigSection({ token }: { token: string }) {
       {types === null && !error ? (
         <p style={hintS}>Loading…</p>
       ) : types && (
-        area === 'types' ? <LeaveTypesArea types={types} token={token} canConfigure={canConfigure} reload={reload} />
+        area === 'types' ? <LeaveTypesArea types={types} token={token} canConfigure={canConfigure} lookups={lookups} reload={reload} />
           : area === 'entitlements' ? <EntitlementsArea types={types} token={token} canConfigure={canConfigure} canEdit={canEdit} reload={reload} />
             : <CarryForwardArea types={types} token={token} canConfigure={canConfigure} reload={reload} />
       )}

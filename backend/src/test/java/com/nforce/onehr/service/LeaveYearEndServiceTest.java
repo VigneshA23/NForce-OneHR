@@ -65,7 +65,7 @@ class LeaveYearEndServiceTest {
         annual = LeaveType.builder().id(UUID.randomUUID()).code("ANNUAL").name("Annual Leave")
                 .carryForwardEnabled(true).carryForwardMaxDays(new BigDecimal("5")).carryForwardExpiryMonths(3).build();
         sick = LeaveType.builder().id(UUID.randomUUID()).code("SICK").name("Sick Leave").build();
-        LeaveBalanceService balances = new LeaveBalanceService(typeRepo, balanceRepo, requestRepo, policyRepo, occurrenceRepo,
+        LeaveBalanceService balances = TestLeaveBalances.over(typeRepo, balanceRepo, requestRepo, policyRepo, occurrenceRepo,
                 new AttendanceProperties());
         service = new LeaveYearEndService(typeRepo, balanceRepo, transferRepo, requestRepo, employeeRepo, balances,
                 auditService, new AuditSnapshotSerializer(new ObjectMapper()), txManager);

@@ -2,7 +2,11 @@ package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.CreateLeaveTypeRequest;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
+import com.nforce.onehr.dto.LeaveConfigDtos.AccrualCreditResponse;
+import com.nforce.onehr.dto.LeaveConfigDtos.AccrualRunResult;
 import com.nforce.onehr.dto.LeaveConfigDtos.BalanceAdjustmentRequest;
+import com.nforce.onehr.dto.LeaveConfigDtos.EligibilityConfig;
+import com.nforce.onehr.dto.LeaveConfigDtos.EligibilityPreview;
 import com.nforce.onehr.dto.LeaveConfigDtos.CarryForwardSettingsRequest;
 import com.nforce.onehr.dto.LeaveConfigDtos.CarryForwardTransferResponse;
 import com.nforce.onehr.dto.LeaveConfigDtos.EntitlementChangeRequest;
@@ -12,6 +16,7 @@ import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.dto.UpdateLeaveTypeRequest;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
+import com.nforce.onehr.service.LeaveAccrualService;
 import com.nforce.onehr.service.LeaveTypeService;
 import com.nforce.onehr.service.LeaveYearEndService;
 import jakarta.validation.Valid;
@@ -38,6 +43,7 @@ public class LeaveConfigController {
 
     private final LeaveTypeService leaveTypeService;
     private final LeaveYearEndService leaveYearEndService;
+    private final LeaveAccrualService leaveAccrualService;
     private final UserRepository userRepository;
 
     // ── Leave types ──
@@ -77,6 +83,22 @@ public class LeaveConfigController {
         leaveTypeService.delete(id, principal.getName());
     }
 
+    // ── Who a type applies to ──
+
+    @PutMapping("/types/{id}/eligibility")
+    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
+    public LeaveTypeResponse updateEligibility(@PathVariable UUID id, @Valid @RequestBody EligibilityConfig config,
+                                               Principal principal) {
+        return leaveTypeService.updateEligibility(id, config, principal.getName());
+    }
+
+    /** How many current employees a set of "applies to" rules would cover (for the dialog's live count). */
+    @PostMapping("/types/eligibility-preview")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public EligibilityPreview previewEligibility(@Valid @RequestBody EligibilityConfig config) {
+        return leaveTypeService.previewEligibility(config);
+    }
+
     // ── Entitlements ──
 
     @GetMapping("/types/{id}/entitlements")
@@ -114,6 +136,23 @@ public class LeaveConfigController {
         User actor = userRepository.findByEmail(principal.getName())
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
         return leaveYearEndService.run(fromYear, actor.getId());
+    }
+
+    // ── Crediting ──
+
+    /** Credits everything due now (the nightly job does the same; safe to repeat). */
+    @PostMapping("/accrual/run")
+    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
+    public AccrualRunResult runAccrual(Principal principal) {
+        User actor = userRepository.findByEmail(principal.getName())
+                .orElseThrow(() -> new IllegalStateException("Actor not found"));
+        return leaveAccrualService.run(actor.getId());
+    }
+
+    @GetMapping("/balances/{balanceId}/credits")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public List<AccrualCreditResponse> creditHistory(@PathVariable UUID balanceId) {
+        return leaveTypeService.creditHistory(balanceId);
     }
 
     // ── Employee balances ──

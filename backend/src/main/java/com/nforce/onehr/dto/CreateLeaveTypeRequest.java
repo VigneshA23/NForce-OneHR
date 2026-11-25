@@ -36,6 +36,10 @@ public class CreateLeaveTypeRequest {
     @DecimalMax("999")
     private BigDecimal entitlementDays;
 
+    /** Annual paid types: YEARLY (all at once, default) or MONTHLY. */
+    @Pattern(regexp = "YEARLY|MONTHLY", message = "creditFrequency must be YEARLY or MONTHLY")
+    private String creditFrequency;
+
     /** Required for PER_OCCURRENCE. */
     @Min(1)
     @Max(120)

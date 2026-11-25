@@ -1,10 +1,13 @@
 # Leave and Holidays.
 #
-# Authored from LeaveService, LeaveBalanceService, LeaveController and migrations V19/V140/V153/V310.
+# Authored from LeaveService, LeaveBalanceService, LeaveAccrualService, LeaveEligibilityService,
+# LeaveController and migrations V19/V140/V153/V310/V314.
 # Stated plainly because a plausible wrong answer about someone's leave is worse than no answer:
 #   1. There is no cancel or withdraw path. LeaveService has no CANCELLED status.
-#   2. Since V310 every paid leave type has its OWN balance (the old Annual/Sick/Casual shared balance
-#      is gone); unpaid leave is unlimited; Maternity is granted per eligible occurrence.
+#   2. Since V314 the built-in types are Paid Leave and Unpaid Leave (Annual, Sick and Casual were merged
+#      into Paid Leave); HR may add more. Each paid type has its OWN balance with a yearly quota credited
+#      all at once or monthly; unpaid leave is unlimited; Maternity is granted per eligible occurrence.
+#      A type can be limited to some employees (e.g. Maternity to female employees).
 
 knowledge:
 
@@ -103,7 +106,7 @@ knowledge:
     module: leave
     pageId: leave
     actionId: leave.balance
-    version: 3
+    version: 4
     audience: [EMPLOYEE, MANAGER, HR, ADMIN]
     title: Checking your leave balance
     synonyms:
@@ -120,17 +123,33 @@ knowledge:
       each Paid leave type. Unpaid leave types have no balance to show, since they never draw from
       one.
 
-      How the available figure is worked out: available = total entitlement, minus days already
-      used on approved leave, minus days reserved by requests that are still pending.
+      How the available figure is worked out: available = days credited to you so far this year,
+      minus days already used on approved leave, minus days reserved by requests that are still
+      pending.
+
+      Each paid leave type has a yearly quota that HR sets, credited in one of two ways:
+      - Monthly: a twelfth of the quota is added on the 1st of every month (for example 1.25 days a
+        month for 15 days a year). The month you join counts in full. With monthly crediting you
+        may apply for more than has been credited so far, up to the whole year's quota; the extra
+        days are taken in advance, your balance shows as negative, and the next credits cover it.
+      - All at once: the whole year's quota is added on 1 January. Someone who joins mid-year gets
+        the months left in the year, counting the joining month, rounded to half a day.
+      Credits stop after your last working month.
 
       Pending requests are deducted even though they have not been approved. This is deliberate: it
       stops two pending requests between them exceeding your entitlement. If a pending request is
       rejected, the days it was holding come back.
 
-      Every paid leave type has its own separate balance: taking annual leave never reduces sick
-      or casual leave, and the other way round. Regular paid leave is granted per leave year
-      (January to December). Unpaid leave is unlimited and never uses a paid balance, but it can
-      only be applied for once your paid leave is used up. Maternity leave is granted once per
+      The built-in leave types are Paid Leave and Unpaid Leave. The old Annual, Sick and Casual
+      leave types were merged into Paid Leave, adding their balances together; older requests still
+      show their original type name. HR can add more types. Every paid leave type has its own
+      separate balance, granted per leave year (January to December). Unpaid leave is unlimited and
+      never uses a paid balance, but it can only be applied for once your credited paid leave is
+      used up.
+
+      HR can limit a leave type to some employees, for example by gender, department, location or
+      employment type; Maternity leave applies to female employees. You only see, and can only
+      apply for, the types that apply to you. Maternity leave is granted once per
       eligible occurrence, not every year; further requests for the same occurrence draw on the
       same entitlement.
 

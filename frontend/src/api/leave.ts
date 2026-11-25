@@ -17,6 +17,18 @@ export type LeaveTypeClassification = 'PAID' | 'UNPAID';
 /** ANNUAL = a yearly balance; PER_OCCURRENCE = e.g. Maternity, per eligible occurrence; UNLIMITED = unpaid. */
 export type EntitlementBasis = 'ANNUAL' | 'PER_OCCURRENCE' | 'UNLIMITED';
 export type CarryForwardPriority = 'CARRY_FORWARD_FIRST' | 'CURRENT_FIRST';
+/** YEARLY = the whole quota at once on 1 January; MONTHLY = quota / 12 on the 1st of each month. */
+export type CreditFrequency = 'YEARLY' | 'MONTHLY';
+
+/** Who a leave type applies to. Empty lists = no restriction of that kind. */
+export interface EligibilityConfig {
+  genders: string[];
+  departmentIds: string[];
+  locationIds: string[];
+  employmentTypes: string[];
+  includeEmployeeIds: string[];
+  excludeEmployeeIds: string[];
+}
 
 export interface LeaveType {
   id: string;
@@ -25,9 +37,13 @@ export interface LeaveType {
   classification: LeaveTypeClassification;
   entitlementBasis: EntitlementBasis;
   active: boolean;
+  /** PAID / UNPAID for the two built-in types: can be renamed, never deleted, deactivated or reclassified. */
+  systemKey?: 'PAID' | 'UNPAID' | null;
   // Filled only by the Leave Configuration listing (leaveConfigApi.listTypes).
   occurrenceWindowMonths?: number | null;
   currentEntitlementDays?: number | null;
+  currentCreditFrequency?: CreditFrequency | null;
+  eligibility?: EligibilityConfig | null;
   carryForwardEnabled?: boolean;
   carryForwardMaxDays?: number | null;
   carryForwardExpiryMonths?: number | null;
@@ -42,6 +58,7 @@ export interface CreateLeaveTypePayload {
   classification: LeaveTypeClassification;
   entitlementBasis?: 'ANNUAL' | 'PER_OCCURRENCE';
   entitlementDays?: number;
+  creditFrequency?: CreditFrequency;
   occurrenceWindowMonths?: number;
 }
 
@@ -78,6 +95,15 @@ export interface LeaveBalance {
   carriedForwardExpiresOn?: string | null;
   occurrenceStartDate?: string | null;
   occurrenceWindowEndDate?: string | null;
+  // Crediting (regular paid types). totalDays = credited so far; remainingDays can go negative.
+  creditFrequency?: CreditFrequency | null;
+  /** This year's full quota for this employee: credited + still to come. */
+  annualQuotaDays?: number | null;
+  upcomingCreditDays?: number | null;
+  /** What a new request may use, including credits still to come this year (leave in advance). */
+  availableToApplyDays?: number | null;
+  nextCreditDate?: string | null;
+  nextCreditDays?: number | null;
 }
 
 export interface LeaveRequestRecord {
@@ -89,6 +115,8 @@ export interface LeaveRequestRecord {
   employeeCode: string | null;
   leaveTypeCode: string;
   leaveTypeName: string;
+  /** The type before every type was merged into Paid / Unpaid (e.g. "Sick Leave"); null otherwise. */
+  originalLeaveTypeName?: string | null;
   leaveTypeClassification: LeaveTypeClassification;
   startDate: string;
   endDate: string;
@@ -114,9 +142,13 @@ export interface SubmitLeaveRequestPayload {
 }
 
 export const leaveApi = {
-  /** Active leave types only — what a new request may use. */
+  /** Active leave types only (all of them, for admin pickers). */
   listTypes: (token: string) =>
     fetch(`${BASE}/types`, { headers: authHeaders(token) }).then(handle<LeaveType[]>),
+
+  /** The active types the caller may apply for (their "applies to" rules) — the request form. */
+  listMyTypes: (token: string) =>
+    fetch(`${BASE}/types/mine`, { headers: authHeaders(token) }).then(handle<LeaveType[]>),
 
   listBalances: (token: string) =>
     fetch(`${BASE}/balances`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
@@ -165,6 +197,7 @@ export interface EntitlementPolicy {
   id: string;
   effectiveYear: number;
   days: number;
+  creditFrequency: CreditFrequency;
   createdByName: string;
   createdAt: string;
 }
@@ -200,6 +233,22 @@ export interface YearEndRunResult {
   failures: number;
 }
 
+export interface AccrualRunResult {
+  year: number;
+  employeesChecked: number;
+  creditsAdded: number;
+  failures: number;
+}
+
+export interface AccrualCredit {
+  year: number;
+  month: number;
+  days: number;
+  /** ACCRUAL = a real credit; MIGRATION = a month covered by a balance from before crediting existed. */
+  source: 'ACCRUAL' | 'MIGRATION';
+  creditedAt: string;
+}
+
 export interface DirectoryEmployee {
   userId: string;
   name: string;
@@ -218,8 +267,16 @@ export const leaveConfigApi = {
   deleteType: (id: string, token: string) => send<void>('DELETE', `${CONFIG}/types/${id}`, token),
 
   listEntitlements: (id: string, token: string) => send<EntitlementPolicy[]>('GET', `${CONFIG}/types/${id}/entitlements`, token),
-  changeEntitlement: (id: string, payload: { effectiveYear: number; days: number; applyToExistingBalances: boolean }, token: string) =>
+  changeEntitlement: (id: string, payload: { effectiveYear: number; days: number; creditFrequency?: CreditFrequency; applyToExistingBalances: boolean }, token: string) =>
     send<EntitlementPolicy[]>('POST', `${CONFIG}/types/${id}/entitlements`, token, payload),
+
+  updateEligibility: (id: string, config: EligibilityConfig, token: string) =>
+    send<LeaveType>('PUT', `${CONFIG}/types/${id}/eligibility`, token, config),
+  previewEligibility: (config: EligibilityConfig, token: string) =>
+    send<{ eligibleCount: number; totalCount: number }>('POST', `${CONFIG}/types/eligibility-preview`, token, config),
+
+  runAccrual: (token: string) => send<AccrualRunResult>('POST', `${CONFIG}/accrual/run`, token),
+  creditHistory: (balanceId: string, token: string) => send<AccrualCredit[]>('GET', `${CONFIG}/balances/${balanceId}/credits`, token),
 
   updateCarryForward: (id: string, payload: CarryForwardSettings, token: string) =>
     send<LeaveType>('PUT', `${CONFIG}/types/${id}/carry-forward`, token, payload),

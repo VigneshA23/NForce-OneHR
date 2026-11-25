@@ -17,6 +17,10 @@ public class LeaveType {
     /** e.g. Maternity: an entitlement per eligible occurrence, kept in {@link LeaveOccurrence} (V310). */
     public static final String BASIS_PER_OCCURRENCE = "PER_OCCURRENCE";
 
+    /** The two built-in types (V314): every install has exactly one of each; never deleted or reclassified. */
+    public static final String SYSTEM_PAID = "PAID";
+    public static final String SYSTEM_UNPAID = "UNPAID";
+
     public static final String CF_FIRST = "CARRY_FORWARD_FIRST";
     public static final String CURRENT_FIRST = "CURRENT_FIRST";
 
@@ -35,6 +39,10 @@ public class LeaveType {
     @Column(nullable = false, length = 10)
     @Builder.Default
     private String classification = LeaveTypeClassification.PAID;
+
+    /** SYSTEM_PAID / SYSTEM_UNPAID for the built-in types, null for types HR added. */
+    @Column(name = "system_key", length = 10)
+    private String systemKey;
 
     /** Inactive types stay on historical requests but can't be chosen for new ones. */
     @Column(nullable = false)
@@ -71,6 +79,10 @@ public class LeaveType {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+    }
+
+    public boolean isSystem() {
+        return systemKey != null;
     }
 
     public boolean isPaid() {

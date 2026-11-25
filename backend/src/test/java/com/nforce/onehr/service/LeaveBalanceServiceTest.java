@@ -64,7 +64,7 @@ class LeaveBalanceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new LeaveBalanceService(typeRepo, balanceRepo, requestRepo, policyRepo, occurrenceRepo, new AttendanceProperties());
+        service = TestLeaveBalances.over(typeRepo, balanceRepo, requestRepo, policyRepo, occurrenceRepo, new AttendanceProperties());
         lenient().when(balanceRepo.findByEmployeeUserIdAndLeaveTypeIdAndYear(any(), any(), any()))
                 .thenAnswer(inv -> Optional.ofNullable(table.get(inv.getArgument(1) + ":" + inv.getArgument(2))));
         lenient().when(balanceRepo.insertIfAbsent(any(), any(), anyInt(), any())).thenAnswer(inv -> {
@@ -116,7 +116,7 @@ class LeaveBalanceServiceTest {
     void regularPaidBalance_isCreatedFromTheConfiguredPolicy_15Days() {
         LeaveBalance b = service.ensureBalance(emp, annual, Y);
         assertDays("15", b.getTotalDays());
-        verify(balanceRepo).insertIfAbsent(emp, annual.getId(), Y, new BigDecimal("15"));
+        verify(balanceRepo).insertIfAbsent(emp, annual.getId(), Y, BigDecimal.ZERO); // created at 0 credited, then credited (V314);
     }
 
     @Test
@@ -307,8 +307,8 @@ class LeaveBalanceServiceTest {
     void newHireAndNewType_getBalancesForEveryActiveRegularPaidTypeOnly() {
         when(typeRepo.findByActiveTrueOrderByNameAsc()).thenReturn(List.of(annual, sick, unpaid, maternity));
         service.ensureBalances(emp, Y);
-        verify(balanceRepo).insertIfAbsent(emp, annual.getId(), Y, new BigDecimal("15"));
-        verify(balanceRepo).insertIfAbsent(emp, sick.getId(), Y, new BigDecimal("15"));
+        verify(balanceRepo).insertIfAbsent(emp, annual.getId(), Y, BigDecimal.ZERO);
+        verify(balanceRepo).insertIfAbsent(emp, sick.getId(), Y, BigDecimal.ZERO);
         verify(balanceRepo, times(2)).insertIfAbsent(any(), any(), anyInt(), any());
     }
 }

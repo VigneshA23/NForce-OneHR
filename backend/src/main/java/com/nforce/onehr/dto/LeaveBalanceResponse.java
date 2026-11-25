@@ -22,18 +22,30 @@ public class LeaveBalanceResponse {
     /** Unpaid leave: no limit — every numeric field below is null. */
     private boolean unlimited;
     private Integer year;
-    /** Current-year entitlement (ANNUAL) or the occurrence entitlement (PER_OCCURRENCE). */
+    /** Days credited so far this year (ANNUAL) or the occurrence entitlement (PER_OCCURRENCE). */
     private BigDecimal totalDays;
     /** Used from the current-year entitlement plus used from the carried-forward bucket. */
     private BigDecimal usedDays;
     private BigDecimal pendingDays;
-    /** What a new request can still draw on: current + usable carried-forward - used - pending. */
+    /** Balance from credited days: current + usable carried-forward - used - pending. Negative = days taken in advance. */
     private BigDecimal remainingDays;
     private BigDecimal carriedForwardDays;
     private BigDecimal carriedForwardUsedDays;
     private BigDecimal carriedForwardExpiredDays;
     private BigDecimal carriedForwardRemainingDays;
     private LocalDate carriedForwardExpiresOn;
+    // ── Crediting (V314, ANNUAL only) ──
+    /** YEARLY (all at once) or MONTHLY. */
+    private String creditFrequency;
+    /** This year's full entitlement for this employee: credited so far plus credits still to come. */
+    private BigDecimal annualQuotaDays;
+    /** Credits still to come this year (what may be taken in advance). */
+    private BigDecimal upcomingCreditDays;
+    /** What a new request may use including advance: remaining + upcoming credits. Can exceed remainingDays. */
+    private BigDecimal availableToApplyDays;
+    private LocalDate nextCreditDate;
+    private BigDecimal nextCreditDays;
+
     /** PER_OCCURRENCE: the current occurrence's window, null when none is open yet (full entitlement available). */
     private LocalDate occurrenceStartDate;
     private LocalDate occurrenceWindowEndDate;

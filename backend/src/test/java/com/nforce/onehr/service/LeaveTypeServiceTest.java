@@ -35,6 +35,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -51,6 +52,7 @@ class LeaveTypeServiceTest {
     @Mock private EmployeeRepository employeeRepo;
     @Mock private AuditService auditService;
     @Mock private LeaveYearEndService yearEndService;
+    @Mock private LeaveAccrualService accrual;
 
     private LeaveTypeService service;
     private final User admin = User.builder().id(UUID.randomUUID()).email("hr@test.com").build();
@@ -58,9 +60,9 @@ class LeaveTypeServiceTest {
 
     @BeforeEach
     void setUp() {
-        LeaveBalanceService balances = new LeaveBalanceService(typeRepo, balanceRepo, requestRepo, policyRepo, occurrenceRepo,
+        LeaveBalanceService balances = TestLeaveBalances.over(typeRepo, balanceRepo, requestRepo, policyRepo, occurrenceRepo,
                 new AttendanceProperties());
-        service = new LeaveTypeService(typeRepo, policyRepo, balanceRepo, balances, yearEndService, userRepo, employeeRepo,
+        service = new LeaveTypeService(typeRepo, policyRepo, balanceRepo, balances, yearEndService, accrual, TestLeaveBalances.everyoneEligible(), userRepo, employeeRepo,
                 auditService, new AuditSnapshotSerializer(new ObjectMapper()));
         annual = LeaveType.builder().id(UUID.randomUUID()).code("ANNUAL").name("Annual Leave").build();
         lenient().when(userRepo.findByEmail("hr@test.com")).thenReturn(Optional.of(admin));
@@ -225,21 +227,49 @@ class LeaveTypeServiceTest {
     @Test
     void entitlementChange_leavesExistingBalancesAlone_unlessAskedTo_andThenOnlyTheYearsItGoverns() {
         when(policyRepo.findByLeaveTypeIdAndEffectiveYear(annual.getId(), 2027)).thenReturn(Optional.empty());
-        service.changeEntitlement(annual.getId(), new EntitlementChangeRequest(2027, new BigDecimal("18"), false), "hr@test.com");
-        verify(balanceRepo, never()).findByLeaveTypeIdAndYearGreaterThanEqual(any(), any());
+        service.changeEntitlement(annual.getId(), new EntitlementChangeRequest(2027, new BigDecimal("18"), "MONTHLY", false), "hr@test.com");
+        verify(accrual, never()).recreditExisting(any(), anyInt(), anyInt());
+        ArgumentCaptor<LeaveEntitlementPolicy> saved = ArgumentCaptor.forClass(LeaveEntitlementPolicy.class);
+        verify(policyRepo).save(saved.capture());
+        assertEquals("MONTHLY", saved.getValue().getCreditFrequency());
 
-        LeaveBalance y2027 = LeaveBalance.builder().leaveType(annual).year(2027).totalDays(new BigDecimal("15")).usedDays(BigDecimal.ONE).build();
-        LeaveBalance y2028 = LeaveBalance.builder().leaveType(annual).year(2028).totalDays(new BigDecimal("20")).usedDays(BigDecimal.ZERO).build();
         when(policyRepo.findByLeaveTypeIdOrderByEffectiveYearDesc(annual.getId())).thenReturn(List.of(
                 LeaveEntitlementPolicy.builder().effectiveYear(2028).days(new BigDecimal("20")).build(),
                 LeaveEntitlementPolicy.builder().effectiveYear(2027).days(new BigDecimal("18")).build()));
-        when(balanceRepo.findByLeaveTypeIdAndYearGreaterThanEqual(annual.getId(), 2027)).thenReturn(List.of(y2027, y2028));
-
-        service.changeEntitlement(annual.getId(), new EntitlementChangeRequest(2027, new BigDecimal("18"), true), "hr@test.com");
-        assertEquals(0, new BigDecimal("18").compareTo(y2027.getTotalDays()));
-        assertEquals(0, BigDecimal.ONE.compareTo(y2027.getUsedDays()));
-        assertEquals(0, new BigDecimal("20").compareTo(y2028.getTotalDays())); // governed by the later 2028 policy
+        service.changeEntitlement(annual.getId(), new EntitlementChangeRequest(2027, new BigDecimal("18"), null, true), "hr@test.com");
+        verify(accrual).recreditExisting(annual, 2027, 2028); // 2028 onwards is governed by the later policy
         verify(auditService, times(2)).log(eq(admin.getId()), eq("LEAVE_ENTITLEMENT_CHANGED"), eq(annual.getId()), any(), any());
+    }
+
+    @Test
+    void entitlementChange_withoutFrequency_keepsTheFrequencyInForce() {
+        when(accrual.policyFor(annual, 2027)).thenReturn(Optional.of(LeaveEntitlementPolicy.builder()
+                .effectiveYear(2000).days(new BigDecimal("15")).creditFrequency("MONTHLY").build()));
+        when(policyRepo.findByLeaveTypeIdAndEffectiveYear(annual.getId(), 2027)).thenReturn(Optional.empty());
+        service.changeEntitlement(annual.getId(), new EntitlementChangeRequest(2027, new BigDecimal("12"), null, false), "hr@test.com");
+        ArgumentCaptor<LeaveEntitlementPolicy> saved = ArgumentCaptor.forClass(LeaveEntitlementPolicy.class);
+        verify(policyRepo).save(saved.capture());
+        assertEquals("MONTHLY", saved.getValue().getCreditFrequency());
+    }
+
+    // ── built-in types ──
+
+    @Test
+    void builtInTypes_cantBeDeletedDeactivatedOrReclassified_butCanBeRenamed() {
+        LeaveType paid = LeaveType.builder().id(UUID.randomUUID()).code("PAID").name("Paid Leave").systemKey(LeaveType.SYSTEM_PAID).build();
+        when(typeRepo.findById(paid.getId())).thenReturn(Optional.of(paid));
+        assertThrows(IllegalArgumentException.class, () -> service.delete(paid.getId(), "hr@test.com"));
+        assertThrows(IllegalArgumentException.class, () -> service.setActive(paid.getId(), false, "hr@test.com"));
+        UpdateLeaveTypeRequest reclassify = new UpdateLeaveTypeRequest();
+        reclassify.setClassification("UNPAID");
+        assertThrows(IllegalArgumentException.class, () -> service.update(paid.getId(), reclassify, "hr@test.com"));
+        verify(typeRepo, never()).delete(any());
+
+        UpdateLeaveTypeRequest rename = new UpdateLeaveTypeRequest();
+        rename.setName("Earned Leave");
+        service.update(paid.getId(), rename, "hr@test.com");
+        assertEquals("Earned Leave", paid.getName());
+        assertTrue(paid.isPaid());
     }
 
     @Test
@@ -247,7 +277,7 @@ class LeaveTypeServiceTest {
         LeaveType lop = LeaveType.builder().id(UUID.randomUUID()).code("LOP").name("LOP").classification("UNPAID").build();
         when(typeRepo.findById(lop.getId())).thenReturn(Optional.of(lop));
         assertThrows(IllegalArgumentException.class,
-                () -> service.changeEntitlement(lop.getId(), new EntitlementChangeRequest(2027, BigDecimal.TEN, false), "hr@test.com"));
+                () -> service.changeEntitlement(lop.getId(), new EntitlementChangeRequest(2027, BigDecimal.TEN, null, false), "hr@test.com"));
     }
 
     // ── manual adjustment ──
@@ -272,12 +302,24 @@ class LeaveTypeServiceTest {
     }
 
     @Test
-    void balanceAdjustment_belowWhatIsAlreadyUsed_isRefused() {
+    void balanceAdjustment_belowWhatIsAlreadyUsed_isAllowed_theEmployeeThenOwesDays() {
+        // V314: leave can be taken in advance of monthly credits, so credited < used is a legitimate state.
         LeaveBalance b = LeaveBalance.builder().id(UUID.randomUUID()).employeeUserId(UUID.randomUUID()).leaveType(annual)
                 .year(2026).totalDays(new BigDecimal("15")).usedDays(new BigDecimal("6")).build();
         when(balanceRepo.findById(b.getId())).thenReturn(Optional.of(b));
+        when(balanceRepo.save(any(LeaveBalance.class))).thenAnswer(inv -> inv.getArgument(0));
+        service.adjustBalance(b.getId(), new BalanceAdjustmentRequest(new BigDecimal("5"), BigDecimal.ZERO, "correction"), "hr@test.com");
+        assertEquals(0, new BigDecimal("5").compareTo(b.getTotalDays()));
+    }
+
+    @Test
+    void balanceAdjustment_carriedForwardBelowWhatIsUsed_isStillRefused() {
+        LeaveBalance b = LeaveBalance.builder().id(UUID.randomUUID()).employeeUserId(UUID.randomUUID()).leaveType(annual)
+                .year(2026).totalDays(new BigDecimal("15")).usedDays(BigDecimal.ZERO)
+                .carriedForwardDays(new BigDecimal("4")).carriedForwardUsedDays(new BigDecimal("3")).build();
+        when(balanceRepo.findById(b.getId())).thenReturn(Optional.of(b));
         assertThrows(IllegalArgumentException.class, () -> service.adjustBalance(b.getId(),
-                new BalanceAdjustmentRequest(new BigDecimal("5"), BigDecimal.ZERO, "oops"), "hr@test.com"));
+                new BalanceAdjustmentRequest(new BigDecimal("15"), new BigDecimal("2"), "oops"), "hr@test.com"));
         verify(balanceRepo, never()).save(any());
     }
 }

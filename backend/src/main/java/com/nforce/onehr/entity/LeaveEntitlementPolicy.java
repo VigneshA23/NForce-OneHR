@@ -18,6 +18,11 @@ import java.util.UUID;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class LeaveEntitlementPolicy {
 
+    /** All of the year's days are credited at once, on 1 January (or the joining month, pro-rata). */
+    public static final String YEARLY = "YEARLY";
+    /** Days / 12 credited on the 1st of every month (V314). */
+    public static final String MONTHLY = "MONTHLY";
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
@@ -30,6 +35,11 @@ public class LeaveEntitlementPolicy {
 
     @Column(nullable = false)
     private BigDecimal days;
+
+    /** YEARLY or MONTHLY; ANNUAL types only (ignored for per-occurrence types). */
+    @Column(name = "credit_frequency", nullable = false, length = 10)
+    @Builder.Default
+    private String creditFrequency = YEARLY;
 
     @Column(name = "created_by")
     private UUID createdBy;
