@@ -114,6 +114,29 @@ class LeaveAdvanceTest {
     }
 
     @Test
+    void deactivatedType_isHiddenFromTheEmployee_butListedForHrAsInactive_andIgnoredByPayroll() {
+        LeaveType maternity = LeaveType.builder().id(UUID.randomUUID()).code("MATERNITY").name("maternity").active(false).build();
+        LeaveBalance kept = LeaveBalance.builder().id(UUID.randomUUID()).employeeUserId(emp).leaveType(maternity).year(Y)
+                .totalDays(new BigDecimal("182")).usedDays(BigDecimal.ZERO).build();
+        when(typeRepo.findAllByOrderByNameAsc()).thenReturn(List.of(maternity, paid));
+        when(balanceRepo.findByEmployeeUserIdAndYear(emp, Y)).thenReturn(List.of(kept, balance));
+        lenient().when(accrual.project(emp, maternity, Y)).thenReturn(LeaveAccrualService.Projection.NONE);
+
+        assertEquals(List.of("PAID"), service.balancesFor(emp, Y).stream().map(LeaveBalanceResponse::getLeaveTypeCode).toList());
+
+        List<LeaveBalanceResponse> hr = service.balancesFor(emp, Y, true);
+        assertEquals(List.of("MATERNITY", "PAID"), hr.stream().map(LeaveBalanceResponse::getLeaveTypeCode).toList());
+        assertFalse(hr.get(0).isLeaveTypeActive());
+        assertTrue(hr.get(1).isLeaveTypeActive());
+
+        when(balanceRepo.findByEmployeeUserIdInAndYear(List.of(emp), Y)).thenReturn(List.of(kept, balance));
+        assertEquals(List.of("PAID"), service.existingBalances(List.of(emp), Y).stream().map(LeaveBalanceResponse::getLeaveTypeCode).toList());
+
+        // Payroll: 2 credited Paid days count, the deactivated type's 182 don't.
+        assertEquals(0, new BigDecimal("2").compareTo(new LeaveBalanceAvailabilityService(balanceRepo).availablePaidDays(emp, Y)));
+    }
+
+    @Test
     void ineligibleTypes_getNoBalanceRowAndNoCard() {
         when(typeRepo.findAllByOrderByNameAsc()).thenReturn(List.of(paid, unpaid));
         when(balanceRepo.findByEmployeeUserIdAndYear(emp, Y)).thenReturn(List.of());

@@ -350,7 +350,7 @@ public class LeaveTypeService {
         if (!userRepository.existsById(employeeUserId)) {
             throw new NoSuchElementException("Employee not found");
         }
-        List<LeaveBalanceResponse> rows = leaveBalanceService.balancesFor(employeeUserId, year != null ? year : currentYear());
+        List<LeaveBalanceResponse> rows = leaveBalanceService.balancesFor(employeeUserId, year != null ? year : currentYear(), true);
         rows.forEach(r -> r.setEmployeeUserId(employeeUserId));
         return rows;
     }

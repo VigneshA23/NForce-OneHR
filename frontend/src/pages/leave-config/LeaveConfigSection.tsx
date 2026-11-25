@@ -672,7 +672,14 @@ function EmployeeBalances({ token, canEdit }: { token: string; canEdit: boolean 
           empty={rows.length === 0 && 'No leave types apply.'}>
           {rows.map(b => (
             <tr key={b.leaveTypeCode}>
-              <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 500 }}>{b.leaveTypeName}</td>
+              <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 500 }}>
+                {b.leaveTypeName}
+                {b.leaveTypeActive === false && (
+                  <span style={{ marginLeft: 8 }} title="Deactivated: hidden from the employee, who can't apply for it">
+                    <Badge tone="dim">Inactive</Badge>
+                  </span>
+                )}
+              </td>
               {b.unlimited ? (
                 <td style={tdS} colSpan={6}><Badge tone="info">Unlimited</Badge></td>
               ) : (
