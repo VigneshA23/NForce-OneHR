@@ -33,6 +33,7 @@ function humanizeAction(action: string): string {
 // ("Review Comment") — mirrors humanizeAction's word-splitting for the ACTION column, just
 // splitting on case boundaries instead of underscores since snapshot keys are camelCase.
 function humanizeKey(key: string): string {
+  if (key === 'durationDays') return 'Bench Duration (days)';
   const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, c => c.toUpperCase());
   return spaced.replace(/\bId\b/g, 'ID');
 }

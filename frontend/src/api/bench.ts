@@ -45,6 +45,7 @@ export interface BenchStatusRecord {
   reasonCode: BenchReasonCode;
   startDate: string;
   endDate: string | null;
+  durationDays?: number | null;
   active: boolean;
   agingBucket: string | null;
   closeReason: BenchCloseReason | null;

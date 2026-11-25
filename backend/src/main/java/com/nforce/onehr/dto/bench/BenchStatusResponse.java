@@ -15,6 +15,7 @@ public class BenchStatusResponse {
     private BenchReasonCode reasonCode;
     private LocalDate startDate;
     private LocalDate endDate;
+    private Long durationDays;
     private boolean active;
     private String agingBucket;
     private BenchCloseReason closeReason;

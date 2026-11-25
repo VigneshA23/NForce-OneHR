@@ -274,6 +274,11 @@ const AUDIT_ROWS: AuditLogEntry[] = [
   actionGroup: 'ACCESS', targetId: null, targetLabel: 'Manager', targetEmployeeCode: null, affectedUsers: null,
   beforeState: JSON.stringify({ permissions: 'project_allocations:CREATE:TEAM,project_allocations:VIEW:TEAM,projects:CREATE:TEAM,projects:VIEW:TEAM,leave:APPROVE:TEAM,attendance:VIEW:TEAM' }),
   afterState: JSON.stringify({ permissions: 'project_allocations:CREATE:ALL,project_allocations:VIEW:ALL,projects:CREATE:ALL,projects:VIEW:ALL,leave:APPROVE:ALL,attendance:VIEW:ALL' }),
+} as unknown as AuditLogEntry, {
+  id: 100, occurredAt: '2026-11-25T11:30:00', actorId: null, actorName: 'Anil Kumar Ramtenki', actorEmail: 'anil@nforceone.com', action: 'BENCH_STATUS_CHANGED', actionCategory: 'EMPLOYEE',
+  actionGroup: 'EMPLOYEE', targetId: null, targetLabel: 'Sri vidya', targetEmployeeCode: null, affectedUsers: null,
+  beforeState: JSON.stringify({ startDate: '2026-10-20', endDate: null, durationDays: null, active: true, closeReason: null }),
+  afterState: JSON.stringify({ startDate: '2026-10-20', endDate: '2026-11-25', durationDays: 36, active: false, closeReason: 'RETURNED_TO_ACTIVE' }),
 } as unknown as AuditLogEntry]);
 
 function AuditPillsMock({ showAccess }: { showAccess: boolean }) {

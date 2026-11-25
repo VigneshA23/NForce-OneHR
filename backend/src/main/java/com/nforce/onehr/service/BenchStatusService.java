@@ -198,10 +198,16 @@ public class BenchStatusService {
         fields.put("reasonCode", b.getReasonCode());
         fields.put("startDate", b.getStartDate());
         fields.put("endDate", b.getEndDate());
+        fields.put("durationDays", durationDays(b));
         fields.put("active", b.isActive());
         fields.put("closeReason", b.getCloseReason());
         fields.put("allocationId", b.getAllocationId());
         return snapshotSerializer.toJson(fields);
+    }
+
+    /** US-A06 AC-2: days from bench start to bench end; null while the episode is still open. */
+    private static Long durationDays(BenchStatus b) {
+        return b.getEndDate() == null ? null : ChronoUnit.DAYS.between(b.getStartDate(), b.getEndDate());
     }
 
     private BenchStatusResponse toResponse(BenchStatus b, Employee employee) {
@@ -212,6 +218,7 @@ public class BenchStatusService {
                 .reasonCode(b.getReasonCode())
                 .startDate(b.getStartDate())
                 .endDate(b.getEndDate())
+                .durationDays(durationDays(b))
                 .active(b.isActive())
                 .agingBucket(b.getAgingBucket())
                 .closeReason(b.getCloseReason())
