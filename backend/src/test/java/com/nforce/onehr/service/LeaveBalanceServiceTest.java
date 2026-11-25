@@ -184,6 +184,23 @@ class LeaveBalanceServiceTest {
         assertDays("1", nextYear.getUsedDays());
     }
 
+    @Test
+    void expectedBalancesForAFutureYear_neverCreateARow_andCountLeaveAlreadyRequestedThere() {
+        when(typeRepo.findByActiveTrueOrderByNameAsc()).thenReturn(List.of(annual));
+        when(balanceRepo.findByEmployeeUserIdAndYear(emp, Y + 1)).thenReturn(List.of());
+        LeaveRequest r = pending(annual, LocalDate.of(Y, 12, 30), LocalDate.of(Y + 1, 1, 2), "4");
+        when(requestRepo.findPendingOverlapping(eq(emp), eq(annual.getId()), any(), any())).thenReturn(List.of(r));
+
+        List<com.nforce.onehr.dto.LeaveBalanceResponse> out = service.expectedBalancesFor(emp, Y + 1);
+
+        assertEquals(1, out.size());
+        assertTrue(out.get(0).isExpected());
+        assertEquals(Y + 1, out.get(0).getYear());
+        assertDays("2", out.get(0).getPendingDays());
+        verify(balanceRepo, never()).insertIfAbsent(any(), any(), anyInt(), any());
+        verify(balanceRepo, never()).save(any());
+    }
+
     // ── carried-forward bucket ──
 
     @Test

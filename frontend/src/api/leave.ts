@@ -86,6 +86,8 @@ export interface LeaveBalance {
   /** Unpaid leave: no limit — the numeric fields below are null. */
   unlimited?: boolean;
   year: number;
+  /** The leave year hasn't started: figures are what is expected (annualQuotaDays), nothing is credited yet. */
+  expected?: boolean;
   totalDays: number | null;
   usedDays: number | null;
   pendingDays?: number | null;
@@ -152,12 +154,13 @@ export const leaveApi = {
   listMyTypes: (token: string) =>
     fetch(`${BASE}/types/mine`, { headers: authHeaders(token) }).then(handle<LeaveType[]>),
 
-  listBalances: (token: string) =>
-    fetch(`${BASE}/balances`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
+  /** The caller's balances for the current leave year, or `year` = the next one (a read-only "expected" view). */
+  listBalances: (token: string, year?: number) =>
+    fetch(`${BASE}/balances${year != null ? `?year=${year}` : ''}`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
 
-  /** Current-year balances for the caller's direct reports (each row tagged with employeeUserId). */
-  listTeamBalances: (token: string) =>
-    fetch(`${BASE}/balances/team`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
+  /** Balances for the caller's direct reports (each row tagged with employeeUserId), current or next leave year. */
+  listTeamBalances: (token: string, year?: number) =>
+    fetch(`${BASE}/balances/team${year != null ? `?year=${year}` : ''}`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
 
   submit: (payload: SubmitLeaveRequestPayload, token: string) =>
     fetch(`${BASE}/requests`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),

@@ -37,16 +37,17 @@ public class LeaveController {
         return leaveService.listMyTypes(principal.getName());
     }
 
+    /** The caller's balances for the current leave year, or {@code ?year=} the next one (read-only expected view). */
     @GetMapping("/balances")
-    public List<LeaveBalanceResponse> myBalances(Principal principal) {
-        return leaveService.listMyBalances(principal.getName());
+    public List<LeaveBalanceResponse> myBalances(@RequestParam(required = false) Integer year, Principal principal) {
+        return leaveService.listMyBalances(principal.getName(), year);
     }
 
-    /** Current-year balances for the caller's current direct reports — My Team roster. */
+    /** Balances of the caller's current direct reports — My Team roster — for the current or ({@code ?year=}) next leave year. */
     @PreAuthorize("hasAuthority('leave:VIEW:TEAM')")
     @GetMapping("/balances/team")
-    public List<LeaveBalanceResponse> teamBalances(Principal principal) {
-        return leaveService.listTeamBalances(principal.getName());
+    public List<LeaveBalanceResponse> teamBalances(@RequestParam(required = false) Integer year, Principal principal) {
+        return leaveService.listTeamBalances(principal.getName(), year);
     }
 
     @PostMapping("/requests")

@@ -25,6 +25,12 @@ public class LeaveBalanceResponse {
     /** Unpaid leave: no limit — every numeric field below is null. */
     private boolean unlimited;
     private Integer year;
+    /**
+     * The leave year hasn't started yet: nothing is credited, and the figures are what the employee is
+     * expected to receive under the policy in force ({@code annualQuotaDays}), less leave already requested
+     * in that year. Read-only — viewing a future year never creates a balance row.
+     */
+    private boolean expected;
     /** Days credited so far this year (ANNUAL) or the occurrence entitlement (PER_OCCURRENCE). */
     private BigDecimal totalDays;
     /** Used from the current-year entitlement plus used from the carried-forward bucket. */

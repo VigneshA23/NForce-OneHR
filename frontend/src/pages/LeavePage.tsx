@@ -12,7 +12,7 @@ import { useAuthStore } from '../store/authStore';
 import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { useToast } from '../context/ToastContext';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
-import { roundDays } from '../utils/leaveDays';
+import { daysByYear, roundDays, viewableBalanceYears } from '../utils/leaveDays';
 
 // Notification types that mean "this employee's own leave balance/status may have changed" —
 // mirrors the backend's LeaveService notification events (LEAVE_APPROVED/LEAVE_REJECTED). Every
@@ -119,6 +119,9 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
       </div>
     );
   }
+  if (balance.expected && balance.entitlementBasis !== 'PER_OCCURRENCE') {
+    return <ExpectedBalanceCard balance={balance} accent={accent} />;
+  }
   const perOccurrence = balance.entitlementBasis === 'PER_OCCURRENCE';
   const carried = Number(balance.carriedForwardDays ?? 0);
   const pending = Number(balance.pendingDays ?? 0);
@@ -208,9 +211,69 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
   );
 }
 
+// YE-04: a leave year that hasn't started. Nothing is credited yet, so the card shows the year's
+// expected quota and what is left of it after leave already requested in that year. Read-only.
+function ExpectedBalanceCard({ balance, accent }: { balance: LeaveBalance; accent: string }) {
+  const quota = Number(balance.annualQuotaDays ?? 0);
+  const pending = Number(balance.pendingDays ?? 0);
+  const used = Number(balance.usedDays ?? 0);
+  const available = roundDays(Math.max(0, Number(balance.availableToApplyDays ?? quota - pending - used)));
+  const pct = quota > 0 ? Math.min(100, Math.round((available / quota) * 100)) : 0;
+  const monthly = balance.creditFrequency === 'MONTHLY';
+  return (
+    <div className="nf-section-enter nf-leave-balance-card" style={{
+      background: 'var(--panel)', border: '1px dashed var(--line2)', borderTop: `3px dashed ${accent}`, borderRadius: 16,
+      boxShadow: '0 6px 22px rgba(16, 24, 40, .07)', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 18,
+    }}>
+      <div style={{ position: 'relative', width: 72, height: 72, flexShrink: 0 }}>
+        <svg width={72} height={72} viewBox="0 0 72 72" style={{ transform: 'rotate(-90deg)' }}>
+          <circle cx={36} cy={36} r={RING_RADIUS} fill="none" stroke="var(--raised2)" strokeWidth={7} />
+          {quota > 0 && <circle cx={36} cy={36} r={RING_RADIUS} fill="none" stroke={accent} strokeOpacity={0.55} strokeWidth={7} strokeLinecap="round" strokeDasharray={RING_CIRCUMFERENCE} strokeDashoffset={RING_CIRCUMFERENCE * (1 - pct / 100)} />}
+        </svg>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <span style={{ fontSize: 19, fontWeight: 800, color: 'var(--txt)', fontFamily: 'Inter, sans-serif', lineHeight: 1 }}>{available}</span>
+          <span style={{ fontSize: 8.5, color: 'var(--txt-dim)', marginTop: 1 }}>of {roundDays(quota)}d</span>
+        </div>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--txt-dim)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={balance.leaveTypeName}>
+          {balance.leaveTypeName}
+        </div>
+        {quota <= 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No quota assigned for {balance.year}</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 4 }}>
+              Expected <b style={{ color: 'var(--txt)' }}>{roundDays(quota)}d</b> in {balance.year}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
+              {monthly ? `Credited monthly from 1 Jan ${balance.year}` : `Credited on 1 Jan ${balance.year}`}
+            </div>
+            {pending + used > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{roundDays(pending + used)}d already requested for {balance.year}</div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
-function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, token }: {
-  types: LeaveType[]; balances: LeaveBalance[]; editingRequest?: LeaveRequestRecord | null;
+/** Balance of one type in one leave year, for the request form's per-year check (YE-03/YE-04). */
+type YearCheck = {
+  year: number; days: number; balance: LeaveBalance | null; loading: boolean;
+  /** Credited balance left (current year) or expected balance left (a year that hasn't started). */
+  available: number; applyLimit: number; exceeds: boolean; advance: number;
+};
+
+/** Same wording as the backend's per-year check (LeaveBalanceService#requireAvailable). */
+function notEnoughMessage(c: YearCheck): string {
+  const left = roundDays(Math.max(0, c.applyLimit));
+  return `Not enough ${c.year} ${c.balance?.leaveTypeName ?? 'leave'}: ${left} day${left === 1 ? '' : 's'} available, ${roundDays(c.days)} requested.`;
+}
+
+function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClose, onSaved, token }: {
+  types: LeaveType[]; balances: LeaveBalance[]; currentYear: number; editingRequest?: LeaveRequestRecord | null;
   onClose: () => void; onSaved: (r: LeaveRequestRecord, wasEdit: boolean) => void; token: string;
 }) {
   const { showToast } = useToast();
@@ -231,46 +294,76 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // While editing, the request being edited is still PENDING in the DB and already reserved
-  // against its own balance row (see LeaveService#availableBalance) — add its own days back here
-  // so editing a request that already consumes its full balance isn't wrongly flagged as
-  // over-limit by this early-UX check. Mirrors the backend's own exclusion (LeaveService#update)
-  // and is keyed off the request's ORIGINAL type/days, independent of whatever type is currently
-  // selected in the form. A no-op for an originally-Unpaid request, which never reserved against
-  // any balance row to begin with.
-  const effectiveBalances = editingRequest && editingRequest.leaveTypeClassification === 'PAID'
-    ? balances.map(b => b.leaveTypeCode === editingRequest.leaveTypeCode && b.remainingDays != null
-        ? {
-            ...b,
-            remainingDays: b.remainingDays + Number(editingRequest.totalDays),
-            availableToApplyDays: b.availableToApplyDays != null ? b.availableToApplyDays + Number(editingRequest.totalDays) : b.availableToApplyDays,
-          }
-        : b)
-    : balances;
-
-  // Early-UX only, mirroring the backend's own day-count formula (LeaveService#submitRequest) —
-  // the backend independently re-validates against the same status-aware balance regardless of
-  // what's computed here, so this can never be relied on to enforce the limit by itself.
-  // Unlimited (unpaid) rows never limit a request.
-  const selectedBalance = effectiveBalances.find(b => b.leaveTypeCode === form.leaveTypeCode && !b.unlimited && b.remainingDays != null);
+  // YE-03/YE-04: a request is charged to the balance of the leave year each of its days falls in, so
+  // the form checks (and shows) the balance of every year the chosen dates touch — not just the
+  // current year's. Other years' balances are fetched on demand (the next year is a read-only
+  // "expected" view); a year that can't be fetched is left to the backend's own check.
+  const [balancesByYear, setBalancesByYear] = useState<Record<number, LeaveBalance[] | 'error'>>({ [currentYear]: balances });
+  useEffect(() => { setBalancesByYear(prev => ({ ...prev, [currentYear]: balances })); }, [balances, currentYear]);
   const effectiveEndDate = form.halfDay ? form.startDate : form.endDate;
-  const requestedDays = form.halfDay
-    ? 0.5
-    : (new Date(effectiveEndDate).getTime() - new Date(form.startDate).getTime()) / 86400000 + 1;
-  // Monthly-credited leave may use the rest of the year's quota in advance (availableToApplyDays).
-  const applyLimit = selectedBalance
-    ? Number(selectedBalance.availableToApplyDays ?? selectedBalance.remainingDays)
-    : null;
-  const exceedsBalance = !!selectedBalance && Number.isFinite(requestedDays) && applyLimit != null && requestedDays > applyLimit;
-  const advanceDays = selectedBalance && Number.isFinite(requestedDays) && !exceedsBalance
-    ? roundDays(Math.max(0, requestedDays - Math.max(0, Number(selectedBalance.remainingDays))))
-    : 0;
+  const segments = useMemo(() => daysByYear(form.startDate, effectiveEndDate, form.halfDay), [form.startDate, effectiveEndDate, form.halfDay]);
+  const segmentYearsKey = [...segments.keys()].join(',');
+  useEffect(() => {
+    for (const y of segments.keys()) {
+      if (balancesByYear[y] !== undefined) continue;
+      leaveApi.listBalances(token, y)
+        .then(b => setBalancesByYear(prev => ({ ...prev, [y]: b })))
+        .catch(() => setBalancesByYear(prev => ({ ...prev, [y]: 'error' })));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segmentYearsKey, token]);
 
-  // Early-UX only, mirroring the backend's own classification-based rule (LeaveService#submitRequest)
-  // — the backend independently re-validates against ALL of the employee's paid balances regardless
-  // of what's checked here, so this can never be relied on to enforce the rule by itself.
+  // While editing, the request being edited is still PENDING and already reserved against its own
+  // balance in each year it touches — add its own days in that year back, so editing a request that
+  // already uses its full balance isn't wrongly flagged as over-limit. Mirrors the backend's own
+  // exclusion (LeaveService#update), keyed off the request's ORIGINAL type/days. A no-op for an
+  // originally-Unpaid request, which never reserved against any balance row.
+  const editingDaysByYear = useMemo(() => editingRequest && editingRequest.leaveTypeClassification === 'PAID'
+    ? daysByYear(editingRequest.startDate, editingRequest.endDate, editingRequest.halfDay)
+    : new Map<number, number>(), [editingRequest]);
+  const balanceFor = (year: number, typeCode: string): LeaveBalance | null | undefined => {
+    const list = balancesByYear[year];
+    if (list === undefined) return undefined; // still loading
+    if (list === 'error') return null;
+    const b = list.find(x => x.leaveTypeCode === typeCode && !x.unlimited && x.remainingDays != null);
+    if (!b) return null;
+    const back = editingRequest && editingRequest.leaveTypeCode === typeCode ? (editingDaysByYear.get(year) ?? 0) : 0;
+    return back > 0 ? {
+      ...b,
+      remainingDays: Number(b.remainingDays) + back,
+      availableToApplyDays: b.availableToApplyDays != null ? Number(b.availableToApplyDays) + back : b.availableToApplyDays,
+    } : b;
+  };
+
+  // Early-UX only, mirroring the backend's own per-year check (LeaveBalanceService#requireAvailable) —
+  // the backend independently re-validates regardless, so this can never enforce the limit by itself.
+  // Unlimited (unpaid) and per-occurrence types have no yearly balance and are skipped here.
   const selectedType = types.find(t => t.code === form.leaveTypeCode);
-  const hasAnyPaidBalance = effectiveBalances.some(b => isRegularPaid(b) && Number(b.remainingDays) > 0);
+  const yearChecks: YearCheck[] = [...segments.entries()].map(([year, days]) => {
+    const b = balanceFor(year, form.leaveTypeCode);
+    if (!b) return { year, days, balance: null, loading: b === undefined, available: 0, applyLimit: Infinity, exceeds: false, advance: 0 };
+    const remaining = Number(b.remainingDays);
+    // Monthly-credited leave may use the rest of the year's quota in advance (availableToApplyDays);
+    // in a year that hasn't started that is the whole expected quota less what is already requested.
+    const applyLimit = Number(b.availableToApplyDays ?? b.remainingDays);
+    const available = b.expected ? applyLimit : remaining;
+    const exceeds = days > applyLimit;
+    const advance = !b.expected && !exceeds ? roundDays(Math.max(0, days - Math.max(0, remaining))) : 0;
+    return { year, days, balance: b, loading: false, available, applyLimit, exceeds, advance };
+  });
+  const checked = yearChecks.filter(c => c.balance && (c.balance.entitlementBasis ?? 'ANNUAL') === 'ANNUAL');
+  const multiYear = yearChecks.length > 1;
+  const shortYear = checked.find(c => c.exceeds);
+  const exceedsBalance = !!shortYear;
+  const advanceDays = roundDays(checked.reduce((s, c) => s + c.advance, 0));
+  const requestedDays = [...segments.values()].reduce((s, d) => s + d, 0);
+
+  // Mirrors the backend's "use paid leave before unpaid" rule (LeaveService#validateEntitlement), which
+  // looks at the paid balances of the leave year the request STARTS in.
+  const startYear = Number(form.startDate.slice(0, 4));
+  const startYearBalances = balancesByYear[startYear];
+  const hasAnyPaidBalance = Array.isArray(startYearBalances)
+    && startYearBalances.some(b => isRegularPaid(b) && Number(b.remainingDays) > 0);
   const blockedUnpaidWithPaidBalance = selectedType?.classification === 'UNPAID' && hasAnyPaidBalance;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -280,8 +373,8 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
     // this against its own (timezone-correct) notion of "today" regardless of what's checked here.
     if (form.startDate < today) { setError('Leave cannot be requested for a date before today.'); return; }
     if (form.halfDay && !form.halfDaySession) { setError('Select First Half or Second Half.'); return; }
-    if (exceedsBalance && selectedBalance) {
-      setError(`Leave request exceeds your available ${selectedBalance.leaveTypeName} balance of ${roundDays(Math.max(0, applyLimit ?? 0))} days.`);
+    if (shortYear && shortYear.balance) {
+      setError(notEnoughMessage(shortYear));
       return;
     }
     if (blockedUnpaidWithPaidBalance) {
@@ -328,15 +421,17 @@ function RequestLeaveModal({ types, balances, editingRequest, onClose, onSaved, 
                   {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
                 </select>
               </Field>
-              {selectedBalance && (
-                <div className={`nf-lv-bal${exceedsBalance ? ' over' : ''}`}>
-                  Available: {roundDays(Math.max(0, Number(selectedBalance.remainingDays)))} day{Number(selectedBalance.remainingDays) === 1 ? '' : 's'}
-                  {applyLimit != null && applyLimit > Math.max(0, Number(selectedBalance.remainingDays)) && (
-                    <> · up to {roundDays(applyLimit)} including credits still to come this year</>
+              {checked.map(c => (
+                <div key={c.year} className={`nf-lv-bal${c.exceeds ? ' over' : ''}`}>
+                  {c.year} {c.balance!.leaveTypeName}: {roundDays(Math.max(0, c.available))} day{roundDays(Math.max(0, c.available)) === 1 ? '' : 's'} {c.balance!.expected ? 'expected' : 'available'}
+                  {!c.balance!.expected && c.applyLimit > Math.max(0, c.available) && (
+                    <> · up to {roundDays(c.applyLimit)} including credits still to come this year</>
                   )}
-                  {exceedsBalance && ' - this request exceeds your available balance'}
+                  {multiYear && <> · this request uses {roundDays(c.days)}</>}
+                  {c.exceeds && ' - not enough for this request'}
                 </div>
-              )}
+              ))}
+              {yearChecks.some(c => c.loading) && <div className="nf-lv-bal">Checking balance…</div>}
               {advanceDays > 0 && (
                 <div className="nf-lv-warn">
                   {advanceDays} day{advanceDays === 1 ? '' : 's'} of this request will be taken in advance and covered by your upcoming monthly credits.
@@ -420,6 +515,20 @@ export default function LeavePage() {
   const [leaveError, setLeaveError] = useState('');
   const [showRequest, setShowRequest] = useState(false);
   const [editingRequest, setEditingRequest] = useState<LeaveRequestRecord | null>(null);
+  // YE-04: the balance cards can switch to next year's (read-only, expected) balances from 1 November.
+  const balanceYears = useMemo(() => viewableBalanceYears(), []);
+  const currentYear = balanceYears[0];
+  const [balanceYear, setBalanceYear] = useState(currentYear);
+  const [otherYearBalances, setOtherYearBalances] = useState<Record<number, LeaveBalance[]>>({});
+  const [otherYearError, setOtherYearError] = useState('');
+  useEffect(() => {
+    if (balanceYear === currentYear || otherYearBalances[balanceYear]) return;
+    setOtherYearError('');
+    leaveApi.listBalances(token, balanceYear)
+      .then(b => setOtherYearBalances(prev => ({ ...prev, [balanceYear]: b })))
+      .catch(e => setOtherYearError(e instanceof Error ? e.message : 'Failed to load balances'));
+  }, [balanceYear, currentYear, otherYearBalances, token]);
+  const shownBalances = balanceYear === currentYear ? balances : (otherYearBalances[balanceYear] ?? []);
 
   useEffect(() => {
     setLeaveError('');
@@ -446,6 +555,7 @@ export default function LeavePage() {
       const [freshBalances, freshRequests] = await Promise.all([leaveApi.listBalances(token), leaveApi.listMine(token)]);
       setBalances(freshBalances);
       setRequests(freshRequests);
+      setOtherYearBalances({}); // re-fetched on demand, with any new request reserved
     } catch (e) {
       setLeaveError(e instanceof Error ? e.message : 'Failed to refresh leave data');
     } finally {
@@ -555,15 +665,35 @@ export default function LeavePage() {
 
       {!loading && (
         <div style={{ marginBottom: 22 }}>
-          <div style={{ marginBottom: 14 }}><SectionHeading icon={Wallet} title="Leave Balances" /></div>
-          {balances.length === 0 ? (
+          <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <SectionHeading icon={Wallet} title="Leave Balances" />
+            {balanceYears.length > 1 && (
+              <div role="group" aria-label="Balance year" style={{ display: 'inline-flex', border: '1px solid var(--line2)', borderRadius: 8, overflow: 'hidden' }}>
+                {balanceYears.map(y => (
+                  <button key={y} type="button" aria-pressed={balanceYear === y} onClick={() => setBalanceYear(y)} style={{
+                    border: 'none', padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+                    background: balanceYear === y ? 'var(--brand)' : 'var(--panel)', color: balanceYear === y ? '#fff' : 'var(--txt-mut)',
+                  }}>{y}</button>
+                ))}
+              </div>
+            )}
+          </div>
+          {balanceYear !== currentYear && otherYearError && (
+            <div role="alert" style={{ color: 'var(--risk)', fontSize: 13, marginBottom: 10 }}>{otherYearError}</div>
+          )}
+          {balanceYear !== currentYear && shownBalances.length > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginBottom: 10 }}>
+              {balanceYear} hasn&apos;t started yet: these are the days you are expected to receive, less leave you have already requested for {balanceYear}. If your leave policy carries unused {currentYear} days forward, they are added on 1 January.
+            </div>
+          )}
+          {shownBalances.length === 0 ? (
             <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, padding: 40, textAlign: 'center' }}>
               <Wallet size={26} style={{ color: 'var(--line2)', display: 'block', margin: '0 auto 10px' }} />
               <div style={{ fontSize: 13, color: 'var(--txt-mut)' }}>No leave balances configured.</div>
             </div>
           ) : (
             <div className="nf-autofit-mobile-safe" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-              {balances.map((b, i) => <LeaveBalanceRingCard key={b.leaveTypeCode} balance={b} accent={BALANCE_ACCENTS[i % BALANCE_ACCENTS.length]} />)}
+              {shownBalances.map((b, i) => <LeaveBalanceRingCard key={b.leaveTypeCode} balance={b} accent={BALANCE_ACCENTS[i % BALANCE_ACCENTS.length]} />)}
             </div>
           )}
         </div>
@@ -688,10 +818,10 @@ export default function LeavePage() {
       </div>
 
       {showRequest && (
-        <RequestLeaveModal types={types} balances={balances} token={token} onClose={() => setShowRequest(false)} onSaved={handleSaved} />
+        <RequestLeaveModal types={types} balances={balances} currentYear={currentYear} token={token} onClose={() => setShowRequest(false)} onSaved={handleSaved} />
       )}
       {editingRequest && (
-        <RequestLeaveModal types={types} balances={balances} editingRequest={editingRequest} token={token} onClose={() => setEditingRequest(null)} onSaved={handleSaved} />
+        <RequestLeaveModal types={types} balances={balances} currentYear={currentYear} editingRequest={editingRequest} token={token} onClose={() => setEditingRequest(null)} onSaved={handleSaved} />
       )}
     </div>
   );

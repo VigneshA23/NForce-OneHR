@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.security.SeedMatrix;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
+import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
@@ -50,6 +51,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -448,6 +450,22 @@ class LeaveServiceTest {
         assertNull(saved.get(0).getLeaveHours());
         assertEquals(LeaveDurationType.HALF_DAY, saved.get(1).getDurationType());
         assertNull(saved.get(1).getLeaveHours());
+    }
+
+    @Test
+    void listMyBalances_nextYear_isTheReadOnlyExpectedView_andOtherYearsAreRefused() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByActiveTrueOrderByNameAsc()).thenReturn(List.of(annual));
+        int current = LocalDate.now().getYear();
+
+        List<LeaveBalanceResponse> next = leaveService.listMyBalances(employeeEmail, current + 1);
+        assertEquals(1, next.size());
+        assertTrue(next.get(0).isExpected());
+        verify(leaveBalanceRepository, never()).insertIfAbsent(any(), any(), anyInt(), any());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> leaveService.listMyBalances(employeeEmail, current + 2));
+        assertEquals("Leave balances can be viewed for " + current + " or " + (current + 1) + " only.", ex.getMessage());
     }
 
     @Test

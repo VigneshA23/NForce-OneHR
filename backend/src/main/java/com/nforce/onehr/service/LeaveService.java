@@ -132,8 +132,31 @@ public class LeaveService {
      */
     @Transactional
     public List<LeaveBalanceResponse> listMyBalances(String actorEmail) {
+        return listMyBalances(actorEmail, null);
+    }
+
+    /**
+     * YE-04: the caller's balances for {@code year} — the current leave year (null = current) or the
+     * next one, so an employee applying in December for January sees the balance those dates draw on.
+     * The next year is a read-only "expected" view; no balance row is created by looking at it.
+     */
+    @Transactional
+    public List<LeaveBalanceResponse> listMyBalances(String actorEmail, Integer year) {
         User actor = requireActor(actorEmail);
-        return leaveBalanceService.balancesFor(actor.getId(), LeaveBalanceService.leaveYearOf(leaveBalanceService.today()));
+        int current = LeaveBalanceService.leaveYearOf(leaveBalanceService.today());
+        int y = requireViewableYear(year, current);
+        return y == current
+                ? leaveBalanceService.balancesFor(actor.getId(), y)
+                : leaveBalanceService.expectedBalancesFor(actor.getId(), y);
+    }
+
+    /** Balances can be viewed for the current leave year or the next one only. */
+    private static int requireViewableYear(Integer year, int current) {
+        if (year == null) return current;
+        if (year != current && year != current + 1) {
+            throw new IllegalArgumentException("Leave balances can be viewed for " + current + " or " + (current + 1) + " only.");
+        }
+        return year;
     }
 
     /**
@@ -143,12 +166,31 @@ public class LeaveService {
      */
     @Transactional(readOnly = true)
     public List<LeaveBalanceResponse> listTeamBalances(String actorEmail) {
+        return listTeamBalances(actorEmail, null);
+    }
+
+    /** {@link #listTeamBalances(String)} for the current or next leave year (YE-04); the next year is the expected view. */
+    @Transactional(readOnly = true)
+    public List<LeaveBalanceResponse> listTeamBalances(String actorEmail, Integer year) {
         User actor = requireActor(actorEmail);
+        int current = LeaveBalanceService.leaveYearOf(leaveBalanceService.today());
+        int y = requireViewableYear(year, current);
         List<UUID> reportIds = historyRepository.findCurrentDirectReportIds(actor.getId());
         if (reportIds.isEmpty()) {
             return List.of();
         }
-        return leaveBalanceService.existingBalances(reportIds, LeaveBalanceService.leaveYearOf(leaveBalanceService.today()));
+        if (y == current) {
+            return leaveBalanceService.existingBalances(reportIds, y);
+        }
+        List<LeaveBalanceResponse> out = new ArrayList<>();
+        for (UUID reportId : reportIds) {
+            for (LeaveBalanceResponse r : leaveBalanceService.expectedBalancesFor(reportId, y)) {
+                if (!LeaveType.BASIS_ANNUAL.equals(r.getEntitlementBasis())) continue; // same rows as the current-year view
+                r.setEmployeeUserId(reportId);
+                out.add(r);
+            }
+        }
+        return out;
     }
 
     /**
