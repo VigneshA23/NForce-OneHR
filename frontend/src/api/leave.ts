@@ -79,6 +79,8 @@ export interface LeaveBalance {
   leaveTypeId?: string;
   leaveTypeCode: string;
   leaveTypeName: string;
+  /** False for a deactivated type (listed in the admin view only). */
+  leaveTypeActive?: boolean;
   classification?: LeaveTypeClassification;
   entitlementBasis?: EntitlementBasis;
   /** Unpaid leave: no limit — the numeric fields below are null. */

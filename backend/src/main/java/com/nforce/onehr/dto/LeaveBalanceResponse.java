@@ -16,6 +16,9 @@ public class LeaveBalanceResponse {
     private UUID leaveTypeId;
     private String leaveTypeCode;
     private String leaveTypeName;
+    /** False for a deactivated type: only the admin view lists those (so HR can still correct them). */
+    @Builder.Default
+    private boolean leaveTypeActive = true;
     private String classification;
     /** ANNUAL, PER_OCCURRENCE, or UNLIMITED (unpaid). */
     private String entitlementBasis;

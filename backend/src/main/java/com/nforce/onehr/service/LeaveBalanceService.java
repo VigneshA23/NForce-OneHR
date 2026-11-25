@@ -402,6 +402,16 @@ public class LeaveBalanceService {
      */
     @Transactional
     public List<LeaveBalanceResponse> balancesFor(UUID employeeUserId, int year) {
+        return balancesFor(employeeUserId, year, false);
+    }
+
+    /**
+     * {@code includeInactive}: the admin view also lists balances the employee still holds on
+     * deactivated types (flagged {@code leaveTypeActive = false}) so HR can correct them; the
+     * employee's own view never shows a deactivated type.
+     */
+    @Transactional
+    public List<LeaveBalanceResponse> balancesFor(UUID employeeUserId, int year, boolean includeInactive) {
         Map<UUID, LeaveBalance> rows = leaveBalanceRepository.findByEmployeeUserIdAndYear(employeeUserId, year).stream()
                 .collect(Collectors.toMap(b -> b.getLeaveType().getId(), Function.identity(), (a, b) -> a));
         List<LeaveType> all = leaveTypeRepository.findAllByOrderByNameAsc();
@@ -414,8 +424,9 @@ public class LeaveBalanceService {
                 LeaveBalance b = rows.get(type.getId());
                 if (canUse) {
                     b = ensureBalance(employeeUserId, type, year); // also catches up any credit due
-                } else if (b == null || isEmpty(b)) {
-                    // A balance kept after losing eligibility (or deactivation) stays visible unless empty.
+                } else if (b == null || isEmpty(b) || (!type.isActive() && !includeInactive)) {
+                    // A balance kept after losing eligibility stays visible unless empty; a deactivated
+                    // type is hidden from the employee and only listed for HR.
                     continue;
                 }
                 out.add(toResponse(b));
@@ -434,7 +445,7 @@ public class LeaveBalanceService {
     @Transactional(readOnly = true)
     public List<LeaveBalanceResponse> existingBalances(Collection<UUID> employeeUserIds, int year) {
         return leaveBalanceRepository.findByEmployeeUserIdInAndYear(employeeUserIds, year).stream()
-                .filter(b -> b.getLeaveType().isAnnualBalance())
+                .filter(b -> b.getLeaveType().isAnnualBalance() && b.getLeaveType().isActive())
                 .map(b -> {
                     LeaveBalanceResponse r = toResponse(b);
                     r.setEmployeeUserId(b.getEmployeeUserId());
@@ -451,6 +462,7 @@ public class LeaveBalanceService {
                 .leaveTypeId(t.getId())
                 .leaveTypeCode(t.getCode())
                 .leaveTypeName(t.getName())
+                .leaveTypeActive(t.isActive())
                 .classification(t.getClassification())
                 .entitlementBasis(LeaveType.BASIS_ANNUAL)
                 .year(b.getYear())
