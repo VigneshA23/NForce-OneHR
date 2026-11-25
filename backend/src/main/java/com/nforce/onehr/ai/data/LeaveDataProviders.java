@@ -226,7 +226,7 @@ public final class LeaveDataProviders {
         }
         if ("PER_OCCURRENCE".equals(b.getEntitlementBasis())) {
             return "- %s: %s of %s days remaining for the current eligible occurrence (%s used, %s pending)".formatted(
-                    b.getLeaveTypeName(), b.getRemainingDays(), b.getTotalDays(), b.getUsedDays(), b.getPendingDays());
+                    b.getLeaveTypeName(), b.getRemainingDays(), b.getTotalDays(), b.getUsedDays(), orZero(b.getPendingDays()));
         }
         String carried = b.getCarriedForwardDays() != null && b.getCarriedForwardDays().signum() > 0
                 ? "; includes %s days carried forward from last year (%s left%s)".formatted(b.getCarriedForwardDays(),
@@ -234,6 +234,10 @@ public final class LeaveDataProviders {
                         b.getCarriedForwardExpiresOn() != null ? ", expiring " + b.getCarriedForwardExpiresOn() : "")
                 : "";
         return "- %s: %s days remaining of %s this year (%s used, %s pending%s)".formatted(
-                b.getLeaveTypeName(), b.getRemainingDays(), b.getTotalDays(), b.getUsedDays(), b.getPendingDays(), carried);
+                b.getLeaveTypeName(), b.getRemainingDays(), b.getTotalDays(), b.getUsedDays(), orZero(b.getPendingDays()), carried);
+    }
+
+    private static java.math.BigDecimal orZero(java.math.BigDecimal days) {
+        return days == null ? java.math.BigDecimal.ZERO : days;
     }
 }

@@ -113,6 +113,7 @@ class NoRawRoleChecksTest {
             Map.entry("service/OvertimeRequestService.java", "WORKFLOW: Super Admin not offered as 'Assign To'"),
             Map.entry("service/EmployeeService.java", "WORKFLOW: reporting-hierarchy tier of a manager candidate"),
             Map.entry("service/PolicyService.java", "DISPLAY: policy audience targeting codes"),
+            Map.entry("service/PolicyBulkImportService.java", "DISPLAY: audience codes offered in the bulk-upload template and checked against PolicyService.ALL_ROLE_CODES (targeting, not access)"),
             Map.entry("service/HelpContentService.java", "DISPLAY: help-content audience buckets"),
             Map.entry("service/ProjectService.java", "WORKFLOW: Project Owner dropdown is Managers only (HR_ADMIN/SUPER_ADMIN pass the "
                     + "same projects:VIEW:TEAM permission check but are excluded from the list) — same 'Assign To' narrowing pattern as "

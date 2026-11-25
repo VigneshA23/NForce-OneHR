@@ -243,6 +243,20 @@ class LeaveServiceTest {
         verify(auditService).log(employeeId, "LEAVE_REQUEST_SUBMITTED", resp.getId());
     }
 
+    /**
+     * For tests that must use a particular date (e.g. "today") but aren't about weekly offs: the only
+     * weekly off is three days after {@code from}, so {@code from} to {@code from + 2} are working days
+     * whatever day of the week the suite runs on.
+     */
+    private void stubWorkingDays(LocalDate from) {
+        stubWeeklyOffPolicy(from.plusDays(3).getDayOfWeek().name());
+    }
+
+    /** The Monday on/after {@code date}: a weekday under the default Saturday/Sunday weekly off, with Tue-Fri after it. */
+    private static LocalDate weekdayFrom(LocalDate date) {
+        return date.with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY));
+    }
+
     /** Stubs a Weekly Off Policy (comma-separated DayOfWeek names, e.g. "SATURDAY,SUNDAY") as effective for this test's employee from a year ago, mirroring ExceptionServiceDetectionTest's identical helper. */
     private void stubWeeklyOffPolicy(String offDays) {
         WeeklyOffPolicy policy = WeeklyOffPolicy.builder().id(UUID.randomUUID()).name("Test Policy").offDays(offDays).build();
@@ -397,6 +411,7 @@ class LeaveServiceTest {
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
         LocalDate day = LocalDate.now().plusDays(1);
+        stubWorkingDays(day);
         LeaveRequestResponse resp = leaveService.submitRequest(request(day, day, true, "Doctor"), employeeEmail);
 
         assertEquals(new BigDecimal("0.5"), resp.getTotalDays());
@@ -424,7 +439,7 @@ class LeaveServiceTest {
         // it just needs "a few days in the future".
         LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         leaveService.submitRequest(request(start, start.plusDays(1), false, "Full day"), employeeEmail);
-        LocalDate day = LocalDate.now().plusDays(10);
+        LocalDate day = LocalDate.now().plusDays(10).with(TemporalAdjusters.nextOrSame(DayOfWeek.WEDNESDAY)); // a weekday
         leaveService.submitRequest(request(day, day, true, "Half day"), employeeEmail);
 
         verify(leaveRequestRepository, times(2)).save(captor.capture());
@@ -665,7 +680,7 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), new BigDecimal("11"))));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now();
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY)); // Mon-Thu, never a weekly off
         // 15 - 11 = 4 available; request exactly 4 days (inclusive 4-day range).
         LeaveRequestResponse resp = leaveService.submitRequest(request(start, start.plusDays(3), false, "Exact fit"), employeeEmail);
 
@@ -698,6 +713,7 @@ class LeaveServiceTest {
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
         LocalDate day = LocalDate.now();
+        stubWorkingDays(day);
         // 15 - 14.5 = 0.5 available; a half-day request exactly matches it.
         LeaveRequestResponse resp = leaveService.submitRequest(request(day, day, true, "Last half day"), employeeEmail);
 
@@ -713,6 +729,7 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), new BigDecimal("15"))));
 
         LocalDate day = LocalDate.now();
+        stubWorkingDays(day);
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(day, day, true, "No balance left"), employeeEmail));
         assertEquals("Leave request exceeds your available Annual Leave balance of 0 days.", ex.getMessage());
@@ -729,6 +746,7 @@ class LeaveServiceTest {
         stubPendingReserved(new BigDecimal("13")); // an earlier PENDING request already reserved 13 of 15
 
         LocalDate start = LocalDate.now();
+        stubWorkingDays(start);
         // Only 2 days available (15 - 0 - 13); requesting 3 must be rejected.
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(start, start.plusDays(2), false, "Third request"), employeeEmail));
@@ -747,7 +765,7 @@ class LeaveServiceTest {
         stubPendingReserved(new BigDecimal("6")); // 6 pending
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate start = LocalDate.now();
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY)); // Mon-Thu, never a weekly off
         // Available = 15 - 5 - 6 = 4. Requesting 4 succeeds, 4.5 fails (matches section 5 example).
         LeaveRequestResponse ok = leaveService.submitRequest(request(start, start.plusDays(3), false, "Fits exactly"), employeeEmail);
         assertEquals("PENDING", ok.getStatus());
@@ -804,6 +822,7 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("15"), new BigDecimal("15")))); // fully consumed
 
         LocalDate day = LocalDate.now();
+        stubWorkingDays(day);
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> leaveService.submitRequest(request(day, day, true, "Half day"), employeeEmail));
         assertEquals("Leave request exceeds your available Annual Leave balance of 0 days.", ex.getMessage());
@@ -834,6 +853,7 @@ class LeaveServiceTest {
         // existing overlapping request.
 
         LocalDate today = LocalDate.now();
+        stubWorkingDays(today);
         LeaveRequestResponse resp = leaveService.submitRequest(request(today, today, false, "Same day"), employeeEmail);
 
         assertEquals("PENDING", resp.getStatus());
@@ -844,6 +864,7 @@ class LeaveServiceTest {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
         LocalDate today = LocalDate.now();
+        stubWorkingDays(today);
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(today), eq(today)))
                 .thenReturn(true);
@@ -862,6 +883,7 @@ class LeaveServiceTest {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
         LocalDate today = LocalDate.now();
+        stubWorkingDays(today);
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(today), eq(today)))
                 .thenReturn(true);
@@ -883,6 +905,7 @@ class LeaveServiceTest {
         // repository call correctly returns false (default, left unstubbed) here.
 
         LocalDate today = LocalDate.now();
+        stubWorkingDays(today);
         LeaveRequestResponse resp = leaveService.submitRequest(
                 request(today, today, false, "Retry after earlier rejection"), employeeEmail);
 
@@ -918,7 +941,7 @@ class LeaveServiceTest {
         // guard must fire purely on overlap, not on any relation to today.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day0 = LocalDate.now().plusDays(30);
+        LocalDate day0 = weekdayFrom(LocalDate.now().plusDays(30));
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day0), eq(day0)))
                 .thenReturn(true);
@@ -934,7 +957,7 @@ class LeaveServiceTest {
         // Existing: day0 -> day0 | APPROVED. New: day0 -> day0.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day0 = LocalDate.now().plusDays(30);
+        LocalDate day0 = weekdayFrom(LocalDate.now().plusDays(30));
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day0), eq(day0)))
                 .thenReturn(true);
@@ -956,7 +979,7 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate day0 = LocalDate.now().plusDays(30);
+        LocalDate day0 = weekdayFrom(LocalDate.now().plusDays(30));
         LeaveRequestResponse resp = leaveService.submitRequest(request(day0, day0, false, "Retry after rejection"), employeeEmail);
 
         assertEquals("PENDING", resp.getStatus());
@@ -1035,7 +1058,7 @@ class LeaveServiceTest {
                 .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
         when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        LocalDate day0 = LocalDate.now().plusDays(30);
+        LocalDate day0 = weekdayFrom(LocalDate.now().plusDays(30));
         // Explicitly false for THIS employee's id — "Employee A" having a same-dates overlap is
         // irrelevant since production code never queries by any id other than actor.getId().
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
@@ -1105,7 +1128,7 @@ class LeaveServiceTest {
         // PENDING), for a multi-day (not single-day) range.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day1 = LocalDate.now().plusDays(50);
+        LocalDate day1 = LocalDate.now().plusDays(50).with(TemporalAdjusters.nextOrSame(DayOfWeek.MONDAY)); // Mon-Wed
         LocalDate day3 = day1.plusDays(2);
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day3), eq(day1)))
@@ -1243,7 +1266,7 @@ class LeaveServiceTest {
     void submitRequest_existingFullDayApproved_newHalfDaySameDate_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day = LocalDate.now().plusDays(63);
+        LocalDate day = weekdayFrom(LocalDate.now().plusDays(63));
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day), eq(day)))
                 .thenReturn(true);
@@ -1261,7 +1284,7 @@ class LeaveServiceTest {
         // concerned — both must be blocked.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
-        LocalDate day = LocalDate.now().plusDays(64);
+        LocalDate day = weekdayFrom(LocalDate.now().plusDays(64));
         when(leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                         eq(employeeId), eq(OVERLAP_BLOCKING_STATUSES_FOR_TEST), eq(day), eq(day)))
                 .thenReturn(true);
@@ -1283,7 +1306,7 @@ class LeaveServiceTest {
         // existsBy...(PENDING, APPROVED) is unstubbed here -> defaults to false, i.e. the
         // REJECTED existing request never matches the blocking status filter.
 
-        LocalDate day = LocalDate.now().plusDays(65);
+        LocalDate day = weekdayFrom(LocalDate.now().plusDays(65));
         LeaveRequestResponse resp = leaveService.submitRequest(
                 request(day, day, true, "Half day, existing half-day rejected"), employeeEmail);
 

@@ -168,7 +168,7 @@ class QuestionAwareProvidersTest {
         String out = new LeaveDataProviders.Balances(leaveService, employeeRepository, attendancePenaltyRepository, attendanceRulesService)
                 .fetch(as(ShellRole.EMPLOYEE, AudienceBucket.EMPLOYEE)).orElseThrow();
 
-        assertThat(out).contains("Annual Leave: 14 of 15 days remaining (1 used)")
+        assertThat(out).contains("Annual Leave: 14 days remaining of 15 this year (1 used, 0 pending)")
                 .contains("exactly 1, 1 day(s) in total")
                 .contains(today.withDayOfMonth(1) + ": MISSING_CHECKOUT penalty - 1 day(s) deducted from leave (AL 1.00)")
                 .contains("Approved leave requests in %d: none - no used days come from leave taken".formatted(today.getYear()));
