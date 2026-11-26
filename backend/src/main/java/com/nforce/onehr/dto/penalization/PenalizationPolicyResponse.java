@@ -21,6 +21,8 @@ public class PenalizationPolicyResponse {
     private LateArrivalConfigDto lateArrival;
     private WorkHoursShortageConfigDto workHoursShortage;
     private MissingLogsConfigDto missingLogs;
+    private EarlyGoingConfigDto earlyGoing;
+    private ExcessBreakConfigDto excessBreak;
 
     private UUID createdBy;
     private LocalDateTime createdAt;

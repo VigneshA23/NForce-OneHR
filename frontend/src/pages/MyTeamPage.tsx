@@ -11,6 +11,7 @@ import { hasPermission } from '../lib/permissions';
 import { useCan } from '../lib/access';
 import { useToast } from '../context/ToastContext';
 import PenaltyDisputesPanel from './my-team/PenaltyDisputesPanel';
+import PenaltyAnalyticsTab from './my-team/PenaltyAnalyticsTab';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import {
   attendanceApi, regularizationApi, penaltiesApi, type AttendanceRecord,
@@ -2524,12 +2525,12 @@ function PenaltyStatusBadge({ status }: { status: AttendancePenaltyStatus }) {
   );
 }
 
-// Discrepancy identifiers (ExceptionType constants). Late Arrival, Early Departure and Missing
+// Discrepancy identifiers (ExceptionType constants). Late Arrival, Early Going, Excess Break and Missing
 // Punch rows also appear un-penalized (status NOT_PENALIZED) — see AttendancePenaltyService#list.
-const DISCREPANCY_TYPE_OPTIONS = ['NO_ATTENDANCE', 'WORK_HOURS_SHORTAGE', 'LATE_ARRIVAL', 'EARLY_DEPARTURE', 'MISSING_PUNCH'];
+const DISCREPANCY_TYPE_OPTIONS = ['NO_ATTENDANCE', 'WORK_HOURS_SHORTAGE', 'LATE_ARRIVAL', 'EARLY_DEPARTURE', 'EXCESS_BREAK', 'MISSING_PUNCH'];
 const DISCREPANCY_TYPE_LABEL: Record<string, string> = {
   NO_ATTENDANCE: 'No Attendance', WORK_HOURS_SHORTAGE: 'Work Hours Shortage', LATE_ARRIVAL: 'Late Arrival',
-  EARLY_DEPARTURE: 'Early Departure', MISSING_PUNCH: 'Missing Punch',
+  EARLY_DEPARTURE: 'Early Going', EXCESS_BREAK: 'Excess Break', MISSING_PUNCH: 'Missing Punch',
 };
 
 function fmtDateTimeShort(iso?: string | null) {
@@ -3153,8 +3154,8 @@ export function SkillsGrowthTab({ token }: { token: string }) {
   );
 }
 
-type MyTeamTab = 'overview' | 'effort' | 'negligence' | 'penalties' | 'assignments' | 'reports' | 'growth' | 'capacity';
-const ALL_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'effort', 'negligence', 'penalties', 'assignments', 'growth', 'capacity', 'reports'];
+type MyTeamTab = 'overview' | 'effort' | 'negligence' | 'penalties' | 'penalty-analytics' | 'assignments' | 'reports' | 'growth' | 'capacity';
+const ALL_MY_TEAM_TABS: readonly MyTeamTab[] = ['overview', 'effort', 'negligence', 'penalties', 'penalty-analytics', 'assignments', 'growth', 'capacity', 'reports'];
 
 export default function MyTeamPage() {
   const token = useAuthStore(s => s.token)!;
@@ -3173,7 +3174,8 @@ export default function MyTeamPage() {
   const canReports = can('reports', 'VIEW', 'TEAM');
   const allowedTabs = useMemo<readonly MyTeamTab[]>(() => ALL_MY_TEAM_TABS.filter(t => {
     switch (t) {
-      case 'effort': case 'negligence': return canAtt;
+      // Same permission as the endpoint behind it (attendance:VIEW:TEAM); the server picks org or team scope.
+      case 'effort': case 'negligence': case 'penalty-analytics': return canAtt;
       case 'penalties': return canAttEdit;
       case 'assignments': return canAssign;
       case 'growth': return canPerf;
@@ -3531,6 +3533,7 @@ export default function MyTeamPage() {
           { key: 'effort', label: 'Efforts / Punctuality' },
           { key: 'negligence', label: 'Negligence' },
           { key: 'penalties', label: 'Regularize & Cancel Penalties' },
+          { key: 'penalty-analytics', label: 'Penalty Analytics' },
           { key: 'assignments', label: 'Employee Assignments' },
           { key: 'growth', label: 'Performance' },
           { key: 'capacity', label: 'Capacity' },
@@ -3745,6 +3748,7 @@ export default function MyTeamPage() {
       {tab === 'effort' && <EffortTab token={token} />}
       {tab === 'negligence' && <NegligenceTab token={token} />}
       {tab === 'penalties' && <PenaltiesTab token={token} />}
+      {tab === 'penalty-analytics' && <PenaltyAnalyticsTab token={token} />}
       {tab === 'assignments' && <AssignmentsTab token={token} />}
       {tab === 'growth' && <SkillsGrowthTab token={token} />}
       {tab === 'capacity' && <TeamCapacityTab token={token} />}

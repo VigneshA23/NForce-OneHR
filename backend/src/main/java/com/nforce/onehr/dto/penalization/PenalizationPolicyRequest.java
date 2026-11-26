@@ -32,4 +32,12 @@ public class PenalizationPolicyRequest {
     @NotNull
     @Valid
     private MissingLogsConfigDto missingLogs;
+
+    /** PN-05. Optional: absent means the rule is off, so clients that predate it keep working. */
+    @Valid
+    private EarlyGoingConfigDto earlyGoing;
+
+    /** PN-05. Optional: absent means the rule is off. */
+    @Valid
+    private ExcessBreakConfigDto excessBreak;
 }

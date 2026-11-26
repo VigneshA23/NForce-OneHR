@@ -7,28 +7,33 @@ import {
   getCurrentPolicy, getPolicyVersion, getPolicyVersions, savePolicy,
   type PenalizationPolicy, type PenalizationPolicyRequest, type PenalizationPolicyVersionSummary,
   type WorkHoursTier, type LateHoursTier, type EarlyWarningConfig, DEFAULT_EARLY_WARNING,
+  DEFAULT_EARLY_GOING, DEFAULT_EXCESS_BREAK,
 } from '../../api/penalizationPolicy';
 
-type SectionKey = 'basicInfo' | 'noAttendance' | 'lateArrival' | 'workHoursShortage' | 'missingLogs';
+type SectionKey = 'basicInfo' | 'noAttendance' | 'lateArrival' | 'earlyGoing' | 'workHoursShortage' | 'missingLogs' | 'excessBreak';
 
 const SECTION_LABELS: Record<SectionKey, string> = {
   basicInfo: 'Basic Information',
   noAttendance: 'No Attendance',
   lateArrival: 'Late Arrival',
+  earlyGoing: 'Early Going',
   workHoursShortage: 'Work Hours Shortage',
   missingLogs: 'Missing Logs',
+  excessBreak: 'Excess Break',
 };
 
-const SECTIONS: SectionKey[] = ['basicInfo', 'noAttendance', 'lateArrival', 'workHoursShortage', 'missingLogs'];
+const SECTIONS: SectionKey[] = ['basicInfo', 'noAttendance', 'lateArrival', 'earlyGoing', 'workHoursShortage', 'missingLogs', 'excessBreak'];
 // Sections with their own Enabled/Disabled toggle — Basic Information applies to the whole
 // document (deduction method, buffer period, notice period, effective date), so it has no
 // enabled flag of its own and is never part of the wizard's method-selection step.
-const TOGGLEABLE_SECTIONS: SectionKey[] = ['noAttendance', 'lateArrival', 'workHoursShortage', 'missingLogs'];
+const TOGGLEABLE_SECTIONS: SectionKey[] = ['noAttendance', 'lateArrival', 'earlyGoing', 'workHoursShortage', 'missingLogs', 'excessBreak'];
 
 const METHOD_HELP: Record<SectionKey, string> = {
   basicInfo: 'Applies to every penalty this policy produces: whether a penalty deducts Loss of Pay or a configured paid-leave type, the buffer period before a penalty is finalized, and (optionally) a future effective date for this save.',
   noAttendance: 'Penalizes a working day with no recorded attendance at all. Can also treat a day with unusually low worked hours as a no-show, and can extend the penalty to an adjoining holiday or weekly-off day when no-attendance days sandwich it.',
   lateArrival: 'Penalizes arriving after the shift start, beyond a configurable grace period. Choose between counting incidents (with a configurable exempt count per week/month) or accumulated total late hours against tiered rules.',
+  earlyGoing: 'Penalizes leaving before the shift ends, beyond a grace period. Same pattern as Late Arrival: an exempt count per week/month, then a deduction every N occurrences. A day covered by an approved Partial Day (Leaving early) request is exempt.',
+  excessBreak: 'Penalizes a day on which the total break time (the gaps between check-out and the next check-in) goes over a daily limit. The first few occurrences per week/month can be exempt, after which each one deducts the configured amount.',
   workHoursShortage: 'Penalizes working fewer hours than the assigned shift, using tiered "less than X% of shift hours" rules. Evaluated on Effective (worked, breaks excluded) or Gross (first check-in to last check-out) hours, daily or aggregated weekly/monthly. Can be configured to avoid double-penalizing a day that already triggered a Late Arrival penalty (or vice versa).',
   missingLogs: 'Penalizes missing check-in/check-out punches, with a configurable number of exempt occurrences per week/month and a deduction rate (per shift, or a single flat amount for the whole period).',
 };
@@ -143,6 +148,17 @@ function sectionErrors(key: SectionKey, form: PenalizationPolicyRequest, current
   if (key === 'basicInfo') return basicInfoErrors(form.basicInfo, currentEffectiveFrom);
   if (key === 'workHoursShortage') return workHoursTierErrors(form.workHoursShortage.tiers, form.workHoursShortage.enabled);
   if (key === 'lateArrival') return lateHoursTierErrors(form.lateArrival.lateHoursTiers, form.lateArrival.enabled, form.lateArrival.basis);
+  if (key === 'earlyGoing') {
+    const eg = form.earlyGoing;
+    return eg.enabled && eg.deductionDays == null ? ['Enter the deduction (day(s)) to apply once the exempt count is used up.'] : [];
+  }
+  if (key === 'excessBreak') {
+    const eb = form.excessBreak;
+    const errs: string[] = [];
+    if (eb.enabled && (eb.maxBreakMinutes == null || eb.maxBreakMinutes < 1)) errs.push('Enter the maximum break minutes allowed per day (at least 1).');
+    if (eb.enabled && eb.deductionDays == null) errs.push('Enter the deduction (day(s)) to apply once the exempt count is used up.');
+    return errs;
+  }
   return [];
 }
 
@@ -199,6 +215,8 @@ function ViewModal({ policy, initialSection, onClose }: { policy: PenalizationPo
           <EnabledBadge enabled={
             section === 'noAttendance' ? policy.noAttendance.enabled :
             section === 'lateArrival' ? policy.lateArrival.enabled :
+            section === 'earlyGoing' ? (policy.earlyGoing?.enabled ?? false) :
+            section === 'excessBreak' ? (policy.excessBreak?.enabled ?? false) :
             section === 'workHoursShortage' ? policy.workHoursShortage.enabled :
             policy.missingLogs.enabled
           } />
@@ -270,6 +288,27 @@ function ViewModal({ policy, initialSection, onClose }: { policy: PenalizationPo
           <DetailRow label="Penalise if caused by missing log" value={policy.lateArrival.penaliseWhenCausedByMissingLogEnabled ? 'Yes' : 'No (default)'} />
         </>
       )}
+      {section === 'earlyGoing' && (() => {
+        const eg = { ...DEFAULT_EARLY_GOING, ...(policy.earlyGoing ?? {}) };
+        return (
+          <>
+            <DetailRow label="Grace period" value={eg.gracePeriodMinutes != null ? `${eg.gracePeriodMinutes} min before the shift end` : 'None'} />
+            <DetailRow label="Exempt" value={eg.exemptCount != null ? `${eg.exemptCount} early going(s) / ${eg.exemptPeriod.toLowerCase()}` : 'Not configured'} />
+            <DetailRow label="Deduction" value={eg.deductionDays != null ? `${eg.deductionDays} day(s) per ${eg.deductionPerShifts ?? 1} occurrence(s)` : 'Not configured'} />
+            <DetailRow label="Approved Partial Day (Leaving early)" value="Exempts the day" />
+          </>
+        );
+      })()}
+      {section === 'excessBreak' && (() => {
+        const eb = { ...DEFAULT_EXCESS_BREAK, ...(policy.excessBreak ?? {}) };
+        return (
+          <>
+            <DetailRow label="Max break per day" value={eb.maxBreakMinutes != null ? `${eb.maxBreakMinutes} min` : 'Not configured'} />
+            <DetailRow label="Exempt" value={eb.exemptCount != null ? `${eb.exemptCount} day(s) / ${eb.exemptPeriod.toLowerCase()}` : 'Not configured'} />
+            <DetailRow label="Deduction" value={eb.deductionDays != null ? `${eb.deductionDays} day(s) per day over the limit` : 'Not configured'} />
+          </>
+        );
+      })()}
       {section === 'workHoursShortage' && (
         <>
           <DetailRow label="Deduction basis" value={policy.workHoursShortage.deductionBasis === 'GROSS_HOURS' ? 'Gross Hours' : 'Effective Hours'} />
@@ -433,6 +472,8 @@ const EMPTY_REQUEST: PenalizationPolicyRequest = {
     excludeHoursOutsideShiftEnabled: false, penalizeShortageCausedByMissingLogsEnabled: false,
   },
   missingLogs: { enabled: false, exemptDays: null, exemptPeriod: 'MONTH', deductionMode: 'PER_SHIFT', deductionDays: null, deductionPerShifts: null, ignoreRuleEnabled: false, ignoreRuleThresholdPercent: null },
+  earlyGoing: { ...DEFAULT_EARLY_GOING },
+  excessBreak: { ...DEFAULT_EXCESS_BREAK },
 };
 
 function toRequest(p: PenalizationPolicy | null): PenalizationPolicyRequest {
@@ -445,6 +486,8 @@ function toRequest(p: PenalizationPolicy | null): PenalizationPolicyRequest {
     lateArrival: { ...p.lateArrival, lateHoursTiers: p.lateArrival.lateHoursTiers.map(t => ({ ...t })) },
     workHoursShortage: { ...p.workHoursShortage, tiers: p.workHoursShortage.tiers.map(t => ({ ...t })) },
     missingLogs: { ...p.missingLogs },
+    earlyGoing: { ...DEFAULT_EARLY_GOING, ...(p.earlyGoing ?? {}) },
+    excessBreak: { ...DEFAULT_EXCESS_BREAK, ...(p.excessBreak ?? {}) },
   };
 }
 
@@ -564,7 +607,7 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
     }
   }
 
-  const basicInfo = form.basicInfo, na = form.noAttendance, la = form.lateArrival, whs = form.workHoursShortage, ml = form.missingLogs;
+  const basicInfo = form.basicInfo, na = form.noAttendance, la = form.lateArrival, whs = form.workHoursShortage, ml = form.missingLogs, eg = form.earlyGoing, eb = form.excessBreak;
 
   function setTier(i: number, field: keyof WorkHoursTier, value: number) {
     const tiers = whs.tiers.map((t, idx) => idx === i ? { ...t, [field]: value } : t);
@@ -681,6 +724,7 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
             <label style={checkboxRow}>
               <input type="checkbox" checked={
                 tab === 'noAttendance' ? na.enabled : tab === 'lateArrival' ? la.enabled :
+                tab === 'earlyGoing' ? eg.enabled : tab === 'excessBreak' ? eb.enabled :
                 tab === 'workHoursShortage' ? whs.enabled : ml.enabled
               } onChange={e => patch(tab, { enabled: e.target.checked } as any)} />
               Enabled
@@ -985,6 +1029,45 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
             </>
           )}
 
+          {tab === 'earlyGoing' && (
+            <>
+              <div>
+                <span style={labelText}>Grace period (minutes before the shift end)</span>
+                <input type="number" min={0} style={inputStyle} value={eg.gracePeriodMinutes ?? ''}
+                  onChange={e => patch('earlyGoing', { gracePeriodMinutes: e.target.value === '' ? null : Number(e.target.value) })} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                <div>
+                  <span style={labelText}>Exempt early going(s)</span>
+                  <input type="number" min={0} style={inputStyle} value={eg.exemptCount ?? ''}
+                    onChange={e => patch('earlyGoing', { exemptCount: e.target.value === '' ? null : Number(e.target.value) })} />
+                </div>
+                <div>
+                  <span style={labelText}>Per cycle</span>
+                  <select style={inputStyle} value={eg.exemptPeriod} onChange={e => patch('earlyGoing', { exemptPeriod: e.target.value as any })}>
+                    <option value="WEEK">Week</option>
+                    <option value="MONTH">Month</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                <div>
+                  <span style={labelText}>Post exemption, deduct (day(s))</span>
+                  <input type="number" min={0} step={0.25} style={inputStyle} value={eg.deductionDays ?? ''}
+                    onChange={e => patch('earlyGoing', { deductionDays: e.target.value === '' ? null : Number(e.target.value) })} />
+                </div>
+                <div>
+                  <span style={labelText}>Per occurrence(s) of early going</span>
+                  <input type="number" min={1} style={inputStyle} value={eg.deductionPerShifts ?? ''}
+                    onChange={e => patch('earlyGoing', { deductionPerShifts: e.target.value === '' ? null : Number(e.target.value) })} />
+                </div>
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', lineHeight: 1.5 }}>
+                A day covered by an approved Partial Day request with the Leaving early mode is exempt from this rule.
+              </div>
+            </>
+          )}
+
           {tab === 'workHoursShortage' && (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -1107,6 +1190,38 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
               <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 2 }}>
                 Excluding hours worked outside shift timing, and linking missing-log detection to work-hour
                 shortage, are not yet supported by the backend.
+              </div>
+            </>
+          )}
+
+          {tab === 'excessBreak' && (
+            <>
+              <div>
+                <span style={labelText}>Max break per day (minutes)</span>
+                <input type="number" min={1} style={inputStyle} value={eb.maxBreakMinutes ?? ''}
+                  onChange={e => patch('excessBreak', { maxBreakMinutes: e.target.value === '' ? null : Number(e.target.value) })} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                <div>
+                  <span style={labelText}>Exempt day(s) over the limit</span>
+                  <input type="number" min={0} style={inputStyle} value={eb.exemptCount ?? ''}
+                    onChange={e => patch('excessBreak', { exemptCount: e.target.value === '' ? null : Number(e.target.value) })} />
+                </div>
+                <div>
+                  <span style={labelText}>Per cycle</span>
+                  <select style={inputStyle} value={eb.exemptPeriod} onChange={e => patch('excessBreak', { exemptPeriod: e.target.value as any })}>
+                    <option value="WEEK">Week</option>
+                    <option value="MONTH">Month</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <span style={labelText}>Post exemption, deduct (day(s)) for each day over the limit</span>
+                <input type="number" min={0} step={0.25} style={inputStyle} value={eb.deductionDays ?? ''}
+                  onChange={e => patch('excessBreak', { deductionDays: e.target.value === '' ? null : Number(e.target.value) })} />
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', lineHeight: 1.5 }}>
+                Break time is the total of the gaps between a check-out and the next check-in during the day.
               </div>
             </>
           )}

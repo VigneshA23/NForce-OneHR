@@ -51,7 +51,7 @@ public class ExceptionService {
     private static final Set<String> HIDDEN_FROM_EXCEPTION_DASHBOARD = Set.of(
             ExceptionType.NO_ATTENDANCE, ExceptionType.LEAVE_ATTENDANCE_CONFLICT,
             // Surfaced on Regularize & Cancel Penalties instead (see AttendancePenaltyService#list).
-            ExceptionType.EARLY_DEPARTURE);
+            ExceptionType.EARLY_DEPARTURE, ExceptionType.EXCESS_BREAK);
 
     // Every exception type emailed exclusively by the scheduled job (notifyUnnotifiedExceptions),
     // never immediately on detection — see that method's own javadoc. LEAVE_ATTENDANCE_CONFLICT
@@ -96,6 +96,9 @@ public class ExceptionService {
     private final ShiftRepository shiftRepository;
     private final EffectivePermissionService effectivePermissionService;
     private final PlatformTransactionManager transactionManager;
+    // PN-05: Partial Day (leaving early) exemption and the Excess Break rule's daily total.
+    private final AttendanceRequestRepository attendanceRequestRepository;
+    private final AttendanceBreakCalculator attendanceBreakCalculator;
 
     /**
      * Gap-033/034: every discrepancy type a corrected Attendance record could invalidate — a
@@ -107,7 +110,12 @@ public class ExceptionService {
      */
     static final Set<String> REGULARIZATION_REEVALUATION_TYPES = Set.of(
             ExceptionType.LATE_ARRIVAL, ExceptionType.MISSING_PUNCH,
-            ExceptionType.WORK_HOURS_SHORTAGE, ExceptionType.NO_ATTENDANCE);
+            ExceptionType.WORK_HOURS_SHORTAGE, ExceptionType.NO_ATTENDANCE,
+            // PN-05: a corrected check-out / punch set can also clear an early-going or excess-break day.
+            ExceptionType.EARLY_DEPARTURE, ExceptionType.EXCESS_BREAK);
+
+    /** PN-05: approving a Partial Day (leaving early) request exempts that day from the Early Going rule. */
+    public static final Set<String> PARTIAL_DAY_REEVALUATION_TYPES = Set.of(ExceptionType.EARLY_DEPARTURE);
 
     /**
      * Gap-034: leave approval only ever changes what an employee was *expected* to work (via
@@ -284,6 +292,9 @@ public class ExceptionService {
         // yesterday-clamped range below, since a late arrival can legitimately be for *today*.
         Map<UUID, WorkingDaySchedule> workingDaySchedules = workingDayService.computeExpectedWorkingDaysBulk(employees, from, to);
 
+        Map<UUID, Employee> employeeById = employees.stream()
+                .collect(Collectors.toMap(Employee::getUserId, e -> e, (a, b) -> a));
+
         for (Attendance record : records) {
             WorkingDaySchedule schedule = workingDaySchedules.get(record.getEmployeeUserId());
             boolean isWorkingDay = schedule != null && schedule.getWorkingDates().contains(record.getWorkDate());
@@ -329,10 +340,29 @@ public class ExceptionService {
                                     ? record.getWorkDate().plusDays(1) : record.getWorkDate();
                             LocalDateTime shiftEnd = LocalDateTime.of(endDate, version.getEndTime());
                             if (record.getCheckOutAt().isBefore(shiftEnd)) {
+                                // PN-05: minutesLate holds the minutes left before the shift end for this
+                                // type - the Early Going rule's grace and exempt count are measured on it.
                                 upsertException(record, ExceptionType.EARLY_DEPARTURE,
-                                        version.getEndTime(), record.getCheckOutAt().toLocalTime(), null);
+                                        version.getEndTime(), record.getCheckOutAt().toLocalTime(),
+                                        (int) java.time.Duration.between(record.getCheckOutAt(), shiftEnd).toMinutes());
                             }
                         });
+            }
+            // PN-05 Excess Break: only for employees whose effective policy has the rule on, past
+            // days with a closed day (a still-open day may yet gain more punches).
+            if (isWorkingDay && record.getCheckOutAt() != null && record.getWorkDate().isBefore(today)) {
+                Employee breakEmployee = employeeById.get(record.getEmployeeUserId());
+                PenalizationPolicyVersion breakPolicy = breakEmployee == null ? null
+                        : penalizationPolicyResolutionService.resolveEffectiveVersionForEmployee(breakEmployee, record.getWorkDate());
+                if (breakPolicy != null && breakPolicy.isExcessBreakEnabled() && breakPolicy.getEbMaxBreakMinutes() != null) {
+                    int breakMinutes = attendanceBreakCalculator.breakMinutes(
+                            record.getEmployeeUserId(), record.getId(), record.getWorkDate());
+                    if (breakMinutes > breakPolicy.getEbMaxBreakMinutes()) {
+                        // minutesLate holds the minutes over the limit for this type.
+                        upsertException(record, ExceptionType.EXCESS_BREAK, null, null,
+                                breakMinutes - breakPolicy.getEbMaxBreakMinutes());
+                    }
+                }
             }
             if (record.getCheckInAt() != null && leaveCoveredDays.contains(record.getEmployeeUserId() + "|" + record.getWorkDate())) {
                 upsertException(record, ExceptionType.LEAVE_ATTENDANCE_CONFLICT,
@@ -878,6 +908,42 @@ public class ExceptionService {
                     .sum();
         }
 
+        // PN-05 facts, only gathered for the two new types so every other evaluation costs nothing extra.
+        Integer earlyMinutes = null;
+        Integer earlyGoingCount = null;
+        boolean leavingEarlyApproved = false;
+        Integer breakMinutes = null;
+        Integer excessBreakCount = null;
+        if (ExceptionType.EARLY_DEPARTURE.equals(exceptionType)) {
+            earlyMinutes = earlyMinutesFor(record);
+            leavingEarlyApproved = approvedLeavingEarlyDates(employeeUserId, exceptionDate, exceptionDate).contains(exceptionDate);
+            if (version != null) {
+                LocalDate[] egPeriod = cyclePeriod(exceptionDate, version.getEgExemptPeriod());
+                int grace = version.getEgGracePeriodMinutes() != null ? version.getEgGracePeriodMinutes() : 0;
+                Set<LocalDate> excused = approvedLeavingEarlyDates(employeeUserId, egPeriod[0], egPeriod[1]);
+                excused.addAll(approvedRegularizationDates(employeeUserId, egPeriod[0], egPeriod[1]));
+                earlyGoingCount = (int) attendanceExceptionRepository
+                        .findByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
+                                employeeUserId, ExceptionType.EARLY_DEPARTURE, egPeriod[0], egPeriod[1])
+                        .stream()
+                        .filter(e -> e.getMinutesLate() != null && e.getMinutesLate() > grace)
+                        .filter(e -> !excused.contains(e.getExceptionDate()))
+                        .count();
+            }
+        } else if (ExceptionType.EXCESS_BREAK.equals(exceptionType)) {
+            breakMinutes = attendanceBreakCalculator.breakMinutes(employeeUserId, record.getId(), exceptionDate);
+            if (version != null) {
+                LocalDate[] ebPeriod = cyclePeriod(exceptionDate, version.getEbExemptPeriod());
+                Set<LocalDate> excused = approvedRegularizationDates(employeeUserId, ebPeriod[0], ebPeriod[1]);
+                excessBreakCount = (int) attendanceExceptionRepository
+                        .findByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
+                                employeeUserId, ExceptionType.EXCESS_BREAK, ebPeriod[0], ebPeriod[1])
+                        .stream()
+                        .filter(e -> !excused.contains(e.getExceptionDate()))
+                        .count();
+            }
+        }
+
         return PolicyEvaluationContext.builder()
                 .employeeUserId(employeeUserId)
                 .attendanceDate(exceptionDate)
@@ -898,7 +964,49 @@ public class ExceptionService {
                 .workHoursShortageAlsoOccurredSameDay(workHoursShortageSameDay)
                 .lateArrivalCausedByMissingLog(lateArrivalCausedByMissingLog)
                 .lateMinutesTotalInPeriod(lateMinutesTotalInPeriod)
+                .earlyMinutes(earlyMinutes)
+                .earlyGoingCountInPeriod(earlyGoingCount)
+                .hasApprovedLeavingEarlyRequest(leavingEarlyApproved)
+                .breakMinutes(breakMinutes)
+                .excessBreakCountInPeriod(excessBreakCount)
                 .build();
+    }
+
+    /** Minutes between this record's check-out and its snapshotted shift's scheduled end; null if it cannot be worked out. */
+    private Integer earlyMinutesFor(Attendance record) {
+        if (record.getCheckOutAt() == null) {
+            return null;
+        }
+        return resolveSnapshotShift(record)
+                .map(shift -> shiftVersionResolver.resolve(shift, record.getWorkDate()))
+                .map(version -> {
+                    // Overnight-aware, same rule as the detection loop and ShiftDayPolicy#shiftEndAt.
+                    LocalDate endDate = !version.getEndTime().isAfter(version.getStartTime())
+                            ? record.getWorkDate().plusDays(1) : record.getWorkDate();
+                    LocalDateTime shiftEnd = LocalDateTime.of(endDate, version.getEndTime());
+                    return (int) Math.max(0, java.time.Duration.between(record.getCheckOutAt(), shiftEnd).toMinutes());
+                })
+                .orElse(null);
+    }
+
+    /** Dates in the range covered by an APPROVED Partial Day request whose mode is LEAVING_EARLY (a mutable set). */
+    private Set<LocalDate> approvedLeavingEarlyDates(UUID employeeUserId, LocalDate from, LocalDate to) {
+        return attendanceRequestRepository
+                .findByEmployeeUserIdInAndRequestTypeAndRequestDateBetween(List.of(employeeUserId), "PARTIAL_DAY", from, to)
+                .stream()
+                .filter(r -> "APPROVED".equals(r.getStatus()) && "LEAVING_EARLY".equals(r.getPartialDayMode()))
+                .map(AttendanceRequest::getRequestDate)
+                .collect(Collectors.toCollection(java.util.HashSet::new));
+    }
+
+    /** Dates in the range with an APPROVED regularization (a mutable set). */
+    private Set<LocalDate> approvedRegularizationDates(UUID employeeUserId, LocalDate from, LocalDate to) {
+        return regularizationRequestRepository
+                .findByEmployeeUserIdInAndAttendanceDateBetween(List.of(employeeUserId), from, to)
+                .stream()
+                .filter(r -> "APPROVED".equals(r.getStatus()))
+                .map(RegularizationRequest::getAttendanceDate)
+                .collect(Collectors.toCollection(java.util.HashSet::new));
     }
 
     /**
@@ -968,6 +1076,9 @@ public class ExceptionService {
             case ExceptionType.WORK_HOURS_SHORTAGE -> stillHasShortageFact(employee, date, record, version)
                     && engineStillAppliesPenalty(discrepancyType,
                             record != null ? record : syntheticNoAttendanceRecord(employee, date));
+            // PN-05: both are decided purely by the engine against current punches / requests.
+            case ExceptionType.EARLY_DEPARTURE, ExceptionType.EXCESS_BREAK -> record != null
+                    && engineStillAppliesPenalty(discrepancyType, record);
             default -> true; // unknown/unhandled type — never touch what this method doesn't understand
         };
     }

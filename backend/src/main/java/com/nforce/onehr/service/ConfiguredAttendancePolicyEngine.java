@@ -77,6 +77,8 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
             case ExceptionType.LATE_ARRIVAL -> evaluateLateArrival(version, context);
             case ExceptionType.WORK_HOURS_SHORTAGE -> evaluateWorkHoursShortage(version, context);
             case ExceptionType.MISSING_PUNCH -> evaluateMissingLogs(version, context);
+            case ExceptionType.EARLY_DEPARTURE -> evaluateEarlyGoing(version, context);
+            case ExceptionType.EXCESS_BREAK -> evaluateExcessBreak(version, context);
             default -> noMatch(version.getPolicyId(), version.getVersion(),
                     "No configured Penalization Policy section covers this discrepancy type.");
         };
@@ -323,6 +325,79 @@ public class ConfiguredAttendancePolicyEngine implements AttendancePolicyEngine 
         }
         int perShifts = v.getMlDeductionPerShifts() != null && v.getMlDeductionPerShifts() > 0 ? v.getMlDeductionPerShifts() : 1;
         return occurrencesPastExempt % perShifts == 0;
+    }
+
+    /**
+     * PN-05 Early Going: same pattern as Late Arrival's incident basis. An approved Partial Day
+     * (leaving early) request exempts the day outright; otherwise leaving within the grace period is
+     * free, the first {@code egExemptCount} occurrences per cycle are free, and every
+     * {@code egDeductionPerShifts}-th occurrence after that deducts {@code egDeductionDays}.
+     * Unlike Late Arrival there is no shift-level early grace to reuse, so the grace lives here.
+     */
+    private PolicyDecision evaluateEarlyGoing(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
+        if (!v.isEarlyGoingEnabled()) {
+            return noMatch(v.getPolicyId(), v.getVersion(), "Early Going section is disabled.");
+        }
+        if (ctx.isHasApprovedLeavingEarlyRequest()) {
+            return exempt(v, "An approved Partial Day (leaving early) request covers this date.");
+        }
+        if (ctx.getEarlyMinutes() == null) {
+            return configurationRequired(v, "earlyMinutes fact is required to evaluate Early Going.");
+        }
+        int grace = v.getEgGracePeriodMinutes() != null ? v.getEgGracePeriodMinutes() : 0;
+        if (ctx.getEarlyMinutes() <= grace) {
+            return noMatch(v.getPolicyId(), v.getVersion(), "Left within the configured grace period.");
+        }
+        if (!isEarlyGoingDeductionDueThisOccurrence(v, ctx)) {
+            return noMatch(v.getPolicyId(), v.getVersion(),
+                    "Early-going occurrence is within the exempt count, or not on a deduction interval, for this period.");
+        }
+        if (isRegularized(ctx)) {
+            return exempt(v, "A pending or approved regularization covers this date.");
+        }
+        return decideApplyPenalty(v, ctx, v.getEgDeductionDays(), "Left before the shift end beyond the grace period.");
+    }
+
+    /** Occurrences past the exempt count, batched every {@code egDeductionPerShifts} (default 1 = every one). */
+    private boolean isEarlyGoingDeductionDueThisOccurrence(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
+        if (ctx.getEarlyGoingCountInPeriod() == null) {
+            return true;
+        }
+        int exempt = v.getEgExemptCount() != null ? v.getEgExemptCount() : 0;
+        int pastExempt = ctx.getEarlyGoingCountInPeriod() - exempt;
+        if (pastExempt <= 0) {
+            return false;
+        }
+        int perShifts = v.getEgDeductionPerShifts() != null && v.getEgDeductionPerShifts() > 0 ? v.getEgDeductionPerShifts() : 1;
+        return pastExempt % perShifts == 0;
+    }
+
+    /**
+     * PN-05 Excess Break: a day whose breaks add up to more than {@code ebMaxBreakMinutes} is an
+     * occurrence; the first {@code ebExemptCount} per cycle are free, each later one deducts
+     * {@code ebDeductionDays}.
+     */
+    private PolicyDecision evaluateExcessBreak(PenalizationPolicyVersion v, PolicyEvaluationContext ctx) {
+        if (!v.isExcessBreakEnabled()) {
+            return noMatch(v.getPolicyId(), v.getVersion(), "Excess Break section is disabled.");
+        }
+        if (v.getEbMaxBreakMinutes() == null) {
+            return configurationRequired(v, "Max break minutes must be configured to evaluate Excess Break.");
+        }
+        if (ctx.getBreakMinutes() == null) {
+            return configurationRequired(v, "breakMinutes fact is required to evaluate Excess Break.");
+        }
+        if (ctx.getBreakMinutes() <= v.getEbMaxBreakMinutes()) {
+            return noMatch(v.getPolicyId(), v.getVersion(), "Total break time is within the configured daily limit.");
+        }
+        int exempt = v.getEbExemptCount() != null ? v.getEbExemptCount() : 0;
+        if (ctx.getExcessBreakCountInPeriod() != null && ctx.getExcessBreakCountInPeriod() <= exempt) {
+            return noMatch(v.getPolicyId(), v.getVersion(), "Excess-break occurrence is within the exempt count for this period.");
+        }
+        if (isRegularized(ctx)) {
+            return exempt(v, "A pending or approved regularization covers this date.");
+        }
+        return decideApplyPenalty(v, ctx, v.getEbDeductionDays(), "Total break time exceeds the configured daily limit.");
     }
 
     private boolean isRegularized(PolicyEvaluationContext ctx) {

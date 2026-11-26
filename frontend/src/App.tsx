@@ -79,6 +79,8 @@ import MyTeamPreviewPage from './pages/my-team/MyTeamPreviewPage';
 import PayrollReviewDisputePreview from './pages/payroll/PayrollReviewDisputePreview';
 // Design-review mock only (PN-03) - policy early-warning settings + sample notification/email.
 import EarlyWarningPreview from './pages/penalization/EarlyWarningPreview';
+import EarlyGoingBreakPreview from './pages/penalization/EarlyGoingBreakPreview';
+import PenaltyAnalyticsPreview from './pages/my-team/PenaltyAnalyticsPreview';
 // Design-review mock only (PN-04) - auto-assignment rules, resolve explanations and history.
 import AssignmentRulesPreview from './pages/penalization/AssignmentRulesPreview';
 import { hasPermission } from './lib/permissions';
@@ -190,6 +192,8 @@ export default function App() {
         <Route path="/my-team-preview" element={<MyTeamPreviewPage />} />
         <Route path="/payroll-review-dispute-preview" element={<PayrollReviewDisputePreview />} />
         <Route path="/early-warning-preview" element={<EarlyWarningPreview />} />
+        <Route path="/early-going-break-preview" element={<EarlyGoingBreakPreview />} />
+        <Route path="/penalty-analytics-preview" element={<PenaltyAnalyticsPreview />} />
         <Route path="/assignment-rules-preview" element={<AssignmentRulesPreview />} />
 
         {/* Auth required, password-change gate */}

@@ -95,6 +95,7 @@ public class PenalizationPolicyService {
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
         validateTiers(request);
         validateLateHoursTiers(request);
+        validateEarlyGoingAndExcessBreak(request);
 
         UUID resolvedPolicyId = resolvePolicyId(policyId);
         Optional<PenalizationPolicyVersion> current = versionRepository.findByPolicyIdAndEffectiveToIsNull(resolvedPolicyId);
@@ -180,6 +181,17 @@ public class PenalizationPolicyService {
                 .laAllowedHours(request.getLateArrival().getAllowedHours())
                 .laCombinedRuleBehavior(request.getLateArrival().getCombinedRuleBehavior())
                 .laPenaliseWhenCausedByMissingLogEnabled(request.getLateArrival().isPenaliseWhenCausedByMissingLogEnabled())
+                .earlyGoingEnabled(earlyGoingOf(request).isEnabled())
+                .egGracePeriodMinutes(earlyGoingOf(request).getGracePeriodMinutes())
+                .egExemptCount(earlyGoingOf(request).getExemptCount())
+                .egExemptPeriod(earlyGoingOf(request).getExemptPeriod())
+                .egDeductionDays(earlyGoingOf(request).getDeductionDays())
+                .egDeductionPerShifts(earlyGoingOf(request).getDeductionPerShifts())
+                .excessBreakEnabled(excessBreakOf(request).isEnabled())
+                .ebMaxBreakMinutes(excessBreakOf(request).getMaxBreakMinutes())
+                .ebExemptCount(excessBreakOf(request).getExemptCount())
+                .ebExemptPeriod(excessBreakOf(request).getExemptPeriod())
+                .ebDeductionDays(excessBreakOf(request).getDeductionDays())
                 .workHoursShortageEnabled(request.getWorkHoursShortage().isEnabled())
                 .whsDeductionBasis(request.getWorkHoursShortage().getDeductionBasis())
                 .whsDeductionPeriod(request.getWorkHoursShortage().getDeductionPeriod())
@@ -323,6 +335,14 @@ public class PenalizationPolicyService {
         fields.put("laExemptCount", v.getLaExemptCount());
         fields.put("laDeductionDays", v.getLaDeductionDays());
         fields.put("laAllowedHours", v.getLaAllowedHours());
+        fields.put("earlyGoingEnabled", v.isEarlyGoingEnabled());
+        fields.put("egGracePeriodMinutes", v.getEgGracePeriodMinutes());
+        fields.put("egExemptCount", v.getEgExemptCount());
+        fields.put("egDeductionDays", v.getEgDeductionDays());
+        fields.put("excessBreakEnabled", v.isExcessBreakEnabled());
+        fields.put("ebMaxBreakMinutes", v.getEbMaxBreakMinutes());
+        fields.put("ebExemptCount", v.getEbExemptCount());
+        fields.put("ebDeductionDays", v.getEbDeductionDays());
         fields.put("workHoursShortageEnabled", v.isWorkHoursShortageEnabled());
         fields.put("missingLogsEnabled", v.isMissingLogsEnabled());
         fields.put("mlExemptDays", v.getMlExemptDays());
@@ -403,6 +423,21 @@ public class PenalizationPolicyService {
         missingLogs.setIgnoreRuleEnabled(v.isMlIgnoreRuleEnabled());
         missingLogs.setIgnoreRuleThresholdPercent(v.getMlIgnoreRuleThresholdPercent());
 
+        EarlyGoingConfigDto earlyGoing = new EarlyGoingConfigDto();
+        earlyGoing.setEnabled(v.isEarlyGoingEnabled());
+        earlyGoing.setGracePeriodMinutes(v.getEgGracePeriodMinutes());
+        earlyGoing.setExemptCount(v.getEgExemptCount());
+        earlyGoing.setExemptPeriod(v.getEgExemptPeriod() != null ? v.getEgExemptPeriod() : "MONTH");
+        earlyGoing.setDeductionDays(v.getEgDeductionDays());
+        earlyGoing.setDeductionPerShifts(v.getEgDeductionPerShifts());
+
+        ExcessBreakConfigDto excessBreak = new ExcessBreakConfigDto();
+        excessBreak.setEnabled(v.isExcessBreakEnabled());
+        excessBreak.setMaxBreakMinutes(v.getEbMaxBreakMinutes());
+        excessBreak.setExemptCount(v.getEbExemptCount());
+        excessBreak.setExemptPeriod(v.getEbExemptPeriod() != null ? v.getEbExemptPeriod() : "MONTH");
+        excessBreak.setDeductionDays(v.getEbDeductionDays());
+
         BasicInfoConfigDto basicInfo = new BasicInfoConfigDto();
         basicInfo.setDeductionMethod(v.getDeductionMethod());
         basicInfo.setLeavePriorityOrder(v.getLeavePriorityOrder() == null || v.getLeavePriorityOrder().isBlank()
@@ -425,6 +460,7 @@ public class PenalizationPolicyService {
                 .basicInfo(basicInfo)
                 .noAttendance(noAttendance).lateArrival(lateArrival)
                 .workHoursShortage(workHours).missingLogs(missingLogs)
+                .earlyGoing(earlyGoing).excessBreak(excessBreak)
                 .createdBy(v.getCreatedBy()).createdAt(v.getCreatedAt())
                 .updatedBy(v.getUpdatedBy()).updatedAt(v.getUpdatedAt())
                 .build();
@@ -524,6 +560,8 @@ public class PenalizationPolicyService {
         LateArrivalConfigDto la = request.getLateArrival();
         WorkHoursShortageConfigDto whs = request.getWorkHoursShortage();
         MissingLogsConfigDto ml = request.getMissingLogs();
+        EarlyGoingConfigDto eg = earlyGoingOf(request);
+        ExcessBreakConfigDto eb = excessBreakOf(request);
         String requestedLeavePriorityOrder = b.getLeavePriorityOrder() == null || b.getLeavePriorityOrder().isEmpty()
                 ? null : String.join(",", b.getLeavePriorityOrder());
 
@@ -569,7 +607,19 @@ public class PenalizationPolicyService {
                 && Objects.equals(b.getDeductionMethod(), current.getDeductionMethod())
                 && Objects.equals(requestedLeavePriorityOrder, current.getLeavePriorityOrder())
                 && Objects.equals(b.getBufferPeriodDays(), current.getBufferPeriodDays())
-                && b.isNoticePeriodForcesLopEnabled() == current.isNoticePeriodForcesLopEnabled();
+                && b.isNoticePeriodForcesLopEnabled() == current.isNoticePeriodForcesLopEnabled()
+                && eg.isEnabled() == current.isEarlyGoingEnabled()
+                && Objects.equals(eg.getGracePeriodMinutes(), current.getEgGracePeriodMinutes())
+                && Objects.equals(eg.getExemptCount(), current.getEgExemptCount())
+                && Objects.equals(eg.getExemptPeriod(), current.getEgExemptPeriod())
+                && bdEquals(eg.getDeductionDays(), current.getEgDeductionDays())
+                && Objects.equals(eg.getDeductionPerShifts(), current.getEgDeductionPerShifts())
+                && eb.isEnabled() == current.isExcessBreakEnabled()
+                && Objects.equals(eb.getMaxBreakMinutes(), current.getEbMaxBreakMinutes())
+                && Objects.equals(eb.getExemptCount(), current.getEbExemptCount())
+                && Objects.equals(eb.getExemptPeriod(), current.getEbExemptPeriod())
+                && bdEquals(eb.getDeductionDays(), current.getEbDeductionDays())
+                && earlyWarningUnchanged(b.getEarlyWarning(), current);
         if (!scalarsMatch) {
             return false;
         }
@@ -599,6 +649,31 @@ public class PenalizationPolicyService {
         return true;
     }
 
+    /** PN-05: a request without the section (an older client) means the rule is off. */
+    private static EarlyGoingConfigDto earlyGoingOf(PenalizationPolicyRequest request) {
+        return request.getEarlyGoing() != null ? request.getEarlyGoing() : new EarlyGoingConfigDto();
+    }
+
+    private static ExcessBreakConfigDto excessBreakOf(PenalizationPolicyRequest request) {
+        return request.getExcessBreak() != null ? request.getExcessBreak() : new ExcessBreakConfigDto();
+    }
+
+    /** Same defaults the save path applies when the early-warning block is absent (PN-03). */
+    private boolean earlyWarningUnchanged(EarlyWarningConfigDto ew, PenalizationPolicyVersion current) {
+        if (ew == null) {
+            return !current.isEwEnabled() && current.isEwLateArrivalEnabled() && current.isEwMissingLogsEnabled()
+                    && current.isEwShortageEnabled() && current.getEwExemptRemaining() == 1
+                    && bdEquals(java.math.BigDecimal.TEN, current.getEwShortageMarginPercent());
+        }
+        return ew.isEnabled() == current.isEwEnabled()
+                && ew.isLateArrivalEnabled() == current.isEwLateArrivalEnabled()
+                && ew.isMissingLogsEnabled() == current.isEwMissingLogsEnabled()
+                && ew.isShortageEnabled() == current.isEwShortageEnabled()
+                && ew.getExemptRemaining() == current.getEwExemptRemaining()
+                && bdEquals(ew.getShortageMarginPercent() != null ? ew.getShortageMarginPercent() : java.math.BigDecimal.TEN,
+                        current.getEwShortageMarginPercent());
+    }
+
     private boolean bdEquals(java.math.BigDecimal a, java.math.BigDecimal b) {
         if (a == null || b == null) {
             return a == b;
@@ -616,6 +691,21 @@ public class PenalizationPolicyService {
      * where they don't, so admins retain full freedom over each tier's amount independent of its
      * neighbors.
      */
+    /** PN-05: an enabled rule must be able to actually deduct something; Excess Break also needs its limit. */
+    private void validateEarlyGoingAndExcessBreak(PenalizationPolicyRequest request) {
+        EarlyGoingConfigDto eg = earlyGoingOf(request);
+        if (eg.isEnabled() && eg.getDeductionDays() == null) {
+            throw new IllegalArgumentException("Early Going: deduction days must be configured");
+        }
+        ExcessBreakConfigDto eb = excessBreakOf(request);
+        if (eb.isEnabled() && eb.getMaxBreakMinutes() == null) {
+            throw new IllegalArgumentException("Excess Break: max break minutes must be configured");
+        }
+        if (eb.isEnabled() && eb.getDeductionDays() == null) {
+            throw new IllegalArgumentException("Excess Break: deduction days must be configured");
+        }
+    }
+
     private void validateTiers(PenalizationPolicyRequest request) {
         WorkHoursShortageConfigDto whs = request.getWorkHoursShortage();
         List<WorkHoursTierDto> tiers = whs.getTiers();

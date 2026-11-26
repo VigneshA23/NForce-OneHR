@@ -114,6 +114,105 @@ class PenalizationPolicyServiceTest {
         assertEquals(false, response.getWorkHoursShortage().isPenalizeShortageCausedByMissingLogsEnabled());
     }
 
+    // ── PN-05: Early Going and Excess Break are versioned with the policy ──
+
+    @Test
+    void save_earlyGoingAndExcessBreak_roundTripThroughToResponse() {
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
+        PenalizationPolicyRequest req = minimalRequest();
+        EarlyGoingConfigDto eg = new EarlyGoingConfigDto();
+        eg.setEnabled(true); eg.setGracePeriodMinutes(15); eg.setExemptCount(2); eg.setExemptPeriod("WEEK");
+        eg.setDeductionDays(new java.math.BigDecimal("0.5")); eg.setDeductionPerShifts(3);
+        req.setEarlyGoing(eg);
+        ExcessBreakConfigDto eb = new ExcessBreakConfigDto();
+        eb.setEnabled(true); eb.setMaxBreakMinutes(60); eb.setExemptCount(1); eb.setExemptPeriod("MONTH");
+        eb.setDeductionDays(new java.math.BigDecimal("0.25"));
+        req.setExcessBreak(eb);
+
+        PenalizationPolicyResponse response = service.save(null, req, "hr@test.com");
+
+        assertEquals(true, response.getEarlyGoing().isEnabled());
+        assertEquals(15, response.getEarlyGoing().getGracePeriodMinutes());
+        assertEquals(2, response.getEarlyGoing().getExemptCount());
+        assertEquals("WEEK", response.getEarlyGoing().getExemptPeriod());
+        assertEquals(3, response.getEarlyGoing().getDeductionPerShifts());
+        assertEquals(true, response.getExcessBreak().isEnabled());
+        assertEquals(60, response.getExcessBreak().getMaxBreakMinutes());
+        assertEquals(1, response.getExcessBreak().getExemptCount());
+    }
+
+    @Test
+    void save_enabledEarlyGoingWithoutADeduction_rejected_doesNotSaveVersion() {
+        PenalizationPolicyRequest req = minimalRequest();
+        EarlyGoingConfigDto eg = new EarlyGoingConfigDto();
+        eg.setEnabled(true);
+        req.setEarlyGoing(eg);
+
+        assertThrows(IllegalArgumentException.class, () -> service.save(null, req, "hr@test.com"));
+        verify(versionRepository, never()).save(any());
+    }
+
+    @Test
+    void save_enabledExcessBreakNeedsItsLimitAndDeduction_rejected() {
+        PenalizationPolicyRequest noLimit = minimalRequest();
+        ExcessBreakConfigDto eb = new ExcessBreakConfigDto();
+        eb.setEnabled(true); eb.setDeductionDays(java.math.BigDecimal.ONE);
+        noLimit.setExcessBreak(eb);
+        assertThrows(IllegalArgumentException.class, () -> service.save(null, noLimit, "hr@test.com"));
+
+        PenalizationPolicyRequest noDeduction = minimalRequest();
+        ExcessBreakConfigDto eb2 = new ExcessBreakConfigDto();
+        eb2.setEnabled(true); eb2.setMaxBreakMinutes(60);
+        noDeduction.setExcessBreak(eb2);
+        assertThrows(IllegalArgumentException.class, () -> service.save(null, noDeduction, "hr@test.com"));
+        verify(versionRepository, never()).save(any());
+    }
+
+    @Test
+    void save_withoutTheNewSections_leavesBothRulesOff_soOlderClientsKeepWorking() {
+        when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());
+
+        PenalizationPolicyResponse response = service.save(null, minimalRequest(), "hr@test.com");
+
+        assertEquals(false, response.getEarlyGoing().isEnabled());
+        assertEquals(false, response.getExcessBreak().isEnabled());
+    }
+
+    @Test
+    void save_changingOnlyEarlyGoingOrExcessBreak_isNotTreatedAsUnchanged() {
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        UUID policyId = UUID.randomUUID();
+        PenalizationPolicyVersion current = saveAndCaptureVersion(policyId, minimalRequest());
+        when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId())).thenReturn(List.of());
+        when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId())).thenReturn(List.of());
+
+        PenalizationPolicyRequest changed = minimalRequest();
+        ExcessBreakConfigDto eb = new ExcessBreakConfigDto();
+        eb.setEnabled(true); eb.setMaxBreakMinutes(45); eb.setDeductionDays(java.math.BigDecimal.ONE);
+        changed.setExcessBreak(eb);
+        service.save(policyId, changed, "hr@test.com");
+
+        verify(versionRepository, atLeastOnce()).save(any());
+    }
+
+    // PN-03 early-warning settings were missing from the "nothing changed" comparison.
+    @Test
+    void save_changingOnlyTheEarlyWarningBlock_isNotTreatedAsUnchanged() {
+        when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
+        UUID policyId = UUID.randomUUID();
+        PenalizationPolicyVersion current = saveAndCaptureVersion(policyId, minimalRequest());
+        when(tierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId())).thenReturn(List.of());
+        when(lateHoursTierRepository.findByPolicyVersionIdOrderBySortOrderAsc(current.getId())).thenReturn(List.of());
+
+        PenalizationPolicyRequest changed = minimalRequest();
+        EarlyWarningConfigDto ew = new EarlyWarningConfigDto();
+        ew.setEnabled(true);
+        changed.getBasicInfo().setEarlyWarning(ew);
+        service.save(policyId, changed, "hr@test.com");
+
+        verify(versionRepository, atLeastOnce()).save(any());
+    }
+
     @Test
     void firstSave_createsVersion1_andAuditsCreated() {
         when(versionRepository.findByPolicyIdAndEffectiveToIsNull(any())).thenReturn(Optional.empty());

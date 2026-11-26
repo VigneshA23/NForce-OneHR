@@ -67,7 +67,8 @@ public class MyPenaltyService {
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
     private static final Set<String> ACTIVE_REGULARIZATION_STATUSES = Set.of("PENDING", "PARTIALLY_APPROVED", "APPROVED");
     private static final Set<String> PENALIZABLE_TYPES = Set.of(
-            ExceptionType.LATE_ARRIVAL, ExceptionType.MISSING_PUNCH, ExceptionType.WORK_HOURS_SHORTAGE);
+            ExceptionType.LATE_ARRIVAL, ExceptionType.MISSING_PUNCH, ExceptionType.WORK_HOURS_SHORTAGE,
+            ExceptionType.EARLY_DEPARTURE, ExceptionType.EXCESS_BREAK);
 
     private final AttendancePenaltyRepository attendancePenaltyRepository;
     private final AttendanceExceptionRepository attendanceExceptionRepository;
@@ -248,6 +249,29 @@ public class MyPenaltyService {
             }
             case ExceptionType.WORK_HOURS_SHORTAGE:
                 return v.isWorkHoursShortageEnabled();
+            case ExceptionType.EARLY_DEPARTURE: {
+                // PN-05: minutesLate holds the minutes left before the shift end; only those past the
+                // grace count toward the exempt count. An approved Partial Day request is the engine's call.
+                if (!v.isEarlyGoingEnabled()) return false;
+                int grace = v.getEgGracePeriodMinutes() != null ? v.getEgGracePeriodMinutes() : 0;
+                if (e.getMinutesLate() == null || e.getMinutesLate() <= grace) return false;
+                int exempt = v.getEgExemptCount() != null ? v.getEgExemptCount() : 0;
+                LocalDate[] c = ExceptionService.cyclePeriod(e.getExceptionDate(), v.getEgExemptPeriod());
+                long upToThisOne = attendanceExceptionRepository
+                        .findByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
+                                userId, ExceptionType.EARLY_DEPARTURE, c[0], e.getExceptionDate())
+                        .stream().filter(x -> x.getMinutesLate() != null && x.getMinutesLate() > grace).count();
+                return upToThisOne > exempt;
+            }
+            case ExceptionType.EXCESS_BREAK: {
+                if (!v.isExcessBreakEnabled()) return false;
+                int exempt = v.getEbExemptCount() != null ? v.getEbExemptCount() : 0;
+                LocalDate[] c = ExceptionService.cyclePeriod(e.getExceptionDate(), v.getEbExemptPeriod());
+                long upToThisOne = attendanceExceptionRepository
+                        .countByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
+                                userId, ExceptionType.EXCESS_BREAK, c[0], e.getExceptionDate());
+                return upToThisOne > exempt;
+            }
             default:
                 return false;
         }
@@ -260,7 +284,8 @@ public class MyPenaltyService {
             case ExceptionType.WORK_HOURS_SHORTAGE -> "Shortage";
             case ExceptionType.NO_ATTENDANCE -> "No Attendance";
             case ExceptionType.MISSING_PUNCH -> "Missing Logs";
-            case ExceptionType.EARLY_DEPARTURE -> "Early Departure";
+            case ExceptionType.EARLY_DEPARTURE -> "Early Going";
+            case ExceptionType.EXCESS_BREAK -> "Excess Break";
             default -> AttendancePenaltyEvaluationService.humanizeDiscrepancyType(discrepancyType);
         };
     }
@@ -297,6 +322,11 @@ public class MyPenaltyService {
                 LocalTime end = incident != null ? incident.getExpectedTime() : null;
                 return out != null && end != null ? "Left " + out.format(TIME_FMT) + ", shift ends " + end.format(TIME_FMT)
                         : "Left before the shift ended";
+            }
+            case ExceptionType.EXCESS_BREAK: {
+                Integer over = incident != null ? incident.getMinutesLate() : null;
+                return over != null && over > 0 ? "Breaks ran " + over + " min over the daily limit"
+                        : "Break time went over the daily limit";
             }
             default:
                 return "Attendance policy deduction";

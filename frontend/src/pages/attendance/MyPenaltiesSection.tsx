@@ -41,6 +41,7 @@ const DISPUTE_META: Record<PenaltyDisputeStatus, { label: string; color: string 
 
 const RULE_COLOR: Record<string, string> = {
   LATE_ARRIVAL: 'var(--warn)', WORK_HOURS_SHORTAGE: 'var(--info)', NO_ATTENDANCE: 'var(--risk)', MISSING_PUNCH: 'var(--brand)',
+  EARLY_DEPARTURE: 'var(--warn)', EXCESS_BREAK: 'var(--info)',
 };
 
 const panel: React.CSSProperties = {

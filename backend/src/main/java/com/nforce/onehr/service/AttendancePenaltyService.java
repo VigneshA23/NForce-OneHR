@@ -80,7 +80,8 @@ public class AttendancePenaltyService {
     // a list/filter value only, never stored on AttendancePenalty.
     static final String NOT_PENALIZED = "NOT_PENALIZED";
     private static final Set<String> NOT_PENALIZED_INCIDENT_TYPES = Set.of(
-            ExceptionType.LATE_ARRIVAL, ExceptionType.EARLY_DEPARTURE, ExceptionType.MISSING_PUNCH);
+            ExceptionType.LATE_ARRIVAL, ExceptionType.EARLY_DEPARTURE, ExceptionType.MISSING_PUNCH,
+            ExceptionType.EXCESS_BREAK);
 
     private final AttendancePenaltyRepository attendancePenaltyRepository;
     private final AttendanceExceptionRepository attendanceExceptionRepository;
@@ -186,8 +187,7 @@ public class AttendancePenaltyService {
     /**
      * Late arrivals, early departures and missing punches that {@code ExceptionService} detected
      * but that never became an {@link AttendancePenalty} of the same type — e.g. still within the
-     * policy's exempt count, the section is disabled, or (Early Departure) no policy section
-     * covers it at all. Listed so the manager sees every such incident, not only penalized ones;
+     * policy's exempt count, the section is disabled, or an approved Partial Day request exempts it. Listed so the manager sees every such incident, not only penalized ones;
      * never cancellable, since there's no penalty to cancel.
      */
     private List<AttendancePenaltyResponse> notPenalizedIncidents(List<UUID> scopedIds, LocalDate from, LocalDate to,
@@ -206,6 +206,18 @@ public class AttendancePenaltyService {
                 .filter(e -> !penalizedKeys.contains(dayKey(e.getEmployeeUserId(), e.getExceptionDate()) + "|" + e.getExceptionType()))
                 .map(e -> toResponse(e, employeesById.get(e.getEmployeeUserId())))
                 .toList();
+    }
+
+    /** PN-06: who the caller may view penalties for - the same scope the penalties list uses. */
+    @Transactional(readOnly = true)
+    public Set<UUID> viewScopeIds(String actorEmail) {
+        return resolveScopeIds(resolveEmployee(actorEmail), ORG_WIDE_VIEW_AUTHORITY);
+    }
+
+    /** PN-06: true when the caller sees the whole organisation rather than only their team. */
+    @Transactional(readOnly = true)
+    public boolean hasOrganisationViewScope(String actorEmail) {
+        return effectivePermissionService.hasAuthority(resolveEmployee(actorEmail).getUser(), ORG_WIDE_VIEW_AUTHORITY);
     }
 
     /**

@@ -114,6 +114,32 @@ export interface MissingLogsConfig {
   ignoreRuleThresholdPercent: number | null;
 }
 
+/** PN-05: leaving before the shift end. Same shape as the Late Arrival incident basis. */
+export interface EarlyGoingConfig {
+  enabled: boolean;
+  gracePeriodMinutes: number | null;
+  exemptCount: number | null;
+  exemptPeriod: 'WEEK' | 'MONTH';
+  deductionDays: number | null;
+  deductionPerShifts: number | null;
+}
+
+/** PN-05: total break time in a day above a limit. */
+export interface ExcessBreakConfig {
+  enabled: boolean;
+  maxBreakMinutes: number | null;
+  exemptCount: number | null;
+  exemptPeriod: 'WEEK' | 'MONTH';
+  deductionDays: number | null;
+}
+
+export const DEFAULT_EARLY_GOING: EarlyGoingConfig = {
+  enabled: false, gracePeriodMinutes: null, exemptCount: null, exemptPeriod: 'MONTH', deductionDays: null, deductionPerShifts: null,
+};
+export const DEFAULT_EXCESS_BREAK: ExcessBreakConfig = {
+  enabled: false, maxBreakMinutes: null, exemptCount: null, exemptPeriod: 'MONTH', deductionDays: null,
+};
+
 export interface PenalizationPolicy {
   id: string;
   policyId: string;
@@ -125,6 +151,9 @@ export interface PenalizationPolicy {
   lateArrival: LateArrivalConfig;
   workHoursShortage: WorkHoursShortageConfig;
   missingLogs: MissingLogsConfig;
+  /** PN-05. Absent on a response from a server that predates the rules: treat as off. */
+  earlyGoing?: EarlyGoingConfig;
+  excessBreak?: ExcessBreakConfig;
   createdBy: string;
   createdAt: string;
 }
@@ -143,6 +172,8 @@ export interface PenalizationPolicyRequest {
   lateArrival: LateArrivalConfig;
   workHoursShortage: WorkHoursShortageConfig;
   missingLogs: MissingLogsConfig;
+  earlyGoing: EarlyGoingConfig;
+  excessBreak: ExcessBreakConfig;
 }
 
 // ── API ──────────────────────────────────────────────────────────────────

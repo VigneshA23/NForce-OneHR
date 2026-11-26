@@ -87,4 +87,18 @@ public class PolicyEvaluationContext {
     // daily/weekly/monthly frequency (see WorkHoursShortageCalculationService) — the ONLY fact
     // ConfiguredAttendancePolicyEngine#evaluateWorkHoursShortage's tier matching reads.
     private Double workHoursShortagePercent;
+
+    // ── PN-05 ──
+    // Minutes between the check-out and the snapshotted shift's scheduled end (EARLY_DEPARTURE).
+    private Integer earlyMinutes;
+    // Occurrences in the policy's Early Going cycle beyond its grace, inclusive of this one, not
+    // counting days an approved Partial Day (leaving early) request or regularization covers.
+    private Integer earlyGoingCountInPeriod;
+    // An approved Partial Day request with mode LEAVING_EARLY exists for this date: the day is
+    // exempt from the Early Going rule.
+    private boolean hasApprovedLeavingEarlyRequest;
+    // Total break minutes for the day (EXCESS_BREAK) and the running count of over-limit days in
+    // the cycle, inclusive of this one.
+    private Integer breakMinutes;
+    private Integer excessBreakCountInPeriod;
 }

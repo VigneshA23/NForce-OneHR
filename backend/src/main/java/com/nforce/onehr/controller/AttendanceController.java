@@ -31,6 +31,8 @@ import com.nforce.onehr.service.AttendanceService;
 import com.nforce.onehr.service.AttendanceStatsService;
 import com.nforce.onehr.service.ExceptionService;
 import com.nforce.onehr.service.MyPenaltyService;
+import com.nforce.onehr.service.PenaltyAnalyticsService;
+import com.nforce.onehr.dto.attendance.PenaltyAnalyticsResponse;
 import com.nforce.onehr.service.PenaltyDisputeService;
 import com.nforce.onehr.service.OfficeNetwork;
 import com.nforce.onehr.exception.OffOfficeNetworkException;
@@ -73,6 +75,7 @@ public class AttendanceController {
     private final RegularizationService regularizationService;
     private final AttendancePenaltyService attendancePenaltyService;
     private final MyPenaltyService myPenaltyService;
+    private final PenaltyAnalyticsService penaltyAnalyticsService;
     private final PenaltyDisputeService penaltyDisputeService;
     private final ExceptionService exceptionService;
 
@@ -440,6 +443,22 @@ public class AttendanceController {
     public PenaltyDisputeResponse decidePenaltyDispute(@PathVariable UUID id,
                                                        @Valid @RequestBody DecidePenaltyDisputeRequest req, Principal principal) {
         return penaltyDisputeService.decide(principal.getName(), id, req);
+    }
+
+    /**
+     * PN-06: penalty analytics by rule, department, month and employee. Scope comes from the caller's
+     * permissions only (whole organisation for HR, own direct reports for a manager).
+     */
+    @GetMapping("/penalty-analytics")
+    @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
+    public PenaltyAnalyticsResponse penaltyAnalytics(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String rule,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String status,
+            Principal principal) {
+        return penaltyAnalyticsService.analyse(principal.getName(), from, to, rule, department, status);
     }
 
     @GetMapping("/penalties")

@@ -58,6 +58,7 @@ class AttendanceRequestServiceTest {
     @Mock private AuditService auditService;
     @Mock private NotificationService notificationService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
+    @Mock private ExceptionService exceptionService;
     // The real seed, plus custom roles: one granted attendance_requests:APPROVE at TEAM, one at
     // ALL, and one granted only an unrelated module's APPROVE.
     @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
@@ -304,6 +305,35 @@ class AttendanceRequestServiceTest {
         assertEquals("APPROVED", resp.getStatus());
         verify(notificationService, times(1))
                 .send(eq(employeeId), eq("ATTENDANCE_REQUEST_APPROVED"), any(), any(), any());
+    }
+
+    // PN-05 AC4: approving a Partial Day (leaving early) request re-decides that day's early-going
+    // penalty, so a penalty raised before the approval is reversed.
+    @Test
+    void approve_partialDayLeavingEarly_reevaluatesEarlyGoingForThatDay() {
+        stubHrAdmin();
+        LocalDate day = LocalDate.of(2026, 8, 3);
+        AttendanceRequest pending = existing(day, 2.0, "LEAVING_EARLY", "PENDING");
+        when(requestRepository.findById(pending.getId())).thenReturn(java.util.Optional.of(pending));
+
+        service.approve(pending.getId(), null, hrAdminEmail);
+
+        verify(exceptionService).reevaluateAndReverseIfInvalid(eq(employeeId), eq(day),
+                eq(ExceptionService.PARTIAL_DAY_REEVALUATION_TYPES), eq(hrAdminId), any(), any());
+    }
+
+    @Test
+    void approve_otherPartialDayModesAndRejection_neverTouchEarlyGoing() {
+        stubHrAdmin();
+        AttendanceRequest lateArrive = existing(LocalDate.of(2026, 8, 3), 2.0, "LATE_ARRIVE", "PENDING");
+        when(requestRepository.findById(lateArrive.getId())).thenReturn(java.util.Optional.of(lateArrive));
+        service.approve(lateArrive.getId(), null, hrAdminEmail);
+
+        AttendanceRequest leavingEarly = existing(LocalDate.of(2026, 8, 4), 2.0, "LEAVING_EARLY", "PENDING");
+        when(requestRepository.findById(leavingEarly.getId())).thenReturn(java.util.Optional.of(leavingEarly));
+        service.reject(leavingEarly.getId(), "no", hrAdminEmail);
+
+        verifyNoInteractions(exceptionService);
     }
 
     @Test

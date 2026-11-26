@@ -121,6 +121,34 @@ public class PenalizationPolicyVersion {
     @Builder.Default
     private boolean laPenaliseWhenCausedByMissingLogEnabled = false;
 
+    // ── PN-05 Early Going (V320) ──
+    @Column(name = "early_going_enabled", nullable = false)
+    @Builder.Default
+    private boolean earlyGoingEnabled = false;
+    @Column(name = "eg_grace_period_minutes")
+    private Integer egGracePeriodMinutes;
+    @Column(name = "eg_exempt_count")
+    private Integer egExemptCount;
+    @Column(name = "eg_exempt_period")
+    private String egExemptPeriod;
+    @Column(name = "eg_deduction_days")
+    private BigDecimal egDeductionDays;
+    @Column(name = "eg_deduction_per_shifts")
+    private Integer egDeductionPerShifts;
+
+    // ── PN-05 Excess Break (V320) ──
+    @Column(name = "excess_break_enabled", nullable = false)
+    @Builder.Default
+    private boolean excessBreakEnabled = false;
+    @Column(name = "eb_max_break_minutes")
+    private Integer ebMaxBreakMinutes;
+    @Column(name = "eb_exempt_count")
+    private Integer ebExemptCount;
+    @Column(name = "eb_exempt_period")
+    private String ebExemptPeriod;
+    @Column(name = "eb_deduction_days")
+    private BigDecimal ebDeductionDays;
+
     // ── Work Hours Shortage ──
     @Column(name = "work_hours_shortage_enabled", nullable = false)
     @Builder.Default

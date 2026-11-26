@@ -89,6 +89,8 @@ public class AttendanceRequestService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
     private final EffectivePermissionService effectivePermissionService;
+    // PN-05: an approved Partial Day (leaving early) request clears an early-going penalty already raised.
+    private final ExceptionService exceptionService;
 
     @Transactional
     public AttendanceRequestResponse submit(CreateAttendanceRequest req, String actorEmail) {
@@ -377,6 +379,14 @@ public class AttendanceRequestService {
         req.setReviewedAt(LocalDateTime.now());
         req.setReviewComment(comment);
         requestRepository.save(req);
+
+        if ("PARTIAL_DAY".equals(req.getRequestType()) && "LEAVING_EARLY".equals(req.getPartialDayMode())) {
+            // PN-05 AC4: this day is now exempt from the Early Going rule. The engine re-decides from
+            // current data (it sees the approved request), so only a penalty that no longer holds is reversed.
+            exceptionService.reevaluateAndReverseIfInvalid(req.getEmployeeUserId(), req.getRequestDate(),
+                    ExceptionService.PARTIAL_DAY_REEVALUATION_TYPES, actor.getId(),
+                    "Partial Day (leaving early) request approved", "ATTENDANCE_PENALTY_REVERSED");
+        }
 
         auditService.log(actor.getId(), "ATTENDANCE_REQUEST_APPROVED", req.getEmployeeUserId());
         notificationService.send(req.getEmployeeUserId(), "ATTENDANCE_REQUEST_APPROVED",

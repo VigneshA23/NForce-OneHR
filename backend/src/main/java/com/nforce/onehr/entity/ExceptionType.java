@@ -29,6 +29,11 @@ public final class ExceptionType {
     // (ConfiguredAttendancePolicyEngine returns NO_MATCH for it).
     public static final String EARLY_DEPARTURE = "EARLY_DEPARTURE";
 
+    // PN-05: the day's total break time went over the Excess Break rule's limit. Only ever
+    // detected when the employee's effective policy has that rule enabled; minutesLate holds the
+    // minutes over the limit.
+    public static final String EXCESS_BREAK = "EXCESS_BREAK";
+
     // A leave request still awaiting approval. Synthesized directly from LeaveRequest at
     // Exception Dashboard read time (see ExceptionService.getExceptionsForCaller) — never
     // persisted to attendance_exceptions and never evaluated against a Penalization Policy,

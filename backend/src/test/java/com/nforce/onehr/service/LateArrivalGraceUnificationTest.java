@@ -116,7 +116,8 @@ class LateArrivalGraceUnificationTest {
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
                 workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
                 workHoursShortageCalculationService, policyEngine, attendancePenaltyRepository, attendancePenaltyService,
-                shiftVersionResolver, shiftRepository, SeedMatrix.permissionService(), org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
+                shiftVersionResolver, shiftRepository, SeedMatrix.permissionService(), org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class),
+                org.mockito.Mockito.mock(com.nforce.onehr.repository.AttendanceRequestRepository.class), org.mockito.Mockito.mock(AttendanceBreakCalculator.class));
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(userRepository.findAttendancePolicySubjectIds()).thenReturn(Set.of(employeeId));

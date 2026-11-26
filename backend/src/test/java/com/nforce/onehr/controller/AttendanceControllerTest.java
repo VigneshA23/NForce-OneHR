@@ -37,6 +37,7 @@ class AttendanceControllerTest {
     @Mock private RegularizationService regularizationService;
     @Mock private AttendancePenaltyService attendancePenaltyService;
     @Mock private com.nforce.onehr.service.MyPenaltyService myPenaltyService;
+    @Mock private com.nforce.onehr.service.PenaltyAnalyticsService penaltyAnalyticsService;
     @Mock private com.nforce.onehr.service.PenaltyDisputeService penaltyDisputeService;
     @Mock private ExceptionService exceptionService;
     @Mock private Principal principal;
@@ -45,7 +46,7 @@ class AttendanceControllerTest {
 
     @BeforeEach
     void setUp() {
-        controller = new AttendanceController(attendanceService, new com.nforce.onehr.service.OfficeNetwork(0), attendanceStatsService, regularizationService, attendancePenaltyService, myPenaltyService, penaltyDisputeService, exceptionService);
+        controller = new AttendanceController(attendanceService, new com.nforce.onehr.service.OfficeNetwork(0), attendanceStatsService, regularizationService, attendancePenaltyService, myPenaltyService, penaltyAnalyticsService, penaltyDisputeService, exceptionService);
         lenient().when(principal.getName()).thenReturn("manager@test.com");
     }
 

@@ -552,6 +552,68 @@ export const myPenaltiesApi = {
       .then(handle<MyPenalties>),
 };
 
+// ── PN-06: penalty analytics ─────────────────────────────────────────────────────────────
+
+export interface PenaltyAnalyticsBucket {
+  /** Rule code, department name or yyyy-MM. */
+  key: string;
+  label: string;
+  total: number;
+  /** Still in force (PENDING_REVIEW). */
+  standing: number;
+  cancelled: number;
+  reversed: number;
+  /** Days of the standing penalties only. */
+  deductionDays: number;
+}
+
+export interface PenaltyAnalyticsEmployee {
+  employeeUserId: string;
+  fullName: string;
+  employeeCode: string | null;
+  department: string;
+  total: number;
+  standing: number;
+  cancelled: number;
+  reversed: number;
+  deductionDays: number;
+  topRule: string | null;
+}
+
+export interface PenaltyAnalytics {
+  from: string;
+  to: string;
+  /** ORGANISATION for HR, TEAM for a manager. */
+  scope: 'ORGANISATION' | 'TEAM';
+  summary: { total: number; standing: number; cancelled: number; reversed: number; deductionDays: number; employeesAffected: number };
+  byRule: PenaltyAnalyticsBucket[];
+  byDepartment: PenaltyAnalyticsBucket[];
+  byMonth: PenaltyAnalyticsBucket[];
+  byEmployee: PenaltyAnalyticsEmployee[];
+  /** Departments of everyone in scope, for the filter. */
+  departments: string[];
+}
+
+export interface PenaltyAnalyticsFilters {
+  from: string;
+  to: string;
+  rule?: string;
+  department?: string;
+  /** PENDING_REVIEW | CANCELLED | REVERSED; omitted = all. */
+  status?: string;
+}
+
+export const penaltyAnalyticsApi = {
+  get: (filters: PenaltyAnalyticsFilters, token: string) => {
+    const params = new URLSearchParams({ from: filters.from, to: filters.to });
+    if (filters.rule) params.set('rule', filters.rule);
+    if (filters.department) params.set('department', filters.department);
+    if (filters.status) params.set('status', filters.status);
+    return fetch(`${BASE}/attendance/penalty-analytics?${params.toString()}`, { headers: authHeaders(token) })
+      .then(r => handle<PenaltyAnalytics>(r));
+  },
+};
+
 export const penaltiesApi = {
   // Penalties plus detected-but-not-penalized late arrivals, early departures and missing punches.
   list: (filters: PenaltyFilters, token: string) => {

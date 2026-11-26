@@ -206,7 +206,7 @@ export function NegligenceTab({ people, avatar }: { people: TabPerson[]; avatar:
 type PStatus = 'PENDING_REVIEW' | 'APPLIED' | 'CANCELLED' | 'REVERSED' | 'NOT_PENALIZED';
 const P_LABEL: Record<PStatus, string> = { PENDING_REVIEW: 'Pending Review', APPLIED: 'Applied', CANCELLED: 'Cancelled', REVERSED: 'Reversed', NOT_PENALIZED: 'Not Penalized' };
 const P_COLOR: Record<PStatus, string> = { PENDING_REVIEW: 'var(--warn)', APPLIED: 'var(--risk)', CANCELLED: 'var(--txt-dim)', REVERSED: 'var(--info)', NOT_PENALIZED: 'var(--ok)' };
-const D_LABEL: Record<string, string> = { NO_ATTENDANCE: 'No attendance', WORK_HOURS_SHORTAGE: 'Work hours shortage', LATE_ARRIVAL: 'Late arrival', EARLY_DEPARTURE: 'Early departure', MISSING_PUNCH: 'Missing punch' };
+const D_LABEL: Record<string, string> = { NO_ATTENDANCE: 'No attendance', WORK_HOURS_SHORTAGE: 'Work hours shortage', LATE_ARRIVAL: 'Late arrival', EARLY_DEPARTURE: 'Early going', EXCESS_BREAK: 'Excess break', MISSING_PUNCH: 'Missing punch' };
 
 export function PenaltiesTab({ people, avatar, toast }: { people: TabPerson[]; avatar: AvatarRenderer; toast: Toast }) {
   const dis = Object.keys(D_LABEL);

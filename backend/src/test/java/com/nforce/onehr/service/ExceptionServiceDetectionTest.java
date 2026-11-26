@@ -65,6 +65,8 @@ class ExceptionServiceDetectionTest {
     @Mock private EmployeeShiftAssignmentResolver employeeShiftAssignmentResolver;
     @Mock private EmployeeWeeklyOffPolicyAssignmentResolver employeeWeeklyOffPolicyAssignmentResolver;
     @Mock private WeeklyOffPolicyVersionResolver weeklyOffPolicyVersionResolver;
+    @Mock private AttendanceRequestRepository attendanceRequestRepository;
+    @Mock private AttendanceBreakCalculator attendanceBreakCalculator;
 
     private ExceptionService exceptionService;
     // Tracks whatever Shift employee() most recently built — this file has only one test employee,
@@ -139,7 +141,8 @@ class ExceptionServiceDetectionTest {
                 regularizationRequestRepository, attendanceProperties, emailService, penaltyEvaluationService,
                 workingDayService, holidayRepository, policyResolutionService, expectedWorkHoursService,
                 workHoursShortageCalculationService, policyEngine, attendancePenaltyRepository, attendancePenaltyService,
-                shiftVersionResolver, shiftRepository, SeedMatrix.permissionService(), org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
+                shiftVersionResolver, shiftRepository, SeedMatrix.permissionService(), org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class),
+                attendanceRequestRepository, attendanceBreakCalculator);
 
         lenient().when(employeeShiftAssignmentResolver.resolve(any(), any())).thenAnswer(inv ->
                 EmployeeShiftAssignment.builder().employeeUserId(employeeId).shift(currentEmployeeShift).effectiveFrom(LocalDate.MIN).build());
@@ -344,6 +347,152 @@ class ExceptionServiceDetectionTest {
         exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
 
         assertTrue(savedExceptionTypes().contains(ExceptionType.EARLY_DEPARTURE));
+    }
+
+    // ── PN-05: Early Going and Excess Break, evaluated by the same nightly detection pass ──
+    private PenalizationPolicyVersion.PenalizationPolicyVersionBuilder pn05Version() {
+        return PenalizationPolicyVersion.builder().id(UUID.randomUUID()).policyId(UUID.randomUUID()).version(1)
+                .effectiveFrom(targetDate.minusMonths(1).atStartOfDay());
+    }
+
+    private Attendance earlyLeaver(Shift shift, int checkOutHour, int checkOutMinute) {
+        return Attendance.builder().employeeUserId(employeeId).workDate(targetDate).shiftId(shift.getId())
+                .checkInAt(targetDate.atTime(9, 0)).checkOutAt(targetDate.atTime(checkOutHour, checkOutMinute))
+                .workedMinutes(450).lateByMinutes(0).build();
+    }
+
+    private void givenDay(Shift shift, Attendance day, PenalizationPolicyVersion version) {
+        when(attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(employeeId), targetDate, targetDate))
+                .thenReturn(List.of(day));
+        when(employeeRepository.findAllByIdWithScheduleDetails(any())).thenReturn(List.of(employee(shift)));
+        lenient().when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employee(shift)));
+        when(shiftRepository.findById(shift.getId())).thenReturn(Optional.of(shift));
+        when(versionRepository.findVersionsEffectiveAt(targetDate.atStartOfDay())).thenReturn(List.of(version));
+    }
+
+    private void givenRecordedExceptions(String type, int minutes) {
+        AttendanceException row = AttendanceException.builder().employeeUserId(employeeId).exceptionDate(targetDate)
+                .exceptionType(type).minutesLate(minutes).build();
+        lenient().when(attendanceExceptionRepository.findByEmployeeUserIdAndExceptionTypeAndExceptionDateBetween(
+                eq(employeeId), eq(type), any(), any())).thenReturn(List.of(row));
+    }
+
+    private List<AttendancePenalty> savedPenalties() {
+        ArgumentCaptor<AttendancePenalty> captor = ArgumentCaptor.forClass(AttendancePenalty.class);
+        verify(attendancePenaltyRepository, org.mockito.Mockito.atLeast(0)).saveAndFlush(captor.capture());
+        return captor.getAllValues();
+    }
+
+    @Test
+    void earlyGoingEnabled_leftBeyondGraceAndExemptCount_appliesPenaltyWithMinutesRecorded() {
+        Shift shift = shift("Regular", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        givenDay(shift, earlyLeaver(shift, 16, 30), pn05Version().earlyGoingEnabled(true).egGracePeriodMinutes(15)
+                .egExemptCount(0).egExemptPeriod("MONTH").egDeductionDays(new java.math.BigDecimal("0.5")).build());
+        givenRecordedExceptions(ExceptionType.EARLY_DEPARTURE, 90);
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        ArgumentCaptor<AttendanceException> exc = ArgumentCaptor.forClass(AttendanceException.class);
+        verify(attendanceExceptionRepository, org.mockito.Mockito.atLeastOnce()).save(exc.capture());
+        assertEquals(90, exc.getAllValues().stream().filter(e -> ExceptionType.EARLY_DEPARTURE.equals(e.getExceptionType()))
+                .findFirst().orElseThrow().getMinutesLate());
+        AttendancePenalty penalty = savedPenalties().stream()
+                .filter(p -> ExceptionType.EARLY_DEPARTURE.equals(p.getDiscrepancyType())).findFirst().orElseThrow();
+        assertEquals(new java.math.BigDecimal("0.5"), penalty.getDeductionDays());
+    }
+
+    @Test
+    void earlyGoingEnabled_leftWithinGrace_noPenalty() {
+        Shift shift = shift("Regular", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        givenDay(shift, earlyLeaver(shift, 17, 50), pn05Version().earlyGoingEnabled(true).egGracePeriodMinutes(15)
+                .egExemptCount(0).egExemptPeriod("MONTH").egDeductionDays(new java.math.BigDecimal("0.5")).build());
+        givenRecordedExceptions(ExceptionType.EARLY_DEPARTURE, 10);
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        assertTrue(savedPenalties().isEmpty());
+    }
+
+    @Test
+    void earlyGoingEnabled_approvedPartialDayLeavingEarly_exemptsTheDay() {
+        Shift shift = shift("Regular", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        givenDay(shift, earlyLeaver(shift, 16, 30), pn05Version().earlyGoingEnabled(true).egGracePeriodMinutes(0)
+                .egExemptCount(0).egExemptPeriod("MONTH").egDeductionDays(new java.math.BigDecimal("0.5")).build());
+        givenRecordedExceptions(ExceptionType.EARLY_DEPARTURE, 90);
+        when(attendanceRequestRepository.findByEmployeeUserIdInAndRequestTypeAndRequestDateBetween(any(), eq("PARTIAL_DAY"), any(), any()))
+                .thenReturn(List.of(AttendanceRequest.builder().employeeUserId(employeeId).requestType("PARTIAL_DAY")
+                        .partialDayMode("LEAVING_EARLY").requestDate(targetDate).status("APPROVED").build()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        assertTrue(savedPenalties().stream().noneMatch(p -> ExceptionType.EARLY_DEPARTURE.equals(p.getDiscrepancyType())));
+    }
+
+    @Test
+    void earlyGoingEnabled_pendingPartialDayDoesNotExempt() {
+        Shift shift = shift("Regular", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        givenDay(shift, earlyLeaver(shift, 16, 30), pn05Version().earlyGoingEnabled(true).egGracePeriodMinutes(0)
+                .egExemptCount(0).egExemptPeriod("MONTH").egDeductionDays(new java.math.BigDecimal("0.5")).build());
+        givenRecordedExceptions(ExceptionType.EARLY_DEPARTURE, 90);
+        when(attendanceRequestRepository.findByEmployeeUserIdInAndRequestTypeAndRequestDateBetween(any(), eq("PARTIAL_DAY"), any(), any()))
+                .thenReturn(List.of(AttendanceRequest.builder().employeeUserId(employeeId).requestType("PARTIAL_DAY")
+                        .partialDayMode("LEAVING_EARLY").requestDate(targetDate).status("PENDING").build()));
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        assertTrue(savedPenalties().stream().anyMatch(p -> ExceptionType.EARLY_DEPARTURE.equals(p.getDiscrepancyType())));
+    }
+
+    @Test
+    void earlyGoingDisabled_stillDetectedButNeverPenalized() {
+        Shift shift = shift("Regular", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        givenDay(shift, earlyLeaver(shift, 16, 30), pn05Version().earlyGoingEnabled(false).build());
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        assertTrue(savedExceptionTypes().contains(ExceptionType.EARLY_DEPARTURE));
+        assertTrue(savedPenalties().isEmpty());
+    }
+
+    @Test
+    void excessBreakEnabled_overLimit_detectsExceptionAndAppliesPenalty() {
+        Shift shift = shift("Regular", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        givenDay(shift, earlyLeaver(shift, 18, 0), pn05Version().excessBreakEnabled(true).ebMaxBreakMinutes(60)
+                .ebExemptCount(0).ebExemptPeriod("MONTH").ebDeductionDays(new java.math.BigDecimal("0.25")).build());
+        when(attendanceBreakCalculator.breakMinutes(eq(employeeId), any(), eq(targetDate))).thenReturn(95);
+        givenRecordedExceptions(ExceptionType.EXCESS_BREAK, 35);
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        ArgumentCaptor<AttendanceException> exc = ArgumentCaptor.forClass(AttendanceException.class);
+        verify(attendanceExceptionRepository, org.mockito.Mockito.atLeastOnce()).save(exc.capture());
+        assertEquals(35, exc.getAllValues().stream().filter(e -> ExceptionType.EXCESS_BREAK.equals(e.getExceptionType()))
+                .findFirst().orElseThrow().getMinutesLate());
+        AttendancePenalty penalty = savedPenalties().stream()
+                .filter(p -> ExceptionType.EXCESS_BREAK.equals(p.getDiscrepancyType())).findFirst().orElseThrow();
+        assertEquals(new java.math.BigDecimal("0.25"), penalty.getDeductionDays());
+    }
+
+    @Test
+    void excessBreakEnabled_withinLimit_nothingDetected() {
+        Shift shift = shift("Regular", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        givenDay(shift, earlyLeaver(shift, 18, 0), pn05Version().excessBreakEnabled(true).ebMaxBreakMinutes(60)
+                .ebExemptCount(0).ebExemptPeriod("MONTH").ebDeductionDays(new java.math.BigDecimal("0.25")).build());
+        when(attendanceBreakCalculator.breakMinutes(eq(employeeId), any(), eq(targetDate))).thenReturn(60);
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        assertFalse(savedExceptionTypes().contains(ExceptionType.EXCESS_BREAK));
+    }
+
+    @Test
+    void excessBreakDisabled_breaksAreNeverEvenMeasured() {
+        Shift shift = shift("Regular", LocalTime.of(9, 0), LocalTime.of(18, 0));
+        givenDay(shift, earlyLeaver(shift, 18, 0), pn05Version().excessBreakEnabled(false).build());
+
+        exceptionService.getExceptionsForCaller(hrEmail, targetDate, targetDate);
+
+        org.mockito.Mockito.verifyNoInteractions(attendanceBreakCalculator);
     }
 
     // ── Weekly cycle (Section 34): exempt-count window follows the configured cycle, not always
