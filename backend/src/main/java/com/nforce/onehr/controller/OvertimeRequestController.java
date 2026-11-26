@@ -35,6 +35,12 @@ public class OvertimeRequestController {
         return overtimeRequestService.listMine(principal.getName());
     }
 
+    @GetMapping("/team")
+    @PreAuthorize("hasAuthority('overtime:APPROVE:TEAM')")
+    public List<OvertimeRequestResponse> team(Principal principal) {
+        return overtimeRequestService.listForApprover(principal.getName());
+    }
+
     @GetMapping("/pending")
     @PreAuthorize("hasAuthority('overtime:APPROVE:TEAM')")
     public List<OvertimeRequestResponse> pending(Principal principal) {

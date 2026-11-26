@@ -85,7 +85,7 @@ describe('sidebar is decided by permissions alone', () => {
 
   it('HR Admin defaults match the old HR menu (plus the baseline items every user has)', () => {
     expect(keys(perms(HR))).toEqual([...BASELINE, 'approvals', 'exceptions', 'reports', 'audit', 'bench', 'employees',
-      'onboarding', 'documents', 'policies', 'organization', 'allocations', 'talent-performance'].sort());
+      'onboarding', 'documents', 'policies', 'organization', 'allocations', 'talent-performance', 'overtime-management'].sort());
   });
 
   it('Super Admin defaults add the administration modules', () => {

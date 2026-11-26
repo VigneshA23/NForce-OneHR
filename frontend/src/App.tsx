@@ -7,6 +7,7 @@ import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import DashboardPage from './pages/DashboardPage';
+import OvertimeManagementPage from './pages/OvertimeManagementPage';
 import AttendancePage from './pages/AttendancePage';
 import SuperAdminRegularizationPage from './pages/SuperAdminRegularizationPage';
 import OrgSetupPage from './pages/OrgSetupPage';
@@ -223,6 +224,7 @@ export default function App() {
           <Route path="/my-finances/*" element={<Navigate to="/myfinances/summary" replace />} />
           <Route path="/employees"    element={<EmployeeMasterPage />} />
           {/* Route path must stay in sync with the 'exceptions' nav.config.ts entry — Shell gates rendering by matching nav item, not this route list */}
+          <Route path="/overtime-management" element={<OvertimeManagementPage />} />
           <Route path="/exceptions"   element={<ExceptionDashboardPage />} />
           <Route path="/organization" element={<OrgSetupPage />} />
           <Route path="/allocations"  element={<ProjectAllocationsPage />} />

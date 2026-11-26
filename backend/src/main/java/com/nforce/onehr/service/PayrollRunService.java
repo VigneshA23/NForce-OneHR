@@ -194,6 +194,10 @@ public class PayrollRunService {
     private final ArrearsRepository arrearsRepository;
     private final PayrollRunReviewItemRepository payrollRunReviewItemRepository;
     private final BankTransferExcelService bankTransferExcelService;
+    private final OtCalculationRepository otCalculationRepository;
+
+    /** Catalog component (V251) that automated overtime is posted under. */
+    static final String OT_COMPONENT_NAME = "Over Time (OT)";
 
     // Default-timeout (30s, see application.yml) is sized for this app's normal transactions,
     // which are short and single-method. This one isn't: it loops once per included employee,
@@ -621,6 +625,11 @@ public class PayrollRunService {
             adHocDeductionInstallmentRepository.delete(installment);
         }
 
+        // Release automated OT claimed by this run so the next attempt re-picks it.
+        List<OtCalculation> claimedOt = otCalculationRepository.findByPayrollRunId(run.getId());
+        claimedOt.forEach(c -> c.setPayrollRunId(null));
+        otCalculationRepository.saveAll(claimedOt);
+
         User actor = requireActor(actorEmail);
         String before = auditSnapshot.toJson(runSnapshot(run));
         run.setStatus(PayrollRunStatus.DRAFT);
@@ -1026,6 +1035,35 @@ public class PayrollRunService {
                     .prorated(false)
                     .build());
             grossPay = grossPay.add(adHoc.getAmount());
+        }
+
+        // Automated overtime: approved OT calculations inside this cycle become one separate earning
+        // line. Idempotent under regeneration (payable = unclaimed or already claimed by this run).
+        // Skipped when a manual "Over Time (OT)" ad-hoc payment already exists for the employee, so
+        // the same overtime is never paid twice - the mismatch shows in the OT payroll summary.
+        boolean manualOtPresent = adHocPaymentRepository.findByPayrollRunIdAndEmployeeId(run.getId(), comp.getEmployeeId())
+                .stream().anyMatch(a -> OT_COMPONENT_NAME.equalsIgnoreCase(a.getComponentName()));
+        if (!manualOtPresent) {
+            List<OtCalculation> payableOt = otCalculationRepository.findPayable(
+                    comp.getEmployeeId(), run.getCycleStart(), run.getCycleEnd(), run.getId());
+            BigDecimal otTotal = payableOt.stream().map(OtCalculation::getOtAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
+            Optional<SalaryComponent> otComponent = otTotal.signum() > 0
+                    ? salaryComponentRepository.findByNameIgnoreCase(OT_COMPONENT_NAME).filter(SalaryComponent::isActive)
+                    : Optional.empty();
+            if (otComponent.isPresent()) {
+                payslipLineItemRepository.save(PayslipLineItem.builder()
+                        .payslip(payslip)
+                        .componentId(otComponent.get().getId())
+                        .componentName(otComponent.get().getName())
+                        .componentType(otComponent.get().getType())
+                        .amount(otTotal)
+                        .prorated(false)
+                        .build());
+                grossPay = grossPay.add(otTotal);
+                payableOt.forEach(c -> c.setPayrollRunId(run.getId()));
+                otCalculationRepository.saveAll(payableOt);
+            }
         }
 
         // US-C25: one installment per ACTIVE ad-hoc deduction plan, idempotent under regeneration

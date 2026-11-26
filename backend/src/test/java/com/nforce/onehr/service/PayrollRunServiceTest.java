@@ -57,6 +57,7 @@ class PayrollRunServiceTest {
     @Mock private ArrearsRepository arrearsRepository;
     @Mock private PayrollRunReviewItemRepository payrollRunReviewItemRepository;
     @Mock private BankTransferExcelService bankTransferExcelService;
+    @Mock private OtCalculationRepository otCalculationRepository;
 
     private PayrollRunService service;
 
@@ -82,7 +83,7 @@ class PayrollRunServiceTest {
                 salaryHoldRepository, payrollRunReviewService, new SalaryStructureResolutionService(),
                 statutoryDeductionService, arrearsService, salaryComponentRepository, employeeRepository,
                 userRepository, auditService, auditSnapshot, payslipService, payRegisterExcelService, payrollRunRollbackRepository,
-                arrearsRepository, payrollRunReviewItemRepository, bankTransferExcelService);
+                arrearsRepository, payrollRunReviewItemRepository, bankTransferExcelService, otCalculationRepository);
 
         lenient().when(recurringAdHocPaymentRuleRepository.findActiveForPayGroup(any())).thenReturn(List.of());
 
