@@ -7,6 +7,7 @@ import com.nforce.onehr.entity.Location;
 import com.nforce.onehr.repository.AssetCategoryRepository;
 import com.nforce.onehr.repository.AssetRepository;
 import com.nforce.onehr.repository.LocationRepository;
+import com.nforce.onehr.util.ExcelTemplateHeader;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
 import org.apache.poi.ss.usermodel.Row;
@@ -151,7 +152,8 @@ class AssetBulkImportServiceTest {
             assertEquals("yyyy-mm-dd", purchaseStyle.getDataFormatString());
             assertEquals("yyyy-mm-dd", assets.getColumnStyle(AssetBulkImportService.WARRANTY_COL).getDataFormatString());
 
-            Row row = assets.createRow(1);
+            // Row 1 is the title band, row 2 the headers: data starts on the template's first data row.
+            Row row = assets.createRow(ExcelTemplateHeader.FIRST_DATA_ROW);
             row.createCell(0).setCellValue("LT-100");
             row.createCell(1).setCellValue("Laptop");
             Cell purchase = row.createCell(AssetBulkImportService.PURCHASE_DATE_COL); // as Excel stores a typed date

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePaged } from '../components/usePaged';
 import { TablePagination } from '../components/TablePagination';
+import { yearBreakdownLabel } from '../utils/leaveDays';
 import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import { createPortal } from 'react-dom';
@@ -464,7 +465,7 @@ function requestFacts(item: MyRequestItem): Fact[] {
     const range = `${fmtDate(item.leaveStartDate)}${item.leaveStartDate !== item.leaveEndDate ? ` to ${fmtDate(item.leaveEndDate)}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`;
     return [
       { icon: Layers, label: 'Leave type', value: item.leaveTypeName ?? '-' },
-      { icon: Sun, label: 'Days', value: String(item.leaveTotalDays ?? '-') },
+      { icon: Sun, label: 'Days', value: `${item.leaveTotalDays ?? '-'}${yearBreakdownLabel(item.leaveStartDate, item.leaveEndDate, item.leaveHalfDay) ? ` (${yearBreakdownLabel(item.leaveStartDate, item.leaveEndDate, item.leaveHalfDay)})` : ''}` },
       { icon: CalendarDays, label: 'Dates', value: range, wide: true },
     ];
   }

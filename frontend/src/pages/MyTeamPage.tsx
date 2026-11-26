@@ -37,7 +37,7 @@ import { projectAllocationsApi, projectsApi } from '../api/projectAllocations';
 import TeamCapacityTab from './my-team/TeamCapacityTab';
 import { StatusBadge, inactiveDimStyle } from '../components/EmployeeStatus';
 import DashTile from '../components/DashTile';
-import { roundDays, hasYearlyQuota, yearlyQuota } from '../utils/leaveDays';
+import { roundDays, hasYearlyQuota, yearlyQuota, viewableBalanceYears } from '../utils/leaveDays';
 import './myTeamTabs.css';
 import { EmployeeAvatar } from '../components/EmployeeAvatar';
 import { TypeBadge, groupRequestsByType, TYPE_LABELS } from '../components/TypeBadge';
@@ -718,28 +718,35 @@ function formatDays(n: number): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
-/** Roster card's current-year leave balance, one entry per paid leave type (`null` = loading). */
-export function LeaveBalanceLine({ balances }: { balances: LeaveBalance[] | null }) {
+/** What is left of a balance: credited days left, or for a year that hasn't started, the expected days left (YE-04). */
+function daysLeft(b: LeaveBalance): number {
+  return b.expected ? Number(b.availableToApplyDays ?? 0) : Number(b.remainingDays ?? 0);
+}
+
+/** Roster card's leave balance (current year, or `year` = next year's expected view), one entry per paid type (`null` = loading). */
+export function LeaveBalanceLine({ balances, year }: { balances: LeaveBalance[] | null; year?: number }) {
   // One compact line (total days left); the per-type breakdown opens on click so the card stays short.
   const muted: React.CSSProperties = { fontSize: 11.5, color: 'var(--txt-dim)' };
-  if (balances === null) return <div style={muted}>Leave balance: Loading…</div>;
-  if (balances.filter(hasYearlyQuota).length === 0) return <div style={muted}>Leave balance: none on file</div>;
+  const label = year != null ? `${year} leave balance` : 'Leave balance';
+  if (balances === null) return <div style={muted}>{label}: Loading…</div>;
+  if (balances.filter(hasYearlyQuota).length === 0) return <div style={muted}>{label}: none on file</div>;
   // Same rule as the Dashboard tile and the Leave page: types with no quota are left out and a
   // negative remaining balance counts as 0, so the numbers never disagree across pages.
   const quota = balances.filter(hasYearlyQuota);
-  const left = roundDays(quota.reduce((a, b) => a + Math.max(0, Number(b.remainingDays)), 0));
+  const left = roundDays(quota.reduce((a, b) => a + Math.max(0, daysLeft(b)), 0));
+  const expected = quota.some(b => b.expected);
   return (
     <details className="nf-mt-lb">
       <summary>
-        <span className="nf-mt-lb-k">Leave balance</span>
-        <span className="nf-mt-lb-v"><strong>{formatDays(left)}</strong> days left</span>
+        <span className="nf-mt-lb-k">{label}</span>
+        <span className="nf-mt-lb-v"><strong>{formatDays(left)}</strong> days {expected ? 'expected' : 'left'}</span>
         <ChevronDown size={13} className="nf-mt-lb-chev" />
       </summary>
       <div className="nf-mt-lb-list">
         {quota.map(b => (
           <div key={b.leaveTypeCode}>
             <span>{b.leaveTypeName}</span>
-            <span><strong>{formatDays(Number(b.remainingDays ?? 0))}</strong> / {formatDays(yearlyQuota(b))}</span>
+            <span><strong>{formatDays(daysLeft(b))}</strong> / {formatDays(yearlyQuota(b))}</span>
           </div>
         ))}
       </div>
@@ -3233,6 +3240,9 @@ export default function MyTeamPage() {
   const [todayWfh, setTodayWfh] = useState<AttendanceRequestRecord[]>([]);
   const [monthWfh, setMonthWfh] = useState<AttendanceRequestRecord[]>([]);
   const [teamBalances, setTeamBalances] = useState<LeaveBalance[] | null>(null);
+  // YE-04: same balance-year switcher as the Leave page (next year from 1 November, expected view).
+  const balanceYears = useMemo(() => viewableBalanceYears(), []);
+  const [teamBalanceYear, setTeamBalanceYear] = useState(balanceYears[0]);
   // Separate from `viewing`/EmployeeDetailModal (the main roster's "View" button, unchanged) —
   // avatars inside the "Not in yet today" card open employment details instead.
   const [viewingEmployeeDetails, setViewingEmployeeDetails] = useState<DirectoryEntry | null>(null);
@@ -3333,8 +3343,10 @@ export default function MyTeamPage() {
 
   useEffect(() => {
     if (isEmployee) return;
-    leaveApi.listTeamBalances(token).then(setTeamBalances).catch(() => setTeamBalances([]));
-  }, [token, isEmployee]);
+    setTeamBalances(null);
+    leaveApi.listTeamBalances(token, teamBalanceYear === balanceYears[0] ? undefined : teamBalanceYear)
+      .then(setTeamBalances).catch(() => setTeamBalances([]));
+  }, [token, isEmployee, teamBalanceYear, balanceYears]);
 
   const weekStart = useMemo(() => mondayOf(new Date()), []);
   const weekEnd = useMemo(() => addDays(weekStart, 4), [weekStart]);
@@ -3566,6 +3578,14 @@ export default function MyTeamPage() {
                   { key: 'LEAVE', label: 'On leave' },
                 ]}
               />
+              {balanceYears.length > 1 && (
+                <ChipGroup
+                  ariaLabel="Leave balance year"
+                  value={String(teamBalanceYear)}
+                  onChange={v => setTeamBalanceYear(Number(v))}
+                  options={balanceYears.map(y => ({ key: String(y), label: `Balances ${y}` }))}
+                />
+              )}
             </>)}
           >
             <MemberGrid scroll empty={loading ? 'Loading…' : filteredRoster.length === 0 ? 'No one matches this filter.' : undefined}>
@@ -3584,7 +3604,7 @@ export default function MyTeamPage() {
                     </>}
                     extras={<>
                       <div style={{ color: 'var(--txt-dim)', fontSize: 10.5, fontFamily: 'Inter, sans-serif', marginTop: -4 }}>{row.dr.employeeCode}</div>
-                      <LeaveBalanceLine balances={teamBalances === null ? null : balancesByEmployee.get(row.dr.userId) ?? []} />
+                      <LeaveBalanceLine balances={teamBalances === null ? null : balancesByEmployee.get(row.dr.userId) ?? []} year={teamBalanceYear === balanceYears[0] ? undefined : teamBalanceYear} />
                       {row.requests.length > 0 && (
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                           {groupRequestsByType(row.requests).map(({ type, count }) => (

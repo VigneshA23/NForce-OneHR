@@ -28,6 +28,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,9 +70,8 @@ public class LeaveAccrualService {
     private final EmployeeRepository employeeRepository;
     private final LeaveEligibilityService eligibilityService;
     private final AttendanceProperties attendanceProperties;
-    private final AuditService auditService;
-    private final AuditSnapshotSerializer auditSnapshot;
     private final PlatformTransactionManager transactionManager;
+    private final LeaveJobMonitor jobMonitor;
 
     // ── The schedule (pure) ─────────────────────────────────────────────────────────────────────
 
@@ -264,21 +264,21 @@ public class LeaveAccrualService {
     public AccrualRunResult run(UUID actorId) {
         LocalDate today = today();
         int year = LeaveBalanceService.leaveYearOf(today);
-        AccrualRunResult result = runYear(year, today);
+        Set<UUID> failed = new LinkedHashSet<>();
+        AccrualRunResult result = runYear(year, today, failed);
         if (today.getMonthValue() == 1) {
-            AccrualRunResult previous = runYear(year - 1, today);
+            AccrualRunResult previous = runYear(year - 1, today, failed);
             result = new AccrualRunResult(year, result.employeesChecked() + previous.employeesChecked(),
-                    result.creditsAdded() + previous.creditsAdded(), result.failures() + previous.failures());
+                    result.creditsAdded() + previous.creditsAdded(), result.failures() + previous.failures(), List.of());
         }
-        if (result.creditsAdded() > 0 || result.failures() > 0 || actorId != null) {
-            auditService.log(actorId, "LEAVE_ACCRUAL_PROCESSED", null, null, auditSnapshot.toJson(Map.of(
-                    "year", year, "employeesChecked", result.employeesChecked(),
-                    "creditsAdded", result.creditsAdded(), "failures", result.failures())));
-        }
-        return result;
+        // YE-07: every run leaves one audit entry (its "last run" status) and alerts Super Admins on failures.
+        List<String> failedCodes = jobMonitor.recordRun(LeaveJobMonitor.ACCRUAL, "Leave crediting", actorId, Map.of(
+                "year", year, "employeesChecked", result.employeesChecked(),
+                "creditsAdded", result.creditsAdded(), "failures", result.failures()), failed);
+        return new AccrualRunResult(result.year(), result.employeesChecked(), result.creditsAdded(), result.failures(), failedCodes);
     }
 
-    private AccrualRunResult runYear(int year, LocalDate today) {
+    private AccrualRunResult runYear(int year, LocalDate today, Set<UUID> failed) {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         List<LeaveEmployeeProfile> employees = employeeRepository.findLeaveProfiles().stream()
                 .filter(LeaveEmployeeProfile::employed).toList();
@@ -306,11 +306,12 @@ public class LeaveAccrualService {
                     if (days != null && days.signum() != 0) added++;
                 } catch (Exception e) {
                     failures++;
+                    failed.add(p.userId());
                     log.warn("Leave crediting failed for employee {} type {} year {}: {}", p.userId(), type.getCode(), year, e.getMessage());
                 }
             }
         }
-        return new AccrualRunResult(year, checked, added, failures);
+        return new AccrualRunResult(year, checked, added, failures, List.of());
     }
 
     static List<Integer> sortedMonths(Set<Integer> months) {

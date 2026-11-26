@@ -49,6 +49,7 @@ class LeaveYearEndServiceTest {
     @Mock private LeaveEntitlementPolicyRepository policyRepo;
     @Mock private LeaveOccurrenceRepository occurrenceRepo;
     @Mock private AuditService auditService;
+    @Mock private LeaveJobMonitor jobMonitor;
     @Mock private PlatformTransactionManager txManager;
 
     private LeaveYearEndService service;
@@ -68,7 +69,7 @@ class LeaveYearEndServiceTest {
         LeaveBalanceService balances = TestLeaveBalances.over(typeRepo, balanceRepo, requestRepo, policyRepo, occurrenceRepo,
                 new AttendanceProperties());
         service = new LeaveYearEndService(typeRepo, balanceRepo, transferRepo, requestRepo, employeeRepo, balances,
-                auditService, new AuditSnapshotSerializer(new ObjectMapper()), txManager);
+                auditService, new AuditSnapshotSerializer(new ObjectMapper()), txManager, jobMonitor);
 
         lenient().when(typeRepo.findById(any())).thenAnswer(inv ->
                 List.of(annual, sick).stream().filter(t -> t.getId().equals(inv.getArgument(0))).findFirst());
@@ -194,6 +195,8 @@ class LeaveYearEndServiceTest {
         YearEndRunResult first = service.run(FROM, null);
         assertEquals(1, first.failures());
         assertEquals(1, first.transfersCreated());
+        // YE-07: the run is recorded with exactly the employee that failed (the monitor alerts Super Admins).
+        verify(jobMonitor).recordRun(eq(LeaveJobMonitor.YEAR_END), any(), isNull(), any(), eq(java.util.Set.of(failing)));
 
         // Retry: the failed employee now succeeds; the one already done is skipped by the ledger.
         reset(transferRepo);

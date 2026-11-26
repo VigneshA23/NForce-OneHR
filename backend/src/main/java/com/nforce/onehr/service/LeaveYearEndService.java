@@ -66,6 +66,7 @@ public class LeaveYearEndService {
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final PlatformTransactionManager transactionManager;
+    private final LeaveJobMonitor jobMonitor;
 
     /** Nightly: closes the previous leave year (a no-op after the first successful pass) and applies expiries. */
     @Scheduled(cron = "${app.leave.year-end.cron:0 30 0 * * *}", zone = "${app.attendance.zone:Asia/Kolkata}")
@@ -84,6 +85,7 @@ public class LeaveYearEndService {
         }
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         int checked = 0, created = 0, expiries = 0, failures = 0;
+        Set<UUID> failed = new java.util.LinkedHashSet<>();
 
         List<LeaveType> types = leaveTypeRepository.findAll().stream().filter(LeaveType::isAnnualBalance).toList();
         Set<String> done = new HashSet<>();
@@ -100,6 +102,7 @@ public class LeaveYearEndService {
                 } catch (Exception e) {
                     // includes a UNIQUE violation when another instance got there first — retried next run
                     failures++;
+                    failed.add(employeeId);
                     log.warn("Carry-forward failed for employee {} type {} year {}: {}", employeeId, type.getCode(), fromYear, e.getMessage());
                 }
             }
@@ -111,17 +114,16 @@ public class LeaveYearEndService {
                 if (Boolean.TRUE.equals(expired)) expiries++;
             } catch (Exception e) {
                 failures++;
+                failed.add(b.getEmployeeUserId());
                 log.warn("Carry-forward expiry failed for balance {}: {}", b.getId(), e.getMessage());
             }
         }
 
-        YearEndRunResult result = new YearEndRunResult(fromYear, checked, created, expiries, failures);
-        if (created > 0 || expiries > 0 || failures > 0 || actorId != null) {
-            auditService.log(actorId, "LEAVE_YEAR_END_PROCESSED", null, null, auditSnapshot.toJson(Map.of(
-                    "fromYear", fromYear, "balancesChecked", checked, "transfersCreated", created,
-                    "expiriesUpdated", expiries, "failures", failures)));
-        }
-        return result;
+        // YE-07: every run leaves one audit entry (its "last run" status) and alerts Super Admins on failures.
+        List<String> failedCodes = jobMonitor.recordRun(LeaveJobMonitor.YEAR_END, "Leave year-end carry-forward", actorId, Map.of(
+                "fromYear", fromYear, "balancesChecked", checked, "transfersCreated", created,
+                "expiriesUpdated", expiries, "failures", failures), failed);
+        return new YearEndRunResult(fromYear, checked, created, expiries, failures, failedCodes);
     }
 
     /** First transfer for (employee, type, fromYear). False when one already exists. */

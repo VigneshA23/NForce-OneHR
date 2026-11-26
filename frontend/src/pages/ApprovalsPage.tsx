@@ -15,6 +15,7 @@ import { helpContentApprovalApi, type ApprovalDiff } from '../api/helpContentApp
 import { AttachmentViewerModal } from '../components/helpContent/AttachmentViewerModal';
 import { ReceiptViewerModal } from '../components/expenses/ReceiptViewerModal';
 import { leaveApi } from '../api/leave';
+import { yearBreakdownLabel } from '../utils/leaveDays';
 import { regularizationApi } from '../api/attendance';
 import { expensesApi } from '../api/expenses';
 import { assetsApi } from '../api/assets';
@@ -420,7 +421,7 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
           {item.requestType === 'LEAVE' && (
             <div className="apv-detail-grid">
               <Row label="Type" value={item.leaveTypeName} />
-              <Row label="Days" value={String(item.leaveTotalDays)} />
+              <Row label="Days" value={`${item.leaveTotalDays}${yearBreakdownLabel(item.leaveStartDate, item.leaveEndDate, item.leaveHalfDay) ? ` (${yearBreakdownLabel(item.leaveStartDate, item.leaveEndDate, item.leaveHalfDay)})` : ''}`} />
               <Row label="Dates" value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` to ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} span />
               <Row label="Reason" value={item.leaveReason} span />
             </div>

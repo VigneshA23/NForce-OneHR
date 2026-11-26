@@ -17,6 +17,8 @@ import com.nforce.onehr.dto.UpdateLeaveTypeRequest;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.service.LeaveAccrualService;
+import com.nforce.onehr.service.LeaveJobMonitor;
+import com.nforce.onehr.service.LeaveOpeningBalanceService;
 import com.nforce.onehr.service.LeaveTypeService;
 import com.nforce.onehr.service.LeaveYearEndService;
 import jakarta.validation.Valid;
@@ -45,6 +47,8 @@ public class LeaveConfigController {
     private final LeaveYearEndService leaveYearEndService;
     private final LeaveAccrualService leaveAccrualService;
     private final UserRepository userRepository;
+    private final LeaveJobMonitor leaveJobMonitor;
+    private final LeaveOpeningBalanceService openingBalanceService;
 
     // ── Leave types ──
 
@@ -149,6 +153,13 @@ public class LeaveConfigController {
         return leaveAccrualService.run(actor.getId());
     }
 
+    /** YE-07: when the nightly crediting and year-end jobs last ran, who ran them and what they did. */
+    @GetMapping("/jobs")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public Map<String, LeaveJobMonitor.JobRun> jobs() {
+        return leaveJobMonitor.lastRuns();
+    }
+
     @GetMapping("/balances/{balanceId}/credits")
     @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
     public List<AccrualCreditResponse> creditHistory(@PathVariable UUID balanceId) {
@@ -167,6 +178,32 @@ public class LeaveConfigController {
     @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
     public List<LeaveBalanceResponse> employeeBalances(@PathVariable UUID userId, @RequestParam(required = false) Integer year) {
         return leaveTypeService.employeeBalances(userId, year);
+    }
+
+    // ── Opening balance upload (YE-02) ──
+
+    /** Rows for the opening-balance template of the current or next leave year (the browser builds the .xlsx). */
+    @GetMapping("/opening-balances")
+    @PreAuthorize("hasAuthority('leave_configuration:EDIT:ALL')")
+    public List<LeaveOpeningBalanceService.TemplateRow> openingBalanceTemplate(@RequestParam(required = false) Integer year) {
+        return openingBalanceService.template(year);
+    }
+
+    /** Checks an uploaded file row by row and previews every change; saves nothing. */
+    @PostMapping("/opening-balances/validate")
+    @PreAuthorize("hasAuthority('leave_configuration:EDIT:ALL')")
+    public LeaveOpeningBalanceService.Validation validateOpeningBalances(@RequestParam(required = false) Integer year,
+                                                                         @RequestBody List<LeaveOpeningBalanceService.UploadRow> rows) {
+        return openingBalanceService.validate(year, rows);
+    }
+
+    /** Saves a clean file (all rows or none); each change is audited like a manual adjustment. */
+    @PostMapping("/opening-balances/apply")
+    @PreAuthorize("hasAuthority('leave_configuration:EDIT:ALL')")
+    public LeaveOpeningBalanceService.ApplyResult applyOpeningBalances(@RequestParam(required = false) Integer year,
+                                                                       @RequestBody List<LeaveOpeningBalanceService.UploadRow> rows,
+                                                                       Principal principal) {
+        return openingBalanceService.apply(year, rows, principal.getName());
     }
 
     @PatchMapping("/balances/{balanceId}")

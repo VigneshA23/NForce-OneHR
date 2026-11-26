@@ -208,7 +208,7 @@ class RegularizationServiceTest {
                 com.nforce.onehr.entity.AttendanceRules.builder()
                         .halfDayMaxHours(java.math.BigDecimal.valueOf(4.0))
                         // Matches the system default zone so LocalDate.now(ZoneId.of(...)) in the
-                        // service agrees with the plain LocalDate.now() used throughout these tests
+                        // service agrees with the plain businessToday() used throughout these tests
                         // (previously attendanceProps.getZone()'s identical stub).
                         .defaultTimezone(java.time.ZoneId.systemDefault().getId())
                         .build()));
@@ -223,7 +223,7 @@ class RegularizationServiceTest {
 
         // Default Clock for every test that doesn't care about the future-timestamp guard (see
         // RegularizationService#resolveTimes): a fixed instant a decade past whatever "now" is
-        // when each test runs, so every one of this file's many `LocalDate.now()`-based fixtures
+        // when each test runs, so every one of this file's many `businessToday()`-based fixtures
         // (a stand-in for "some arbitrary calendar date," not literally "this exact moment") reads
         // as safely historical regardless of the real wall-clock time-of-day the suite happens to
         // run at. The dedicated "future-timestamp guard" tests below call useClock(...) themselves
@@ -234,6 +234,15 @@ class RegularizationServiceTest {
         // tests use today's date and don't stub this, so let it resolve to a lenient 0.
         lenient().when(regularizationRepository.countByEmployeeUserIdAndStatusNotAndCreatedAtBetween(any(), any(), any(), any()))
                 .thenReturn(0L);
+    }
+
+    /**
+     * "Today" exactly as the service sees it: before 07:00 the business day is still yesterday
+     * ({@link RegularizationService#resolveBusinessDate}). Fixtures use this rather than the calendar
+     * date, so a run between midnight and 07:00 doesn't see today's fixtures as a future date.
+     */
+    private static LocalDate businessToday() {
+        return RegularizationService.resolveBusinessDate(LocalDateTime.now());
     }
 
     /**
@@ -271,10 +280,10 @@ class RegularizationServiceTest {
                 .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
         // assertNoDuplicateRequest checks APPROVED, then PARTIALLY_APPROVED, then PENDING —
         // all three need stubbing under strict-stub mode, not just the one this test cares about.
-        lenient().when(regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(employeeId, LocalDate.now(), "PENDING"))
+        lenient().when(regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(employeeId, businessToday(), "PENDING"))
                 .thenReturn(false);
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         RegularizationResponse resp = regularizationService.submit(
                 request(today, today.atTime(9, 0), today.atTime(18, 0), "Forgot badge"), employeeEmail);
 
@@ -287,7 +296,7 @@ class RegularizationServiceTest {
     void submit_withSelectedEligibleManager_assignsSelection() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         CreateRegularizationRequest req = request(today, today.atTime(9, 0), today.atTime(18, 0), "Missed punch");
         req.setManagerUserId(hrId);
 
@@ -301,7 +310,7 @@ class RegularizationServiceTest {
     void submit_withIneligibleSelectedUser_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         CreateRegularizationRequest req = request(today, today.atTime(9, 0), today.atTime(18, 0), "Missed punch");
         req.setManagerUserId(strangerId); // plain EMPLOYEE role — not an eligible approver
 
@@ -312,7 +321,7 @@ class RegularizationServiceTest {
     @Test
     void submit_missingCheckOut_autoFillsCheckInFromExistingPunch() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         LocalDateTime existingCheckIn = today.atTime(9, 32);
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today))
                 .thenReturn(Optional.of(Attendance.builder().employeeUserId(employeeId).workDate(today)
@@ -342,7 +351,7 @@ class RegularizationServiceTest {
                 .thenReturn(Optional.of(Employee.builder().userId(employeeId).shift(null).build()));
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.empty());
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today)).thenReturn(Optional.empty());
 
         RegularizationResponse resp = assertDoesNotThrow(() -> regularizationService.submit(
@@ -364,7 +373,7 @@ class RegularizationServiceTest {
         // workday-consistency check. The actual stored check-out timestamp remains the real
         // next-calendar-day value; only its WORKDAY attribution rolls back, not the timestamp itself.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         // The frontend always sends both times on the same attendanceDate (RequestModal in
         // AttendancePage.tsx never does its own day-rollover) — 12:30 AM here is check-out's
         // clock time on that same date, exactly as the real request payload looks.
@@ -386,7 +395,7 @@ class RegularizationServiceTest {
         // 07:00 AM cutover. Check-out rolls over to next-day 06:59, which is PAST that 03:00
         // boundary, so it genuinely belongs to the NEXT workday and must be rejected.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         CreateRegularizationRequest req = request(today, today.atTime(20, 0), today.atTime(6, 59), "Overnight shift, past the workday boundary");
         req.setManagerUserId(hrId);
 
@@ -401,7 +410,7 @@ class RegularizationServiceTest {
         // The mirror case: a check-out just BEFORE the same 03:00 workday boundary (defaultShift
         // 9:00-18:00, 18h max) still belongs to the same workday as the 20:00 check-in.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         CreateRegularizationRequest req = request(today, today.atTime(20, 0), today.atTime(2, 59), "Overnight shift, within the workday");
         req.setManagerUserId(hrId);
 
@@ -418,7 +427,7 @@ class RegularizationServiceTest {
         // exactly 07:00 it belongs to its OWN calendar date as the business date (rule 3), not
         // the previous one, so it must be validated against that same day's attendanceDate.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         CreateRegularizationRequest req = request(today, null, today.atTime(7, 0), "Checkout-only correction");
         req.setManagerUserId(hrId);
 
@@ -482,7 +491,7 @@ class RegularizationServiceTest {
         // date".
         stubShift10to19();
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         LocalDateTime existingCheckIn = today.atTime(9, 25);
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today))
                 .thenReturn(Optional.of(Attendance.builder().employeeUserId(employeeId).workDate(today)
@@ -500,7 +509,7 @@ class RegularizationServiceTest {
     void submit_missingCheckout_correctedCheckoutAt330amWithinTheWorkday_isAccepted() {
         stubShift10to19();
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today))
                 .thenReturn(Optional.of(Attendance.builder().employeeUserId(employeeId).workDate(today)
                         .checkInAt(today.atTime(9, 25)).shiftId(defaultShift.getId()).build()));
@@ -518,7 +527,7 @@ class RegularizationServiceTest {
         // (and everything after) to the NEXT workday, never the originating one.
         stubShift10to19();
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today))
                 .thenReturn(Optional.of(Attendance.builder().employeeUserId(employeeId).workDate(today)
                         .checkInAt(today.atTime(9, 25)).shiftId(defaultShift.getId()).build()));
@@ -535,7 +544,7 @@ class RegularizationServiceTest {
     void submit_correctedCheckoutAfterTheWorkdayEnd_isRejected() {
         stubShift10to19();
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today))
                 .thenReturn(Optional.of(Attendance.builder().employeeUserId(employeeId).workDate(today)
                         .checkInAt(today.atTime(9, 25)).shiftId(defaultShift.getId()).build()));
@@ -558,7 +567,7 @@ class RegularizationServiceTest {
         lenient().when(shiftVersionResolver.resolve(any(), any())).thenReturn(
                 ShiftVersion.builder().startTime(LocalTime.of(22, 0)).endTime(LocalTime.of(7, 0)).lateGraceMinutes(10).build());
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today)).thenReturn(Optional.empty());
 
         CreateRegularizationRequest req = request(today, today.plusDays(1).atTime(5, 0), null, "Night shift check-in, post-midnight");
@@ -578,7 +587,7 @@ class RegularizationServiceTest {
         lenient().when(shiftVersionResolver.resolve(any(), any())).thenReturn(
                 ShiftVersion.builder().startTime(LocalTime.of(22, 0)).endTime(LocalTime.of(7, 0)).lateGraceMinutes(10).build());
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today)).thenReturn(Optional.empty());
 
         CreateRegularizationRequest req = request(today, today.atTime(10, 0), null, "Too early to belong to today's workday");
@@ -612,7 +621,7 @@ class RegularizationServiceTest {
                 .thenReturn(Optional.of(Employee.builder().userId(employeeId).shift(newShift).build()));
 
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         when(attendanceRepository.findByEmployeeUserIdAndWorkDate(employeeId, today))
                 .thenReturn(Optional.of(Attendance.builder().employeeUserId(employeeId).workDate(today)
                         .checkInAt(today.atTime(9, 25)).shiftId(defaultShift.getId()).build()));
@@ -628,7 +637,7 @@ class RegularizationServiceTest {
     @Test
     void submit_normalSameDayInterval_330pmTo1130pm_isUnaffected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(23, 30), "Normal shift");
         req.setManagerUserId(hrId);
 
@@ -649,7 +658,7 @@ class RegularizationServiceTest {
         // case never has this problem (its check-out always lands before the workday boundary);
         // this ~23.5h interval is the case that boundary is NOT meant to cover, and must still fail.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(15, 0), "Long overnight shift");
         req.setManagerUserId(hrId);
 
@@ -664,7 +673,7 @@ class RegularizationServiceTest {
         // Not "earlier than" check-in (equal, not before) — no rollover applies, so this stays a
         // same-day, zero-duration interval and is correctly rejected by the existing ordering rule.
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         CreateRegularizationRequest req = request(today, today.atTime(15, 30), today.atTime(15, 30), "Same time");
         req.setManagerUserId(hrId);
 
@@ -677,7 +686,7 @@ class RegularizationServiceTest {
     @Test
     void submit_whenApprovedRequestAlreadyExistsForDate_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         when(regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(employeeId, today, "APPROVED"))
                 .thenReturn(true);
 
@@ -691,7 +700,7 @@ class RegularizationServiceTest {
     @Test
     void submit_whenPartiallyApprovedRequestAlreadyExistsForDate_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         // The APPROVED check runs first (and is unstubbed here — returns false by default);
         // only the PARTIALLY_APPROVED check this test targets needs a real stub.
         lenient().when(regularizationRepository.existsByEmployeeUserIdAndAttendanceDateAndStatus(employeeId, today, "APPROVED"))
@@ -707,7 +716,7 @@ class RegularizationServiceTest {
     @Test
     void submit_byNonSuperAdmin_beyond3DayWindow_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate tooOld = LocalDate.now().minusDays(4); // employeeLookbackDays is 3 in setUp()
+        LocalDate tooOld = businessToday().minusDays(4); // employeeLookbackDays is 3 in setUp()
 
         assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
                 request(tooOld, tooOld.atTime(9, 0), tooOld.atTime(18, 0), "Old correction"), employeeEmail));
@@ -722,7 +731,7 @@ class RegularizationServiceTest {
     @Test
     void submit_byNonSuperAdmin_atLookbackBoundary_isAllowed() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate boundary = LocalDate.now().minusDays(2); // last day still inside the 3-day window
+        LocalDate boundary = businessToday().minusDays(2); // last day still inside the 3-day window
 
         RegularizationResponse resp = regularizationService.submit(
                 request(boundary, boundary.atTime(9, 0), boundary.atTime(18, 0), "Within window"), employeeEmail);
@@ -734,7 +743,7 @@ class RegularizationServiceTest {
     @Test
     void submit_byNonSuperAdmin_justOutsideLookbackBoundary_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate justOutside = LocalDate.now().minusDays(3); // one day past the 3-day window
+        LocalDate justOutside = businessToday().minusDays(3); // one day past the 3-day window
 
         assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
                 request(justOutside, justOutside.atTime(9, 0), justOutside.atTime(18, 0), "Too old"), employeeEmail));
@@ -744,7 +753,7 @@ class RegularizationServiceTest {
     @Test
     void submit_byManager_isBoundByLookbackWindow() {
         when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
-        LocalDate justOutside = LocalDate.now().minusDays(3);
+        LocalDate justOutside = businessToday().minusDays(3);
 
         assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
                 request(justOutside, justOutside.atTime(9, 0), justOutside.atTime(18, 0), "Too old"), managerEmail));
@@ -754,7 +763,7 @@ class RegularizationServiceTest {
     @Test
     void submit_byHrAdmin_isBoundByLookbackWindow() {
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
-        LocalDate justOutside = LocalDate.now().minusDays(3);
+        LocalDate justOutside = businessToday().minusDays(3);
 
         assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
                 request(justOutside, justOutside.atTime(9, 0), justOutside.atTime(18, 0), "Too old"), hrEmail));
@@ -764,7 +773,7 @@ class RegularizationServiceTest {
     @Test
     void submit_bySuperAdmin_bypassesLookbackWindow() {
         when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
-        LocalDate tooOld = LocalDate.now().minusDays(10);
+        LocalDate tooOld = businessToday().minusDays(10);
 
         RegularizationResponse resp = regularizationService.submit(
                 request(tooOld, tooOld.atTime(9, 0), tooOld.atTime(18, 0), "Old correction"), superAdminEmail);
@@ -775,7 +784,7 @@ class RegularizationServiceTest {
     @Test
     void submit_byNonSuperAdmin_atMonthlyLimit_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         when(regularizationRepository.countByEmployeeUserIdAndStatusNotAndCreatedAtBetween(eq(employeeId), any(), any(), any()))
                 .thenReturn(3L); // monthlyLimit is 3 in setUp()
 
@@ -789,7 +798,7 @@ class RegularizationServiceTest {
     @Test
     void submit_bySuperAdmin_exemptFromMonthlyLimit() {
         when(userRepository.findByEmail(superAdminEmail)).thenReturn(Optional.of(superAdminUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
 
         RegularizationResponse resp = regularizationService.submit(
                 request(today, today.atTime(9, 0), today.atTime(18, 0), "Yet another"), superAdminEmail);
@@ -800,7 +809,7 @@ class RegularizationServiceTest {
 
     @Test
     void update_doesNotConsumeMonthlyLimitSlot() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -818,7 +827,7 @@ class RegularizationServiceTest {
     @Test
     void submit_bothTimesMissingWithNoExistingPunch_isRejected() {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         // resolveTimes() rejects a both-null request before ever consulting attendanceRepository,
         // so no stub is needed for it here.
 
@@ -969,7 +978,7 @@ class RegularizationServiceTest {
     @Test
     void approve_byAssignedManager_transitionsDirectlyToApproved() {
         // A Manager's approval is now final on its own — no HR/Super Admin sign-off follows.
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1001,7 +1010,7 @@ class RegularizationServiceTest {
      */
     @Test
     void approve_createsANewRecord_snapshotsTheEmployeesCurrentShift() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1026,7 +1035,7 @@ class RegularizationServiceTest {
      */
     @Test
     void approve_createsANewRecord_snapshotsTheEmployeesEffectiveLocationTimezone() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         com.nforce.onehr.entity.Location office = com.nforce.onehr.entity.Location.builder()
                 .name("Chicago").timezone("America/Chicago").build();
         when(employeeRepository.findById(employeeId))
@@ -1060,7 +1069,7 @@ class RegularizationServiceTest {
         currentShiftByEmployee.remove(employeeId);
         when(employeeRepository.findById(employeeId))
                 .thenReturn(Optional.of(Employee.builder().userId(employeeId).shift(null).build()));
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 30)).requestedCheckOut(date.atTime(18, 0))
@@ -1085,7 +1094,7 @@ class RegularizationServiceTest {
      */
     @Test
     void approve_existingLegacyRecordWithNoShiftSnapshot_throwsRatherThanGuessingLateness() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 5)).requestedCheckOut(date.atTime(18, 0))
@@ -1114,7 +1123,7 @@ class RegularizationServiceTest {
      */
     @Test
     void approve_existingNoShiftAssignedRecord_succeeds_asAnOrdinaryPresentDay() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 5)).requestedCheckOut(date.atTime(18, 0))
@@ -1152,7 +1161,7 @@ class RegularizationServiceTest {
      */
     @Test
     void approve_correctingAnExistingRecord_usesItsOwnSnapshottedShift_notTheEmployeesCurrentOne() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         Shift shiftB = Shift.builder().id(UUID.randomUUID()).name("Day Shift B").active(true).build();
         ShiftVersion shiftAVersion = ShiftVersion.builder().shift(defaultShift).startTime(LocalTime.of(9, 0)).endTime(LocalTime.of(18, 0)).lateGraceMinutes(15).build();
         ShiftVersion shiftBVersion = ShiftVersion.builder().shift(shiftB).startTime(LocalTime.of(6, 0)).endTime(LocalTime.of(14, 0)).lateGraceMinutes(15).build();
@@ -1200,7 +1209,7 @@ class RegularizationServiceTest {
     @Test
     @SuppressWarnings("unchecked")
     void approve_correctingAnExistingRecord_capturesTheCompleteBeforeAndAfterAttendanceState_includingSource() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 20)).requestedCheckOut(date.atTime(18, 0))
@@ -1244,7 +1253,7 @@ class RegularizationServiceTest {
     @Test
     @SuppressWarnings("unchecked")
     void approve_forABrandNewRecord_capturesExistedFalseAsTheBeforeState() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1272,7 +1281,7 @@ class RegularizationServiceTest {
     @Test
     @SuppressWarnings("unchecked")
     void approve_appliedTwiceToTheSameDate_retainsBothCorrectionsInAuditHistory_notJustTheLatest() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         Attendance record = Attendance.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).workDate(date)
                 .checkInAt(date.atTime(9, 30)).checkOutAt(date.atTime(18, 0))
@@ -1305,7 +1314,7 @@ class RegularizationServiceTest {
 
     @Test
     void approve_byManagerNotAssigned_isDenied() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1323,7 +1332,7 @@ class RegularizationServiceTest {
 
     @Test
     void approve_andReject_ownRequestIsRefused_evenWithTheOrgWideOverride() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest own = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(hrId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1340,7 +1349,7 @@ class RegularizationServiceTest {
     void approve_byHrAdmin_bypassesFromPending_directlyToApproved() {
         // ONEHR-140 follow-up: HR_ADMIN now has the same PENDING-stage bypass SUPER_ADMIN
         // already had — need not be the employee's manager, and may act before the manager does.
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1362,7 +1371,7 @@ class RegularizationServiceTest {
 
     @Test
     void approve_byHrAdmin_calledTwice_secondCallRejectedAndNoDuplicateNotification() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1383,7 +1392,7 @@ class RegularizationServiceTest {
 
     @Test
     void approve_byHrAdmin_onPartiallyApproved_transitionsToApproved() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1408,7 +1417,7 @@ class RegularizationServiceTest {
 
     @Test
     void approve_bySuperAdmin_bypassesFromPending_directlyToApproved() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1431,7 +1440,7 @@ class RegularizationServiceTest {
 
     @Test
     void approve_reachingTerminalApproved_triggersPenaltyReversalForThatEmployeeAndDate() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1450,7 +1459,7 @@ class RegularizationServiceTest {
 
     @Test
     void approve_partialStage_doesNotYetTriggerPenaltyReversal() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         // A Manager approval is final on its own now (see the approve() javadoc) — a Manager has
         // no authority left once a legacy request is already PARTIALLY_APPROVED, so this exercises
         // the one remaining way finalStage can be false without also reaching the terminal state.
@@ -1470,7 +1479,7 @@ class RegularizationServiceTest {
 
     @Test
     void reject_recordsCommentAndAuditRow() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1492,7 +1501,7 @@ class RegularizationServiceTest {
     void reject_byHrAdmin_onPending_succeeds() {
         // ONEHR-140 follow-up: same bypass as approve() above — HR_ADMIN may reject a PENDING
         // request without being the employee's manager and before the manager has acted.
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1512,7 +1521,7 @@ class RegularizationServiceTest {
 
     @Test
     void reject_bySuperAdmin_fromPending_succeeds() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1531,7 +1540,7 @@ class RegularizationServiceTest {
 
     @Test
     void reject_byUnauthorizedEmployee_isDenied() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1548,7 +1557,7 @@ class RegularizationServiceTest {
 
     @Test
     void reject_byHrAdmin_calledTwice_secondCallRejectedAndNoDuplicateNotification() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1565,7 +1574,7 @@ class RegularizationServiceTest {
 
     @Test
     void reject_byHrAdmin_onPartiallyApproved_succeeds() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1582,7 +1591,7 @@ class RegularizationServiceTest {
 
     @Test
     void update_byOwnerWhilePending_reResolvesApprover() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1605,7 +1614,7 @@ class RegularizationServiceTest {
     void update_toOvernightShift_appliesSameBusinessDateAndRolloverAsSubmit() {
         // update() calls the same resolveTimes() as submit() — confirms the overnight rollover
         // and 07:00 AM business-date consistency check behave identically on the edit path.
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1650,7 +1659,7 @@ class RegularizationServiceTest {
 
     @Test
     void update_byNonOwner_isDenied() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1666,7 +1675,7 @@ class RegularizationServiceTest {
 
     @Test
     void update_whenMovedToDateWithApprovedRequest_isRejected() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         // Must stay within the 3-day lookback window and not be in the future — otherwise
         // validateLookbackWindow rejects it before the duplicate-date check this test targets.
         LocalDate approvedDate = date.minusDays(1);
@@ -1689,7 +1698,7 @@ class RegularizationServiceTest {
 
     @Test
     void update_afterAlreadyDecided_isRejected() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest decided = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1705,10 +1714,10 @@ class RegularizationServiceTest {
     @Test
     void listPendingForApprover_managerSeesOnlyAssignedRequests() {
         RegularizationRequest assigned = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(businessToday())
                 .reason("x").status("PENDING").build();
         RegularizationRequest notAssigned = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(strangerId).assignedApproverId(hrId).attendanceDate(LocalDate.now())
+                .employeeUserId(strangerId).assignedApproverId(hrId).attendanceDate(businessToday())
                 .reason("y").status("PENDING").build();
 
         when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
@@ -1725,13 +1734,13 @@ class RegularizationServiceTest {
         // HR can approve straight from PENDING (single-stage), so PENDING must reach their queue —
         // including requests assigned to someone else and ones from HR's own direct reports.
         RegularizationRequest pendingForOtherManager = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(businessToday())
                 .reason("x").status("PENDING").build();
         RegularizationRequest pendingForHr = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(managerId).assignedApproverId(hrId).attendanceDate(LocalDate.now())
+                .employeeUserId(managerId).assignedApproverId(hrId).attendanceDate(businessToday())
                 .reason("y").status("PENDING").build();
         RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(strangerId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .employeeUserId(strangerId).assignedApproverId(managerId).attendanceDate(businessToday())
                 .reason("z").status("PARTIALLY_APPROVED").build();
 
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
@@ -1747,10 +1756,10 @@ class RegularizationServiceTest {
     @Test
     void listPendingForApprover_dualRoleManagerAndHrAdmin_seesEverythingPending() {
         RegularizationRequest assignedPending = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(businessToday())
                 .reason("x").status("PENDING").build();
         RegularizationRequest notAssignedPending = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(strangerId).assignedApproverId(hrId).attendanceDate(LocalDate.now())
+                .employeeUserId(strangerId).assignedApproverId(hrId).attendanceDate(businessToday())
                 .reason("y").status("PENDING").build();
         User dualRoleUser = User.builder().id(managerId).email(managerEmail)
                 .roles(Set.of(
@@ -1771,13 +1780,13 @@ class RegularizationServiceTest {
     @Test
     void listForApprover_managerSeesOnlyAssignedRequestsAcrossAllStatuses() {
         RegularizationRequest assignedPending = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(businessToday())
                 .reason("x").status("PENDING").createdAt(LocalDateTime.now()).build();
         RegularizationRequest assignedApproved = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now().minusDays(1))
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(businessToday().minusDays(1))
                 .reason("y").status("APPROVED").createdAt(LocalDateTime.now().minusDays(1)).build();
         RegularizationRequest notAssignedRejected = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(strangerId).assignedApproverId(hrId).attendanceDate(LocalDate.now())
+                .employeeUserId(strangerId).assignedApproverId(hrId).attendanceDate(businessToday())
                 .reason("z").status("REJECTED").createdAt(LocalDateTime.now()).build();
 
         when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
@@ -1793,10 +1802,10 @@ class RegularizationServiceTest {
     @Test
     void listForApprover_hrAdminSeesEveryRequestRegardlessOfAssignee() {
         RegularizationRequest assignedToManagerPending = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(businessToday())
                 .reason("x").status("PENDING").createdAt(LocalDateTime.now()).build();
         RegularizationRequest assignedToManagerApproved = RegularizationRequest.builder().id(UUID.randomUUID())
-                .employeeUserId(strangerId).assignedApproverId(managerId).attendanceDate(LocalDate.now())
+                .employeeUserId(strangerId).assignedApproverId(managerId).attendanceDate(businessToday())
                 .reason("y").status("APPROVED").createdAt(LocalDateTime.now()).build();
 
         when(userRepository.findByEmail(hrEmail)).thenReturn(Optional.of(hrUser));
@@ -1929,7 +1938,7 @@ class RegularizationServiceTest {
         Employee employeeRecord = Employee.builder().userId(employeeId).fullName("Alex Employee").user(employeeUser).shift(defaultShift).build();
         when(employeeRepository.findById(employeeId)).thenReturn(Optional.of(employeeRecord));
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         regularizationService.submit(request(today, today.atTime(9, 0), today.atTime(18, 0), "Forgot badge"), employeeEmail);
 
         verify(notificationService, times(1)).send(eq(managerId), eq("REGULARIZATION_SUBMITTED"),
@@ -1943,7 +1952,7 @@ class RegularizationServiceTest {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId)).thenReturn(Optional.empty());
 
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
         RegularizationResponse resp = regularizationService.submit(
                 request(today, today.atTime(9, 0), today.atTime(18, 0), "Forgot badge"), employeeEmail);
 
@@ -1955,7 +1964,7 @@ class RegularizationServiceTest {
     void approve_byManager_notifiesEmployeeExactlyOnce() {
         // A Manager's approval is final on its own now, so it fires the same "approved"
         // notification a HR/Super Admin approval would.
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1972,7 +1981,7 @@ class RegularizationServiceTest {
 
     @Test
     void approve_byHrAdmin_finalStage_notifiesEmployeeExactlyOnce() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest partiallyApproved = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -1996,7 +2005,7 @@ class RegularizationServiceTest {
 
     @Test
     void approve_bySuperAdmin_bypass_notifiesEmployee() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -2013,7 +2022,7 @@ class RegularizationServiceTest {
 
     @Test
     void reject_notifiesEmployee_withReasonIncluded_exactlyOnce() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -2033,7 +2042,7 @@ class RegularizationServiceTest {
 
     @Test
     void reject_withoutComment_stillNotifiesEmployee_withoutReasonClause() {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest pending = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(managerId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -2061,7 +2070,7 @@ class RegularizationServiceTest {
     }
 
     private RegularizationRequest pendingFor(UUID approverId, String status) {
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         RegularizationRequest r = RegularizationRequest.builder().id(UUID.randomUUID())
                 .employeeUserId(employeeId).assignedApproverId(approverId).attendanceDate(date)
                 .requestedCheckIn(date.atTime(9, 0)).requestedCheckOut(date.atTime(18, 0))
@@ -2154,7 +2163,7 @@ class RegularizationServiceTest {
     void submit_customRoleWithConfigure_isExemptFromLookbackAndMonthlyLimit_likeSuperAdmin() {
         // superAdminId's Employee record is stubbed in setUp(); here that account holds only the custom role.
         User exempt = customUser(superAdminId, "CUSTOM_REG_EXEMPT");
-        LocalDate tooOld = LocalDate.now().minusDays(10);
+        LocalDate tooOld = businessToday().minusDays(10);
 
         RegularizationResponse resp = regularizationService.submit(
                 request(tooOld, tooOld.atTime(9, 0), tooOld.atTime(18, 0), "Old correction"), exempt.getEmail());
@@ -2167,7 +2176,7 @@ class RegularizationServiceTest {
     @Test
     void submit_customRoleWithoutConfigure_isBoundByLookbackWindow() {
         User other = customUser(superAdminId, "CUSTOM_UNRELATED");
-        LocalDate tooOld = LocalDate.now().minusDays(10);
+        LocalDate tooOld = businessToday().minusDays(10);
 
         assertThrows(IllegalArgumentException.class, () -> regularizationService.submit(
                 request(tooOld, tooOld.atTime(9, 0), tooOld.atTime(18, 0), "Old correction"), other.getEmail()));
@@ -2190,7 +2199,7 @@ class RegularizationServiceTest {
     @Test
     void getHistoryForManager_viewAllSeesAnyone_othersOnlyDirectReports() {
         UUID notAReport = UUID.randomUUID();
-        LocalDate date = LocalDate.now();
+        LocalDate date = businessToday();
         lenient().when(historyRepository.findCurrentDirectReportIds(any())).thenReturn(List.of());
         lenient().when(regularizationRepository.findByEmployeeUserIdAndAttendanceDateOrderByCreatedAtDesc(notAReport, date))
                 .thenReturn(List.of());
@@ -2233,7 +2242,7 @@ class RegularizationServiceTest {
         when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
         User reviewer = customUser(UUID.randomUUID(), "CUSTOM_REG_REVIEWER");
         User unrelated = customUser(UUID.randomUUID(), "CUSTOM_UNRELATED");
-        LocalDate today = LocalDate.now();
+        LocalDate today = businessToday();
 
         CreateRegularizationRequest toReviewer = request(today, today.atTime(9, 0), today.atTime(18, 0), "Missed punch");
         toReviewer.setManagerUserId(reviewer.getId());

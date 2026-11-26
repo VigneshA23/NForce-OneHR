@@ -49,6 +49,10 @@ class HolidayServiceTest {
     private Location hyderabad;
     private Location bangalore;
 
+    // Relative to today so a "holiday date cannot be in the past" check never starts failing on its own.
+    private static final LocalDate UPCOMING = LocalDate.now().plusMonths(1);
+    private static final LocalDate LAST_YEAR = LocalDate.now().minusYears(1);
+
     @BeforeEach
     void setUp() {
         holidayService = new HolidayService(holidayRepository, locationRepository, employeeRepository);
@@ -60,7 +64,7 @@ class HolidayServiceTest {
     void createHoliday_savesAndReturnsResponse() {
         CreateHolidayRequest req = new CreateHolidayRequest();
         req.setHolidayName("  Diwali ");
-        req.setHolidayDate(LocalDate.of(2026, 11, 8));
+        req.setHolidayDate(UPCOMING);
         req.setLocationId(hyderabadId);
 
         when(locationRepository.findById(hyderabadId)).thenReturn(Optional.of(hyderabad));
@@ -82,7 +86,7 @@ class HolidayServiceTest {
     void createHoliday_duplicateActiveHoliday_throws() {
         CreateHolidayRequest req = new CreateHolidayRequest();
         req.setHolidayName("Diwali");
-        req.setHolidayDate(LocalDate.of(2026, 11, 8));
+        req.setHolidayDate(UPCOMING);
         req.setLocationId(hyderabadId);
 
         when(locationRepository.findById(hyderabadId)).thenReturn(Optional.of(hyderabad));
@@ -122,11 +126,11 @@ class HolidayServiceTest {
     void updateHoliday_pastDateOnExistingHoliday_stillAllowed() {
         // Historical holidays (already-past dates) must stay editable — e.g. fixing
         // a typo in the name — so this restriction is deliberately create-only.
-        Holiday existing = Holiday.builder().id(holidayId).holidayName("New Year's Day").holidayDate(LocalDate.of(2026, 1, 1)).location(hyderabad).active(true).build();
+        Holiday existing = Holiday.builder().id(holidayId).holidayName("New Year's Day").holidayDate(LAST_YEAR).location(hyderabad).active(true).build();
 
         CreateHolidayRequest req = new CreateHolidayRequest();
         req.setHolidayName("New Year's Day (corrected)");
-        req.setHolidayDate(LocalDate.of(2026, 1, 1)); // still in the past relative to "now" in this suite
+        req.setHolidayDate(LAST_YEAR); // in the past whenever the suite runs
         req.setLocationId(hyderabadId);
 
         when(holidayRepository.findById(holidayId)).thenReturn(Optional.of(existing));
@@ -140,11 +144,11 @@ class HolidayServiceTest {
 
     @Test
     void updateHoliday_movesHolidayToNewLocation() {
-        Holiday existing = Holiday.builder().id(holidayId).holidayName("Diwali").holidayDate(LocalDate.of(2026, 11, 8)).location(hyderabad).active(true).build();
+        Holiday existing = Holiday.builder().id(holidayId).holidayName("Diwali").holidayDate(UPCOMING).location(hyderabad).active(true).build();
 
         CreateHolidayRequest req = new CreateHolidayRequest();
         req.setHolidayName("Diwali");
-        req.setHolidayDate(LocalDate.of(2026, 11, 8));
+        req.setHolidayDate(UPCOMING);
         req.setLocationId(bangaloreId); // moved from Hyderabad -> Bangalore
 
         when(holidayRepository.findById(holidayId)).thenReturn(Optional.of(existing));
@@ -163,11 +167,11 @@ class HolidayServiceTest {
 
     @Test
     void updateHoliday_duplicateExcludingSelf_throws() {
-        Holiday existing = Holiday.builder().id(holidayId).holidayName("Diwali").holidayDate(LocalDate.of(2026, 11, 8)).location(hyderabad).active(true).build();
+        Holiday existing = Holiday.builder().id(holidayId).holidayName("Diwali").holidayDate(UPCOMING).location(hyderabad).active(true).build();
 
         CreateHolidayRequest req = new CreateHolidayRequest();
         req.setHolidayName("Diwali");
-        req.setHolidayDate(LocalDate.of(2026, 11, 8));
+        req.setHolidayDate(UPCOMING);
         req.setLocationId(hyderabadId);
 
         when(holidayRepository.findById(holidayId)).thenReturn(Optional.of(existing));
@@ -184,7 +188,7 @@ class HolidayServiceTest {
 
         CreateHolidayRequest req = new CreateHolidayRequest();
         req.setHolidayName("Diwali");
-        req.setHolidayDate(LocalDate.of(2026, 11, 8));
+        req.setHolidayDate(UPCOMING);
         req.setLocationId(hyderabadId);
 
         assertThrows(IllegalArgumentException.class, () -> holidayService.updateHoliday(holidayId, req));
@@ -192,7 +196,7 @@ class HolidayServiceTest {
 
     @Test
     void deleteHoliday_softDeletesRatherThanRemoving() {
-        Holiday existing = Holiday.builder().id(holidayId).holidayName("Diwali").holidayDate(LocalDate.of(2026, 11, 8)).location(hyderabad).active(true).build();
+        Holiday existing = Holiday.builder().id(holidayId).holidayName("Diwali").holidayDate(UPCOMING).location(hyderabad).active(true).build();
         when(holidayRepository.findById(holidayId)).thenReturn(Optional.of(existing));
 
         holidayService.deleteHoliday(holidayId);
@@ -232,7 +236,7 @@ class HolidayServiceTest {
         // Simulates: HR Admin edited the holiday's name; employee at that
         // location re-fetches (e.g. on page revisit) and gets the live row —
         // no separate cache to invalidate, no redeploy needed.
-        Holiday updated = Holiday.builder().id(holidayId).holidayName("Diwali (Updated)").holidayDate(LocalDate.of(2026, 11, 9)).location(hyderabad).active(true).build();
+        Holiday updated = Holiday.builder().id(holidayId).holidayName("Diwali (Updated)").holidayDate(UPCOMING.plusDays(1)).location(hyderabad).active(true).build();
         Employee employee = Employee.builder().location(hyderabad).build();
 
         when(employeeRepository.findByUser_Email("emp@test.com")).thenReturn(Optional.of(employee));

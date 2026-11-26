@@ -168,6 +168,21 @@ public class EmailService {
         sendAsync(toEmail, ccEmail, subject, html);
     }
 
+    /**
+     * YE-05: a leave year-end notice (unused-leave reminder, new year's balance, or a manager's digest).
+     * {@code lines} are plain text, one per paragraph; a "Open Leave" button links to {@code linkPath}.
+     */
+    public CompletableFuture<Boolean> sendLeaveNoticeEmail(String toEmail, String fullName, String subject, String heading,
+                                                           java.util.List<String> lines, String linkPath) {
+        StringBuilder content = new StringBuilder();
+        for (String line : lines) {
+            content.append("<p style=\"margin:0 0 14px;font-size:15px;color:#334155;line-height:1.6;\">").append(esc(line)).append("</p>");
+        }
+        String html = layout(esc(heading), "Hi " + esc(fullName) + ",", content.toString(),
+                "Open Leave", baseUrl + linkPath, "This is an automated notice from NForce OneHR.");
+        return sendAsync(toEmail, null, subject, html);
+    }
+
     /** Admin-triggered "Email Payslip" action — attaches the already-rendered PDF (password
      * protection, if any, was already baked in by PayslipPdfService before this is called) rather
      * than linking back into the app, since payslips are routinely shared outside it (personal

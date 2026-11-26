@@ -120,6 +120,17 @@ app:
     # 4 = April-March, the Indian standard. 1 = calendar year. UNCONFIRMED for this org
     # (Decision #13) — flipping it later is this one value, no code change.
     fiscal-year-start-month: ${PAYROLL_FISCAL_YEAR_START_MONTH:4}
+  leave:
+    # Year-end leave notices (LeaveYearEndNoticeService, YE-05), in-app + email. Checked daily at the
+    # cron time (business timezone); each kind is sent at most once per configured date (MM-dd list).
+    notices:
+      enabled: ${LEAVE_NOTICES_ENABLED:true}
+      email: ${LEAVE_NOTICES_EMAIL:true}
+      cron: ${LEAVE_NOTICES_CRON:0 0 9 * * *}
+      reminder-dates: ${LEAVE_NOTICES_REMINDER_DATES:12-01,12-15}
+      manager-digest-dates: ${LEAVE_NOTICES_MANAGER_DIGEST_DATES:12-01}
+      new-year-dates: ${LEAVE_NOTICES_NEW_YEAR_DATES:01-01}
+      manager-threshold-days: ${LEAVE_NOTICES_MANAGER_THRESHOLD_DAYS:5}
   attendance:
     # How many reverse proxies sit in front of the backend and append to X-Forwarded-For.
     # 0 = ignore the header and use the TCP peer address (local dev). Browser -> Railway = 1;

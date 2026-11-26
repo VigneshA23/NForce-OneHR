@@ -86,6 +86,8 @@ export interface LeaveBalance {
   /** Unpaid leave: no limit — the numeric fields below are null. */
   unlimited?: boolean;
   year: number;
+  /** The leave year hasn't started: figures are what is expected (annualQuotaDays), nothing is credited yet. */
+  expected?: boolean;
   totalDays: number | null;
   usedDays: number | null;
   pendingDays?: number | null;
@@ -125,6 +127,8 @@ export interface LeaveRequestRecord {
   halfDay: boolean;
   halfDaySession: 'FIRST_HALF' | 'SECOND_HALF' | null;
   totalDays: number;
+  /** Leave year -> days, only for a request spanning two leave years (each part uses its own year's balance). */
+  daysByYear?: Record<string, number> | null;
   /** PENALIZED = read-only row synthesized from an attendance penalty's leave deduction (own requests only). */
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'PENALIZED';
   employeeReason: string;
@@ -152,12 +156,13 @@ export const leaveApi = {
   listMyTypes: (token: string) =>
     fetch(`${BASE}/types/mine`, { headers: authHeaders(token) }).then(handle<LeaveType[]>),
 
-  listBalances: (token: string) =>
-    fetch(`${BASE}/balances`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
+  /** The caller's balances for the current leave year, or `year` = the next one (a read-only "expected" view). */
+  listBalances: (token: string, year?: number) =>
+    fetch(`${BASE}/balances${year != null ? `?year=${year}` : ''}`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
 
-  /** Current-year balances for the caller's direct reports (each row tagged with employeeUserId). */
-  listTeamBalances: (token: string) =>
-    fetch(`${BASE}/balances/team`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
+  /** Balances for the caller's direct reports (each row tagged with employeeUserId), current or next leave year. */
+  listTeamBalances: (token: string, year?: number) =>
+    fetch(`${BASE}/balances/team${year != null ? `?year=${year}` : ''}`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
 
   submit: (payload: SubmitLeaveRequestPayload, token: string) =>
     fetch(`${BASE}/requests`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),
@@ -233,6 +238,8 @@ export interface YearEndRunResult {
   transfersCreated: number;
   expiriesUpdated: number;
   failures: number;
+  /** Codes of the employees that failed (retried on the next run). */
+  failedEmployees?: string[];
 }
 
 export interface AccrualRunResult {
@@ -240,6 +247,59 @@ export interface AccrualRunResult {
   employeesChecked: number;
   creditsAdded: number;
   failures: number;
+  /** Codes of the employees that failed (retried on the next run). */
+  failedEmployees?: string[];
+}
+
+/** YE-02: one employee x leave type row of the opening-balance template. */
+export interface OpeningBalanceTemplateRow {
+  employeeCode: string;
+  employeeName: string;
+  leaveType: string;
+  usedDays: number;
+  currentCredited: number;
+  currentCarriedForward: number;
+}
+
+/** One uploaded row; the new values are the cells as typed (blank = unchanged). */
+export interface OpeningBalanceUploadRow {
+  rowNumber: number;
+  employeeCode: string;
+  leaveType: string;
+  newCredited: string | null;
+  newCarriedForward: string | null;
+  reason: string | null;
+}
+
+export interface OpeningBalanceRowResult {
+  rowNumber: number;
+  employeeCode: string;
+  employeeName: string | null;
+  leaveType: string;
+  currentCredited: number;
+  newCredited: number;
+  currentCarriedForward: number;
+  newCarriedForward: number;
+  changed: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface OpeningBalanceValidation {
+  year: number;
+  rows: number;
+  changes: number;
+  errorRows: number;
+  results: OpeningBalanceRowResult[];
+}
+
+/** YE-07: the last run of a nightly leave job — when, by whom (null = the scheduler) and its counts. */
+export interface LeaveJobRun {
+  job: string;
+  ranAt: string;
+  actorId: string | null;
+  actorName: string | null;
+  details: Record<string, unknown> & { failures?: number; failedEmployees?: string[] };
 }
 
 export interface AccrualCredit {
@@ -278,6 +338,8 @@ export const leaveConfigApi = {
     send<{ eligibleCount: number; totalCount: number }>('POST', `${CONFIG}/types/eligibility-preview`, token, config),
 
   runAccrual: (token: string) => send<AccrualRunResult>('POST', `${CONFIG}/accrual/run`, token),
+  /** Last run of the crediting ("accrual") and year-end ("yearEnd") jobs; a job that never ran is absent. */
+  jobs: (token: string) => send<Partial<Record<'accrual' | 'yearEnd', LeaveJobRun>>>('GET', `${CONFIG}/jobs`, token),
   creditHistory: (balanceId: string, token: string) => send<AccrualCredit[]>('GET', `${CONFIG}/balances/${balanceId}/credits`, token),
 
   updateCarryForward: (id: string, payload: CarryForwardSettings, token: string) =>
@@ -286,6 +348,14 @@ export const leaveConfigApi = {
     send<CarryForwardTransfer[]>('GET', `${CONFIG}/carry-forward/transfers?fromYear=${fromYear}`, token),
   runYearEnd: (fromYear: number, token: string) =>
     send<YearEndRunResult>('POST', `${CONFIG}/carry-forward/run?fromYear=${fromYear}`, token),
+
+  /** YE-02: opening-balance template rows (the browser builds the .xlsx), row-level validation and apply. */
+  openingBalanceTemplate: (year: number, token: string) =>
+    send<OpeningBalanceTemplateRow[]>('GET', `${CONFIG}/opening-balances?year=${year}`, token),
+  validateOpeningBalances: (year: number, rows: OpeningBalanceUploadRow[], token: string) =>
+    send<OpeningBalanceValidation>('POST', `${CONFIG}/opening-balances/validate?year=${year}`, token, rows),
+  applyOpeningBalances: (year: number, rows: OpeningBalanceUploadRow[], token: string) =>
+    send<{ year: number; changes: number }>('POST', `${CONFIG}/opening-balances/apply?year=${year}`, token, rows),
 
   employees: (token: string) => send<DirectoryEmployee[]>('GET', `${CONFIG}/employees`, token),
   employeeBalances: (userId: string, year: number, token: string) =>

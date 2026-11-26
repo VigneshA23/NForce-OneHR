@@ -281,6 +281,10 @@ class NavigationValidatorTest {
         @Test
         @DisplayName("with the seeded roles, every role (and real combination) reaches exactly its nav, as before")
         void systemRolesReachExactlyTheirOwnNav() {
+            // Pages in a role's nav that its default grants deliberately don't open (the sidebar hides them
+            // until the permission is granted in Roles & Permissions). Reviewed list - add to it on purpose only.
+            // finances: V306 copies finance:CONFIGURE from payroll:CONFIGURE:ALL, Super-Admin-only since V275.
+            final Map<ShellRole, Set<String>> HIDDEN_BY_DEFAULT = Map.of(ShellRole.HR_ADMIN, Set.of("finances"));
             Map<ShellRole, String[]> holders = Map.of(
                     ShellRole.EMPLOYEE, new String[] {"EMPLOYEE"},
                     ShellRole.MANAGER, new String[] {"EMPLOYEE", "MANAGER"},
@@ -291,8 +295,10 @@ class NavigationValidatorTest {
                     var context = AssistantRequestContext.builder().shellRole(role)
                             .authorities(SeedAuthorities.ofRoles(Arrays.stream(codes).distinct().toArray(String[]::new)))
                             .customAuthorities(Set.of()).build();
+                    Set<String> hidden = HIDDEN_BY_DEFAULT.getOrDefault(role, Set.of());
                     assertThat(registry.reachable(context)).as("%s %s", role, Arrays.toString(codes))
-                            .containsExactlyElementsOf(registry.forRole(role));
+                            .containsExactlyElementsOf(registry.forRole(role).stream()
+                                    .filter(ref -> !hidden.contains(ref.getPageId())).toList());
                 }
             }
         }

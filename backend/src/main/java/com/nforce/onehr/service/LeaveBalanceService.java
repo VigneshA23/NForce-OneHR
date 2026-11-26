@@ -274,9 +274,11 @@ public class LeaveBalanceService {
                     .add(p.upcomingCredits())
                     .add(p.carriedForwardAvailable().min(p.pendingCarryForwardEligible().add(eligible)));
             if (supply.compareTo(demand) < 0) {
+                // YE-03: name the leave year that is short — a cross-year request is checked per year.
                 BigDecimal left = supply.subtract(p.pendingDays()).max(ZERO);
-                throw new IllegalArgumentException("Leave request exceeds your available " + type.getName() + " balance"
-                        + (segments.size() > 1 ? " for " + year : "") + " of " + formatDays(left) + " days.");
+                throw new IllegalArgumentException("Not enough " + year + " " + type.getName() + ": " + formatDays(left)
+                        + (left.compareTo(BigDecimal.ONE) == 0 ? " day" : " days") + " available, "
+                        + formatDays(seg.getValue()) + " requested.");
             }
         }
     }
@@ -431,6 +433,36 @@ public class LeaveBalanceService {
                 }
                 out.add(toResponse(b));
             } else if (canUse) {
+                out.add(type.isPerOccurrence() ? occurrenceResponse(employeeUserId, type) : unlimitedResponse(type, year));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Read-only view of a leave year that hasn't started (YE-04): existing rows as they are, and for a
+     * type with no row yet the expected opening position — 0 credited, the year's quota still to come,
+     * less pending leave already requested in that year. Nothing is created or credited.
+     */
+    @Transactional(readOnly = true)
+    public List<LeaveBalanceResponse> expectedBalancesFor(UUID employeeUserId, int year) {
+        Map<UUID, LeaveBalance> rows = leaveBalanceRepository.findByEmployeeUserIdAndYear(employeeUserId, year).stream()
+                .collect(Collectors.toMap(b -> b.getLeaveType().getId(), Function.identity(), (a, b) -> a));
+        List<LeaveType> all = leaveTypeRepository.findByActiveTrueOrderByNameAsc();
+        Set<UUID> eligible = eligibilityService.eligibleTypes(employeeUserId, all).stream().map(LeaveType::getId)
+                .collect(Collectors.toSet());
+        List<LeaveBalanceResponse> out = new ArrayList<>();
+        for (LeaveType type : all) {
+            if (!eligible.contains(type.getId())) continue;
+            if (type.isAnnualBalance()) {
+                LeaveBalance b = rows.getOrDefault(type.getId(), LeaveBalance.builder()
+                        .employeeUserId(employeeUserId).leaveType(type).year(year)
+                        .totalDays(ZERO).usedDays(ZERO).carriedForwardDays(ZERO).carriedForwardUsedDays(ZERO)
+                        .carriedForwardExpiredDays(ZERO).build());
+                LeaveBalanceResponse r = toResponse(b);
+                r.setExpected(true);
+                out.add(r);
+            } else {
                 out.add(type.isPerOccurrence() ? occurrenceResponse(employeeUserId, type) : unlimitedResponse(type, year));
             }
         }

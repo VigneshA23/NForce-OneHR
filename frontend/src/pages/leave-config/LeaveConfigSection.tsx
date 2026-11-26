@@ -10,8 +10,14 @@ import {
   leaveConfigApi,
   type AccrualCredit, type CarryForwardPriority, type CarryForwardTransfer, type CreditFrequency, type DirectoryEmployee,
   type EligibilityConfig, type EntitlementPolicy, type LeaveBalance, type LeaveType, type LeaveTypeClassification,
+  type LeaveJobRun, type OpeningBalanceUploadRow, type OpeningBalanceValidation,
 } from '../../api/leave';
 import { orgApi } from '../../api/org';
+import * as XLSX from 'xlsx';
+import { autoSizeColumns } from '../../lib/xlsxColumns';
+import {
+  OPENING_BALANCE_HEADERS, OPENING_BALANCE_INSTRUCTIONS, OPENING_BALANCE_SHEET, errorReportRows, parseUploadRows, templateSheetRows,
+} from './openingBalances';
 import { AppliesToEditor, EMPTY_ELIGIBILITY, appliesToSummary, sameEligibility, type NamedOption } from './AppliesTo';
 
 /**
@@ -774,19 +780,50 @@ function EntitlementsArea({ types, token, canConfigure, canEdit, reload }: {
       ))}
       <CreditingRun token={token} canConfigure={canConfigure} />
       <EmployeeBalances token={token} canEdit={canEdit} />
+      {canEdit && <OpeningBalanceUpload token={token} />}
     </div>
+  );
+}
+
+/**
+ * YE-07: the last run of a nightly leave job, from its audit entry — so on 1 January an admin can
+ * confirm the jobs ran and see which employees (if any) failed.
+ */
+function useLastRun(token: string, job: 'accrual' | 'yearEnd') {
+  const [run, setRun] = useState<LeaveJobRun | null | undefined>(undefined);
+  const reload = useCallback(() => {
+    leaveConfigApi.jobs(token).then(r => setRun(r[job] ?? null)).catch(() => setRun(null));
+  }, [token, job]);
+  useEffect(() => { reload(); }, [reload]);
+  return { run, reload };
+}
+
+function LastRun({ run, summary }: { run: LeaveJobRun | null | undefined; summary: (d: LeaveJobRun['details']) => string }) {
+  if (run === undefined) return null;
+  if (run === null) return <p style={{ ...hintS, margin: '6px 0 0' }}>Last run: never.</p>;
+  const failed = run.details.failedEmployees ?? [];
+  return (
+    <p style={{ ...hintS, margin: '6px 0 0' }} data-testid="leave-job-last-run">
+      Last run: {new Date(run.ranAt).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+      {' '}by {run.actorName ?? 'the nightly job'} · {summary(run.details)}
+      {failed.length > 0
+        ? <span style={{ color: 'var(--risk)', fontWeight: 600 }}> · failed for {failed.join(', ')} (retried on the next run)</span>
+        : ' · no failures'}
+    </p>
   );
 }
 
 function CreditingRun({ token, canConfigure }: { token: string; canConfigure: boolean }) {
   const { showToast } = useToast();
   const [busy, setBusy] = useState(false);
+  const lastRun = useLastRun(token, 'accrual');
   async function run() {
     setBusy(true);
     try {
       const r = await leaveConfigApi.runAccrual(token);
       showToast(r.failures > 0 ? 'error' : 'success',
-        `${r.creditsAdded} employee balance(s) credited${r.failures > 0 ? `, ${r.failures} failed — run again to retry` : ''}`);
+        `${r.creditsAdded} employee balance(s) credited${r.failures > 0 ? `, ${r.failures} failed (${(r.failedEmployees ?? []).join(', ')}) — run again to retry` : ''}`);
+      lastRun.reload();
     } catch (e) {
       showToast('error', errMsg(e));
     } finally {
@@ -803,6 +840,160 @@ function CreditingRun({ token, canConfigure }: { token: string; canConfigure: bo
         </p>
         {canConfigure && <button style={primaryBtn(busy)} disabled={busy} onClick={run}>{busy ? 'Crediting…' : 'Run crediting now'}</button>}
       </div>
+      <LastRun run={lastRun.run} summary={d => `${Number(d.creditsAdded ?? 0)} balance(s) credited for ${d.year ?? ''}, ${Number(d.employeesChecked ?? 0)} checked`} />
+    </div>
+  );
+}
+
+// ── YE-02: Opening balance upload ─────────────────────────────────────────────
+
+/** Writes rows to a one-sheet (plus optional instructions) .xlsx and downloads it; columns autosized. */
+function downloadSheet(fileName: string, sheetName: string, rows: Record<string, string | number>[], headers: string[],
+  instructions?: string[][]) {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
+  autoSizeColumns(ws, rows, headers);
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  if (instructions) {
+    const help = XLSX.utils.aoa_to_sheet(instructions);
+    help['!cols'] = [{ wch: 120 }];
+    XLSX.utils.book_append_sheet(wb, help, 'Instructions');
+  }
+  XLSX.writeFile(wb, fileName);
+}
+
+function OpeningBalanceUpload({ token }: { token: string }) {
+  const { showToast } = useToast();
+  const years = [CURRENT_YEAR, CURRENT_YEAR + 1];
+  const [year, setYear] = useState(CURRENT_YEAR);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [upload, setUpload] = useState<OpeningBalanceUploadRow[] | null>(null);
+  const [check, setCheck] = useState<OpeningBalanceValidation | null>(null);
+  const [showUnchanged, setShowUnchanged] = useState(false);
+
+  function reset() { setUpload(null); setCheck(null); setFileName(''); setError(''); }
+
+  async function downloadTemplate() {
+    setBusy(true); setError('');
+    try {
+      const rows = await leaveConfigApi.openingBalanceTemplate(year, token);
+      downloadSheet(`leave-opening-balances-${year}.xlsx`, OPENING_BALANCE_SHEET, templateSheetRows(rows),
+        [...OPENING_BALANCE_HEADERS], OPENING_BALANCE_INSTRUCTIONS);
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onFile(file: File | undefined) {
+    if (!file) return;
+    reset();
+    setFileName(file.name);
+    if (!file.name.toLowerCase().endsWith('.xlsx')) { setError('Upload the .xlsx template.'); return; }
+    setBusy(true);
+    try {
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const ws = wb.Sheets[OPENING_BALANCE_SHEET] ?? wb.Sheets[wb.SheetNames[0]];
+      const rows = parseUploadRows(XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' }));
+      if (rows === null) { setError('The columns don\'t match the template. Download the template again and fill it in.'); return; }
+      if (rows.length === 0) { setError('The file has no rows.'); return; }
+      setUpload(rows);
+      setCheck(await leaveConfigApi.validateOpeningBalances(year, rows, token));
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirm() {
+    if (!upload) return;
+    setBusy(true); setError('');
+    try {
+      const r = await leaveConfigApi.applyOpeningBalances(year, upload, token);
+      showToast('success', `${r.changes} opening balance(s) updated for ${r.year}`);
+      reset();
+    } catch (e) {
+      setError(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const shown = check ? check.results.filter(r => showUnchanged || r.changed || r.errors.length > 0) : [];
+  const paged = usePaged(shown, [check, showUnchanged]);
+  return (
+    <div style={{ marginTop: 28 }}>
+      <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Opening balances</h2>
+      <p style={{ ...hintS, maxWidth: 760 }}>
+        Set many balances at once — for days brought from another system, a joiner's prorated quota or corrections. Download
+        the template (every active employee and paid leave type, with today's figures), fill in the new figures and a reason,
+        and upload it. Every row is checked first and nothing is saved until the whole file is clean; you see each change
+        before confirming. Each change is recorded in the audit log like a manual adjustment.
+      </p>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ width: 140 }}>
+          <label style={labelS} htmlFor="ob-year">Leave year</label>
+          <select id="ob-year" style={inputS} value={year} disabled={busy} onChange={e => { setYear(Number(e.target.value)); reset(); }}>
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+        <button style={secondaryBtn} disabled={busy} onClick={downloadTemplate}>Download template</button>
+        <label style={{ ...primaryBtn(busy), display: 'inline-block' }}>
+          Upload filled template
+          <input type="file" accept=".xlsx" style={{ display: 'none' }} disabled={busy}
+            onChange={e => { void onFile(e.target.files?.[0]); e.target.value = ''; }} />
+        </label>
+        {fileName && <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>{fileName}</span>}
+      </div>
+      <FormError error={error} />
+      {check && (
+        <>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', margin: '6px 0 10px', fontSize: 12.5 }}>
+            <span>{check.rows} row(s) · <b>{check.changes}</b> change(s) for {check.year}</span>
+            {check.errorRows > 0
+              ? <span style={{ color: 'var(--risk)', fontWeight: 600 }}>{check.errorRows} row(s) with errors — nothing will be saved</span>
+              : <span style={{ color: 'var(--ok)', fontWeight: 600 }}>No errors</span>}
+            {check.errorRows > 0 && upload && (
+              <button style={secondaryBtn} onClick={() => downloadSheet(`leave-opening-balances-${check.year}-errors.xlsx`, 'Errors',
+                errorReportRows(check.results, upload),
+                ['Row', 'Employee Code', 'Leave Type', 'New Credited', 'New Carried Forward', 'Reason', 'Errors'])}>
+                Download error report
+              </button>
+            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--txt-mut)' }}>
+              <input type="checkbox" checked={showUnchanged} onChange={e => setShowUnchanged(e.target.checked)} /> Show unchanged rows
+            </label>
+            <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              <button style={secondaryBtn} disabled={busy} onClick={reset}>Discard</button>
+              <button style={primaryBtn(busy || check.errorRows > 0 || check.changes === 0)} disabled={busy || check.errorRows > 0 || check.changes === 0}
+                onClick={confirm}>{busy ? 'Saving…' : `Confirm ${check.changes} change(s)`}</button>
+            </span>
+          </div>
+          <Table head={['Row', 'Employee', 'Leave Type', 'Credited', 'Carried forward', 'Status']}
+            empty={shown.length === 0 && 'Nothing to change in this file.'}>
+            {paged.pageRows.map(r => (
+              <tr key={r.rowNumber}>
+                <td style={tdS}>{r.rowNumber}</td>
+                <td style={{ ...tdS, color: 'var(--txt)' }}>{r.employeeName ?? '—'}<span style={{ color: 'var(--txt-dim)' }}> · {r.employeeCode || '—'}</span></td>
+                <td style={tdS}>{r.leaveType}</td>
+                <td style={tdS}>{days(r.currentCredited)}{Number(r.newCredited) !== Number(r.currentCredited) && <> → <b style={{ color: 'var(--txt)' }}>{days(r.newCredited)}</b></>}</td>
+                <td style={tdS}>{days(r.currentCarriedForward)}{Number(r.newCarriedForward) !== Number(r.currentCarriedForward) && <> → <b style={{ color: 'var(--txt)' }}>{days(r.newCarriedForward)}</b></>}</td>
+                <td style={{ ...tdS, maxWidth: 360 }}>
+                  {r.errors.length > 0
+                    ? <span style={{ color: 'var(--risk)' }}>{r.errors.join('; ')}</span>
+                    : r.changed ? <Badge tone="ok">Will change</Badge> : <Badge tone="dim">Unchanged</Badge>}
+                  {r.warnings.length > 0 && <div style={{ color: 'var(--warn)', fontSize: 11.5, marginTop: 4 }}>{r.warnings.join('; ')}</div>}
+                </td>
+              </tr>
+            ))}
+          </Table>
+          {shown.length > 0 && <TablePagination {...paged.pagerProps} noun="rows" />}
+        </>
+      )}
     </div>
   );
 }
@@ -884,6 +1075,7 @@ function CarryForwardRow({ type, token, canConfigure, onSaved }: { type: LeaveTy
 }
 
 function YearEndProcessing({ token, canConfigure }: { token: string; canConfigure: boolean }) {
+  const lastRun = useLastRun(token, 'yearEnd');
   const { showToast } = useToast();
   const [fromYear, setFromYear] = useState(CURRENT_YEAR - 1);
   const [rows, setRows] = useState<CarryForwardTransfer[] | null>(null);
@@ -902,7 +1094,8 @@ function YearEndProcessing({ token, canConfigure }: { token: string; canConfigur
     try {
       const r = await leaveConfigApi.runYearEnd(fromYear, token);
       showToast(r.failures > 0 ? 'error' : 'success',
-        `${r.transfersCreated} transfer(s) recorded, ${r.expiriesUpdated} expiry update(s)${r.failures > 0 ? `, ${r.failures} failed — run again to retry` : ''}`);
+        `${r.transfersCreated} transfer(s) recorded, ${r.expiriesUpdated} expiry update(s)${r.failures > 0 ? `, ${r.failures} failed (${(r.failedEmployees ?? []).join(', ')}) — run again to retry` : ''}`);
+      lastRun.reload();
       await load();
     } catch (e) {
       setError(errMsg(e));
@@ -928,6 +1121,7 @@ function YearEndProcessing({ token, canConfigure }: { token: string; canConfigur
         </div>
         {canConfigure && <button style={primaryBtn(busy)} disabled={busy} onClick={run}>{busy ? 'Processing…' : 'Run now'}</button>}
       </div>
+      <LastRun run={lastRun.run} summary={d => `${d.fromYear ?? ''} → ${Number(d.fromYear ?? 0) + 1}: ${Number(d.transfersCreated ?? 0)} transfer(s), ${Number(d.expiriesUpdated ?? 0)} expiry update(s)`} />
       <FormError error={error} />
       {rows && (
         <>
