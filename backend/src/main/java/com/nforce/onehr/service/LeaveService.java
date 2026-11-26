@@ -82,6 +82,7 @@ public class LeaveService {
     private final LeaveRequestRepository leaveRequestRepository;
     // V310: every balance read/write (per-type balances, carried-forward, occurrences) goes through here.
     private final LeaveBalanceService leaveBalanceService;
+    private final CompOffService compOffService;
     private final LeaveEligibilityService leaveEligibilityService;
     private final LeaveYearEndService leaveYearEndService;
     private final AuditService auditService;
@@ -107,7 +108,10 @@ public class LeaveService {
     /** Active leave types only: an inactive type can't be chosen for a new request (history keeps its own name). */
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listTypes() {
+        // Comp-Off is a leave type only while the company policy has Comp-Off switched on.
+        boolean compOffOn = compOffService.policyEnabled();
         return leaveTypeRepository.findByActiveTrueOrderByNameAsc().stream()
+                .filter(t -> compOffOn || !CompOffService.isCompOffType(t))
                 .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
                         .classification(t.getClassification()).entitlementBasis(t.getEntitlementBasis())
                         .active(true).build())
@@ -118,7 +122,9 @@ public class LeaveService {
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listMyTypes(String actorEmail) {
         User actor = requireActor(actorEmail);
+        boolean compOffOn = compOffService.policyEnabled();
         return leaveEligibilityService.eligibleTypes(actor.getId(), leaveTypeRepository.findByActiveTrueOrderByNameAsc()).stream()
+                .filter(t -> compOffOn || !CompOffService.isCompOffType(t))
                 .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
                         .classification(t.getClassification()).entitlementBasis(t.getEntitlementBasis())
                         .systemKey(t.getSystemKey()).active(true).build())
@@ -392,6 +398,12 @@ public class LeaveService {
      */
     private void validateEntitlement(UUID employeeUserId, LeaveType type, LocalDate start, LocalDate end,
                                      BigDecimal totalDays, UUID excludeRequestId) {
+        if (CompOffService.isCompOffType(type)) {
+            // Comp-Off draws from earned credits in the comp-off ledger, not from a leave balance.
+            boolean halfDay = totalDays.remainder(BigDecimal.ONE).signum() != 0;
+            compOffService.validateLeaveRequest(employeeUserId, start, totalDays, halfDay, excludeRequestId);
+            return;
+        }
         if (!type.isPaid()) {
             if (leaveBalanceService.availablePaidDays(employeeUserId, LeaveBalanceService.leaveYearOf(start), excludeRequestId).signum() > 0) {
                 throw new IllegalArgumentException(
@@ -638,8 +650,13 @@ public class LeaveService {
         // days used in the type's configured priority) or, for Maternity-style types, from the
         // occurrence; unpaid leave deducts nothing. Classification is honoured as of NOW (no snapshot
         // on the request). Throws if the balance no longer covers it — the transaction rolls back.
-        leaveBalanceService.consume(request.getEmployeeUserId(), request.getLeaveType(),
-                request.getStartDate(), request.getEndDate(), request.getTotalDays());
+        if (CompOffService.isCompOffType(request.getLeaveType())) {
+            // Comp-Off credits are spent only now, on approval, soonest expiry first.
+            compOffService.consumeForApprovedLeave(request, actor.getId());
+        } else {
+            leaveBalanceService.consume(request.getEmployeeUserId(), request.getLeaveType(),
+                    request.getStartDate(), request.getEndDate(), request.getTotalDays());
+        }
 
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
         request.setStatus("APPROVED");

@@ -82,6 +82,7 @@ const NAV_ITEM_REQUIREMENTS: Partial<Record<string, PermissionRequirement[]>> = 
   bench: [{ module: 'bench', action: 'VIEW', scope: 'TEAM' }],
   'payroll-runs': [{ module: 'payroll', action: 'VIEW', scope: 'ALL' }],
   'overtime-management': [{ module: 'overtime', action: 'APPROVE', scope: 'ALL' }],
+  'comp-off-management': [{ module: 'leave', action: 'VIEW', scope: 'TEAM' }],
   'payroll-setup': [{ module: 'payroll', action: 'CONFIGURE', scope: 'ALL' }],
   'statutory-compliance': [{ module: 'payroll', action: 'CONFIGURE', scope: 'ALL' }],
   allocations: [{ module: 'project_allocations', action: 'CREATE', scope: 'ALL' }],

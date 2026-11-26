@@ -2,12 +2,14 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.dto.attendance.CreateOvertimeRequest;
 import com.nforce.onehr.dto.attendance.OvertimeRequestResponse;
+import com.nforce.onehr.entity.CompOffClaim;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.OtSettings;
 import com.nforce.onehr.entity.OvertimeRequest;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
+import com.nforce.onehr.repository.CompOffClaimRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.OvertimeRequestRepository;
@@ -65,6 +67,8 @@ public class OvertimeRequestService {
     private final NotificationService notificationService;
     private final EffectivePermissionService effectivePermissionService;
     private final OtConfigService otConfigService;
+    private final CompOffPolicyService compOffPolicyService;
+    private final CompOffClaimRepository compOffClaimRepository;
 
     @Transactional
     public OvertimeRequestResponse submit(CreateOvertimeRequest req, String actorEmail) {
@@ -78,6 +82,7 @@ public class OvertimeRequestService {
             throw new IllegalArgumentException("Requested start/end must fall on the work date");
         }
         assertNotBeforeJoiningDate(actor.getId(), req.getWorkDate());
+        assertPolicyAllowsOvertime(actor.getId(), req.getWorkDate());
         assertValidDurationAndNoDuplicate(actor.getId(), req);
         UUID notifyUserId = resolveNotifyUser(req.getNotifyUserId());
 
@@ -118,6 +123,20 @@ public class OvertimeRequestService {
             throw new IllegalArgumentException(
                     "Overtime requests cannot be made prior to your joining date (" + joiningDate.format(NOTIFICATION_DATE_FMT) + ").");
         }
+    }
+
+    /**
+     * Company policy: OT requests need Overtime enabled, and hours already taken as Comp-Off for that
+     * day cannot also be claimed as overtime.
+     */
+    private void assertPolicyAllowsOvertime(UUID employeeId, LocalDate workDate) {
+        if (!compOffPolicyService.overtimeEnabled()) {
+            throw new IllegalStateException("Overtime is not enabled by company policy");
+        }
+        compOffClaimRepository.findByEmployeeUserIdAndWorkDate(employeeId, workDate)
+                .filter(c -> CompOffClaim.COMP_OFF.equals(c.getChoice()))
+                .ifPresent(c -> { throw new IllegalArgumentException(
+                        "The hours worked on " + workDate.format(NOTIFICATION_DATE_FMT) + " were taken as Comp-Off"); });
     }
 
     /**

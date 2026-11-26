@@ -37,7 +37,9 @@ class MigrationNoExpansionTest {
             "SUPER_ADMIN", Set.of("projects:EDIT:ALL", "audit_security:VIEW:ALL", "employee_sensitive:VIEW:ALL",
                     "employee_sensitive:EDIT:ALL", "employee_sensitive:APPROVE:ALL", "leave_configuration:VIEW:ALL",
                     "leave_configuration:EDIT:ALL", "leave_configuration:CONFIGURE:ALL", "finance:CONFIGURE:ALL",
-                    "overtime:CONFIGURE:ALL"),
+                    "overtime:CONFIGURE:ALL",
+                    // V319: compensation_policy:CONFIGURE (OT vs Comp-Off company policy) is new; Super Admin only.
+                    "compensation_policy:CONFIGURE:ALL"),
             "MANAGER", Set.of(),
             "EMPLOYEE", Set.of());
 

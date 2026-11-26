@@ -100,6 +100,7 @@ class LeaveServiceTest {
     @Mock private LeaveBalanceService leaveBalanceService; // replaced with the real one in setUp()
     @Mock private LeaveYearEndService leaveYearEndService;
 
+    @Mock private CompOffService compOffService;
     @InjectMocks private LeaveService leaveService;
 
     private final UUID employeeId = UUID.randomUUID();

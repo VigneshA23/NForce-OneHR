@@ -138,6 +138,23 @@ pages:
         route: /overtime-management
         description: "Calculate overtime automatically from attendance against each employee's shift, review and approve it for payroll, configure OT rate multipliers and policy settings, make audited OT adjustments, and check OT included in a payroll run."
 
+  - pageId: comp-off
+    module: leave
+    variants:
+      - roles: [EMPLOYEE, MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "My Comp-Off"
+        route: /comp-off
+        description: "See your earned, available, utilized, pending and expired Comp-Off, choose Comp-Off or overtime for extra hours worked on a weekly off or holiday, apply for Comp-Off leave and review your Comp-Off history."
+
+  - pageId: comp-off-management
+    module: leave
+    permissions: ["leave:VIEW:TEAM"]
+    variants:
+      - roles: [MANAGER, HR_ADMIN, SUPER_ADMIN]
+        label: "Comp-Off Management"
+        route: /comp-off-management
+        description: "Employee-wise and department-wise Comp-Off summaries with filters and Excel export, approve Comp-Off credits, make audited balance adjustments, and set Comp-Off eligibility rules, validity and expiry. A Super Admin chooses whether the company uses Overtime, Comp-Off or both."
+
   - pageId: statutory-compliance
     module: payroll
     permissions: ["payroll:CONFIGURE:ALL"]

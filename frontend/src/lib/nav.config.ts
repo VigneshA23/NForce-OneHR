@@ -1,6 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import {
-  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, Briefcase, TrendingUp, UserX, Sparkles, Handshake, KeyRound, Wallet, Settings, ShieldCheck, BarChart3, Timer,
+  Home, Clock, Calendar, HelpCircle, FileText, Users, GitBranch, Shield, AlertTriangle, Package, Activity, Briefcase, TrendingUp, UserX, Sparkles, Handshake, KeyRound, Wallet, Settings, ShieldCheck, BarChart3, Timer, CalendarClock, CalendarCheck,
 } from 'lucide-react';
 
 export type Role = 'Employee' | 'Manager' | 'HR Admin' | 'Super Admin';
@@ -47,6 +47,7 @@ export const NAV: Record<Role, NavItem[]> = {
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
     item('attendance', 'My Attendance', Clock, 1),
     item('leave', 'Leave & Holidays', Calendar, 1),
+    item('comp-off', 'My Comp-Off', CalendarClock, 1),
     item('requests', 'My Requests', HelpCircle, 1),
     item('assets', 'Assets & Expenses', Package, 1),
     item('myfinances', 'My Finances', Wallet, 1),
@@ -64,6 +65,8 @@ export const NAV: Record<Role, NavItem[]> = {
     item('hierarchy', 'Org Hierarchy', GitBranch, 1),
     item('attendance', 'Team Attendance', Clock, 1),
     item('leave', 'Team Leave & Holidays', Calendar, 1),
+    item('comp-off', 'My Comp-Off', CalendarClock, 1),
+    item('comp-off-management', 'Comp-Off Management', CalendarCheck, 1),
     item('requests', 'My Requests', HelpCircle, 1),
     item('approvals', 'Approval Center', FileText, 1),
     item('exceptions', 'Exception Dashboard', AlertTriangle, 1),
@@ -87,6 +90,8 @@ export const NAV: Record<Role, NavItem[]> = {
     item('attendance', 'Attendance Administration', Clock, 1),
     item('overtime-management', 'Overtime Management', Timer, 1),
     item('leave', 'Leave Administration', Calendar, 1),
+    item('comp-off', 'My Comp-Off', CalendarClock, 1),
+    item('comp-off-management', 'Comp-Off Management', CalendarCheck, 1),
     item('approvals', 'Approval Center', FileText, 1),
     item('exceptions', 'Exception Dashboard', AlertTriangle, 1),
     item('documents', 'Documents & Compliance', FileText, 1),
@@ -119,6 +124,8 @@ export const NAV: Record<Role, NavItem[]> = {
     item('attendance', 'Attendance Administration', Clock, 1),
     item('overtime-management', 'Overtime Management', Timer, 1),
     item('leave', 'Leave & Holidays', Calendar, 1),
+    item('comp-off', 'My Comp-Off', CalendarClock, 1),
+    item('comp-off-management', 'Comp-Off Management', CalendarCheck, 1),
     item('approvals', 'Approval Center', FileText, 1),
     item('assets', 'Assets & Expenses', Package, 1),
     item('payroll-runs', 'Payroll Runs', Wallet, 1),
@@ -192,7 +199,7 @@ const NAV_HIERARCHY: HierarchyEntry[] = [
     ],
   },
   { key: 'administration', label: 'Administration', icon: Shield, children: ['access', 'roles', 'masters', 'workflows', 'templates', 'integrations', 'featurelab'] },
-  { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'overtime-management', 'leave', 'exceptions'] },
+  { key: 'time-leave', label: 'Time & Leave', icon: Clock, children: ['attendance', 'overtime-management', 'leave', 'comp-off', 'comp-off-management', 'exceptions'] },
   { key: 'requests-approvals', label: 'Requests & Approvals', icon: FileText, children: ['approvals', 'requests'] },
   { key: 'insights', label: 'Insights', icon: FileText, children: ['audit', 'reports', 'api-usage'] },
   { key: 'employee-services', label: 'Employee Services', icon: Package, children: ['onboarding', 'assets', 'allocations', 'bench', 'bench-opportunities', 'my-skills', 'performance', 'documents', 'policies', 'my-documents'] },

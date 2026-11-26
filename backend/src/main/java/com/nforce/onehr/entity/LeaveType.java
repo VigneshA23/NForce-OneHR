@@ -81,6 +81,11 @@ public class LeaveType {
         createdAt = LocalDateTime.now();
     }
 
+    /** Comp-Off leave draws from the comp-off credit ledger and never has a leave balance row. */
+    public boolean isCompOff() {
+        return "COMP_OFF".equals(code);
+    }
+
     public boolean isSystem() {
         return systemKey != null;
     }
@@ -91,7 +96,7 @@ public class LeaveType {
 
     /** Paid, yearly-balance leave: the only kind that has a {@link LeaveBalance} row. */
     public boolean isAnnualBalance() {
-        return isPaid() && BASIS_ANNUAL.equals(entitlementBasis);
+        return isPaid() && !isCompOff() && BASIS_ANNUAL.equals(entitlementBasis);
     }
 
     public boolean isPerOccurrence() {

@@ -72,6 +72,8 @@ const SIDEBAR: Spec[] = [
       { label: 'Team Leave', note: 'The same permission as Leave Administration, granted at Team scope' },
       { label: 'Leave Administration', leaves: ['leave'] },
       { label: 'Holiday Calendar', leaves: ['holidays'] },
+      { label: 'My Comp-Off', note: EVERYONE },
+      { label: 'Compensation Policy (OT / Comp-Off)', leaves: ['compensation_policy'] },
     ] },
   ] },
   { label: 'Requests & Approvals', children: [
