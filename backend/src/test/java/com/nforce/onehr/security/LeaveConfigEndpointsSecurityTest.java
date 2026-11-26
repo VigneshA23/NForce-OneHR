@@ -59,7 +59,7 @@ class LeaveConfigEndpointsSecurityTest {
             UserRepository users = mock(UserRepository.class);
             when(users.findByEmail(any())).thenReturn(Optional.of(User.builder().id(UUID.randomUUID()).email("user@test.com").build()));
             return new LeaveConfigController(mock(LeaveTypeService.class), mock(LeaveYearEndService.class), mock(com.nforce.onehr.service.LeaveAccrualService.class), users,
-                    mock(com.nforce.onehr.service.LeaveJobMonitor.class));
+                    mock(com.nforce.onehr.service.LeaveJobMonitor.class), mock(com.nforce.onehr.service.LeaveOpeningBalanceService.class));
         }
     }
 
@@ -83,6 +83,9 @@ class LeaveConfigEndpointsSecurityTest {
                 Arguments.of("GET", "/api/leave-config/carry-forward/transfers?fromYear=2026", null, VIEW),
                 Arguments.of("POST", "/api/leave-config/carry-forward/run?fromYear=2025", null, CONFIGURE),
                 Arguments.of("GET", "/api/leave-config/jobs", null, VIEW),
+                Arguments.of("GET", "/api/leave-config/opening-balances?year=2027", null, EDIT),
+                Arguments.of("POST", "/api/leave-config/opening-balances/validate?year=2027", "[]", EDIT),
+                Arguments.of("POST", "/api/leave-config/opening-balances/apply?year=2027", "[]", EDIT),
                 Arguments.of("GET", "/api/leave-config/employees", null, VIEW),
                 Arguments.of("GET", "/api/leave-config/employees/" + ID + "/balances", null, VIEW),
                 Arguments.of("PATCH", "/api/leave-config/balances/" + ID, "{\"entitlementDays\":15,\"carriedForwardDays\":0,\"reason\":\"Correction\"}", EDIT));

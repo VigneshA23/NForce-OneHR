@@ -246,6 +246,10 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
     @Query("SELECT e.userId FROM Employee e JOIN e.user u WHERE u.deletedAt IS NULL AND u.active = true")
     List<java.util.UUID> findActiveEmployeeUserIds();
 
+    /** [userId, employeeCode, fullName] of every active, non-deleted employee — leave opening-balance upload (YE-02). */
+    @Query("SELECT e.userId, e.employeeCode, e.fullName FROM Employee e JOIN e.user u WHERE u.deletedAt IS NULL AND u.active = true ORDER BY e.employeeCode")
+    List<Object[]> findActiveCodeRows();
+
     /** [userId, fullName, email] of every active, non-deleted employee — leave year-end notices (YE-05). */
     @Query("SELECT e.userId, e.fullName, u.email FROM Employee e JOIN e.user u WHERE u.deletedAt IS NULL AND u.active = true ORDER BY e.fullName")
     List<Object[]> findActiveNoticeRecipients();

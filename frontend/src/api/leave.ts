@@ -251,6 +251,48 @@ export interface AccrualRunResult {
   failedEmployees?: string[];
 }
 
+/** YE-02: one employee x leave type row of the opening-balance template. */
+export interface OpeningBalanceTemplateRow {
+  employeeCode: string;
+  employeeName: string;
+  leaveType: string;
+  usedDays: number;
+  currentCredited: number;
+  currentCarriedForward: number;
+}
+
+/** One uploaded row; the new values are the cells as typed (blank = unchanged). */
+export interface OpeningBalanceUploadRow {
+  rowNumber: number;
+  employeeCode: string;
+  leaveType: string;
+  newCredited: string | null;
+  newCarriedForward: string | null;
+  reason: string | null;
+}
+
+export interface OpeningBalanceRowResult {
+  rowNumber: number;
+  employeeCode: string;
+  employeeName: string | null;
+  leaveType: string;
+  currentCredited: number;
+  newCredited: number;
+  currentCarriedForward: number;
+  newCarriedForward: number;
+  changed: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface OpeningBalanceValidation {
+  year: number;
+  rows: number;
+  changes: number;
+  errorRows: number;
+  results: OpeningBalanceRowResult[];
+}
+
 /** YE-07: the last run of a nightly leave job — when, by whom (null = the scheduler) and its counts. */
 export interface LeaveJobRun {
   job: string;
@@ -306,6 +348,14 @@ export const leaveConfigApi = {
     send<CarryForwardTransfer[]>('GET', `${CONFIG}/carry-forward/transfers?fromYear=${fromYear}`, token),
   runYearEnd: (fromYear: number, token: string) =>
     send<YearEndRunResult>('POST', `${CONFIG}/carry-forward/run?fromYear=${fromYear}`, token),
+
+  /** YE-02: opening-balance template rows (the browser builds the .xlsx), row-level validation and apply. */
+  openingBalanceTemplate: (year: number, token: string) =>
+    send<OpeningBalanceTemplateRow[]>('GET', `${CONFIG}/opening-balances?year=${year}`, token),
+  validateOpeningBalances: (year: number, rows: OpeningBalanceUploadRow[], token: string) =>
+    send<OpeningBalanceValidation>('POST', `${CONFIG}/opening-balances/validate?year=${year}`, token, rows),
+  applyOpeningBalances: (year: number, rows: OpeningBalanceUploadRow[], token: string) =>
+    send<{ year: number; changes: number }>('POST', `${CONFIG}/opening-balances/apply?year=${year}`, token, rows),
 
   employees: (token: string) => send<DirectoryEmployee[]>('GET', `${CONFIG}/employees`, token),
   employeeBalances: (userId: string, year: number, token: string) =>
