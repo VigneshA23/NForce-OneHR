@@ -129,6 +129,15 @@ pages:
         route: /finances
         description: "Super Admin view of any employee's salary, payslips, income tax, declarations, previous-employer income and forms; edit bank and statutory details, review tax proofs, publish Form 130, set declaration windows, tax slabs and partner links, and read the finance audit log."
 
+  - pageId: overtime-management
+    module: attendance
+    permissions: ["overtime:APPROVE:ALL"]
+    variants:
+      - roles: [HR_ADMIN, SUPER_ADMIN]
+        label: "Overtime Management"
+        route: /overtime-management
+        description: "Calculate overtime automatically from attendance against each employee's shift, review and approve it for payroll, configure OT rate multipliers and policy settings, make audited OT adjustments, and check OT included in a payroll run."
+
   - pageId: statutory-compliance
     module: payroll
     permissions: ["payroll:CONFIGURE:ALL"]

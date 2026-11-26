@@ -60,8 +60,8 @@ modules:
             actions: { VIEW: TEAM..ALL, APPROVE: TEAM..ALL }
           - code: overtime
             name: Overtime
-            description: Overtime requests.
-            actions: { VIEW: TEAM..ALL, APPROVE: TEAM..ALL }
+            description: Overtime requests, attendance-driven OT calculation, rates and adjustments.
+            actions: { VIEW: TEAM..ALL, APPROVE: TEAM..ALL, CONFIGURE: ALL }
       - code: exceptions
         name: Exception Dashboard
         description: Attendance exceptions (late, absent, missing punches) for a team or the organisation.
@@ -316,6 +316,8 @@ routes:
     requires: [payroll:CONFIGURE:ALL]
   - path: /finances
     requires: [finance:CONFIGURE:ALL]
+  - path: /overtime-management
+    requires: [overtime:APPROVE:ALL]
   - path: /statutory-compliance
     requires: [payroll:CONFIGURE:ALL]
   - path: /payroll-reports

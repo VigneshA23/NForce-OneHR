@@ -4,6 +4,7 @@ import com.nforce.onehr.dto.attendance.CreateOvertimeRequest;
 import com.nforce.onehr.dto.attendance.OvertimeRequestResponse;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
+import com.nforce.onehr.entity.OtSettings;
 import com.nforce.onehr.entity.OvertimeRequest;
 import com.nforce.onehr.entity.Role;
 import com.nforce.onehr.entity.User;
@@ -63,6 +64,7 @@ public class OvertimeRequestService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
     private final EffectivePermissionService effectivePermissionService;
+    private final OtConfigService otConfigService;
 
     @Transactional
     public OvertimeRequestResponse submit(CreateOvertimeRequest req, String actorEmail) {
@@ -76,6 +78,7 @@ public class OvertimeRequestService {
             throw new IllegalArgumentException("Requested start/end must fall on the work date");
         }
         assertNotBeforeJoiningDate(actor.getId(), req.getWorkDate());
+        assertValidDurationAndNoDuplicate(actor.getId(), req);
         UUID notifyUserId = resolveNotifyUser(req.getNotifyUserId());
 
         OvertimeRequest entity = OvertimeRequest.builder()
@@ -115,6 +118,40 @@ public class OvertimeRequestService {
             throw new IllegalArgumentException(
                     "Overtime requests cannot be made prior to your joining date (" + joiningDate.format(NOTIFICATION_DATE_FMT) + ").");
         }
+    }
+
+    /**
+     * Duration must not exceed the configured per-request maximum, and (unless the policy allows it)
+     * the employee may not have another PENDING or APPROVED request for the same date.
+     */
+    private void assertValidDurationAndNoDuplicate(UUID employeeId, CreateOvertimeRequest req) {
+        OtSettings settings = otConfigService.settings();
+        long minutes = Duration.between(req.getRequestedStart(), req.getRequestedEnd()).toMinutes();
+        if (minutes > settings.getMaxRequestMinutes()) {
+            throw new IllegalArgumentException("Requested overtime cannot exceed "
+                    + settings.getMaxRequestMinutes() / 60.0 + " hours in a single request");
+        }
+        if (!settings.isAllowDuplicateRequests()) {
+            boolean duplicate = requestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(employeeId).stream()
+                    .anyMatch(r -> r.getWorkDate().equals(req.getWorkDate())
+                            && (STATUS_PENDING.equals(r.getStatus()) || STATUS_APPROVED.equals(r.getStatus())));
+            if (duplicate) {
+                throw new IllegalArgumentException("An overtime request already exists for "
+                        + req.getWorkDate().format(NOTIFICATION_DATE_FMT));
+            }
+        }
+    }
+
+    /** Every request (any status) from the approver's reporting employees; APPROVE_ALL holders see everyone. */
+    @Transactional(readOnly = true)
+    public List<OvertimeRequestResponse> listForApprover(String actorEmail) {
+        User actor = requireActor(actorEmail);
+        boolean all = effectivePermissionService.hasAuthority(actor, APPROVE_ALL);
+        return toResponseList(requestRepository.findAll().stream()
+                .filter(r -> all || actor.getId().equals(r.getAssignedApproverId())
+                        || isCurrentManagerOf(actor.getId(), r.getEmployeeUserId()))
+                .sorted(java.util.Comparator.comparing(OvertimeRequest::getCreatedAt).reversed())
+                .toList());
     }
 
     private UUID resolveNotifyUser(UUID notifyUserId) {

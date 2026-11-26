@@ -54,6 +54,7 @@ class OvertimeRequestServiceTest {
     @Mock private AuditService auditService;
     @Mock private NotificationService notificationService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
+    @Mock private OtConfigService otConfigService;
     // The real seed, plus custom roles: one granted overtime:APPROVE at TEAM, one at ALL, and one
     // granted only an unrelated module's APPROVE.
     @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
@@ -79,6 +80,29 @@ class OvertimeRequestServiceTest {
         lenient().when(requestRepository.save(any(OvertimeRequest.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(employeeRepository.findById(any())).thenReturn(Optional.empty());
         lenient().when(userRepository.findById(any())).thenReturn(Optional.empty());
+        lenient().when(otConfigService.settings()).thenReturn(com.nforce.onehr.entity.OtSettings.builder()
+                .maxRequestMinutes(720).allowDuplicateRequests(false).build());
+    }
+
+    @org.junit.jupiter.api.Test
+    void submit_rejectsSecondPendingRequestForSameDate() {
+        LocalDate date = LocalDate.of(2026, 8, 10);
+        when(requestRepository.findByEmployeeUserIdOrderByCreatedAtDesc(employeeId)).thenReturn(List.of(
+                OvertimeRequest.builder().employeeUserId(employeeId).workDate(date).status("PENDING").build()));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> service.submit(overtimeRequest(date), employeeEmail));
+        verify(requestRepository, never()).save(any(OvertimeRequest.class));
+    }
+
+    @org.junit.jupiter.api.Test
+    void submit_rejectsRequestLongerThanConfiguredMaximum() {
+        LocalDate date = LocalDate.of(2026, 8, 10);
+        when(otConfigService.settings()).thenReturn(com.nforce.onehr.entity.OtSettings.builder()
+                .maxRequestMinutes(60).allowDuplicateRequests(false).build());
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> service.submit(overtimeRequest(date), employeeEmail)); // 2h request, 1h cap
     }
 
     private CreateOvertimeRequest overtimeRequest(LocalDate workDate) {

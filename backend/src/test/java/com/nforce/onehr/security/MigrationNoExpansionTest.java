@@ -24,11 +24,12 @@ class MigrationNoExpansionTest {
             // V277: editing a project used to need no permission at all; now an explicit HR/SA permission.
             // V296: employee_sensitive splits the sensitive profile fields out of employees:VIEW:ALL. HR_ADMIN
             // already saw and entered them, so it gets all three actions; nothing new is reachable.
+            // V315: overtime:CONFIGURE (OT rates, settings, adjustment approval) is new; admin roles only.
             "HR_ADMIN", Set.of("projects:EDIT:ALL", "employee_sensitive:VIEW:ALL", "employee_sensitive:EDIT:ALL",
-                    "employee_sensitive:APPROVE:ALL"),
+                    "employee_sensitive:APPROVE:ALL", "overtime:CONFIGURE:ALL"),
             // V277 (projects:EDIT), V279 (audit_security — copied from user_management:VIEW:ALL, SA-only), V296 (employee_sensitive).
             "SUPER_ADMIN", Set.of("projects:EDIT:ALL", "audit_security:VIEW:ALL", "employee_sensitive:VIEW:ALL",
-                    "employee_sensitive:EDIT:ALL", "employee_sensitive:APPROVE:ALL"),
+                    "employee_sensitive:EDIT:ALL", "employee_sensitive:APPROVE:ALL", "overtime:CONFIGURE:ALL"),
             "MANAGER", Set.of(),
             "EMPLOYEE", Set.of());
 
