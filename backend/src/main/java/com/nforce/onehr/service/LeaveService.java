@@ -103,6 +103,7 @@ public class LeaveService {
     private final WorkingDayService workingDayService;
     private final HolidayRepository holidayRepository;
     private final EffectivePermissionService effectivePermissionService;
+    private final CompOffService compOffService;
     private final AttendancePenaltyRepository attendancePenaltyRepository;
     private static final ObjectMapper PENALTY_JSON = new ObjectMapper();
     // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
@@ -115,7 +116,10 @@ public class LeaveService {
 
     @Transactional(readOnly = true)
     public List<LeaveTypeResponse> listTypes() {
+        // Comp-Off is a leave type only while the company policy has Comp-Off switched on.
+        boolean compOffOn = compOffService.policyEnabled();
         return leaveTypeRepository.findAll().stream()
+                .filter(t -> compOffOn || !CompOffService.isCompOffType(t))
                 .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
                         .classification(t.getClassification()).build())
                 .collect(Collectors.toList());
@@ -179,6 +183,8 @@ public class LeaveService {
                 .stream().map(b -> b.getLeaveType().getId()).collect(Collectors.toSet());
         for (LeaveType type : leaveTypeRepository.findAll()) {
             if (existingTypeIds.contains(type.getId())) continue;
+            // Comp-Off balance lives in the comp-off credit ledger, never in leave_balances.
+            if (CompOffService.isCompOffType(type)) continue;
             // Annual is the consolidated group's canonical balance row and carries the real
             // 15-day quota; Sick/Casual still get a row (never deleted) but it's vestigial, so
             // its seed value is left at the original 20 — nothing ever reads it once submission/
@@ -236,6 +242,12 @@ public class LeaveService {
                 ? new BigDecimal("0.5")
                 : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
 
+        // Comp-Off draws from earned credits (validated against the credit ledger), not leave_balances.
+        final boolean compOff = CompOffService.isCompOffType(type);
+        if (compOff) {
+            compOffService.validateLeaveRequest(actor.getId(), req.getStartDate(), totalDays, req.isHalfDay(), null);
+        }
+
         // An employee with an available paid leave balance must exhaust/use that before falling
         // back to an Unpaid-classified type — this is a business rule (not day-count-based), so it
         // applies to every Unpaid LeaveType, not just a specific hardcoded one. Checked against ALL
@@ -249,7 +261,9 @@ public class LeaveService {
         // Unpaid leave types (see LeaveType#isPaid) don't draw from any LeaveBalance — the
         // requested days must never consume the employee's paid leave balance, so there is
         // nothing to look up or validate against here. Mirrors the skip in #approve below.
-        if (type.isPaid()) {
+        if (compOff) {
+            // validated above
+        } else if (type.isPaid()) {
             int year = req.getStartDate().getYear();
             // Sick/Casual requests draw from and are validated against the consolidated Annual
             // balance row — the error message below therefore always names the balance actually
@@ -368,12 +382,19 @@ public class LeaveService {
                 ? new BigDecimal("0.5")
                 : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
 
+        final boolean compOff = CompOffService.isCompOffType(type);
+        if (compOff) {
+            compOffService.validateLeaveRequest(actor.getId(), req.getStartDate(), totalDays, req.isHalfDay(), existingId);
+        }
+
         if (!type.isPaid() && hasAnyPositivePaidBalance(actor.getId(), req.getStartDate().getYear(), existingId)) {
             throw new IllegalArgumentException(
                     "You cannot apply for unpaid leave while you have an available paid leave balance.");
         }
 
-        if (type.isPaid()) {
+        if (compOff) {
+            // validated above
+        } else if (type.isPaid()) {
             int year = req.getStartDate().getYear();
             LeaveType balanceType = isAnnualBalanceLeaveType(type) ? annualLeaveType() : type;
             LeaveBalance balance = leaveBalanceRepository
@@ -665,7 +686,10 @@ public class LeaveService {
         // at approval time (a type changed Paid<->Unpaid after submission is honored as of NOW,
         // not as of when the request was originally submitted — there is no snapshot to fall back
         // to, see LeaveRequest#getLeaveType()).
-        if (request.getLeaveType().isPaid()) {
+        if (CompOffService.isCompOffType(request.getLeaveType())) {
+            // Comp-Off credits are spent only now, on approval, oldest expiry first.
+            compOffService.consumeForApprovedLeave(request, actor.getId());
+        } else if (request.getLeaveType().isPaid()) {
             int year = request.getStartDate().getYear();
             // Approving a Sick/Casual request consumes from the SAME Annual balance row it was
             // validated/reserved against at submission — usedDays on that one row naturally becomes

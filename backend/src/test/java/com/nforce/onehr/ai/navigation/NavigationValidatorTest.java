@@ -315,7 +315,8 @@ class NavigationValidatorTest {
         @Test
         @DisplayName("without the permission, a custom role reaches nothing beyond its primary role's nav")
         void customRoleWithoutThePermissionDoesNot() {
-            var context = employeeWithCustomRole(Map.of("leave:VIEW", "ALL"));
+            // A permission that opens no registry page (leave:VIEW now opens Comp-Off Management).
+            var context = employeeWithCustomRole(Map.of("holidays:VIEW", "ALL"));
 
             assertThat(validator.validate("access", context)).isEmpty();
             assertThat(registry.reachable(context)).containsExactlyElementsOf(registry.forRole(ShellRole.EMPLOYEE));

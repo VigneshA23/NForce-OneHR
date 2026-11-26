@@ -83,6 +83,10 @@ modules:
         name: Holidays
         description: The holiday calendar.
         actions: { VIEW: ALL, CREATE: ALL, EDIT: ALL, DELETE: ALL }
+      - code: compensation_policy
+        name: Compensation Policy
+        description: Company-wide choice between Overtime and Comp-Off for eligible extra working hours.
+        actions: { CONFIGURE: ALL }
 
   - code: mod.requests
     name: Requests & Approvals
@@ -318,6 +322,8 @@ routes:
     requires: [finance:CONFIGURE:ALL]
   - path: /overtime-management
     requires: [overtime:APPROVE:ALL]
+  - path: /comp-off-management
+    requires: [leave:VIEW:TEAM]
   - path: /statutory-compliance
     requires: [payroll:CONFIGURE:ALL]
   - path: /payroll-reports

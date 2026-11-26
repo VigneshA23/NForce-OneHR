@@ -94,6 +94,7 @@ class LeaveServiceTest {
             "CUSTOM_LEAVE_TEAM", Map.of("leave:APPROVE", "TEAM", "leave:VIEW", "ALL")));
     @Mock private com.nforce.onehr.repository.AttendancePenaltyRepository attendancePenaltyRepository;
 
+    @Mock private CompOffService compOffService;
     @InjectMocks private LeaveService leaveService;
 
     private final UUID employeeId = UUID.randomUUID();

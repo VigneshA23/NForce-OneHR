@@ -55,6 +55,8 @@ class OvertimeRequestServiceTest {
     @Mock private NotificationService notificationService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
     @Mock private OtConfigService otConfigService;
+    @Mock private CompOffPolicyService compOffPolicyService;
+    @Mock private com.nforce.onehr.repository.CompOffClaimRepository compOffClaimRepository;
     // The real seed, plus custom roles: one granted overtime:APPROVE at TEAM, one at ALL, and one
     // granted only an unrelated module's APPROVE.
     @Spy private EffectivePermissionService effectivePermissionService = SeedMatrix.permissionService(Map.of(
@@ -80,6 +82,7 @@ class OvertimeRequestServiceTest {
         lenient().when(requestRepository.save(any(OvertimeRequest.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(employeeRepository.findById(any())).thenReturn(Optional.empty());
         lenient().when(userRepository.findById(any())).thenReturn(Optional.empty());
+        lenient().when(compOffPolicyService.overtimeEnabled()).thenReturn(true);
         lenient().when(otConfigService.settings()).thenReturn(com.nforce.onehr.entity.OtSettings.builder()
                 .maxRequestMinutes(720).allowDuplicateRequests(false).build());
     }

@@ -29,7 +29,9 @@ class MigrationNoExpansionTest {
                     "employee_sensitive:APPROVE:ALL", "overtime:CONFIGURE:ALL"),
             // V277 (projects:EDIT), V279 (audit_security — copied from user_management:VIEW:ALL, SA-only), V296 (employee_sensitive).
             "SUPER_ADMIN", Set.of("projects:EDIT:ALL", "audit_security:VIEW:ALL", "employee_sensitive:VIEW:ALL",
-                    "employee_sensitive:EDIT:ALL", "employee_sensitive:APPROVE:ALL", "overtime:CONFIGURE:ALL"),
+                    "employee_sensitive:EDIT:ALL", "employee_sensitive:APPROVE:ALL", "overtime:CONFIGURE:ALL",
+                    // V316: compensation_policy:CONFIGURE (OT vs Comp-Off company policy) is new; Super Admin only.
+                    "compensation_policy:CONFIGURE:ALL"),
             "MANAGER", Set.of(),
             "EMPLOYEE", Set.of());
 

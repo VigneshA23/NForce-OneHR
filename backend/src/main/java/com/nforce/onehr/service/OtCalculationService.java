@@ -7,6 +7,8 @@ import com.nforce.onehr.dto.overtime.OtDtos.RunRequest;
 import com.nforce.onehr.dto.overtime.OtDtos.RunResult;
 import com.nforce.onehr.dto.overtime.OtDtos.SkippedRecord;
 import com.nforce.onehr.entity.Attendance;
+import com.nforce.onehr.entity.CompOffClaim;
+import com.nforce.onehr.entity.CompOffSettings;
 import com.nforce.onehr.entity.Employee;
 import com.nforce.onehr.entity.EmployeeCompensation;
 import com.nforce.onehr.entity.EmployeeShiftAssignment;
@@ -19,6 +21,7 @@ import com.nforce.onehr.entity.OvertimeRequest;
 import com.nforce.onehr.entity.ShiftVersion;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendanceRepository;
+import com.nforce.onehr.repository.CompOffClaimRepository;
 import com.nforce.onehr.repository.EmployeeCompensationRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.HolidayRepository;
@@ -88,6 +91,9 @@ public class OtCalculationService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final NotificationService notificationService;
+    private final CompOffPolicyService compOffPolicy;
+    private final CompOffService compOffService;
+    private final CompOffClaimRepository compOffClaimRepository;
 
     @Transactional
     public RunResult run(RunRequest req, String actorEmail) {
@@ -100,6 +106,10 @@ public class OtCalculationService {
         }
         if (to.isAfter(LocalDate.now())) throw new IllegalArgumentException("Cannot calculate overtime for future dates");
 
+        CompOffSettings policy = compOffPolicy.settings();
+        if (!policy.isOvertimeEnabled()) {
+            throw new IllegalStateException("Overtime is not enabled by company policy");
+        }
         OtSettings settings = configService.settings();
         List<OtRateRule> rules = configService.activeRules();
 
@@ -113,6 +123,15 @@ public class OtCalculationService {
         }
         Set<UUID> employeeIds = records.stream().map(Attendance::getEmployeeUserId).collect(Collectors.toSet());
         if (employeeIds.isEmpty()) return new RunResult(0, 0, 0, List.of());
+
+        // When Comp-Off is also enabled, eligible days must first be settled as OT or Comp-Off by the
+        // employee; only days settled as OT are calculated here, so the same hours are never paid twice.
+        Map<String, CompOffClaim> compOffClaims = new HashMap<>();
+        if (policy.isCompOffEnabled()) {
+            compOffService.detect(from, to, employeeIds, actor.getId());
+            compOffClaimRepository.findByEmployeeUserIdInAndWorkDateBetween(employeeIds, from, to)
+                    .forEach(c -> compOffClaims.put(key(c.getEmployeeUserId(), c.getWorkDate()), c));
+        }
 
         Map<UUID, Employee> employees = employeeRepository.findAllByIdWithDepartment(employeeIds).stream()
                 .collect(Collectors.toMap(Employee::getUserId, e -> e));
@@ -142,6 +161,8 @@ public class OtCalculationService {
             LocalDate date = att.getWorkDate();
             if (date.isBefore(from) || date.isAfter(to)) continue;
             String k = key(emp.getUserId(), date);
+            CompOffClaim compOffClaim = compOffClaims.get(k);
+            if (compOffClaim != null && !CompOffClaim.OT.equals(compOffClaim.getChoice())) continue;
             OtCalculation prior = existing.get(k);
 
             // Never touch a row that has moved on from CALCULATED or was manually adjusted.
@@ -324,7 +345,7 @@ public class OtCalculationService {
                 .otAmount(c.getOtAmount()).status(c.getStatus()).note(note).actorId(actorId).build());
     }
 
-    private String validateAttendance(Attendance a) {
+    static String validateAttendance(Attendance a) {
         if (a.getCheckInAt() == null) return "Missing check-in";
         if (a.getCheckOutAt() == null) return "Missing check-out (incomplete attendance)";
         if (!a.getCheckOutAt().isAfter(a.getCheckInAt())) return "Check-out is not after check-in";
@@ -336,7 +357,7 @@ public class OtCalculationService {
         return null;
     }
 
-    private int scheduledMinutes(ShiftVersion v) {
+    static int scheduledMinutes(ShiftVersion v) {
         LocalTime start = v.getStartTime();
         LocalTime end = v.getEndTime();
         long span = Duration.between(start, end).toMinutes();
@@ -345,7 +366,7 @@ public class OtCalculationService {
         return (int) Math.max(0, span - brk);
     }
 
-    private String dayType(Employee emp, LocalDate date, WorkingDayService.WeeklyOffBatchResolver weeklyOff,
+    static String dayType(Employee emp, LocalDate date, WorkingDayService.WeeklyOffBatchResolver weeklyOff,
                            Map<UUID, Set<LocalDate>> holidaysByLocation) {
         if (emp.getLocation() != null
                 && holidaysByLocation.getOrDefault(emp.getLocation().getId(), Set.of()).contains(date)) {

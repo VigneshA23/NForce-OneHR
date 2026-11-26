@@ -70,7 +70,7 @@ const SA: Grants = {
   audit_security: { VIEW: ['ALL'] },
 };
 
-const BASELINE = ['dashboard', 'my-team', 'directory', 'hierarchy', 'attendance', 'leave', 'requests', 'assets',
+const BASELINE = ['dashboard', 'my-team', 'directory', 'hierarchy', 'attendance', 'leave', 'comp-off', 'requests', 'assets',
   'myfinances', 'my-skills', 'bench-opportunities', 'my-documents', 'help'];
 const keys = (p: MyPermissionsResponse) => visibleNavItems(p, catalogue).map((i) => i.key).sort();
 
@@ -80,12 +80,12 @@ describe('sidebar is decided by permissions alone', () => {
   });
 
   it('Manager defaults add team modules and nothing administrative', () => {
-    expect(keys(perms(MANAGER))).toEqual([...BASELINE, 'approvals', 'exceptions', 'reports', 'audit', 'bench'].sort());
+    expect(keys(perms(MANAGER))).toEqual([...BASELINE, 'approvals', 'exceptions', 'reports', 'audit', 'bench', 'comp-off-management'].sort());
   });
 
   it('HR Admin defaults match the old HR menu (plus the baseline items every user has)', () => {
     expect(keys(perms(HR))).toEqual([...BASELINE, 'approvals', 'exceptions', 'reports', 'audit', 'bench', 'employees',
-      'onboarding', 'documents', 'policies', 'organization', 'allocations', 'talent-performance', 'overtime-management'].sort());
+      'onboarding', 'documents', 'policies', 'organization', 'allocations', 'talent-performance', 'overtime-management', 'comp-off-management'].sort());
   });
 
   it('Super Admin defaults add the administration modules', () => {

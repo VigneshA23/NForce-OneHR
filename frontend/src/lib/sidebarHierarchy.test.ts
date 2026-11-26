@@ -45,7 +45,7 @@ const EXPECTED: Outline = [
       ['My Attendance'], ['Team Attendance'], ['Attendance Administration'], ['Regularization'],
       ['Work From Home & Partial Day'], ['Overtime'], ['Exception Dashboard'], ['Penalization Policy'], ['Employee Assignments'],
     ]],
-    ['Leave & Holidays', [['My Leave'], ['Team Leave'], ['Leave Administration'], ['Holiday Calendar']]],
+    ['Leave & Holidays', [['My Leave'], ['Team Leave'], ['Leave Administration'], ['Holiday Calendar'], ['My Comp-Off'], ['Compensation Policy (OT / Comp-Off)']]],
   ]],
   ['Requests & Approvals', [
     ['Requests', [['My Requests'], ['HR Service Requests']]],
