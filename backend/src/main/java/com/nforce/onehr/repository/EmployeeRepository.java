@@ -246,6 +246,10 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
     @Query("SELECT e.userId FROM Employee e JOIN e.user u WHERE u.deletedAt IS NULL AND u.active = true")
     List<java.util.UUID> findActiveEmployeeUserIds();
 
+    /** [userId, fullName, email] of every active, non-deleted employee — leave year-end notices (YE-05). */
+    @Query("SELECT e.userId, e.fullName, u.email FROM Employee e JOIN e.user u WHERE u.deletedAt IS NULL AND u.active = true ORDER BY e.fullName")
+    List<Object[]> findActiveNoticeRecipients();
+
     String LEAVE_PROFILE_SELECT = "SELECT new com.nforce.onehr.dto.LeaveEmployeeProfile(e.userId, e.gender, d.id, l.id, "
             + "e.employmentType, e.joiningDate, e.lastWorkingDay, u.active, u.deletedAt) "
             + "FROM Employee e JOIN e.user u LEFT JOIN e.department d LEFT JOIN e.location l ";

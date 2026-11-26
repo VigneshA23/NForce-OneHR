@@ -55,6 +55,9 @@ public class NotificationService {
         m.put("HELPDESK_TICKET_REOPENED",         "MEDIUM");  // goes to HR/assignee: action needed, routine
         m.put("SKILL_REQUEST_SUBMITTED",          "MEDIUM");  // goes to HR: action needed, routine
         m.put("LEAVE_APPROVED",                   "MEDIUM");
+        m.put("LEAVE_YEAR_END_REMINDER",          "MEDIUM");  // unused leave before the year ends (YE-05)
+        m.put("LEAVE_NEW_YEAR_BALANCE",           "MEDIUM");  // the new leave year's opening balance (YE-05)
+        m.put("LEAVE_TEAM_UNUSED_DIGEST",         "MEDIUM");  // to managers: reports with unused leave (YE-05)
         m.put("EXPENSE_MANAGER_APPROVED",         "MEDIUM");
         m.put("EXPENSE_FINAL_APPROVED",           "MEDIUM");
         m.put("EXPENSE_PAID",                     "MEDIUM");
