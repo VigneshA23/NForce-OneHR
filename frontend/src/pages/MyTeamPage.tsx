@@ -10,6 +10,7 @@ import { toShellRole } from '../lib/nav.config';
 import { hasPermission } from '../lib/permissions';
 import { useCan } from '../lib/access';
 import { useToast } from '../context/ToastContext';
+import PenaltyDisputesPanel from './my-team/PenaltyDisputesPanel';
 import { dashboardApi, type DirectReport } from '../api/dashboard';
 import {
   attendanceApi, regularizationApi, penaltiesApi, type AttendanceRecord,
@@ -2675,6 +2676,7 @@ export function PenaltiesTab({ token }: { token: string }) {
   const cntBy = (st: AttendancePenaltyStatus) => rows.filter(r => r.status === st).length;
   return (
     <div className="nf-mt-tab" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <PenaltyDisputesPanel />
       {!loading && (
         <TabTiles items={[
           { icon: <Gavel size={18} />, label: 'Total records', value: rows.length, sub: 'For these filters', accent: 'var(--brand)' },

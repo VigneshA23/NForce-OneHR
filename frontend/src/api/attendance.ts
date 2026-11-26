@@ -460,6 +460,98 @@ export const attendanceApi = {
       .then(handle<TeamPunctualityResponse>),
 };
 
+/** PN-01 — employee's own penalty view. IN_BUFFER = detected, still inside the buffer period, may yet be penalized. */
+export type MyPenaltyStatus = 'PENDING_REVIEW' | 'CANCELLED' | 'REVERSED' | 'IN_BUFFER';
+
+export interface MyPenaltyRow {
+  id: string;
+  incidentDate: string;
+  discrepancyType: string;
+  /** Late Arrival / Shortage / No Attendance / Missing Logs */
+  rule: string;
+  /** e.g. "Arrived 10:42, grace ended 10:15" */
+  details: string;
+  status: MyPenaltyStatus;
+  deductionDays: number | null;
+  leaveDeductionDays: number | null;
+  lopDays: number | null;
+  leaveBreakdown: { leaveTypeCode: string; leaveTypeName: string; days: number }[];
+  penalizedOn: string | null;
+  /** Last day (inclusive) the employee can still correct the day. */
+  correctableUntil: string | null;
+  /** Regularize / Apply Leave are offered (inside the buffer period, nothing open yet). */
+  correctable: boolean;
+  regularizationOpen: boolean;
+  cancellationReason: string | null;
+  /** PN-02: can still be disputed (active, undisputed, payroll not locked). */
+  disputable: boolean;
+  /** PN-02: the dispute raised on this penalty, if any. */
+  dispute: PenaltyDispute | null;
+}
+
+/** PN-02 */
+export type PenaltyDisputeStatus = "PENDING_MANAGER" | "PENDING_HR" | "UPHELD" | "REVERSED";
+
+export interface PenaltyDispute {
+  id: string;
+  penaltyId: string;
+  employeeUserId?: string | null;
+  employeeName?: string | null;
+  employeeCode?: string | null;
+  incidentDate?: string | null;
+  rule?: string | null;
+  deductionDays?: number | null;
+  reason: string;
+  evidence: string | null;
+  status: PenaltyDisputeStatus;
+  managerRecommendation: "UPHOLD" | "REVERSE" | null;
+  managerComment: string | null;
+  managerActedAt: string | null;
+  resolutionComment: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+}
+
+export interface MyPenaltiesSummary {
+  period: 'MONTH' | 'WEEK';
+  periodFrom: string;
+  periodTo: string;
+  lateRuleEnabled: boolean;
+  lateMarks: number;
+  lateMarksExempt: number | null;
+  bufferPeriodDays: number;
+  activePenalties: number;
+  deductionDays: number;
+  leaveDays: number;
+  lopDays: number;
+}
+
+export interface MyPenalties {
+  summary: MyPenaltiesSummary;
+  rows: MyPenaltyRow[];
+}
+
+export const penaltyDisputeApi = {
+  raise: (penaltyId: string, body: { reason: string; evidence?: string }, token: string) =>
+    fetch(`${BASE}/attendance/penalties/${penaltyId}/dispute`, { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) })
+      .then(r => handle<PenaltyDispute>(r)),
+  /** Manager: their reports disputes awaiting review; HR: those awaiting the final decision too. */
+  queue: (token: string) =>
+    fetch(`${BASE}/attendance/penalty-disputes/queue`, { headers: authHeaders(token) }).then(handle<PenaltyDispute[]>),
+  forward: (id: string, body: { recommendation: "UPHOLD" | "REVERSE"; comment: string }, token: string) =>
+    fetch(`${BASE}/attendance/penalty-disputes/${id}/forward`, { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) })
+      .then(r => handle<PenaltyDispute>(r)),
+  decide: (id: string, body: { decision: "UPHELD" | "REVERSED"; comment: string }, token: string) =>
+    fetch(`${BASE}/attendance/penalty-disputes/${id}/decide`, { method: "POST", headers: authHeaders(token), body: JSON.stringify(body) })
+      .then(r => handle<PenaltyDispute>(r)),
+};
+
+export const myPenaltiesApi = {
+  get: (from: string, to: string, token: string) =>
+    fetch(`${BASE}/attendance/my-penalties?from=${from}&to=${to}`, { headers: authHeaders(token) })
+      .then(handle<MyPenalties>),
+};
+
 export const penaltiesApi = {
   // Penalties plus detected-but-not-penalized late arrivals, early departures and missing punches.
   list: (filters: PenaltyFilters, token: string) => {

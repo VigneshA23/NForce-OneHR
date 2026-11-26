@@ -23,7 +23,7 @@ class PenaltyEvaluationSchedulerTest {
 
     @BeforeEach
     void setUp() {
-        scheduler = new PenaltyEvaluationScheduler(exceptionService);
+        scheduler = new PenaltyEvaluationScheduler(exceptionService, mock(EarlyWarningService.class));
         ReflectionTestUtils.setField(scheduler, "lookbackDays", 60);
     }
 

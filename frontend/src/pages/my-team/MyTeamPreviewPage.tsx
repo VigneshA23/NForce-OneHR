@@ -30,6 +30,7 @@ import {
   buildDayContext, summarizeMonth, buildQuickActions, isoOf, daysIn,
   type MemberRow, type TeamMetrics, type LiveStatus, type AvatarRenderer,
 } from './MyTeamRedesign';
+import PenaltyDisputesPanel, { MOCK_DISPUTE_QUEUE } from './PenaltyDisputesPanel';
 import { EffortsTab, NegligenceTab, PenaltiesTab, AssignmentsTab, PerformanceTab, ReportsTab } from './MyTeamPreviewTabs';
 
 /* ══ Role presets (labels only — mirrors, never defines, the real rules) ══ */
@@ -327,7 +328,7 @@ export default function MyTeamPreviewPage() {
             </div>
             {tab === 'Efforts / Punctuality' && <EffortsTab people={tabPeople} avatar={renderMockAvatar} />}
             {tab === 'Negligence' && <NegligenceTab people={tabPeople} avatar={renderMockAvatar} />}
-            {tab === 'Regularize & Cancel Penalties' && <PenaltiesTab people={tabPeople} avatar={renderMockAvatar} toast={setToast} />}
+            {tab === 'Regularize & Cancel Penalties' && <><div style={{ marginBottom: 16 }}><PenaltyDisputesPanel mock={MOCK_DISPUTE_QUEUE} /></div><PenaltiesTab people={tabPeople} avatar={renderMockAvatar} toast={setToast} /></>}
             {tab === 'Employee Assignments' && <AssignmentsTab people={tabPeople} avatar={renderMockAvatar} toast={setToast} />}
             {tab === 'Performance' && <PerformanceTab people={tabPeople} avatar={renderMockAvatar} />}
             {tab === 'Reports' && <ReportsTab toast={setToast} />}

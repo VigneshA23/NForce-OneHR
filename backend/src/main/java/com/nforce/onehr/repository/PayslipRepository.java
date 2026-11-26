@@ -21,6 +21,13 @@ public interface PayslipRepository extends JpaRepository<Payslip, UUID> {
 
     Optional<Payslip> findByPayrollRunIdAndEmployeeId(UUID payrollRunId, UUID employeeId);
 
+    // PN-02: "payroll lock" for a penalty dispute - the employee has a payslip in an APPROVED or
+    // DISBURSED run (the codebase's locked statuses, see PayrollRunRepository#findLaterLockedRuns)
+    // whose cycle contains the incident date. Payroll counts penalties by incidentDate in the cycle.
+    @Query("SELECT COUNT(p) > 0 FROM Payslip p JOIN p.payrollRun r WHERE p.employeeId = :employeeId "
+         + "AND r.status IN ('APPROVED', 'DISBURSED') AND r.cycleStart <= :date AND r.cycleEnd >= :date")
+    boolean existsLockedPayslipCovering(@Param("employeeId") UUID employeeId, @Param("date") java.time.LocalDate date);
+
     // Status-only — deliberately NOT gated on released. Shared by internal business logic that
     // must see every closed-cycle payslip regardless of distribution state (EmployeeCompensationService
     // #raiseArrearsForBackdatedRevision, PayrollLopCalculationService#raiseArrearsIfCycleAlreadyClosed)

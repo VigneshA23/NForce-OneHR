@@ -216,6 +216,8 @@ export interface PayrollRunReviewItemResponse {
   comment: string | null;
   decidedByName: string | null;
   decidedAt: string | null;
+  /** PN-02: set on a PENALTY item whose penalty the employee disputed. */
+  disputeStatus?: "PENDING_MANAGER" | "PENDING_HR" | "UPHELD" | "REVERSED" | null;
 }
 
 export interface BulkDecideLeaveReviewResult {

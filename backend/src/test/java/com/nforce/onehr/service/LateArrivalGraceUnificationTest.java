@@ -103,7 +103,7 @@ class LateArrivalGraceUnificationTest {
                 attendanceProperties, employeeRepository, notificationService);
         lenient().when(allocationRepository.findEffectiveAt(any(), any())).thenReturn(List.of());
         PenalizationPolicyResolutionService policyResolutionService =
-                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties);
+                new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties, org.mockito.Mockito.mock(com.nforce.onehr.service.assignment.AssignmentRuleEngine.class));
         ExpectedWorkHoursService expectedWorkHoursService = new ExpectedWorkHoursService(leaveRequestRepository, shiftVersionResolver, employeeShiftAssignmentResolver);
         WorkHoursShortageCalculationService workHoursShortageCalculationService =
                 new WorkHoursShortageCalculationService(attendanceRepository, expectedWorkHoursService, workingDayService, shiftVersionResolver, shiftRepository);

@@ -52,7 +52,7 @@ class PenalizationPolicyResolutionServiceAllocationTest {
 
     @BeforeEach
     void setUp() {
-        resolutionService = new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties);
+        resolutionService = new PenalizationPolicyResolutionService(versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties, org.mockito.Mockito.mock(com.nforce.onehr.service.assignment.AssignmentRuleEngine.class));
         lenient().when(attendanceProperties.getPenalizationFallbackStrategy()).thenReturn(PenalizationFallbackStrategy.DEFAULT_POLICY);
         lenient().when(penalizationPolicyService.resolveActiveDefaultPolicyId()).thenReturn(defaultPolicyId);
         // Gap-001: resolution now gates every tier (allocation, legacy FK, default) through

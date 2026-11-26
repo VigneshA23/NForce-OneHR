@@ -23,6 +23,7 @@ import org.springframework.stereotype.Component;
 public class PenaltyEvaluationScheduler {
 
     private final ExceptionService exceptionService;
+    private final EarlyWarningService earlyWarningService;
 
     @Value("${app.attendance.penalty-evaluation.lookback-days:60}")
     private int lookbackDays;
@@ -49,6 +50,13 @@ public class PenaltyEvaluationScheduler {
             exceptionService.notifyUnnotifiedExceptions();
         } catch (Exception e) {
             log.error("Scheduled attendance exception notification failed", e);
+        }
+        // PN-03: after detection, so the counts are current. Its own try/catch - a warning failure
+        // must never affect penalties or exception emails above.
+        try {
+            earlyWarningService.runNightly();
+        } catch (Exception e) {
+            log.error("Scheduled early-warning run failed", e);
         }
     }
 }

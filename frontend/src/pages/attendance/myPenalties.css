@@ -1,0 +1,11 @@
+/* PN-01 My Penalties: the layout follows the width the section actually gets (a size container), not the
+   screen, so zooming in or out re-flows it the same way instead of clipping the right-hand side. The table
+   itself reuses the shared .nf-req-table table-or-cards behaviour (index.css). */
+.nf-mp { container-type: inline-size; }
+
+.nf-mp-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@container (max-width: 760px) { .nf-mp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 380px) { .nf-mp-tiles { grid-template-columns: minmax(0, 1fr); } }
+
+/* the table's own panel keeps the same padding in both modes */
+.nf-mp .nf-req-wrap { padding: 4px 10px 10px; }

@@ -183,6 +183,21 @@ public class EmailService {
         return sendAsync(toEmail, null, subject, html);
     }
 
+    /**
+     * PN-03: heads-up that the employee is one step from an attendance penalty. {@code rows} are
+     * alternating label/value pairs shown in the details card (escaped here).
+     */
+    public void sendEarlyWarningEmail(String toEmail, String fullName, String heading, String message, String... rows) {
+        String[] escaped = new String[rows.length];
+        for (int i = 0; i < rows.length; i++) escaped[i] = esc(rows[i]);
+        String html = layout(esc(heading),
+                "Hi " + esc(fullName) + ", " + esc(message.isEmpty() ? message : Character.toLowerCase(message.charAt(0)) + message.substring(1)),
+                details(escaped),
+                null, null,
+                "This is an early warning only - no deduction has been made. You can review your record under Attendance → My Penalties.");
+        sendAsync(toEmail, "Heads-up: attendance penalty ahead", html);
+    }
+
     /** Admin-triggered "Email Payslip" action — attaches the already-rendered PDF (password
      * protection, if any, was already baked in by PayslipPdfService before this is called) rather
      * than linking back into the app, since payslips are routinely shared outside it (personal

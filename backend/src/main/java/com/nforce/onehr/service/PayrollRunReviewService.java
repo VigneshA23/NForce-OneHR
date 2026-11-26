@@ -50,6 +50,7 @@ public class PayrollRunReviewService {
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
+    private final AttendancePenaltyDisputeRepository penaltyDisputeRepository;
 
     @Transactional
     public void generateItemsForEmployee(PayrollRun run, UUID employeeId, PayCycleWindow window,
@@ -332,14 +333,25 @@ public class PayrollRunReviewService {
                 }
             }
         }
-        return items.stream().map(i -> toResponse(i, namesById)).collect(Collectors.toList());
+        // PN-02: flag penalty items whose underlying penalty is disputed, so the reviewer sees it before deciding.
+        Map<UUID, String> disputeStatusByPenalty = new HashMap<>();
+        List<UUID> penaltyIds = items.stream().filter(i -> PayrollReviewItemSourceType.PENALTY.equals(i.getSourceType()) && i.getSourceId() != null)
+                .map(PayrollRunReviewItem::getSourceId).distinct().toList();
+        if (!penaltyIds.isEmpty()) {
+            penaltyDisputeRepository.findByPenaltyIdIn(penaltyIds).forEach(d -> disputeStatusByPenalty.put(d.getPenaltyId(), d.getStatus()));
+        }
+        return items.stream().map(i -> toResponse(i, namesById, disputeStatusByPenalty)).collect(Collectors.toList());
     }
 
     private PayrollRunReviewItemResponse toResponse(PayrollRunReviewItem i) {
-        return toResponse(i, null);
+        Map<UUID, String> disputes = new HashMap<>();
+        if (PayrollReviewItemSourceType.PENALTY.equals(i.getSourceType()) && i.getSourceId() != null) {
+            penaltyDisputeRepository.findByPenaltyId(i.getSourceId()).ifPresent(d -> disputes.put(d.getPenaltyId(), d.getStatus()));
+        }
+        return toResponse(i, null, disputes);
     }
 
-    private PayrollRunReviewItemResponse toResponse(PayrollRunReviewItem i, Map<UUID, String> namesById) {
+    private PayrollRunReviewItemResponse toResponse(PayrollRunReviewItem i, Map<UUID, String> namesById, Map<UUID, String> disputeStatusByPenalty) {
         return PayrollRunReviewItemResponse.builder()
                 .id(i.getId())
                 .payrollRunId(i.getPayrollRun().getId())
@@ -356,6 +368,7 @@ public class PayrollRunReviewService {
                 .comment(i.getComment())
                 .decidedByName(namesById != null ? resolveName(namesById, i.getDecidedBy()) : displayName(i.getDecidedBy()))
                 .decidedAt(i.getDecidedAt())
+                .disputeStatus(i.getSourceId() != null ? disputeStatusByPenalty.get(i.getSourceId()) : null)
                 .build();
     }
 

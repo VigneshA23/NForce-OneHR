@@ -19,7 +19,7 @@ public class PolicyResolutionDetailResponse {
 
     private UUID resolvedPolicyId;
     private String resolvedPolicyName;
-    /** ALLOCATION / LEGACY / DEFAULT / ALLOCATION_REQUIRED. */
+    /** ALLOCATION / RULE / LEGACY / DEFAULT / ALLOCATION_REQUIRED. */
     private String resolvedPolicySource;
     /** ACTIVE / INACTIVE of the resolved policy; null when resolvedPolicyId is null. */
     private String policyStatus;
@@ -32,4 +32,16 @@ public class PolicyResolutionDetailResponse {
 
     /** Populated only when resolvedPolicyId is null — why nothing resolved. */
     private String reason;
+
+    // ---- PN-04: which rule or allocation applied, and why ----
+    /** Present when an auto-assignment rule currently covers this employee (even if an allocation overrides it). */
+    private UUID ruleId;
+    private String ruleName;
+    private Integer rulePriority;
+    /** e.g. "Department = Engineering AND Location = Bangalore". */
+    private String ruleCriteria;
+    private String ruleTargetPolicyName;
+    private LocalDate ruleEffectiveFrom;
+    /** One plain-language sentence explaining the outcome. */
+    private String explanation;
 }

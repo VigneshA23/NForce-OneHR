@@ -30,6 +30,7 @@ import LeaveConfigSection from './leave-config/LeaveConfigSection';
 import * as aiAssistantApi from '../api/aiAssistant';
 import PolicyListSection from './penalization/PolicyListSection';
 import PenalizationPolicyAllocationSection from './penalization/PenalizationPolicyAllocationSection';
+import AssignmentRulesSection from './penalization/AssignmentRulesSection';
 import { inactiveDimStyle } from '../components/EmployeeStatus';
 import { TabBar } from '../components/TabBar';
 
@@ -1308,7 +1309,7 @@ export default function OrgSetupPage() {
   useEffect(() => {
     if (!orgAccess && leaveAccess && activeTab !== 'leavetypes') setActiveTab('leavetypes');
   }, [orgAccess, leaveAccess, activeTab]);
-  const [penalizationSubTab, setPenalizationSubTab] = useState<'policy' | 'allocation'>('policy');
+  const [penalizationSubTab, setPenalizationSubTab] = useState<'policy' | 'allocation' | 'rules'>('policy');
   // Set when the Policy List's employee-count link is clicked — consumed once by
   // PenalizationPolicyAllocationSection to pre-select its Penalization Policy filter, then cleared
   // so switching tabs afterward doesn't keep re-applying it.
@@ -1795,6 +1796,7 @@ export default function OrgSetupPage() {
               tabs={[
                 { key: 'policy', label: 'Penalization Policy' },
                 { key: 'allocation', label: 'Penalization Policy Allocation' },
+                { key: 'rules', label: 'Auto-assignment Rules' },
               ]}
               active={penalizationSubTab}
               onChange={setPenalizationSubTab}
@@ -1804,6 +1806,8 @@ export default function OrgSetupPage() {
                 setAllocationInitialPolicyId(policyId);
                 setPenalizationSubTab('allocation');
               }} />
+            ) : penalizationSubTab === 'rules' ? (
+              <AssignmentRulesSection token={token} domain="PENALIZATION" />
             ) : (
               <PenalizationPolicyAllocationSection
                 token={token}

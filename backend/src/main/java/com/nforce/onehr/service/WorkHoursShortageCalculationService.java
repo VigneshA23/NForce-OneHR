@@ -76,6 +76,55 @@ public class WorkHoursShortageCalculationService {
         return computeDayPercent(employee, date, version);
     }
 
+    /**
+     * PN-03: the raw numbers behind {@link #computeCyclePercent} for a WEEK/MONTH shortage period,
+     * so the early warning can say how many hours are still needed. {@code workedMinutes} and
+     * {@code expectedSoFarMinutes} are totalled exactly as the penalty percentage is (days with a
+     * usable attendance record only); {@code expectedCycleMinutes} is the expected minutes over
+     * EVERY working day of the cycle - the denominator the period will finish on. Null when the
+     * period is DAY (no multi-day cycle to forewarn about) or nothing is measurable yet.
+     */
+    public CycleHours computeCycleHours(Employee employee, LocalDate date, PenalizationPolicyVersion version) {
+        if (employee == null || version == null) return null;
+        String period = version.getWhsDeductionPeriod();
+        if (!PERIOD_WEEK.equals(period) && !PERIOD_MONTH.equals(period)) return null;
+        LocalDate[] cycle = ExceptionService.cyclePeriod(date, period);
+        LocalDate cycleStart = cycle[0];
+        LocalDate cycleEnd = cycle[1];
+        LocalDate versionStart = version.getEffectiveFrom().toLocalDate();
+        if (versionStart.isAfter(cycleStart)) cycleStart = versionStart;
+        if (version.getEffectiveTo() != null && version.getEffectiveTo().toLocalDate().isBefore(cycleEnd)) {
+            cycleEnd = version.getEffectiveTo().toLocalDate();
+        }
+        if (cycleEnd.isBefore(cycleStart)) return null;
+        WorkingDaySchedule schedule = workingDayService.computeExpectedWorkingDays(employee, cycleStart, cycleEnd);
+        if (schedule.getWorkingDates().isEmpty()) return null;
+        Map<LocalDate, Attendance> byDate = attendanceRepository
+                .findByEmployeeUserIdInAndWorkDateBetween(List.of(employee.getUserId()), cycleStart, cycleEnd).stream()
+                .collect(Collectors.toMap(Attendance::getWorkDate, r -> r, (a, b) -> a));
+        Map<String, LeaveRequest> partialHourLeave = expectedWorkHoursService
+                .loadPartialHourLeaveByEmployeeDate(List.of(employee.getUserId()), cycleStart, cycleEnd);
+        long worked = 0, expectedSoFar = 0, expectedCycle = 0;
+        boolean any = false;
+        for (LocalDate day : schedule.getWorkingDates()) {
+            Long expected = expectedWorkHoursService.adjustedExpectedMinutes(
+                    employee, day, partialHourLeave.get(employee.getUserId() + "|" + day));
+            if (expected == null) continue;
+            expectedCycle += expected;
+            Attendance record = byDate.get(day);
+            if (record == null) continue;
+            Long w = workedMinutesFor(record, employee, version);
+            if (w == null) continue;
+            worked += w;
+            expectedSoFar += expected;
+            any = true;
+        }
+        return any ? new CycleHours(worked, expectedSoFar, expectedCycle, cycle[0]) : null;
+    }
+
+    /** See {@link #computeCycleHours}. {@code periodStart} is the calendar cycle start (week Monday / month 1st). */
+    public record CycleHours(long workedMinutes, long expectedSoFarMinutes, long expectedCycleMinutes, LocalDate periodStart) {}
+
     private Double computeDayPercent(Employee employee, LocalDate date, PenalizationPolicyVersion version) {
         Attendance record = attendanceRepository.findByEmployeeUserIdAndWorkDate(employee.getUserId(), date).orElse(null);
         Long workedMinutes = workedMinutesFor(record, employee, version);

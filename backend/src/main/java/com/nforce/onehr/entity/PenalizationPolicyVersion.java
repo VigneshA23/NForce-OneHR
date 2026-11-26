@@ -181,6 +181,26 @@ public class PenalizationPolicyVersion {
     @Column(name = "buffer_period_days")
     private Integer bufferPeriodDays;
 
+    // ── PN-03 early warnings (V317) - off by default; see EarlyWarningService ──
+    @Column(name = "ew_enabled", nullable = false)
+    @Builder.Default
+    private boolean ewEnabled = false;
+    @Column(name = "ew_late_arrival_enabled", nullable = false)
+    @Builder.Default
+    private boolean ewLateArrivalEnabled = true;
+    @Column(name = "ew_missing_logs_enabled", nullable = false)
+    @Builder.Default
+    private boolean ewMissingLogsEnabled = true;
+    @Column(name = "ew_shortage_enabled", nullable = false)
+    @Builder.Default
+    private boolean ewShortageEnabled = true;
+    @Column(name = "ew_exempt_remaining", nullable = false)
+    @Builder.Default
+    private int ewExemptRemaining = 1;
+    @Column(name = "ew_shortage_margin_percent", nullable = false)
+    @Builder.Default
+    private BigDecimal ewShortageMarginPercent = BigDecimal.TEN;
+
     @Column(name = "notice_period_forces_lop_enabled", nullable = false)
     @Builder.Default
     private boolean noticePeriodForcesLopEnabled = false;

@@ -27,7 +27,8 @@ export type AllocationStatus = 'CURRENT' | 'FUTURE' | 'HISTORICAL';
 // fallback strategy means no org default is consulted either — resolvedPolicyId is null. Any UI
 // switching on this union must handle it explicitly rather than falling through to a default case
 // that assumes a policy always resolves.
-export type ResolvedPolicySource = 'ALLOCATION' | 'LEGACY' | 'DEFAULT' | 'ALLOCATION_REQUIRED';
+/** RULE (PN-04): assigned automatically by an auto-assignment rule. */
+export type ResolvedPolicySource = 'ALLOCATION' | 'RULE' | 'LEGACY' | 'DEFAULT' | 'ALLOCATION_REQUIRED';
 
 export interface AllocationDto {
   id: string;
@@ -60,6 +61,8 @@ export interface EmployeeAllocationRow {
   resolvedPolicyId: string | null;
   resolvedPolicyName: string | null;
   resolvedPolicySource: ResolvedPolicySource;
+  /** PN-04: the rule that produced the resolved policy, when resolvedPolicySource is RULE. */
+  resolvedByRuleName?: string | null;
   currentAllocation: AllocationDto | null;
   upcomingAllocation: AllocationDto | null;
 }
@@ -104,6 +107,15 @@ export interface PolicyResolutionDetail {
   currentAllocation: AllocationDto | null;
   /** Populated only when resolvedPolicyId is null — why nothing resolved. */
   reason: string | null;
+  // PN-04: which rule or allocation applied, and why
+  ruleId?: string | null;
+  ruleName?: string | null;
+  rulePriority?: number | null;
+  ruleCriteria?: string | null;
+  ruleTargetPolicyName?: string | null;
+  ruleEffectiveFrom?: string | null;
+  /** One plain-language sentence explaining the outcome. */
+  explanation?: string | null;
 }
 
 export interface AllocationBulkResult {

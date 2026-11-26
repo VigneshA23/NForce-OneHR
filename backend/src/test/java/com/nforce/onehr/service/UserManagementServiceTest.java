@@ -69,6 +69,7 @@ class UserManagementServiceTest {
     // UserManagementServiceRolesTest.
     @Mock private EffectivePermissionService effectivePermissionService;
 
+    @Mock private org.springframework.context.ApplicationEventPublisher applicationEventPublisher;
     @InjectMocks private UserManagementService userManagementService;
 
     private final UUID actorId = UUID.randomUUID();

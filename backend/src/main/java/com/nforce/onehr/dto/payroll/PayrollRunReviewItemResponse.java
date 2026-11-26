@@ -26,4 +26,6 @@ public class PayrollRunReviewItemResponse {
     private String comment;
     private String decidedByName;
     private LocalDateTime decidedAt;
+    /** PN-02: for a PENALTY item whose penalty the employee disputed - PENDING_MANAGER/PENDING_HR/UPHELD/REVERSED; else null. */
+    private String disputeStatus;
 }

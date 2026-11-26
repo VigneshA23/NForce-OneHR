@@ -131,3 +131,36 @@ export function previewRosterEmails(): Record<string, string> {
   for (const p of PEOPLE) out[p.id] = `${p.name.toLowerCase().replace(/[^a-z ]/g, '').trim().split(/\s+/).join('.')}@nforceone.com`;
   return out;
 }
+
+/**
+ * PN-01 mock: the employee's own penalties for the current month (rows dated relative to today so
+ * the buffer-period rows are always "live"), covering every rule, the leave/LOP split, a
+ * cancelled penalty and in-buffer incidents with corrective actions. Mock buffer = 3 days.
+ */
+export function previewMyPenalties(): import('../../api/attendance').MyPenalties {
+  const today = new Date();
+  const first = isoAgo(today.getDate() - 1); // 1st of this month
+  const ym = first.slice(0, 7);
+  const day = (n: number) => `${ym}-${String(n).padStart(2, '0')}`;
+  const inMonth = (ago: number) => (isoAgo(ago).startsWith(ym) ? isoAgo(ago) : day(1));
+  const until = (ago: number) => isoAgo(ago - 2); // buffer of 3 days → last correctable day
+  const base = { disputable: false, dispute: null as import('../../api/attendance').PenaltyDispute | null, penalizedOn: null, cancellationReason: null, regularizationOpen: false, correctable: false, correctableUntil: null, leaveBreakdown: [] as import('../../api/attendance').MyPenaltyRow['leaveBreakdown'] };
+  const rows: import('../../api/attendance').MyPenaltyRow[] = [
+    { ...base, id: 'mp-1', incidentDate: isoAgo(1), discrepancyType: 'LATE_ARRIVAL', rule: 'Late Arrival', details: 'Arrived 10:42, grace ended 10:15', status: 'IN_BUFFER', deductionDays: null, leaveDeductionDays: null, lopDays: null, correctable: true, correctableUntil: until(1) },
+    { ...base, id: 'mp-2', incidentDate: isoAgo(2), discrepancyType: 'MISSING_PUNCH', rule: 'Missing Logs', details: 'Checked in 09:48 but no check-out was recorded', status: 'IN_BUFFER', deductionDays: null, leaveDeductionDays: null, lopDays: null, correctable: true, correctableUntil: until(2) },
+    { ...base, id: 'mp-3', incidentDate: isoAgo(3), discrepancyType: 'LATE_ARRIVAL', rule: 'Late Arrival', details: 'Arrived 10:31, grace ended 10:15', status: 'IN_BUFFER', deductionDays: null, leaveDeductionDays: null, lopDays: null, regularizationOpen: true, correctableUntil: until(3) },
+    { ...base, disputable: true, id: 'mp-4', incidentDate: inMonth(6), discrepancyType: 'WORK_HOURS_SHORTAGE', rule: 'Shortage', details: 'Worked 5h 10m, below the hours required for the day', status: 'PENDING_REVIEW', deductionDays: 0.5, leaveDeductionDays: 0.5, lopDays: 0, leaveBreakdown: [{ leaveTypeCode: 'CASUAL', leaveTypeName: 'Casual Leave', days: 0.5 }], penalizedOn: `${isoAgo(2)}T00:15:00` },
+    { ...base, dispute: { id: 'd-5', penaltyId: 'mp-5', reason: 'Biometric device was down, I was at my desk from 09:30', evidence: 'IT ticket IT-4821', status: 'PENDING_HR', managerRecommendation: 'REVERSE', managerComment: 'Device outage confirmed with IT', managerActedAt: `${isoAgo(1)}T11:00:00`, resolutionComment: null, resolvedAt: null, createdAt: `${isoAgo(2)}T10:00:00` }, id: 'mp-5', incidentDate: inMonth(8), discrepancyType: 'NO_ATTENDANCE', rule: 'No Attendance', details: 'No attendance recorded on a working day', status: 'PENDING_REVIEW', deductionDays: 1, leaveDeductionDays: 0.5, lopDays: 0.5, leaveBreakdown: [{ leaveTypeCode: 'CASUAL', leaveTypeName: 'Casual Leave', days: 0.5 }], penalizedOn: `${isoAgo(4)}T00:15:00` },
+    { ...base, dispute: { id: 'd-6', penaltyId: 'mp-6', reason: 'Traffic', evidence: null, status: 'UPHELD', managerRecommendation: 'UPHOLD', managerComment: 'No evidence', managerActedAt: `${isoAgo(3)}T11:00:00`, resolutionComment: 'No supporting evidence provided; penalty stands', resolvedAt: `${isoAgo(2)}T15:00:00`, createdAt: `${isoAgo(5)}T10:00:00` }, id: 'mp-6', incidentDate: inMonth(10), discrepancyType: 'LATE_ARRIVAL', rule: 'Late Arrival', details: 'Arrived 10:58, grace ended 10:15', status: 'PENDING_REVIEW', deductionDays: 0.5, leaveDeductionDays: 0, lopDays: 0.5, penalizedOn: `${isoAgo(6)}T00:15:00` },
+    { ...base, id: 'mp-7', incidentDate: inMonth(12), discrepancyType: 'MISSING_PUNCH', rule: 'Missing Logs', details: 'Checked in 09:20 but no check-out was recorded', status: 'REVERSED', deductionDays: 0.5, leaveDeductionDays: 0, lopDays: 0, penalizedOn: `${isoAgo(8)}T00:15:00`, cancellationReason: 'Dispute upheld in employee favour: device outage', dispute: { id: 'd-7', penaltyId: 'mp-7', reason: 'Missed punch-out, device outage', evidence: 'IT ticket IT-4790', status: 'REVERSED', managerRecommendation: 'REVERSE', managerComment: 'Confirmed', managerActedAt: `${isoAgo(7)}T11:00:00`, resolutionComment: 'Reversed - device outage confirmed', resolvedAt: `${isoAgo(6)}T15:00:00`, createdAt: `${isoAgo(8)}T10:00:00` } },
+  ];
+  const active = rows.filter((r) => r.status === 'PENDING_REVIEW');
+  const sum = (f: (r: typeof rows[number]) => number | null) => active.reduce((a, r) => a + (f(r) ?? 0), 0);
+  return {
+    summary: {
+      period: 'MONTH', periodFrom: first, periodTo: `${ym}-28`, lateRuleEnabled: true, lateMarks: 3, lateMarksExempt: 3, bufferPeriodDays: 3,
+      activePenalties: active.length, deductionDays: sum((r) => r.deductionDays), leaveDays: sum((r) => r.leaveDeductionDays), lopDays: sum((r) => r.lopDays),
+    },
+    rows,
+  };
+}

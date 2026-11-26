@@ -201,6 +201,13 @@ public class PenalizationPolicyService {
                         : String.join(",", request.getBasicInfo().getLeavePriorityOrder()))
                 .bufferPeriodDays(request.getBasicInfo().getBufferPeriodDays())
                 .noticePeriodForcesLopEnabled(request.getBasicInfo().isNoticePeriodForcesLopEnabled())
+                .ewEnabled(request.getBasicInfo().getEarlyWarning() != null && request.getBasicInfo().getEarlyWarning().isEnabled())
+                .ewLateArrivalEnabled(request.getBasicInfo().getEarlyWarning() == null || request.getBasicInfo().getEarlyWarning().isLateArrivalEnabled())
+                .ewMissingLogsEnabled(request.getBasicInfo().getEarlyWarning() == null || request.getBasicInfo().getEarlyWarning().isMissingLogsEnabled())
+                .ewShortageEnabled(request.getBasicInfo().getEarlyWarning() == null || request.getBasicInfo().getEarlyWarning().isShortageEnabled())
+                .ewExemptRemaining(request.getBasicInfo().getEarlyWarning() != null ? request.getBasicInfo().getEarlyWarning().getExemptRemaining() : 1)
+                .ewShortageMarginPercent(request.getBasicInfo().getEarlyWarning() != null && request.getBasicInfo().getEarlyWarning().getShortageMarginPercent() != null
+                        ? request.getBasicInfo().getEarlyWarning().getShortageMarginPercent() : java.math.BigDecimal.TEN)
                 .createdBy(actor.getId())
                 .updatedBy(actor.getId());
         if (editingSameDateVersion) {
@@ -323,6 +330,9 @@ public class PenalizationPolicyService {
         fields.put("leavePriorityOrder", v.getLeavePriorityOrder());
         fields.put("bufferPeriodDays", v.getBufferPeriodDays());
         fields.put("noticePeriodForcesLopEnabled", v.isNoticePeriodForcesLopEnabled());
+        fields.put("ewEnabled", v.isEwEnabled());
+        fields.put("ewExemptRemaining", v.getEwExemptRemaining());
+        fields.put("ewShortageMarginPercent", v.getEwShortageMarginPercent());
         return fields;
     }
 
@@ -399,6 +409,15 @@ public class PenalizationPolicyService {
                 ? List.of() : List.of(v.getLeavePriorityOrder().split(",")));
         basicInfo.setBufferPeriodDays(v.getBufferPeriodDays());
         basicInfo.setNoticePeriodForcesLopEnabled(v.isNoticePeriodForcesLopEnabled());
+
+        EarlyWarningConfigDto earlyWarning = new EarlyWarningConfigDto();
+        earlyWarning.setEnabled(v.isEwEnabled());
+        earlyWarning.setLateArrivalEnabled(v.isEwLateArrivalEnabled());
+        earlyWarning.setMissingLogsEnabled(v.isEwMissingLogsEnabled());
+        earlyWarning.setShortageEnabled(v.isEwShortageEnabled());
+        earlyWarning.setExemptRemaining(v.getEwExemptRemaining());
+        earlyWarning.setShortageMarginPercent(v.getEwShortageMarginPercent());
+        basicInfo.setEarlyWarning(earlyWarning);
 
         return PenalizationPolicyResponse.builder()
                 .id(v.getId()).policyId(v.getPolicyId()).version(v.getVersion())

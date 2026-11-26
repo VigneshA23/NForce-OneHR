@@ -73,6 +73,12 @@ import TilesPreviewShell from './pages/tiles-ui-preview/TilesPreviewShell';
 // Role-switchable mock preview of the redesigned My Team page (?role=manager|hr-admin|super-admin|employee).
 // Mock data only — see the file header in my-team/MyTeamPreviewPage.tsx.
 import MyTeamPreviewPage from './pages/my-team/MyTeamPreviewPage';
+// Design-review mock only (PN-02) - the real payroll Leave Applied Review tab with a disputed-penalty flag.
+import PayrollReviewDisputePreview from './pages/payroll/PayrollReviewDisputePreview';
+// Design-review mock only (PN-03) - policy early-warning settings + sample notification/email.
+import EarlyWarningPreview from './pages/penalization/EarlyWarningPreview';
+// Design-review mock only (PN-04) - auto-assignment rules, resolve explanations and history.
+import AssignmentRulesPreview from './pages/penalization/AssignmentRulesPreview';
 import { hasPermission } from './lib/permissions';
 import { Shell } from './components/Shell';
 import { ToastProvider } from './context/ToastContext';
@@ -180,6 +186,9 @@ export default function App() {
         {/* Design-review mock only — redesigned My Team page, no auth, no network, not linked from
             the app nav. ?role=manager|hr-admin|super-admin|employee picks the mock dataset only. */}
         <Route path="/my-team-preview" element={<MyTeamPreviewPage />} />
+        <Route path="/payroll-review-dispute-preview" element={<PayrollReviewDisputePreview />} />
+        <Route path="/early-warning-preview" element={<EarlyWarningPreview />} />
+        <Route path="/assignment-rules-preview" element={<AssignmentRulesPreview />} />
 
         {/* Auth required, password-change gate */}
         <Route

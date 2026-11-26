@@ -34,6 +34,7 @@ class PayrollRunReviewServiceTest {
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
+    @Mock private com.nforce.onehr.repository.AttendancePenaltyDisputeRepository penaltyDisputeRepository;
 
     private PayrollRunReviewService service;
 
@@ -49,7 +50,7 @@ class PayrollRunReviewServiceTest {
     @BeforeEach
     void setUp() {
         service = new PayrollRunReviewService(payrollRunReviewItemRepository, payrollRunRepository,
-                attendancePenaltyService, employeeRepository, userRepository, auditService, auditSnapshot);
+                attendancePenaltyService, employeeRepository, userRepository, auditService, auditSnapshot, penaltyDisputeRepository);
 
         User actor = User.builder().id(actorId).email(actorEmail).build();
         lenient().when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));

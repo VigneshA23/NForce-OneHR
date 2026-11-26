@@ -54,6 +54,7 @@ class EmployeeServiceCreateTest {
     @Mock private EmployeeShiftAssignmentRepository employeeShiftAssignmentRepository;
     @Mock private AttendanceProperties attendanceProperties;
 
+    @Mock private org.springframework.context.ApplicationEventPublisher applicationEventPublisher;
     @InjectMocks private EmployeeService employeeService;
 
     private final String actorEmail = "hradmin@test.com";

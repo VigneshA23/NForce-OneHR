@@ -4,10 +4,11 @@ import { PersonCell, PersonCellById } from '../components/PersonCell';
 import { createPortal } from 'react-dom';
 import './attendanceModals.css';
 import './attendanceRequests.css';
+import MyPenaltiesSection from './attendance/MyPenaltiesSection';
 import { RequestDrawer, RdSection, RdFacts, RdRows, RdQuote, RdDecision, RdActionForm } from './attendance/RequestDrawer';
 import { Link, useSearchParams } from 'react-router-dom';
 import * as XLSX from 'xlsx';
-import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Turtle, Laptop, Home, Sun, FileText, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, XCircle, Mountain, MapPin, PartyPopper, Building2, UsersRound, Search, Moon, Plane, TriangleAlert, CircleCheck, BadgeCheck, Hourglass, Target, type LucideIcon } from 'lucide-react';
+import { Clock, LogIn, LogOut, CheckCircle2, CalendarPlus, CalendarDays, Pencil, ShieldCheck, X, ChevronLeft, ChevronRight, Download, Eye, Turtle, Laptop, Home, Sun, FileText, User, ArrowDownLeft, ArrowUpRight, Wifi, Info, AlertCircle, XCircle, Mountain, MapPin, PartyPopper, Building2, UsersRound, Search, Moon, Plane, TriangleAlert, CircleCheck, BadgeCheck, Hourglass, Target, Scale, type LucideIcon } from 'lucide-react';
 import {
   attendanceApi, regularizationApi,
   type AttendanceRecord,
@@ -4348,13 +4349,15 @@ function ArrivalCell({ record, graceMinutes, config }: {
 // content lives here (inside MyAttendance, which already owns that state); Attendance
 // Requests/Overtime Requests content is handed in as `otherTabContent` by the page since it
 // lives in sibling components with their own state.
-export type LogsTab = 'ATTENDANCE_LOG' | 'CALENDAR' | 'ATTENDANCE_REQUESTS' | 'OVERTIME';
+export type LogsTab = 'ATTENDANCE_LOG' | 'CALENDAR' | 'ATTENDANCE_REQUESTS' | 'OVERTIME' | 'MY_PENALTIES';
 
 const LOGS_TABS: { value: LogsTab; label: string; icon: LucideIcon }[] = [
   { value: 'ATTENDANCE_LOG', label: 'Attendance Log', icon: FileText },
   { value: 'CALENDAR', label: 'Calendar', icon: CalendarDays },
   { value: 'ATTENDANCE_REQUESTS', label: 'Attendance Requests', icon: Pencil },
   { value: 'OVERTIME', label: 'Overtime Requests', icon: Clock },
+  // PN-01 — the employee's own penalties (rule, deduction, leave/LOP split).
+  { value: 'MY_PENALTIES', label: 'My Penalties', icon: Scale },
 ];
 
 function LogsTabBar({ value, onChange }: { value: LogsTab; onChange: (v: LogsTab) => void }) {
@@ -4559,6 +4562,10 @@ function mockRegularizations(): RegularizationRecord[] {
 
 export interface MyAttendanceHandle {
   exportMonth: () => void;
+  /** PN-01: open one day's details (jumping the Attendance Log to that month) — used by My Penalties. */
+  openDay: (iso: string) => void;
+  /** PN-01: open the Regularize form for one day — used by My Penalties. */
+  regularize: (iso: string) => void;
 }
 
 const MyAttendance = forwardRef<MyAttendanceHandle, {
@@ -4570,7 +4577,9 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
   /** /attendance?uiPreview=true only — see the "UI Preview mode" mock-data section above. Every
    * network-backed effect below short-circuits to canned mock data instead of calling the API. */
   isPreviewMode?: boolean;
-}>(function MyAttendance({ isSuperAdmin, logsTab, onLogsTabChange, otherTabContent, isPreviewMode = false }, ref) {
+  /** Called after a Regularize request is saved from this component's own modal (My Penalties re-reads on it). */
+  onRequestSaved?: () => void;
+}>(function MyAttendance({ isSuperAdmin, logsTab, onLogsTabChange, otherTabContent, isPreviewMode = false, onRequestSaved }, ref) {
   const token = useAuthStore((s) => s.token)!;
   const { showToast } = useToast();
   const { formatTime, formatDuration } = useTimeFormat();
@@ -4716,6 +4725,13 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
       XLSX.utils.book_append_sheet(wb, ws, 'Attendance');
       XLSX.writeFile(wb, `attendance-${viewYear}-${pad2(viewMonth + 1)}.xlsx`);
     },
+    openDay: (iso: string) => {
+      const [y, m] = iso.split('-').map(Number);
+      goToMonth(y, m - 1);
+      setViewDetailsIso(iso);
+    },
+    regularize: (iso: string) => setRegularizeDate(iso),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- goToMonth only calls stable state setters
   }), [monthRecords, viewYear, viewMonth]);
 
   useEffect(() => {
@@ -5645,7 +5661,7 @@ const MyAttendance = forwardRef<MyAttendanceHandle, {
           approvedDates={approvedRegularizationDates}
           isSuperAdmin={isSuperAdmin}
           onClose={() => setRegularizeDate(null)}
-          onSaved={(r) => { setRegularizations((prev) => [r, ...prev]); setRegularizeDate(null); }}
+          onSaved={(r) => { setRegularizations((prev) => [r, ...prev]); setRegularizeDate(null); onRequestSaved?.(); }}
         />
       )}
 
@@ -7357,7 +7373,10 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
   // same as any other deep-link query param.
   const [searchParams] = useSearchParams();
   const [logsTab, setLogsTab] = useState<LogsTab>(() =>
-    searchParams.get('tab') === 'calendar' ? 'CALENDAR' : 'ATTENDANCE_LOG');
+    searchParams.get('tab') === 'calendar' ? 'CALENDAR'
+      : searchParams.get('tab') === 'penalties' ? 'MY_PENALTIES' : 'ATTENDANCE_LOG');
+  // Bumped when a Regularize request is saved so My Penalties re-reads (the incident leaves its list).
+  const [penaltiesRefresh, setPenaltiesRefresh] = useState(0);
   const [requestsSubTab, setRequestsSubTab] = useState<AttendanceRequestsSubTab>('REGULARIZATION');
   const pendingOpenRequest = useRef(false);
   // /attendance?uiPreview=true — temporary, review-only mock-data mode (see isPreviewMode
@@ -7454,8 +7473,17 @@ function AttendancePageInner({ forcePreview = false, previewRole = 'Employee' }:
           logsTab={logsTab}
           onLogsTabChange={setLogsTab}
           isPreviewMode={isPreviewMode}
+          onRequestSaved={() => setPenaltiesRefresh((n) => n + 1)}
           otherTabContent={
-            logsTab === 'ATTENDANCE_REQUESTS' ? (
+            logsTab === 'MY_PENALTIES' ? (
+              <MyPenaltiesSection
+                token={token}
+                isPreview={isPreviewMode}
+                refreshKey={penaltiesRefresh}
+                onOpenDay={(iso) => myAttendanceRef.current?.openDay(iso)}
+                onRegularize={(iso) => myAttendanceRef.current?.regularize(iso)}
+              />
+            ) : logsTab === 'ATTENDANCE_REQUESTS' ? (
               <div>
                 <div style={{ marginBottom: 16 }}>
                   <TabBar

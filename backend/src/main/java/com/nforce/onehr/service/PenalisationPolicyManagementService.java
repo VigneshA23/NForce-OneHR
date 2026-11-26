@@ -341,6 +341,9 @@ public class PenalisationPolicyManagementService {
                 .deductionMethod(source.getDeductionMethod()).leavePriorityOrder(source.getLeavePriorityOrder())
                 .bufferPeriodDays(source.getBufferPeriodDays())
                 .noticePeriodForcesLopEnabled(source.isNoticePeriodForcesLopEnabled())
+                .ewEnabled(source.isEwEnabled()).ewLateArrivalEnabled(source.isEwLateArrivalEnabled())
+                .ewMissingLogsEnabled(source.isEwMissingLogsEnabled()).ewShortageEnabled(source.isEwShortageEnabled())
+                .ewExemptRemaining(source.getEwExemptRemaining()).ewShortageMarginPercent(source.getEwShortageMarginPercent())
                 .createdBy(actorId)
                 .build();
     }

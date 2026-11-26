@@ -30,6 +30,27 @@ function RejectReasonModal({ onClose, onConfirm }: { onClose: () => void; onConf
   );
 }
 
+const DISPUTE_LABEL: Record<string, string> = {
+  PENDING_MANAGER: 'Disputed · with manager',
+  PENDING_HR: 'Disputed · with HR',
+  UPHELD: 'Dispute upheld',
+  REVERSED: 'Dispute reversed',
+};
+
+/** PN-02: flags a penalty item the employee has disputed, so the reviewer sees it before deciding. */
+function DisputeFlag({ status }: { status?: string | null }) {
+  if (!status) return null;
+  const open = status === 'PENDING_MANAGER' || status === 'PENDING_HR';
+  const color = open ? 'var(--warn)' : status === 'REVERSED' ? 'var(--ok)' : 'var(--txt-mut)';
+  return (
+    <span data-testid="dispute-flag" title={open ? 'The employee disputed this penalty - consider waiting for the outcome before deciding.' : undefined}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, color, padding: '2px 7px', borderRadius: 5,
+        background: 'color-mix(in srgb, ' + color + ' 14%, var(--raised))', border: '1px solid color-mix(in srgb, ' + color + ' 30%, var(--line))', whiteSpace: 'nowrap' }}>
+      {DISPUTE_LABEL[status] ?? status}
+    </span>
+  );
+}
+
 export function LeaveAppliedReviewTab({ runId, canConfigure }: { runId: string; canConfigure: boolean }) {
   const token = useAuthStore(s => s.token)!;
   const { showToast } = useToast();
@@ -106,7 +127,7 @@ export function LeaveAppliedReviewTab({ runId, canConfigure }: { runId: string; 
                 <td style={tdStyle}>{fmtDate(item.itemDate)}</td>
                 <td style={tdStyle}>{item.days}</td>
                 <td style={tdStyle}>{item.leaveTypeName ?? '-'}</td>
-                <td style={tdStyle}><StatusBadge status={item.decision} /></td>
+                <td style={tdStyle}><div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}><StatusBadge status={item.decision} /><DisputeFlag status={item.disputeStatus} /></div></td>
               </tr>
             ))}
             {filtered.length === 0 && (

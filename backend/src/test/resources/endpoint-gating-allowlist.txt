@@ -37,6 +37,8 @@ AttendanceController#checkIn | SELF - own data only (ownership checked in the se
 AttendanceController#checkOut | SELF - own data only (ownership checked in the service)
 AttendanceController#config | SELF - own data only (ownership checked in the service)
 AttendanceController#exceptions | SELF - own data only (ownership checked in the service)
+AttendanceController#myPenalties | SELF - own data only (ownership checked in the service)
+AttendanceController#raisePenaltyDispute | SELF - own data only (ownership checked in the service)
 AttendanceController#myHistory | SELF - own data only (ownership checked in the service)
 AttendanceController#myRegularizations | SELF - own data only (ownership checked in the service)
 AttendanceController#peers | OPEN - readable by any signed-in user (or public auth flow)

@@ -6,7 +6,7 @@ import { TabBar } from '../../components/TabBar';
 import {
   getCurrentPolicy, getPolicyVersion, getPolicyVersions, savePolicy,
   type PenalizationPolicy, type PenalizationPolicyRequest, type PenalizationPolicyVersionSummary,
-  type WorkHoursTier, type LateHoursTier,
+  type WorkHoursTier, type LateHoursTier, type EarlyWarningConfig, DEFAULT_EARLY_WARNING,
 } from '../../api/penalizationPolicy';
 
 type SectionKey = 'basicInfo' | 'noAttendance' | 'lateArrival' | 'workHoursShortage' | 'missingLogs';
@@ -216,6 +216,14 @@ function ViewModal({ policy, initialSection, onClose }: { policy: PenalizationPo
           )}
           <DetailRow label="Buffer period" value={policy.basicInfo.bufferPeriodDays != null ? `${policy.basicInfo.bufferPeriodDays} day(s)` : 'None'} />
           <DetailRow label="Notice period forces LoP" value={policy.basicInfo.noticePeriodForcesLopEnabled ? 'Yes' : 'No'} />
+          <DetailRow label="Early-warning notifications" value={policy.basicInfo.earlyWarning?.enabled
+            ? [
+                policy.basicInfo.earlyWarning.lateArrivalEnabled && 'Late arrival',
+                policy.basicInfo.earlyWarning.missingLogsEnabled && 'Missing logs',
+                policy.basicInfo.earlyWarning.shortageEnabled && 'Work-hours shortage',
+              ].filter(Boolean).join(', ') + ' · warn at ' + policy.basicInfo.earlyWarning.exemptRemaining + ' exempt left / within '
+                + policy.basicInfo.earlyWarning.shortageMarginPercent + '% of a shortage tier'
+            : 'Off'} />
         </>
       )}
       {section === 'noAttendance' && (
@@ -408,7 +416,7 @@ function MethodSelectionStep({ onContinue }: { onContinue: (selected: SectionKey
 }
 
 const EMPTY_REQUEST: PenalizationPolicyRequest = {
-  basicInfo: { deductionMethod: 'LOSS_OF_PAY', leavePriorityOrder: [], bufferPeriodDays: null, noticePeriodForcesLopEnabled: false, requestedEffectiveFrom: null },
+  basicInfo: { deductionMethod: 'LOSS_OF_PAY', leavePriorityOrder: [], bufferPeriodDays: null, noticePeriodForcesLopEnabled: false, requestedEffectiveFrom: null, earlyWarning: { ...DEFAULT_EARLY_WARNING } },
   noAttendance: {
     enabled: false, deductionDays: null, noShowEnabled: false, noShowThresholdHours: null,
     adjoiningHolidayEnabled: false, adjoiningHolidayCondition: null, adjoiningHolidayCalendarDayThreshold: 1, adjoiningHolidayIgnoreHalfDayLeave: true,
@@ -432,7 +440,7 @@ function toRequest(p: PenalizationPolicy | null): PenalizationPolicyRequest {
   return {
     // requestedEffectiveFrom is a save-time directive, never echoed back by the backend (the
     // version's actual resolved date is p.effectiveFrom at the top level) — always starts blank.
-    basicInfo: { ...p.basicInfo, leavePriorityOrder: [...p.basicInfo.leavePriorityOrder], requestedEffectiveFrom: null },
+    basicInfo: { ...p.basicInfo, leavePriorityOrder: [...p.basicInfo.leavePriorityOrder], requestedEffectiveFrom: null, earlyWarning: { ...DEFAULT_EARLY_WARNING, ...(p.basicInfo.earlyWarning ?? {}) } },
     noAttendance: { ...p.noAttendance },
     lateArrival: { ...p.lateArrival, lateHoursTiers: p.lateArrival.lateHoursTiers.map(t => ({ ...t })) },
     workHoursShortage: { ...p.workHoursShortage, tiers: p.workHoursShortage.tiers.map(t => ({ ...t })) },
@@ -517,6 +525,9 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
 
   function patch<K extends SectionKey>(key: K, patchValue: Partial<PenalizationPolicyRequest[K]>) {
     setForm(f => ({ ...f, [key]: { ...f[key], ...patchValue } }));
+  }
+  function patchEarlyWarning(p: Partial<EarlyWarningConfig>) {
+    setForm(f => ({ ...f, basicInfo: { ...f.basicInfo, earlyWarning: { ...DEFAULT_EARLY_WARNING, ...(f.basicInfo.earlyWarning ?? {}), ...p } } }));
   }
 
   function statusOf(key: SectionKey): SectionStatus {
@@ -724,6 +735,42 @@ function ConfigurationWorkspace({ policy, token, leaveTypes, policyId, initialVi
                   onChange={e => patch('basicInfo', { noticePeriodForcesLopEnabled: e.target.checked })} />
                 If employee is under notice period, consider all penalties as Loss of Pay
               </label>
+              <div data-testid="early-warning-config" style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '12px 14px', background: 'var(--raised)' }}>
+                <label style={checkboxRow}>
+                  <input type="checkbox" checked={!!basicInfo.earlyWarning?.enabled}
+                    onChange={e => patchEarlyWarning({ enabled: e.target.checked })} />
+                  <b>Send early-warning notifications</b> before a penalty applies
+                </label>
+                <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', margin: '4px 0 0 24px' }}>
+                  Employees get an in-app and email heads-up when they are one step from a deduction. Sent once per threshold per period.
+                </div>
+                {basicInfo.earlyWarning?.enabled && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12, paddingLeft: 24 }}>
+                    <label style={checkboxRow}>
+                      <input type="checkbox" checked={basicInfo.earlyWarning.lateArrivalEnabled} onChange={e => patchEarlyWarning({ lateArrivalEnabled: e.target.checked })} />
+                      Late arrival - exempt late marks nearly used
+                    </label>
+                    <label style={checkboxRow}>
+                      <input type="checkbox" checked={basicInfo.earlyWarning.missingLogsEnabled} onChange={e => patchEarlyWarning({ missingLogsEnabled: e.target.checked })} />
+                      Missing logs - exempt missing-log days nearly used
+                    </label>
+                    <label style={checkboxRow}>
+                      <input type="checkbox" checked={basicInfo.earlyWarning.shortageEnabled} onChange={e => patchEarlyWarning({ shortageEnabled: e.target.checked })} />
+                      Work-hours shortage - a weekly/monthly tier is about to trigger (shows hours still needed)
+                    </label>
+                    <div>
+                      <span style={labelText}>Warn when this many exempt late marks / missing-log days are left (1 = limit minus 1)</span>
+                      <input data-testid="ew-remaining" type="number" min={1} max={10} style={inputStyle} value={basicInfo.earlyWarning.exemptRemaining}
+                        onChange={e => patchEarlyWarning({ exemptRemaining: Number(e.target.value) })} />
+                    </div>
+                    <div>
+                      <span style={labelText}>Warn when work-hours % is within this many points above a shortage tier</span>
+                      <input data-testid="ew-margin" type="number" min={1} max={50} step={1} style={inputStyle} value={basicInfo.earlyWarning.shortageMarginPercent}
+                        onChange={e => patchEarlyWarning({ shortageMarginPercent: Number(e.target.value) })} />
+                    </div>
+                  </div>
+                )}
+              </div>
               <div>
                 <span style={labelText}>Effective date (optional - leave blank for the 1st of next month)</span>
                 <input type="date" min={todayIsoDate()} style={inputStyle}

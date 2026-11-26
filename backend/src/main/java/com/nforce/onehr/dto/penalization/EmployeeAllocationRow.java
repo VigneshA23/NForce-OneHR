@@ -32,6 +32,9 @@ public class EmployeeAllocationRow {
      * because the REQUIRE_ALLOCATION fallback strategy is active and this employee has neither. */
     private String resolvedPolicySource;
 
+    /** PN-04: the auto-assignment rule that produced the resolved policy, when resolvedPolicySource == RULE. */
+    private String resolvedByRuleName;
+
     /** The allocation row backing resolvedPolicy* above, when resolvedPolicySource == ALLOCATION. */
     private AllocationDto currentAllocation;
     /** The next scheduled allocation row after today, if one exists (e.g. "policy B starting tomorrow"). */

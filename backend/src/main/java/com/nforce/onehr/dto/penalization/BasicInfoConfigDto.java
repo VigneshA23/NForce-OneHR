@@ -39,4 +39,8 @@ public class BasicInfoConfigDto {
      * {@link PenalizationPolicyResponse#getEffectiveFrom()} at the top level.
      */
     private LocalDate requestedEffectiveFrom;
+
+    /** PN-03: early-warning notification settings (off by default). Optional - null keeps them off. */
+    @jakarta.validation.Valid
+    private EarlyWarningConfigDto earlyWarning;
 }

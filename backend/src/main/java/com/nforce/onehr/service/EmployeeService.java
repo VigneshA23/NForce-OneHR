@@ -56,6 +56,7 @@ public class EmployeeService {
     // Only for the "Effective From cannot be in the past" check below — the org-wide business-day
     // clock (see AttendanceProperties.zone's own Javadoc), never the JVM default (UTC on Railway).
     private final AttendanceProperties attendanceProperties;
+    private final org.springframework.context.ApplicationEventPublisher applicationEventPublisher; // PN-04
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -179,6 +180,7 @@ public class EmployeeService {
             selectedShift = shift;
         }
         emp = employeeRepository.save(emp);
+        applicationEventPublisher.publishEvent(new com.nforce.onehr.service.assignment.EmployeeAttributesChangedEvent(emp.getUserId())); // PN-04
         leaveService.initializeDefaultBalances(newUser.getId());
 
         if (selectedShift != null) {
@@ -341,6 +343,7 @@ public class EmployeeService {
         }
 
         emp = employeeRepository.save(emp);
+        applicationEventPublisher.publishEvent(new com.nforce.onehr.service.assignment.EmployeeAttributesChangedEvent(emp.getUserId())); // PN-04
         String after = auditSnapshot.toJson(employeeSnapshot(emp));
         auditService.log(actor.getId(), "EMPLOYEE_UPDATED", userId, before, after);
         return toResponse(emp, findCurrentManager(userId), emp.getUser(), null);

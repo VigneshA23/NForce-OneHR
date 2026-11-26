@@ -49,10 +49,12 @@ function fmtDate(iso: string | null | undefined): string {
 
 function SourceBadge({ source }: { source: ResolvedPolicySource }) {
   const copy = source === 'ALLOCATION' ? 'Allocated'
+    : source === 'RULE' ? 'Auto (rule)'
     : source === 'LEGACY' ? 'Legacy'
     : source === 'ALLOCATION_REQUIRED' ? 'Needs Allocation'
     : 'Org Default';
   const color = source === 'ALLOCATION' ? 'var(--brand-bright)'
+    : source === 'RULE' ? 'var(--info)'
     : source === 'LEGACY' ? '#E0A93B'
     : source === 'ALLOCATION_REQUIRED' ? 'var(--risk)'
     : 'var(--txt-dim)';
@@ -268,6 +270,8 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
   const can = useCan();
   const [detail, setDetail] = useState<EmployeeAllocationDetailResponse | null>(null);
   const [noPolicyReason, setNoPolicyReason] = useState<string | null>(null);
+  // PN-04: "which rule or allocation applied, and why" - always asked of the resolve endpoint.
+  const [explanation, setExplanation] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -275,13 +279,11 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
     penalizationPolicyAllocationApi.getEmployeeDetail(token, employeeUserId)
       .then(d => {
         setDetail(d);
-        // ALLOCATION_REQUIRED (Section 21): explain WHY, not just that nothing resolved.
-        if (d.resolvedPolicySource === 'ALLOCATION_REQUIRED') {
-          const today = new Date().toISOString().slice(0, 10);
-          penalizationPolicyAllocationApi.resolveFor(token, employeeUserId, today)
-            .then(r => setNoPolicyReason(r.reason))
-            .catch(() => { /* the detail view already degrades to "No Penalization Policy" without a reason */ });
-        }
+        // Section 21 + PN-04: explain WHY - the "no policy" reason, and which rule/allocation applied.
+        const today = new Date().toISOString().slice(0, 10);
+        penalizationPolicyAllocationApi.resolveFor(token, employeeUserId, today)
+          .then(r => { setNoPolicyReason(r.reason); setExplanation(r.explanation ?? null); })
+          .catch(() => { /* the detail view already degrades gracefully without the explanation */ });
       })
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load employee detail'))
       .finally(() => setLoading(false));
@@ -340,6 +342,11 @@ function EmployeeDetailModal({ employeeUserId, token, onClose, onChangePolicy, o
                   {noPolicyReason && (
                     <div style={{ fontSize: 11.5, color: 'var(--risk)', marginTop: 4 }}>{noPolicyReason}</div>
                   )}
+                </div>
+              )}
+              {explanation && (
+                <div data-testid="resolve-explanation" style={{ marginTop: 8, fontSize: 11.5, color: 'var(--txt-mut)', lineHeight: 1.5, padding: '8px 10px', borderRadius: 6, background: 'var(--raised)', border: '1px solid var(--line)' }}>
+                  <b style={{ color: 'var(--txt)' }}>Why this policy: </b>{explanation}
                 </div>
               )}
               <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>

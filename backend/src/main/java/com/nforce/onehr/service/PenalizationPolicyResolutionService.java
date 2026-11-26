@@ -36,6 +36,8 @@ public class PenalizationPolicyResolutionService {
     private final PenalizationPolicyService penalizationPolicyService;
     private final EmployeeRepository employeeRepository;
     private final AttendanceProperties attendanceProperties;
+    // PN-04: the shared rule engine - the tier between an explicit allocation and the legacy FK.
+    private final com.nforce.onehr.service.assignment.AssignmentRuleEngine assignmentRuleEngine;
 
     /**
      * The Penalization Policy that governs this employee on {@code date}, resolved in priority
@@ -65,6 +67,14 @@ public class PenalizationPolicyResolutionService {
                     penalizationPolicyAllocationRepository.findEffectiveAt(employee.getUserId(), date);
             if (!allocations.isEmpty() && isActivePolicy(allocations.get(0).getPenalisationPolicyId())) {
                 return allocations.get(0).getPenalisationPolicyId();
+            }
+            // PN-04: an auto-assignment rule outranks the legacy FK (which V95 backfilled to the
+            // default policy for every pre-existing employee - if it won, no rule could ever apply
+            // to them) but never an explicit allocation above.
+            java.util.Optional<com.nforce.onehr.entity.AssignmentRuleAssignment> byRule = assignmentRuleEngine.resolveAt(
+                    com.nforce.onehr.service.assignment.AssignmentDomain.PENALIZATION, employee.getUserId(), date);
+            if (byRule.isPresent() && isActivePolicy(byRule.get().getTargetId())) {
+                return byRule.get().getTargetId();
             }
             if (employee.getPenalisationPolicy() != null && isActivePolicy(employee.getPenalisationPolicy().getId())) {
                 return employee.getPenalisationPolicy().getId();
@@ -143,13 +153,19 @@ public class PenalizationPolicyResolutionService {
         // Gap-001: same active-only rule as resolveAssignedOrDefaultPolicyId, computed once for
         // the whole bulk pass instead of one membership check per employee.
         Set<UUID> activePolicyIds = penalizationPolicyService.findActivePolicyIds();
+        // PN-04: same tier order as the single-employee method - allocation > rule > legacy > default.
+        Map<UUID, com.nforce.onehr.entity.AssignmentRuleAssignment> ruleByEmployee = assignmentRuleEngine.allEffectiveAt(
+                com.nforce.onehr.service.assignment.AssignmentDomain.PENALIZATION, date);
 
         Map<UUID, UUID> resolved = new HashMap<>();
         for (Object[] row : employeeRepository.findAllEmployeeIdsWithLegacyPolicyId()) {
             UUID employeeId = (UUID) row[0];
             UUID legacyPolicyId = (UUID) row[1];
             UUID allocatedPolicyId = allocatedPolicyByEmployee.get(employeeId);
+            com.nforce.onehr.entity.AssignmentRuleAssignment byRule = ruleByEmployee.get(employeeId);
+            UUID rulePolicyId = byRule != null && activePolicyIds.contains(byRule.getTargetId()) ? byRule.getTargetId() : null;
             UUID resolvedPolicyId = allocatedPolicyId != null && activePolicyIds.contains(allocatedPolicyId) ? allocatedPolicyId
+                    : rulePolicyId != null ? rulePolicyId
                     : (legacyPolicyId != null && activePolicyIds.contains(legacyPolicyId) ? legacyPolicyId : defaultPolicyId);
             if (resolvedPolicyId != null) {
                 resolved.put(employeeId, resolvedPolicyId);

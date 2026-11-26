@@ -55,6 +55,7 @@ class EmployeeServiceUpdateTest {
     @Mock private LeaveService leaveService;
     @Mock private EmployeeCodeGenerator employeeCodeGenerator;
 
+    @Mock private org.springframework.context.ApplicationEventPublisher applicationEventPublisher;
     @InjectMocks private EmployeeService employeeService;
 
     private final UUID targetUserId = UUID.randomUUID();

@@ -78,7 +78,7 @@ class PolicyEmployeeCountConsistencyTest {
     void setUp() {
         // ONE real resolution service, shared by both screens — exactly like production DI.
         resolutionService = new PenalizationPolicyResolutionService(
-                versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties);
+                versionRepository, allocationRepository, penalizationPolicyService, employeeRepository, attendanceProperties, org.mockito.Mockito.mock(com.nforce.onehr.service.assignment.AssignmentRuleEngine.class));
 
         managementService = new PenalisationPolicyManagementService(penalisationPolicyRepository, versionRepository,
                 tierRepository, lateHoursTierRepository, allocationRepository, userRepository, auditService,
@@ -86,7 +86,7 @@ class PolicyEmployeeCountConsistencyTest {
 
         allocationService = new PenalizationPolicyAllocationService(allocationRepository, employeeRepository,
                 penalisationPolicyRepository, userRepository, auditService, notificationService, auditSnapshot,
-                resolutionService, employeeService, attendanceProperties);
+                resolutionService, employeeService, attendanceProperties, org.mockito.Mockito.mock(com.nforce.onehr.service.assignment.AssignmentRuleEngine.class), org.mockito.Mockito.mock(com.nforce.onehr.service.assignment.AssignmentRuleService.class));
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(penalizationPolicyService.resolveActiveDefaultPolicyId()).thenReturn(policyDefaultId);

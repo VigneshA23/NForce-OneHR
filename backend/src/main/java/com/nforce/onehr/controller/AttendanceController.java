@@ -13,6 +13,11 @@ import com.nforce.onehr.dto.attendance.BulkApproveRegularizationRequest;
 import com.nforce.onehr.dto.attendance.BulkRegularizationResultResponse;
 import com.nforce.onehr.dto.attendance.BulkRejectRegularizationRequest;
 import com.nforce.onehr.dto.attendance.CreateRegularizationRequest;
+import com.nforce.onehr.dto.attendance.DecidePenaltyDisputeRequest;
+import com.nforce.onehr.dto.attendance.ForwardPenaltyDisputeRequest;
+import com.nforce.onehr.dto.attendance.MyPenaltiesResponse;
+import com.nforce.onehr.dto.attendance.PenaltyDisputeResponse;
+import com.nforce.onehr.dto.attendance.RaisePenaltyDisputeRequest;
 import com.nforce.onehr.dto.attendance.PenaltyCancelRequest;
 import com.nforce.onehr.dto.attendance.PenaltyCancelResultResponse;
 import com.nforce.onehr.dto.attendance.PunchTimezoneRequest;
@@ -25,6 +30,8 @@ import com.nforce.onehr.service.AttendancePenaltyService;
 import com.nforce.onehr.service.AttendanceService;
 import com.nforce.onehr.service.AttendanceStatsService;
 import com.nforce.onehr.service.ExceptionService;
+import com.nforce.onehr.service.MyPenaltyService;
+import com.nforce.onehr.service.PenaltyDisputeService;
 import com.nforce.onehr.service.OfficeNetwork;
 import com.nforce.onehr.exception.OffOfficeNetworkException;
 import com.nforce.onehr.service.RegularizationService;
@@ -65,6 +72,8 @@ public class AttendanceController {
     private final AttendanceStatsService attendanceStatsService;
     private final RegularizationService regularizationService;
     private final AttendancePenaltyService attendancePenaltyService;
+    private final MyPenaltyService myPenaltyService;
+    private final PenaltyDisputeService penaltyDisputeService;
     private final ExceptionService exceptionService;
 
     // No @PreAuthorize below on the self-service endpoints: hasRole('EMPLOYEE') (the pre-Phase-3
@@ -392,6 +401,47 @@ public class AttendanceController {
      * first, same as the Exceptions dashboard load, so fresh incidents appear without waiting
      * for the nightly job.
      */
+    /**
+     * PN-01: the caller's OWN penalties (self-service — no @PreAuthorize, like /me and /exceptions
+     * above; the service only ever reads the authenticated principal's own rows).
+     */
+    @GetMapping("/my-penalties")
+    public MyPenaltiesResponse myPenalties(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Principal principal) {
+        return myPenaltyService.getMine(principal.getName(), from, to);
+    }
+
+    // -- PN-02: employee dispute of a penalty. Raise = self-service (own penalty only, enforced in the
+    // service); manager forward needs attendance:EDIT:TEAM; the final HR decision needs attendance:EDIT:ALL. --
+
+    @PostMapping("/penalties/{penaltyId}/dispute")
+    public PenaltyDisputeResponse raisePenaltyDispute(@PathVariable UUID penaltyId,
+                                                      @Valid @RequestBody RaisePenaltyDisputeRequest req, Principal principal) {
+        return penaltyDisputeService.raise(principal.getName(), penaltyId, req);
+    }
+
+    @GetMapping("/penalty-disputes/queue")
+    @PreAuthorize("hasAuthority('attendance:EDIT:TEAM')")
+    public List<PenaltyDisputeResponse> penaltyDisputeQueue(Principal principal) {
+        return penaltyDisputeService.queue(principal.getName());
+    }
+
+    @PostMapping("/penalty-disputes/{id}/forward")
+    @PreAuthorize("hasAuthority('attendance:EDIT:TEAM')")
+    public PenaltyDisputeResponse forwardPenaltyDispute(@PathVariable UUID id,
+                                                        @Valid @RequestBody ForwardPenaltyDisputeRequest req, Principal principal) {
+        return penaltyDisputeService.forward(principal.getName(), id, req);
+    }
+
+    @PostMapping("/penalty-disputes/{id}/decide")
+    @PreAuthorize("hasAuthority('attendance:EDIT:ALL')")
+    public PenaltyDisputeResponse decidePenaltyDispute(@PathVariable UUID id,
+                                                       @Valid @RequestBody DecidePenaltyDisputeRequest req, Principal principal) {
+        return penaltyDisputeService.decide(principal.getName(), id, req);
+    }
+
     @GetMapping("/penalties")
     @PreAuthorize("hasAuthority('attendance:VIEW:TEAM')")
     public List<AttendancePenaltyResponse> penalties(

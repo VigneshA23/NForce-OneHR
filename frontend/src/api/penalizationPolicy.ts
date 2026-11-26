@@ -18,7 +18,24 @@ function withPolicyId(path: string, policyId?: string) {
 
 // ── Types (mirrors backend dto/penalization/*) ─────────────────────────────
 
+/** PN-03: early-warning notification settings, part of Basic Information. Off by default. */
+export interface EarlyWarningConfig {
+  enabled: boolean;
+  lateArrivalEnabled: boolean;
+  missingLogsEnabled: boolean;
+  shortageEnabled: boolean;
+  /** Warn when this many (or fewer) exempt late marks / missing-log days remain. 1 = limit minus 1. */
+  exemptRemaining: number;
+  /** Warn when the period's work-hours % is within this many points above a shortage tier. */
+  shortageMarginPercent: number;
+}
+
+export const DEFAULT_EARLY_WARNING: EarlyWarningConfig = {
+  enabled: false, lateArrivalEnabled: true, missingLogsEnabled: true, shortageEnabled: true, exemptRemaining: 1, shortageMarginPercent: 10,
+};
+
 export interface BasicInfoConfig {
+  earlyWarning?: EarlyWarningConfig;
   deductionMethod: 'LOSS_OF_PAY' | 'PAID_LEAVE';
   /** LeaveType.code values in cascade priority order — only meaningful when deductionMethod is PAID_LEAVE. */
   leavePriorityOrder: string[];

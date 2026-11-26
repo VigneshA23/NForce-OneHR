@@ -62,7 +62,7 @@ class PenalizationPolicyAllocationServiceTest {
     void setUp() {
         service = new PenalizationPolicyAllocationService(allocationRepository, employeeRepository,
                 penalisationPolicyRepository, userRepository, auditService, notificationService,
-                auditSnapshot, resolutionService, employeeService, attendanceProperties);
+                auditSnapshot, resolutionService, employeeService, attendanceProperties, org.mockito.Mockito.mock(com.nforce.onehr.service.assignment.AssignmentRuleEngine.class), org.mockito.Mockito.mock(com.nforce.onehr.service.assignment.AssignmentRuleService.class));
         lenient().when(employeeService.findCurrentManagersBulk(any())).thenReturn(java.util.Map.of());
 
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");

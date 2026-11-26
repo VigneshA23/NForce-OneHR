@@ -54,6 +54,7 @@ class UserManagementServiceRolesTest {
     @Mock private AttendanceProperties attendanceProperties;
     @Mock private RolePermissionRepository rolePermissionRepository;
 
+    @Mock private org.springframework.context.ApplicationEventPublisher applicationEventPublisher;
     @InjectMocks private UserManagementService service;
 
     private final PermissionFixture f = new PermissionFixture();

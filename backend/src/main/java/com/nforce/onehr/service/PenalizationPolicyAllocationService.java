@@ -14,7 +14,11 @@ import com.nforce.onehr.dto.penalization.EmployeeAllocationSearchResponse;
 import com.nforce.onehr.dto.penalization.PolicyResolutionDetailResponse;
 import com.nforce.onehr.dto.penalization.UpdateAllocationRequest;
 import com.nforce.onehr.dto.EmployeeResponse;
+import com.nforce.onehr.entity.AssignmentRuleAssignment;
 import com.nforce.onehr.entity.Employee;
+import com.nforce.onehr.service.assignment.AssignmentDomain;
+import com.nforce.onehr.service.assignment.AssignmentRuleEngine;
+import com.nforce.onehr.service.assignment.AssignmentRuleService;
 import com.nforce.onehr.entity.PenalisationPolicy;
 import com.nforce.onehr.entity.PenalizationPolicyAllocation;
 import com.nforce.onehr.entity.PenalizationPolicyVersion;
@@ -78,6 +82,9 @@ public class PenalizationPolicyAllocationService {
     private final PenalizationPolicyResolutionService resolutionService;
     private final EmployeeService employeeService;
     private final AttendanceProperties attendanceProperties;
+    // PN-04: shared rule engine + descriptions for the resolve explanation.
+    private final AssignmentRuleEngine assignmentRuleEngine;
+    private final AssignmentRuleService assignmentRuleService;
 
     private LocalDate today() {
         return LocalDateTime.now(ZoneId.of(attendanceProperties.getZone())).toLocalDate();
@@ -133,9 +140,11 @@ public class PenalizationPolicyAllocationService {
                 pageIds.isEmpty() ? Map.of() : employeeService.findCurrentManagersBulk(pageIds);
 
         Map<UUID, PenalisationPolicy> policyCache = new LinkedHashMap<>();
+        Map<UUID, AssignmentRuleAssignment> ruleByEmployee = assignmentRuleEngine.allEffectiveAt(AssignmentDomain.PENALIZATION, today);
         List<EmployeeAllocationRow> rows = hydrated.stream()
                 .map(e -> toRow(e, allocationsByEmployee.getOrDefault(e.getEmployeeUserId(), List.of()), today, policyCache,
                         resolvedPolicyByEmployee.get(e.getEmployeeUserId()), managersByEmployee.get(e.getEmployeeUserId())))
+                .peek(r -> applyRuleSource(r, ruleByEmployee.get(r.getEmployeeUserId())))
                 .toList();
 
         return EmployeeAllocationSearchResponse.builder()
@@ -153,6 +162,7 @@ public class PenalizationPolicyAllocationService {
         EmployeeResponse.ManagerRef manager =
                 employeeService.findCurrentManagersBulk(List.of(employeeUserId)).get(employeeUserId);
         EmployeeAllocationRow row = toRow(employee, history, today, policyCache, resolvedPolicyId, manager);
+        applyRuleSource(row, assignmentRuleEngine.resolveAt(AssignmentDomain.PENALIZATION, employeeUserId, today).orElse(null));
 
         return EmployeeAllocationDetailResponse.builder()
                 .employeeUserId(employee.getUserId()).employeeCode(employee.getEmployeeCode()).fullName(employee.getFullName())
@@ -187,6 +197,8 @@ public class PenalizationPolicyAllocationService {
         EmployeeResponse.ManagerRef manager =
                 employeeService.findCurrentManagersBulk(List.of(employeeUserId)).get(employeeUserId);
         EmployeeAllocationRow row = toRow(employee, allocations, date, policyCache, resolvedPolicyId, manager);
+        AssignmentRuleAssignment byRule = assignmentRuleEngine.resolveAt(AssignmentDomain.PENALIZATION, employeeUserId, date).orElse(null);
+        applyRuleSource(row, byRule);
 
         PenalizationPolicyVersion version = resolvedPolicyId != null
                 ? resolutionService.resolveEffectiveVersion(resolvedPolicyId, date) : null;
@@ -201,7 +213,53 @@ public class PenalizationPolicyAllocationService {
                 .versionEffectiveFrom(version != null ? version.getEffectiveFrom() : null)
                 .currentAllocation(row.getCurrentAllocation())
                 .reason(resolvedPolicyId == null ? noResolvedPolicyReason() : null)
+                .ruleId(byRule != null ? byRule.getRuleId() : null)
+                .ruleName(byRule != null ? byRule.getRuleName() : null)
+                .rulePriority(byRule != null ? assignmentRuleService.describe(byRule.getRuleId()).map(AssignmentRuleService.RuleDescription::priority).orElse(null) : null)
+                .ruleCriteria(byRule != null ? assignmentRuleService.describe(byRule.getRuleId()).map(AssignmentRuleService.RuleDescription::criteriaText).orElse(null) : null)
+                .ruleTargetPolicyName(byRule != null ? policyName(byRule.getTargetId(), policyCache) : null)
+                .ruleEffectiveFrom(byRule != null ? byRule.getEffectiveFrom() : null)
+                .explanation(explain(row, byRule, policyCache))
                 .build();
+    }
+
+    /** PN-04: RULE outranks the LEGACY/DEFAULT labels buildRow derived, because the resolver already prefers it. */
+    private void applyRuleSource(EmployeeAllocationRow row, AssignmentRuleAssignment rule) {
+        if (row == null || rule == null) return;
+        String src = row.getResolvedPolicySource();
+        if (("LEGACY".equals(src) || "DEFAULT".equals(src)) && rule.getTargetId().equals(row.getResolvedPolicyId())) {
+            row.setResolvedPolicySource("RULE");
+            row.setResolvedByRuleName(rule.getRuleName());
+        }
+    }
+
+    /** One plain-language sentence answering "which rule or allocation applied, and why". */
+    private String explain(EmployeeAllocationRow row, AssignmentRuleAssignment rule, Map<UUID, PenalisationPolicy> policyCache) {
+        String policy = row.getResolvedPolicyName();
+        AllocationDto a = row.getCurrentAllocation();
+        String ruleClause = "";
+        if (rule != null) {
+            String criteria = assignmentRuleService.describe(rule.getRuleId())
+                    .map(AssignmentRuleService.RuleDescription::criteriaText).orElse(null);
+            ruleClause = "rule \"" + rule.getRuleName() + "\"" + (criteria != null && !criteria.isBlank() ? " (" + criteria + ")" : "")
+                    + " -> \"" + policyName(rule.getTargetId(), policyCache) + "\", in effect since " + rule.getEffectiveFrom();
+        }
+        switch (row.getResolvedPolicySource() == null ? "" : row.getResolvedPolicySource()) {
+            case "ALLOCATION":
+                return "Explicit allocation to \"" + policy + "\""
+                        + (a != null ? " from " + a.getEffectiveFrom() + (a.getEffectiveTo() != null ? " to " + a.getEffectiveTo() : " onwards") : "")
+                        + ". An explicit allocation always overrides auto-assignment rules"
+                        + (rule != null ? " - the " + ruleClause + " is therefore not applied." : ".");
+            case "RULE":
+                return "Auto-assignment " + ruleClause + ".";
+            case "LEGACY":
+                return "Assigned directly on the employee record. No explicit allocation and no auto-assignment rule applies"
+                        + (rule != null ? " (" + ruleClause + " points at an inactive policy)." : ".");
+            case "DEFAULT":
+                return "No explicit allocation or auto-assignment rule applies, so the organization default policy \"" + policy + "\" is used.";
+            default:
+                return noResolvedPolicyReason();
+        }
     }
 
     private String noResolvedPolicyReason() {

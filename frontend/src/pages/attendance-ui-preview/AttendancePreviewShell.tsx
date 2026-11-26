@@ -9,6 +9,7 @@
  *
  *    /attendance-ui-preview                                  → Employee, Attendance Log tab
  *    /attendance-ui-preview?tab=calendar                     → Calendar tab
+ *    /attendance-ui-preview?tab=penalties                    → My Penalties tab (PN-01)
  *    /attendance-ui-preview?role=manager|hr|superadmin       → that role's view
  *  The "Theme" swatches use the app's real accent-color setting (lib/accentColor), so everything
  *  that follows --brand recolors exactly as it does in the real app; the choice is remembered.
@@ -48,6 +49,20 @@ export default function AttendancePreviewShell() {
     window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).split('?')[0].endsWith('/api/penalization-policy/my-current')) {
         return Promise.resolve(new Response(JSON.stringify(SAMPLE_POLICY), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      }
+      // Mock only: the Regularize form (opened from a penalty row) must never reach a backend.
+      const path = String(input).split('?')[0];
+      const reg = path.match(/\/api\/attendance\/regularization(\/[a-z-]+)?$/);
+      if (reg) {
+        const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        const method = (init?.method ?? 'GET').toUpperCase();
+        if (method === 'POST') {
+          let sent: Record<string, unknown> = {};
+          try { sent = JSON.parse(String(init?.body ?? '{}')); } catch { /* sample only */ }
+          return json({ id: 'mock-reg-1', employeeUserId: 'mock', employeeName: 'Rahul Verma', employeeEmail: 'rahul@example.com', departmentName: null, status: 'PENDING', assignedApproverId: null, assignedApproverName: 'Priya Nair', totalMinutes: null, ...sent });
+        }
+        if (reg[1] === '/balance') return json({ usedCount: 2, limitCount: 5, remainingCount: 3, unlimited: false });
+        return json([]);
       }
       return prevFetch(input, init);
     }) as typeof window.fetch;

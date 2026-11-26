@@ -80,6 +80,7 @@ public class UserManagementService {
     // Privilege-ceiling checks (see validateRoleChange / assertCanManage) and the effective-
     // permissions view of Manage Roles.
     private final EffectivePermissionService effectivePermissionService;
+    private final org.springframework.context.ApplicationEventPublisher applicationEventPublisher; // PN-04
 
     /** DOB, marital status, phone, personal email and emergency contact are sensitive profile data: entering them for another person needs employee_sensitive:EDIT, not just user_management:CREATE. */
     private void requireSensitiveEditIfProvided(User actor, CreateUserRequest req) {
@@ -223,6 +224,7 @@ public class UserManagementService {
         }
 
         emp = employeeRepository.save(emp);
+        applicationEventPublisher.publishEvent(new com.nforce.onehr.service.assignment.EmployeeAttributesChangedEvent(emp.getUserId())); // PN-04
         leaveService.initializeDefaultBalances(newUser.getId());
 
         if (selectedShift != null) {
@@ -554,6 +556,7 @@ public class UserManagementService {
         }
 
         emp = employeeRepository.save(emp);
+        applicationEventPublisher.publishEvent(new com.nforce.onehr.service.assignment.EmployeeAttributesChangedEvent(emp.getUserId())); // PN-04
 
         if (roleChanged) {
             notificationService.send(target.getId(), "ACCOUNT",
@@ -607,6 +610,7 @@ public class UserManagementService {
         String before = auditSnapshot.toJson(Map.of("joiningDate", emp.getJoiningDate().toString()));
         emp.setJoiningDate(req.getNewJoiningDate());
         emp = employeeRepository.save(emp);
+        applicationEventPublisher.publishEvent(new com.nforce.onehr.service.assignment.EmployeeAttributesChangedEvent(emp.getUserId())); // PN-04
 
         Map<String, Object> afterSnapshot = new LinkedHashMap<>();
         afterSnapshot.put("joiningDate", emp.getJoiningDate().toString());
