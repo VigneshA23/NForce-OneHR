@@ -238,6 +238,8 @@ export interface YearEndRunResult {
   transfersCreated: number;
   expiriesUpdated: number;
   failures: number;
+  /** Codes of the employees that failed (retried on the next run). */
+  failedEmployees?: string[];
 }
 
 export interface AccrualRunResult {
@@ -245,6 +247,17 @@ export interface AccrualRunResult {
   employeesChecked: number;
   creditsAdded: number;
   failures: number;
+  /** Codes of the employees that failed (retried on the next run). */
+  failedEmployees?: string[];
+}
+
+/** YE-07: the last run of a nightly leave job — when, by whom (null = the scheduler) and its counts. */
+export interface LeaveJobRun {
+  job: string;
+  ranAt: string;
+  actorId: string | null;
+  actorName: string | null;
+  details: Record<string, unknown> & { failures?: number; failedEmployees?: string[] };
 }
 
 export interface AccrualCredit {
@@ -283,6 +296,8 @@ export const leaveConfigApi = {
     send<{ eligibleCount: number; totalCount: number }>('POST', `${CONFIG}/types/eligibility-preview`, token, config),
 
   runAccrual: (token: string) => send<AccrualRunResult>('POST', `${CONFIG}/accrual/run`, token),
+  /** Last run of the crediting ("accrual") and year-end ("yearEnd") jobs; a job that never ran is absent. */
+  jobs: (token: string) => send<Partial<Record<'accrual' | 'yearEnd', LeaveJobRun>>>('GET', `${CONFIG}/jobs`, token),
   creditHistory: (balanceId: string, token: string) => send<AccrualCredit[]>('GET', `${CONFIG}/balances/${balanceId}/credits`, token),
 
   updateCarryForward: (id: string, payload: CarryForwardSettings, token: string) =>

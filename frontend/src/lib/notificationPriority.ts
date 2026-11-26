@@ -16,6 +16,7 @@ const CATEGORY_BY_TYPE: Record<string, NotificationCategory> = {
   LEAVE_REQUEST_SUBMITTED:           'Leave & Attendance',
   LEAVE_APPROVED:                    'Leave & Attendance',
   LEAVE_REJECTED:                    'Leave & Attendance',
+  LEAVE_JOB_FAILED:                  'Leave & Attendance',
   ATTENDANCE:                        'Leave & Attendance',
   ATTENDANCE_REQUEST_APPROVED:       'Leave & Attendance',
   ATTENDANCE_REQUEST_REJECTED:       'Leave & Attendance',

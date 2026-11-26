@@ -38,6 +38,7 @@ public class NotificationService {
         m.put("ATTENDANCE_REQUEST_REJECTED",      "HIGH");
         m.put("OVERTIME_REJECTED",                "HIGH");
         m.put("REGULARIZATION_REJECTED",          "HIGH");
+        m.put("LEAVE_JOB_FAILED",                 "HIGH");  // to Super Admins: a nightly leave job failed for some employees (YE-07)
         m.put("HELP_CONTENT_REJECTED",            "HIGH");
         m.put("PROFILE_CHANGE_REJECTED",          "HIGH");
         // MEDIUM — attention needed, not urgent (routine approvals-pending and routine approved/

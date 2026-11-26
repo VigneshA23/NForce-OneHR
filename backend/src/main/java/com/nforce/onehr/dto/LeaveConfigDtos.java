@@ -62,8 +62,11 @@ public final class LeaveConfigDtos {
     /** One month's credit, for the balance's credit history. */
     public record AccrualCreditResponse(Integer year, Integer month, BigDecimal days, String source, LocalDateTime creditedAt) {}
 
-    public record AccrualRunResult(Integer year, int employeesChecked, int creditsAdded, int failures) {}
+    /** {@code failedEmployees}: codes of the employees whose crediting failed (retried on the next run). */
+    public record AccrualRunResult(Integer year, int employeesChecked, int creditsAdded, int failures,
+                                   List<String> failedEmployees) {}
 
+    /** {@code failedEmployees}: codes of the employees whose carry-forward or expiry failed (retried on the next run). */
     public record YearEndRunResult(Integer fromYear, int balancesChecked, int transfersCreated,
-                                   int expiriesUpdated, int failures) {}
+                                   int expiriesUpdated, int failures, List<String> failedEmployees) {}
 }

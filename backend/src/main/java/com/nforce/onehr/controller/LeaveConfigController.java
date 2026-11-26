@@ -17,6 +17,7 @@ import com.nforce.onehr.dto.UpdateLeaveTypeRequest;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.service.LeaveAccrualService;
+import com.nforce.onehr.service.LeaveJobMonitor;
 import com.nforce.onehr.service.LeaveTypeService;
 import com.nforce.onehr.service.LeaveYearEndService;
 import jakarta.validation.Valid;
@@ -45,6 +46,7 @@ public class LeaveConfigController {
     private final LeaveYearEndService leaveYearEndService;
     private final LeaveAccrualService leaveAccrualService;
     private final UserRepository userRepository;
+    private final LeaveJobMonitor leaveJobMonitor;
 
     // ── Leave types ──
 
@@ -147,6 +149,13 @@ public class LeaveConfigController {
         User actor = userRepository.findByEmail(principal.getName())
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
         return leaveAccrualService.run(actor.getId());
+    }
+
+    /** YE-07: when the nightly crediting and year-end jobs last ran, who ran them and what they did. */
+    @GetMapping("/jobs")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public Map<String, LeaveJobMonitor.JobRun> jobs() {
+        return leaveJobMonitor.lastRuns();
     }
 
     @GetMapping("/balances/{balanceId}/credits")

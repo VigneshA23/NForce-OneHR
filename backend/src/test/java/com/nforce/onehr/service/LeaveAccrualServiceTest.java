@@ -48,6 +48,7 @@ class LeaveAccrualServiceTest {
     @Mock private EmployeeRepository employeeRepo;
     @Mock private LeaveEligibilityService eligibility;
     @Mock private AuditService auditService;
+    @Mock private LeaveJobMonitor jobMonitor;
     @Mock private PlatformTransactionManager txManager;
 
     private LeaveAccrualService service;
@@ -61,7 +62,7 @@ class LeaveAccrualServiceTest {
     @BeforeEach
     void setUp() {
         service = new LeaveAccrualService(typeRepo, balanceRepo, policyRepo, creditRepo, employeeRepo, eligibility,
-                new AttendanceProperties(), auditService, new AuditSnapshotSerializer(new ObjectMapper()), txManager);
+                new AttendanceProperties(), txManager, jobMonitor);
         lenient().when(eligibility.rulesFor(any())).thenReturn(LeaveEligibilityService.Rules.EVERYONE);
         lenient().when(creditRepo.findByEmployeeUserIdAndLeaveTypeIdAndYearOrderByMonthAsc(any(), any(), any()))
                 .thenAnswer(inv -> ledger.stream().filter(c -> c.getYear().equals(inv.getArgument(2))).toList());

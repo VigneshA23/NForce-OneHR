@@ -10,6 +10,7 @@ import {
   leaveConfigApi,
   type AccrualCredit, type CarryForwardPriority, type CarryForwardTransfer, type CreditFrequency, type DirectoryEmployee,
   type EligibilityConfig, type EntitlementPolicy, type LeaveBalance, type LeaveType, type LeaveTypeClassification,
+  type LeaveJobRun,
 } from '../../api/leave';
 import { orgApi } from '../../api/org';
 import { AppliesToEditor, EMPTY_ELIGIBILITY, appliesToSummary, sameEligibility, type NamedOption } from './AppliesTo';
@@ -778,15 +779,45 @@ function EntitlementsArea({ types, token, canConfigure, canEdit, reload }: {
   );
 }
 
+/**
+ * YE-07: the last run of a nightly leave job, from its audit entry — so on 1 January an admin can
+ * confirm the jobs ran and see which employees (if any) failed.
+ */
+function useLastRun(token: string, job: 'accrual' | 'yearEnd') {
+  const [run, setRun] = useState<LeaveJobRun | null | undefined>(undefined);
+  const reload = useCallback(() => {
+    leaveConfigApi.jobs(token).then(r => setRun(r[job] ?? null)).catch(() => setRun(null));
+  }, [token, job]);
+  useEffect(() => { reload(); }, [reload]);
+  return { run, reload };
+}
+
+function LastRun({ run, summary }: { run: LeaveJobRun | null | undefined; summary: (d: LeaveJobRun['details']) => string }) {
+  if (run === undefined) return null;
+  if (run === null) return <p style={{ ...hintS, margin: '6px 0 0' }}>Last run: never.</p>;
+  const failed = run.details.failedEmployees ?? [];
+  return (
+    <p style={{ ...hintS, margin: '6px 0 0' }} data-testid="leave-job-last-run">
+      Last run: {new Date(run.ranAt).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+      {' '}by {run.actorName ?? 'the nightly job'} · {summary(run.details)}
+      {failed.length > 0
+        ? <span style={{ color: 'var(--risk)', fontWeight: 600 }}> · failed for {failed.join(', ')} (retried on the next run)</span>
+        : ' · no failures'}
+    </p>
+  );
+}
+
 function CreditingRun({ token, canConfigure }: { token: string; canConfigure: boolean }) {
   const { showToast } = useToast();
   const [busy, setBusy] = useState(false);
+  const lastRun = useLastRun(token, 'accrual');
   async function run() {
     setBusy(true);
     try {
       const r = await leaveConfigApi.runAccrual(token);
       showToast(r.failures > 0 ? 'error' : 'success',
-        `${r.creditsAdded} employee balance(s) credited${r.failures > 0 ? `, ${r.failures} failed — run again to retry` : ''}`);
+        `${r.creditsAdded} employee balance(s) credited${r.failures > 0 ? `, ${r.failures} failed (${(r.failedEmployees ?? []).join(', ')}) — run again to retry` : ''}`);
+      lastRun.reload();
     } catch (e) {
       showToast('error', errMsg(e));
     } finally {
@@ -803,6 +834,7 @@ function CreditingRun({ token, canConfigure }: { token: string; canConfigure: bo
         </p>
         {canConfigure && <button style={primaryBtn(busy)} disabled={busy} onClick={run}>{busy ? 'Crediting…' : 'Run crediting now'}</button>}
       </div>
+      <LastRun run={lastRun.run} summary={d => `${Number(d.creditsAdded ?? 0)} balance(s) credited for ${d.year ?? ''}, ${Number(d.employeesChecked ?? 0)} checked`} />
     </div>
   );
 }
@@ -884,6 +916,7 @@ function CarryForwardRow({ type, token, canConfigure, onSaved }: { type: LeaveTy
 }
 
 function YearEndProcessing({ token, canConfigure }: { token: string; canConfigure: boolean }) {
+  const lastRun = useLastRun(token, 'yearEnd');
   const { showToast } = useToast();
   const [fromYear, setFromYear] = useState(CURRENT_YEAR - 1);
   const [rows, setRows] = useState<CarryForwardTransfer[] | null>(null);
@@ -902,7 +935,8 @@ function YearEndProcessing({ token, canConfigure }: { token: string; canConfigur
     try {
       const r = await leaveConfigApi.runYearEnd(fromYear, token);
       showToast(r.failures > 0 ? 'error' : 'success',
-        `${r.transfersCreated} transfer(s) recorded, ${r.expiriesUpdated} expiry update(s)${r.failures > 0 ? `, ${r.failures} failed — run again to retry` : ''}`);
+        `${r.transfersCreated} transfer(s) recorded, ${r.expiriesUpdated} expiry update(s)${r.failures > 0 ? `, ${r.failures} failed (${(r.failedEmployees ?? []).join(', ')}) — run again to retry` : ''}`);
+      lastRun.reload();
       await load();
     } catch (e) {
       setError(errMsg(e));
@@ -928,6 +962,7 @@ function YearEndProcessing({ token, canConfigure }: { token: string; canConfigur
         </div>
         {canConfigure && <button style={primaryBtn(busy)} disabled={busy} onClick={run}>{busy ? 'Processing…' : 'Run now'}</button>}
       </div>
+      <LastRun run={lastRun.run} summary={d => `${d.fromYear ?? ''} → ${Number(d.fromYear ?? 0) + 1}: ${Number(d.transfersCreated ?? 0)} transfer(s), ${Number(d.expiriesUpdated ?? 0)} expiry update(s)`} />
       <FormError error={error} />
       {rows && (
         <>
