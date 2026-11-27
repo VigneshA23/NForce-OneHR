@@ -42,6 +42,8 @@ class LeaveYearEndNoticeServiceTest {
     @Mock private AuditLogRepository auditLogRepo;
 
     private LeaveYearEndNoticeService service;
+    /** LV-01: Paid Leave's carry-forward rules come from the employee's plan. */
+    private final TestLeavePlans plans = new TestLeavePlans();
     private final UUID alice = UUID.randomUUID();
     private final UUID bob = UUID.randomUUID();
     private final UUID manager = UUID.randomUUID();
@@ -50,14 +52,14 @@ class LeaveYearEndNoticeServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new LeaveYearEndNoticeService(balances, typeRepo, employeeRepo, historyRepo, notifications, email, audit,
+        service = new LeaveYearEndNoticeService(balances, plans.service(), employeeRepo, historyRepo, notifications, email, audit,
                 new AuditSnapshotSerializer(new ObjectMapper()), auditLogRepo,
                 true, true, "12-01,12-15", "12-01", "01-01", new BigDecimal("5"));
         lenient().when(employeeRepo.findActiveNoticeRecipients()).thenReturn(List.of(
                 new Object[]{alice, "Alice", "alice@test.com"}, new Object[]{bob, "Bob", "bob@test.com"},
                 new Object[]{manager, "Mona", "mona@test.com"}));
         lenient().when(auditLogRepo.findByActionInOrderByOccurredAtDesc(any(), any())).thenReturn(List.of());
-        lenient().when(typeRepo.findAll()).thenReturn(List.of(paid));
+        plans.with(paid, "15").carryForward(paid, true, "5", 3, LeaveType.CF_FIRST);
         lenient().when(email.sendLeaveNoticeEmail(any(), any(), any(), any(), any(), any())).thenReturn(CompletableFuture.completedFuture(true));
     }
 
@@ -86,8 +88,10 @@ class LeaveYearEndNoticeServiceTest {
 
     @Test
     void lapseIsTheWording_whenCarryForwardIsOff() {
-        LeaveType lapsing = LeaveType.builder().name("Paid Leave").carryForwardEnabled(false).build();
-        assertEquals("unused days lapse", LeaveYearEndNoticeService.policyText(lapsing, 2026));
+        assertEquals("unused days lapse", LeaveYearEndNoticeService.policyText(null, 2026)); // not in the plan
+        plans.carryForward(paid, false, null, null, LeaveType.CF_FIRST);
+        assertEquals("unused days lapse", LeaveYearEndNoticeService.policyText(
+                plans.catalog().ruleFor(alice, paid.getId(), LocalDate.of(2026, 12, 31)).orElseThrow(), 2026));
     }
 
     @Test

@@ -1,0 +1,91 @@
+package com.nforce.onehr.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+/**
+ * LV-01: a Leave Plan bundles leave types with their own rules ({@link LeavePlanVersion},
+ * {@link LeavePlanTypeRule}) and is assigned to employees ({@link LeavePlanAllocation}, assignment
+ * rules, or the org default). Every employee has exactly one plan on any date.
+ */
+@Entity
+@Table(name = "leave_plans")
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+public class LeavePlan {
+
+    public static final String ACTIVE = "ACTIVE";
+    public static final String INACTIVE = "INACTIVE";
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @Column(nullable = false, length = 100)
+    private String name;
+
+    @Column(length = 500)
+    private String description;
+
+    /** 1 = January. Only January is allowed for now (DB check); stored so plans are ready for other months. */
+    @Column(name = "leave_year_start_month", nullable = false)
+    @Builder.Default
+    private Integer leaveYearStartMonth = 1;
+
+    @Column(nullable = false, length = 10)
+    @Builder.Default
+    private String status = ACTIVE;
+
+    @Column(name = "is_org_default", nullable = false)
+    @Builder.Default
+    private boolean orgDefault = false;
+
+    // ── LV-04: proration of a part-year entitlement ──
+
+    public static final String PRORATE_MONTHS = "MONTHS";
+    public static final String PRORATE_CALENDAR_DAYS = "CALENDAR_DAYS";
+    public static final String ROUND_NEAREST_HALF = "NEAREST_HALF";
+    public static final String ROUND_DOWN_HALF = "DOWN_HALF";
+    public static final String ROUND_UP_HALF = "UP_HALF";
+    public static final String ROUND_NONE = "NONE";
+
+    /** MONTHS or CALENDAR_DAYS. */
+    @Column(name = "proration_method", nullable = false, length = 14)
+    @Builder.Default
+    private String prorationMethod = PRORATE_MONTHS;
+
+    /** MONTHS: joining on/before this day counts the joining month, leaving on/after it the exit month; null = always. */
+    @Column(name = "proration_cutoff_day")
+    private Integer prorationCutoffDay;
+
+    /** NEAREST_HALF, DOWN_HALF, UP_HALF or NONE. */
+    @Column(name = "proration_rounding", nullable = false, length = 12)
+    @Builder.Default
+    private String prorationRounding = ROUND_NEAREST_HALF;
+
+    @Column(name = "created_by")
+    private UUID createdBy;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        updatedAt = createdAt;
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+
+    public boolean isActive() {
+        return ACTIVE.equals(status);
+    }
+}

@@ -81,6 +81,9 @@ public enum AuditActionCategory {
             "EXPENSE_FINAL_APPROVED", "EXPENSE_FINAL_REJECTED", "EXPENSE_MARKED_PAID",
             // LeaveService — LEAVE_REQUEST_SUBMITTED (self-submitted) intentionally omitted
             "LEAVE_REQUEST_APPROVED", "LEAVE_REQUEST_REJECTED",
+            // LV-07: a pending request's day count changed because the adjacent request it was
+            // sandwiched with was rejected (a side effect of the approver's decision).
+            "LEAVE_REQUEST_RECALCULATED",
             // RegularizationService — REGULARIZATION_REQUESTED/UPDATED (self-submitted/self-edit)
             // intentionally omitted
             "REGULARIZATION_APPROVED", "REGULARIZATION_REJECTED",
@@ -94,6 +97,15 @@ public enum AuditActionCategory {
             // LeaveTypeService — Organization Masters > Leave configuration changes, same
             // treatment as PenalizationPolicyService above.
             "LEAVE_TYPE_CREATED", "LEAVE_TYPE_UPDATED",
+            // LeavePlanService / LeavePlanAllocationService — LV-01 leave plans and who is on them,
+            // same treatment (all plan changes must reach the audit trail).
+            "LEAVE_PLAN_CREATED", "LEAVE_PLAN_UPDATED", "LEAVE_PLAN_CLONED", "LEAVE_PLAN_STATUS_CHANGED",
+            "LEAVE_PLAN_SET_AS_DEFAULT", "LEAVE_PLAN_DELETED", "LEAVE_PLAN_VERSION_SAVED",
+            "LEAVE_PLAN_ALLOCATION_ASSIGNED", "LEAVE_PLAN_ALLOCATION_UPDATED", "LEAVE_PLAN_ALLOCATION_REMOVED",
+            "LEAVE_PLAN_ALLOCATION_BULK_ASSIGNED", "LEAVE_PLAN_ALLOCATION_BULK_REMOVED",
+            // LeaveYearEndWizardService — LV-05 closing a leave year, HR's adjustments and rollbacks.
+            "LEAVE_YEAR_END_RUN_PREVIEWED", "LEAVE_YEAR_END_LINE_ADJUSTED", "LEAVE_YEAR_END_RUN_CONFIRMED",
+            "LEAVE_YEAR_END_RUN_ROLLED_BACK",
             // SalaryStructureService — Payroll Epic (ONEHR-579) US-C01: defining a Salary
             // Structure template is HR configuration, not a self-submitted request, same
             // treatment as LeaveTypeService above.

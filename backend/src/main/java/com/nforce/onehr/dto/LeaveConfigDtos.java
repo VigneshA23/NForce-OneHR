@@ -46,16 +46,62 @@ public final class LeaveConfigDtos {
     public record CarryForwardTransferResponse(UUID id, UUID employeeUserId, String employeeName, String employeeCode,
                                                String leaveTypeCode, String leaveTypeName, Integer fromYear,
                                                BigDecimal unusedDays, BigDecimal carriedDays, BigDecimal lapsedDays,
-                                               LocalDate expiresOn, LocalDateTime processedAt, LocalDateTime updatedAt) {}
+                                               LocalDate expiresOn, LocalDateTime processedAt, LocalDateTime updatedAt,
+                                               BigDecimal encashedDays) {}
+
+    // ── LV-05: year-end wizard ──
+
+    public record StartYearEndRequest(@NotNull @Min(2000) @Max(2100) Integer fromYear) {}
+
+    /** HR's split of one line's closing days: carry + encash ≤ closing, the rest lapses. */
+    public record AdjustYearEndLineRequest(@NotNull @DecimalMin("0") @DecimalMax("999") BigDecimal carryDays,
+                                           @NotNull @DecimalMin("0") @DecimalMax("999") BigDecimal encashDays) {}
+
+    /**
+     * A year-end run and its totals. {@code rollbackUntil}: the last moment a confirmed run can be rolled back
+     * ({@code canRollback} also needs nothing to have been used or paid since).
+     */
+    public record YearEndRunSummary(UUID id, int fromYear, String status, String createdByName, LocalDateTime createdAt,
+                                    String confirmedByName, LocalDateTime confirmedAt, LocalDateTime rollbackUntil,
+                                    String rolledBackByName, LocalDateTime rolledBackAt, int lines, int adjustedLines,
+                                    BigDecimal closingDays, BigDecimal carryDays, BigDecimal encashDays, BigDecimal lapseDays,
+                                    BigDecimal encashAmount) {}
+
+    /** {@code encashmentStatus}: PENDING / ADDED / CANCELLED once confirmed (null before, or nothing to pay). */
+    public record YearEndRunLineDto(UUID id, UUID employeeUserId, String employeeName, String employeeCode, UUID leaveTypeId,
+                                    String leaveTypeName, BigDecimal closingDays, BigDecimal suggestedCarry,
+                                    BigDecimal suggestedEncash, BigDecimal carryDays, BigDecimal encashDays, BigDecimal lapseDays,
+                                    LocalDate expiresOn, String encashBasis, Integer encashDivisor, BigDecimal monthlyBase,
+                                    BigDecimal encashAmount, String note, boolean adjusted, String encashmentStatus) {}
+
+    /** {@code alreadyClosed}: balances of the year closed before LV-05 (by the nightly job), not part of the run. */
+    public record YearEndRunDetail(YearEndRunSummary run, List<YearEndRunLineDto> lines, int alreadyClosed, int leaversSkipped) {}
 
     /** Who a leave type applies to (V314). Empty lists = no restriction of that kind. */
+    /**
+     * Who a type in a plan applies to. LV-06: {@code maritalStatuses}, {@code grades} (designation grade); and,
+     * checked on the leave's start date, {@code minTenureMonths} of service and {@code allowedDuringProbation}
+     * (null = true). Hand-picked includes bypass every condition; excludes always win.
+     */
     public record EligibilityConfig(
             @Size(max = 10) List<String> genders,
             @Size(max = 500) List<String> departmentIds,
             @Size(max = 500) List<String> locationIds,
             @Size(max = 20) List<String> employmentTypes,
             @Size(max = 5000) List<UUID> includeEmployeeIds,
-            @Size(max = 5000) List<UUID> excludeEmployeeIds) {}
+            @Size(max = 5000) List<UUID> excludeEmployeeIds,
+            @Size(max = 10) List<String> maritalStatuses,
+            @Size(max = 100) List<String> grades,
+            @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(600) Integer minTenureMonths,
+            Boolean allowedDuringProbation) {
+
+        /** Without the LV-06 criteria. */
+        public EligibilityConfig(List<String> genders, List<String> departmentIds, List<String> locationIds,
+                                 List<String> employmentTypes, List<UUID> includeEmployeeIds, List<UUID> excludeEmployeeIds) {
+            this(genders, departmentIds, locationIds, employmentTypes, includeEmployeeIds, excludeEmployeeIds,
+                    null, null, null, null);
+        }
+    }
 
     public record EligibilityPreview(int eligibleCount, int totalCount) {}
 
@@ -64,7 +110,23 @@ public final class LeaveConfigDtos {
 
     /** {@code failedEmployees}: codes of the employees whose crediting failed (retried on the next run). */
     public record AccrualRunResult(Integer year, int employeesChecked, int creditsAdded, int failures,
-                                   List<String> failedEmployees) {}
+                                   List<String> failedEmployees, int creditsPaused) {
+
+        public AccrualRunResult(Integer year, int employeesChecked, int creditsAdded, int failures, List<String> failedEmployees) {
+            this(year, employeesChecked, creditsAdded, failures, failedEmployees, 0);
+        }
+    }
+
+    /**
+     * LV-03 dry run: one credit a run would post. {@code months} 1-12 credited together; {@code status} CREDIT, or
+     * PAUSED with {@code reason}.
+     */
+    public record AccrualPreviewLine(UUID employeeUserId, String employeeName, String employeeCode, UUID leaveTypeId,
+                                     String leaveTypeName, int year, List<Integer> months, BigDecimal days, LocalDate creditDate,
+                                     String frequency, String status, String reason) {}
+
+    /** {@code employees}: employees with something due; {@code creditDays}: days that would be credited (paused excluded). */
+    public record AccrualPreview(LocalDate asOf, int employees, BigDecimal creditDays, int paused, List<AccrualPreviewLine> lines) {}
 
     /** {@code failedEmployees}: codes of the employees whose carry-forward or expiry failed (retried on the next run). */
     public record YearEndRunResult(Integer fromYear, int balancesChecked, int transfersCreated,

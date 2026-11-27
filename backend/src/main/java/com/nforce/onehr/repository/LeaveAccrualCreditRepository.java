@@ -30,4 +30,12 @@ public interface LeaveAccrualCreditRepository extends JpaRepository<LeaveAccrual
             + "ON CONFLICT (employee_user_id, leave_type_id, year, month) DO NOTHING", nativeQuery = true)
     int insertIfAbsent(@Param("id") UUID id, @Param("employeeUserId") UUID employeeUserId, @Param("leaveTypeId") UUID leaveTypeId,
                        @Param("year") Integer year, @Param("month") Integer month, @Param("days") BigDecimal days);
+
+    /** LV-03: a month whose credit is withheld (accrual paused) — a 0-day PAUSED row; 1 when this call created it. */
+    @Modifying
+    @Query(value = "INSERT INTO leave_accrual_credits (id, employee_user_id, leave_type_id, year, month, days, source, credited_at, updated_at) "
+            + "VALUES (:id, :employeeUserId, :leaveTypeId, :year, :month, 0, 'PAUSED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
+            + "ON CONFLICT (employee_user_id, leave_type_id, year, month) DO NOTHING", nativeQuery = true)
+    int insertPausedIfAbsent(@Param("id") UUID id, @Param("employeeUserId") UUID employeeUserId, @Param("leaveTypeId") UUID leaveTypeId,
+                             @Param("year") Integer year, @Param("month") Integer month);
 }

@@ -20,6 +20,8 @@ public class LeaveAccrualCredit {
 
     public static final String SOURCE_ACCRUAL = "ACCRUAL";
     public static final String SOURCE_MIGRATION = "MIGRATION";
+    /** LV-03: the month's credit was withheld (accrual paused for loss of pay / unpaid leave); 0 days. */
+    public static final String SOURCE_PAUSED = "PAUSED";
 
     @Id
     private UUID id;

@@ -17,8 +17,35 @@ export type LeaveTypeClassification = 'PAID' | 'UNPAID';
 /** ANNUAL = a yearly balance; PER_OCCURRENCE = e.g. Maternity, per eligible occurrence; UNLIMITED = unpaid. */
 export type EntitlementBasis = 'ANNUAL' | 'PER_OCCURRENCE' | 'UNLIMITED';
 export type CarryForwardPriority = 'CARRY_FORWARD_FIRST' | 'CURRENT_FIRST';
-/** YEARLY = the whole quota at once on 1 January; MONTHLY = quota / 12 on the 1st of each month. */
-export type CreditFrequency = 'YEARLY' | 'MONTHLY';
+/**
+ * YEARLY = the whole quota at once; HALF_YEARLY / QUARTERLY = six / three months' share together; MONTHLY = quota / 12
+ * each month. When in the period it arrives is the plan's {@link CreditTiming} (LV-03).
+ */
+export type CreditFrequency = 'YEARLY' | 'HALF_YEARLY' | 'QUARTERLY' | 'MONTHLY';
+/** LV-03: START = on the period's first day; END = once the period is over. */
+export type CreditTiming = 'START' | 'END';
+
+/**
+ * LV-05: year-end settings of a regular paid type. Carry up to the max days and/or percent of the unused days, expiring
+ * on a fixed date of the next year (month/day) or after N months; then encash up to encashMaxDays (null = all the rest)
+ * at days × monthly Basic (or Basic + DA) ÷ 26 or 30; the rest lapses.
+ */
+export interface PlanYearEndSettings {
+  carryForwardMaxPercent: number | null;
+  carryForwardExpiryMonth: number | null;
+  carryForwardExpiryDay: number | null;
+  encashEnabled: boolean;
+  encashMaxDays: number | null;
+  encashBasis: 'BASIC' | 'BASIC_DA';
+  encashDivisor: 26 | 30;
+}
+
+/** LV-03: when a period's days are credited and when they are withheld (null limits = never paused). */
+export interface PlanAccrualSettings {
+  timing: CreditTiming;
+  pauseLopOverDays: number | null;
+  pauseUnpaidOverDays: number | null;
+}
 
 /** Who a leave type applies to. Empty lists = no restriction of that kind. */
 export interface EligibilityConfig {
@@ -28,6 +55,14 @@ export interface EligibilityConfig {
   employmentTypes: string[];
   includeEmployeeIds: string[];
   excludeEmployeeIds: string[];
+  /** LV-06: e.g. "Married" (as on the employee profile). */
+  maritalStatuses?: string[];
+  /** LV-06: the grade of the employee's designation. */
+  grades?: string[];
+  /** LV-06: months of service needed, checked on the leave's start date; null = none. */
+  minTenureMonths?: number | null;
+  /** LV-06: false = not while on probation (credits held until then). Missing = true. */
+  allowedDuringProbation?: boolean;
 }
 
 export interface LeaveType {
@@ -41,15 +76,61 @@ export interface LeaveType {
   systemKey?: 'PAID' | 'UNPAID' | null;
   // Filled only by the Leave Configuration listing (leaveConfigApi.listTypes).
   occurrenceWindowMonths?: number | null;
-  currentEntitlementDays?: number | null;
-  currentCreditFrequency?: CreditFrequency | null;
-  eligibility?: EligibilityConfig | null;
-  carryForwardEnabled?: boolean;
-  carryForwardMaxDays?: number | null;
-  carryForwardExpiryMonths?: number | null;
-  carryForwardPriority?: CarryForwardPriority;
+  /** LV-01: the leave plans that include this type (quotas and rules live there); empty = nobody can use it. */
+  planNames?: string[];
   /** Records still using the type: above zero means deactivate, not delete. */
   referenceCount?: number;
+  /** LV-02, listMyTypes only: the caller's plan rules for this type (null = no limits). */
+  rules?: LeaveRuleSummary | null;
+  /** LV-06, listMyTypes only: held back today by tenure or probation — the first day it can be taken (null = unknown). */
+  availableFrom?: string | null;
+  /** LV-06: why it is held back. */
+  availabilityNote?: string | null;
+}
+
+/** LV-02: QUOTA = the plan's days; UNLIMITED = paid, nothing deducted; EARNED_ONLY = only what HR credits. */
+export type EntitlementMode = 'QUOTA' | 'UNLIMITED' | 'EARNED_ONLY';
+
+/** LV-02: a type's rules as the apply form shows them. Null numbers = no limit. */
+export interface LeaveRuleSummary {
+  entitlementMode: EntitlementMode;
+  minDaysPerRequest: number | null;
+  maxDaysPerRequest: number | null;
+  maxRequestsPerMonth: number | null;
+  maxRequestsPerYear: number | null;
+  maxConsecutiveDays: number | null;
+  noticeDays: number | null;
+  noticeAppliesOverDays: number | null;
+  allowHalfDay: boolean;
+  allowHourly: boolean;
+  minHours: number | null;
+  attachmentRequiredOverDays: number | null;
+  /** Lower-case extensions, e.g. ["pdf", "jpg"]; empty = any file. */
+  attachmentAllowedTypes: string[];
+  attachmentMaxMb: number | null;
+  /** Leave types that can't be taken directly before or after this one. */
+  notNextTo: string[];
+  hoursPerDay: number;
+  /** LV-07: weekly offs / holidays between leave days count as leave. */
+  sandwichEnabled: boolean;
+  sandwichAppliesTo: SandwichAppliesTo;
+  sandwichMinDays: number | null;
+  sandwichAcrossRequests: boolean;
+}
+
+export type SandwichAppliesTo = 'HOLIDAYS' | 'WEEK_OFFS' | 'BOTH';
+
+/** LV-07: what an unsaved request would take (POST /requests/preview). Only `problem` is set when the dates can't be counted. */
+export interface LeavePreview {
+  totalDays: number | null;
+  workingDays: number | null;
+  sandwichedDays: number | null;
+  /** "4 days: 2 working + 2 sandwiched" */
+  summary: string | null;
+  daysByYear: Record<string, number>;
+  days: { date: string; kind: 'WORKING' | 'SANDWICHED' | 'WEEKLY_OFF' | 'HOLIDAY'; days: number; note: string | null }[];
+  /** The first reason it would be refused (dates, a plan rule, the balance), else null. */
+  problem: string | null;
 }
 
 export interface CreateLeaveTypePayload {
@@ -57,18 +138,15 @@ export interface CreateLeaveTypePayload {
   name: string;
   classification: LeaveTypeClassification;
   entitlementBasis?: 'ANNUAL' | 'PER_OCCURRENCE';
-  entitlementDays?: number;
-  creditFrequency?: CreditFrequency;
   occurrenceWindowMonths?: number;
 }
 
 export interface UpdateLeaveTypePayload {
   name?: string;
+  /** Only while nothing uses the type yet. */
   classification?: LeaveTypeClassification;
   entitlementBasis?: 'ANNUAL' | 'PER_OCCURRENCE';
   occurrenceWindowMonths?: number;
-  /** Only used when an unpaid type becomes paid and has no entitlement yet. */
-  entitlementDays?: number;
 }
 
 export interface LeaveBalance {
@@ -127,6 +205,13 @@ export interface LeaveRequestRecord {
   halfDay: boolean;
   halfDaySession: 'FIRST_HALF' | 'SECOND_HALF' | null;
   totalDays: number;
+  /** LV-07: weekly offs / holidays included in totalDays by the sandwich rule. */
+  sandwichedDays?: number | null;
+  durationType?: 'FULL_DAY' | 'HALF_DAY' | 'HOURLY' | 'QUARTER_DAY';
+  /** LV-02: hours of an hourly request. */
+  hours?: number | null;
+  /** LV-02: the attached file's name (download with leaveApi.downloadAttachment); null = none. */
+  attachmentName?: string | null;
   /** Leave year -> days, only for a request spanning two leave years (each part uses its own year's balance). */
   daysByYear?: Record<string, number> | null;
   /** PENALIZED = read-only row synthesized from an attendance penalty's leave deduction (own requests only). */
@@ -144,7 +229,18 @@ export interface SubmitLeaveRequestPayload {
   endDate: string;
   halfDay: boolean;
   halfDaySession?: 'FIRST_HALF' | 'SECOND_HALF';
+  /** LV-02: hours on a single day (hourly leave); omit for a full or half day. */
+  hours?: number | null;
   reason: string;
+}
+
+/** JSON alone, or multipart ("request" JSON part + "attachment" file) when there is a file. */
+function requestInit(method: string, payload: SubmitLeaveRequestPayload, token: string, file?: File | null): RequestInit {
+  if (!file) return { method, headers: authHeaders(token), body: JSON.stringify(payload) };
+  const form = new FormData();
+  form.append('request', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+  form.append('attachment', file);
+  return { method, headers: { Authorization: `Bearer ${token}` }, body: form };
 }
 
 export const leaveApi = {
@@ -164,12 +260,30 @@ export const leaveApi = {
   listTeamBalances: (token: string, year?: number) =>
     fetch(`${BASE}/balances/team${year != null ? `?year=${year}` : ''}`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
 
-  submit: (payload: SubmitLeaveRequestPayload, token: string) =>
-    fetch(`${BASE}/requests`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),
+  submit: (payload: SubmitLeaveRequestPayload, token: string, file?: File | null) =>
+    fetch(`${BASE}/requests`, requestInit('POST', payload, token, file)).then(handle<LeaveRequestRecord>),
 
-  /** Edit a still-pending request — own requests only, PENDING status only (server-enforced). */
-  update: (id: string, payload: SubmitLeaveRequestPayload, token: string) =>
-    fetch(`${BASE}/requests/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),
+  /** Edit a still-pending request — own requests only, PENDING status only (server-enforced). A file replaces the attachment. */
+  update: (id: string, payload: SubmitLeaveRequestPayload, token: string, file?: File | null) =>
+    fetch(`${BASE}/requests/${id}`, requestInit('PATCH', payload, token, file)).then(handle<LeaveRequestRecord>),
+
+  /** LV-07: the day count and first problem of an unsaved request; `editingId` = the own pending request being edited. */
+  preview: (payload: Omit<SubmitLeaveRequestPayload, 'reason'> & { reason?: string }, token: string, editingId?: string) =>
+    fetch(`${BASE}/requests/preview${editingId ? `?editing=${editingId}` : ''}`, {
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload),
+    }).then(handle<LeavePreview>),
+
+  /** LV-02: the request's attachment as a file download (the requester, or whoever may decide it). */
+  downloadAttachment: async (id: string, fileName: string, token: string) => {
+    const res = await fetch(`${BASE}/requests/${id}/attachment`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) await handle(res);
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 
   listMine: (token: string) =>
     fetch(`${BASE}/requests/mine`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
@@ -200,20 +314,170 @@ export const leaveApi = {
 
 const CONFIG = `${API_ORIGIN}/api/leave-config`;
 
-export interface EntitlementPolicy {
+// ── LV-01 Leave Plans ──
+
+export interface LeavePlanSummary {
   id: string;
-  effectiveYear: number;
-  days: number;
-  creditFrequency: CreditFrequency;
+  name: string;
+  description: string | null;
+  leaveYearStartMonth: number;
+  status: 'ACTIVE' | 'INACTIVE';
+  orgDefault: boolean;
+  currentVersion: number | null;
+  currentVersionFrom: string | null;
+  leaveTypeCount: number;
+  /** Employees on the plan today (allocation, rule or default). */
+  employeeCount: number;
+  updatedAt: string;
+  /** LV-04: how a part-year entitlement is prorated. */
+  proration: PlanProration;
+}
+
+/**
+ * LV-04: MONTHS (whole months; with a cut-off day, joining after it skips the joining month and leaving before it
+ * skips the exit month) or CALENDAR_DAYS (the days served in those months); then rounded to a half day.
+ */
+export interface PlanProration {
+  method: 'MONTHS' | 'CALENDAR_DAYS';
+  cutoffDay: number | null;
+  rounding: 'NEAREST_HALF' | 'DOWN_HALF' | 'UP_HALF' | 'NONE';
+}
+
+/** LV-04: a leaver's regular paid leave for the leave year of their last working day. */
+export interface ExitSettlement {
+  employeeUserId: string;
+  employeeName: string;
+  employeeCode: string | null;
+  lastWorkingDay: string;
+  leaveTypeId: string;
+  leaveTypeName: string;
+  year: number;
+  entitledDays: number;
+  carriedForwardDays: number;
+  usedDays: number;
+  encashableDays: number;
+  /** Leave taken beyond the entitlement, to recover in the final settlement. */
+  recoveryDays: number;
+  computedAt: string;
+}
+
+export interface LeavePlanVersionSummary {
+  id: string;
+  version: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  status: 'PAST' | 'CURRENT' | 'SCHEDULED';
   createdByName: string;
   createdAt: string;
 }
 
-export interface CarryForwardSettings {
-  enabled: boolean;
-  maxDays: number | null;
-  expiryMonths: number | null;
-  priority: CarryForwardPriority;
+export interface LeavePlanDetail {
+  plan: LeavePlanSummary;
+  versions: LeavePlanVersionSummary[];
+}
+
+/** One leave type inside a plan version. */
+export interface PlanTypeRule {
+  leaveTypeId: string;
+  leaveTypeCode: string;
+  leaveTypeName: string;
+  classification: LeaveTypeClassification;
+  entitlementBasis: EntitlementBasis;
+  leaveTypeActive: boolean;
+  days: number | null;
+  creditFrequency: CreditFrequency | null;
+  carryForwardEnabled: boolean;
+  carryForwardMaxDays: number | null;
+  carryForwardExpiryMonths: number | null;
+  carryForwardPriority: CarryForwardPriority;
+  eligibility: EligibilityConfig;
+  limits: PlanRuleLimits;
+  /** Regular paid (annual) types only; null for others. */
+  accrual?: PlanAccrualSettings | null;
+  yearEnd?: PlanYearEndSettings | null;
+}
+
+/** LV-02: how a type may be requested under a plan. Null numbers = no limit. */
+export interface PlanRuleLimits {
+  entitlementMode: EntitlementMode;
+  minDaysPerRequest: number | null;
+  maxDaysPerRequest: number | null;
+  maxRequestsPerMonth: number | null;
+  maxRequestsPerYear: number | null;
+  maxConsecutiveDays: number | null;
+  noticeDays: number | null;
+  noticeAppliesOverDays: number | null;
+  allowHalfDay: boolean;
+  allowHourly: boolean;
+  minHours: number | null;
+  attachmentRequiredOverDays: number | null;
+  /** Comma-separated extensions, e.g. "pdf,jpg"; blank = any. */
+  attachmentAllowedTypes: string | null;
+  attachmentMaxMb: number | null;
+  /** Leave type ids that can't be taken directly before or after this type. */
+  notNextToTypeIds: string[];
+  /** LV-07 sandwich rule. */
+  sandwichEnabled: boolean;
+  sandwichAppliesTo: SandwichAppliesTo;
+  sandwichMinDays: number | null;
+  sandwichAcrossRequests: boolean;
+}
+
+export interface LeavePlanVersionDetail {
+  planId: string;
+  planName: string;
+  version: LeavePlanVersionSummary;
+  rules: PlanTypeRule[];
+}
+
+/** What the plan editor sends for one leave type. */
+export interface PlanTypeRulePayload {
+  leaveTypeId: string;
+  days?: number | null;
+  creditFrequency?: CreditFrequency | null;
+  carryForwardEnabled: boolean;
+  carryForwardMaxDays?: number | null;
+  carryForwardExpiryMonths?: number | null;
+  carryForwardPriority?: CarryForwardPriority;
+  eligibility?: EligibilityConfig;
+  limits?: PlanRuleLimits;
+  accrual?: PlanAccrualSettings | null;
+  yearEnd?: PlanYearEndSettings | null;
+}
+
+export type PlanSource = 'ALLOCATION' | 'RULE' | 'DEFAULT';
+
+export interface PlanAllocation {
+  id: string;
+  employeeUserId: string;
+  planId: string;
+  planName: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  status: 'CURRENT' | 'FUTURE' | 'HISTORICAL';
+  createdAt: string;
+}
+
+export interface EmployeePlanRow {
+  employeeUserId: string;
+  employeeCode: string | null;
+  fullName: string;
+  active: boolean;
+  departmentId: string | null;
+  departmentName: string | null;
+  locationId: string | null;
+  locationName: string | null;
+  planId: string | null;
+  planName: string | null;
+  source: PlanSource | null;
+  ruleName: string | null;
+  currentAllocation: PlanAllocation | null;
+  upcomingAllocation: PlanAllocation | null;
+}
+
+export interface BulkResult {
+  succeededIds: string[];
+  failed: { employeeUserId: string; reason: string }[];
 }
 
 export interface CarryForwardTransfer {
@@ -230,6 +494,65 @@ export interface CarryForwardTransfer {
   expiresOn: string | null;
   processedAt: string;
   updatedAt: string;
+  /** LV-05: days paid out at year-end. */
+  encashedDays?: number | null;
+}
+
+/** LV-05: a year-end wizard run. */
+export type YearEndRunStatus = 'PREVIEW' | 'CONFIRMED' | 'ROLLED_BACK';
+
+export interface YearEndRunSummary {
+  id: string;
+  fromYear: number;
+  status: YearEndRunStatus;
+  createdByName: string | null;
+  createdAt: string;
+  confirmedByName: string | null;
+  confirmedAt: string | null;
+  /** Confirmed runs: the last moment a rollback is allowed. */
+  rollbackUntil: string | null;
+  rolledBackByName: string | null;
+  rolledBackAt: string | null;
+  lines: number;
+  adjustedLines: number;
+  closingDays: number;
+  carryDays: number;
+  encashDays: number;
+  lapseDays: number;
+  encashAmount: number;
+}
+
+export interface YearEndRunLine {
+  id: string;
+  employeeUserId: string;
+  employeeName: string;
+  employeeCode: string | null;
+  leaveTypeId: string;
+  leaveTypeName: string;
+  closingDays: number;
+  suggestedCarry: number;
+  suggestedEncash: number;
+  carryDays: number;
+  encashDays: number;
+  lapseDays: number;
+  expiresOn: string | null;
+  encashBasis: 'BASIC' | 'BASIC_DA' | null;
+  encashDivisor: number | null;
+  monthlyBase: number | null;
+  encashAmount: number | null;
+  note: string | null;
+  adjusted: boolean;
+  /** Once confirmed: PENDING (waiting for payroll), ADDED (in a payroll draft) or CANCELLED. */
+  encashmentStatus: 'PENDING' | 'ADDED' | 'CANCELLED' | null;
+}
+
+export interface YearEndRunDetail {
+  run: YearEndRunSummary;
+  lines: YearEndRunLine[];
+  /** Balances closed before LV-05 by the nightly job, not part of the run. */
+  alreadyClosed: number;
+  /** Employees whose last working day is in the year: settled by their exit instead. */
+  leaversSkipped: number;
 }
 
 export interface YearEndRunResult {
@@ -249,6 +572,34 @@ export interface AccrualRunResult {
   failures: number;
   /** Codes of the employees that failed (retried on the next run). */
   failedEmployees?: string[];
+  /** LV-03: months withheld (accrual paused for loss of pay / unpaid leave). */
+  creditsPaused?: number;
+}
+
+/** LV-03 dry run: one credit a run would post. */
+export interface AccrualPreviewLine {
+  employeeUserId: string;
+  employeeName: string | null;
+  employeeCode: string | null;
+  leaveTypeId: string;
+  leaveTypeName: string;
+  year: number;
+  /** Months 1-12 credited together. */
+  months: number[];
+  days: number;
+  creditDate: string;
+  frequency: CreditFrequency;
+  status: 'CREDIT' | 'PAUSED';
+  reason: string | null;
+}
+
+export interface AccrualPreview {
+  asOf: string;
+  employees: number;
+  /** Days that would be credited (paused credits excluded). */
+  creditDays: number;
+  paused: number;
+  lines: AccrualPreviewLine[];
 }
 
 /** YE-02: one employee x leave type row of the opening-balance template. */
@@ -307,7 +658,8 @@ export interface AccrualCredit {
   month: number;
   days: number;
   /** ACCRUAL = a real credit; MIGRATION = a month covered by a balance from before crediting existed. */
-  source: 'ACCRUAL' | 'MIGRATION';
+  /** PAUSED (LV-03): the month's credit was withheld for loss of pay / unpaid leave; 0 days. */
+  source: 'ACCRUAL' | 'MIGRATION' | 'PAUSED';
   creditedAt: string;
 }
 
@@ -328,26 +680,31 @@ export const leaveConfigApi = {
   setActive: (id: string, active: boolean, token: string) => send<LeaveType>('PATCH', `${CONFIG}/types/${id}/active`, token, { active }),
   deleteType: (id: string, token: string) => send<void>('DELETE', `${CONFIG}/types/${id}`, token),
 
-  listEntitlements: (id: string, token: string) => send<EntitlementPolicy[]>('GET', `${CONFIG}/types/${id}/entitlements`, token),
-  changeEntitlement: (id: string, payload: { effectiveYear: number; days: number; creditFrequency?: CreditFrequency; applyToExistingBalances: boolean }, token: string) =>
-    send<EntitlementPolicy[]>('POST', `${CONFIG}/types/${id}/entitlements`, token, payload),
-
-  updateEligibility: (id: string, config: EligibilityConfig, token: string) =>
-    send<LeaveType>('PUT', `${CONFIG}/types/${id}/eligibility`, token, config),
   previewEligibility: (config: EligibilityConfig, token: string) =>
     send<{ eligibleCount: number; totalCount: number }>('POST', `${CONFIG}/types/eligibility-preview`, token, config),
 
   runAccrual: (token: string) => send<AccrualRunResult>('POST', `${CONFIG}/accrual/run`, token),
+  /** LV-03 dry run: what crediting on asOf (default today) would post; writes nothing. */
+  previewAccrual: (token: string, asOf?: string) =>
+    send<AccrualPreview>('GET', `${CONFIG}/accrual/preview${asOf ? `?asOf=${asOf}` : ''}`, token),
   /** Last run of the crediting ("accrual") and year-end ("yearEnd") jobs; a job that never ran is absent. */
   jobs: (token: string) => send<Partial<Record<'accrual' | 'yearEnd', LeaveJobRun>>>('GET', `${CONFIG}/jobs`, token),
   creditHistory: (balanceId: string, token: string) => send<AccrualCredit[]>('GET', `${CONFIG}/balances/${balanceId}/credits`, token),
 
-  updateCarryForward: (id: string, payload: CarryForwardSettings, token: string) =>
-    send<LeaveType>('PUT', `${CONFIG}/types/${id}/carry-forward`, token, payload),
   listTransfers: (fromYear: number, token: string) =>
     send<CarryForwardTransfer[]>('GET', `${CONFIG}/carry-forward/transfers?fromYear=${fromYear}`, token),
   runYearEnd: (fromYear: number, token: string) =>
     send<YearEndRunResult>('POST', `${CONFIG}/carry-forward/run?fromYear=${fromYear}`, token),
+  // LV-05: the year-end wizard
+  yearEndRuns: (fromYear: number, token: string) =>
+    send<YearEndRunSummary[]>('GET', `${CONFIG}/year-end/runs?fromYear=${fromYear}`, token),
+  yearEndRun: (runId: string, token: string) => send<YearEndRunDetail>('GET', `${CONFIG}/year-end/runs/${runId}`, token),
+  previewYearEnd: (fromYear: number, token: string) =>
+    send<YearEndRunDetail>('POST', `${CONFIG}/year-end/runs`, token, { fromYear }),
+  adjustYearEndLine: (runId: string, lineId: string, carryDays: number, encashDays: number, token: string) =>
+    send<YearEndRunLine>('PATCH', `${CONFIG}/year-end/runs/${runId}/lines/${lineId}`, token, { carryDays, encashDays }),
+  confirmYearEnd: (runId: string, token: string) => send<YearEndRunDetail>('POST', `${CONFIG}/year-end/runs/${runId}/confirm`, token),
+  rollbackYearEnd: (runId: string, token: string) => send<YearEndRunDetail>('POST', `${CONFIG}/year-end/runs/${runId}/rollback`, token),
 
   /** YE-02: opening-balance template rows (the browser builds the .xlsx), row-level validation and apply. */
   openingBalanceTemplate: (year: number, token: string) =>
@@ -362,4 +719,40 @@ export const leaveConfigApi = {
     send<LeaveBalance[]>('GET', `${CONFIG}/employees/${userId}/balances?year=${year}`, token),
   adjustBalance: (balanceId: string, payload: { entitlementDays: number; carriedForwardDays: number; reason: string }, token: string) =>
     send<LeaveBalance>('PATCH', `${CONFIG}/balances/${balanceId}`, token, payload),
+
+  // ── LV-01 Leave Plans ──
+  plans: (token: string) => send<LeavePlanSummary[]>('GET', `${CONFIG}/plans`, token),
+  plan: (id: string, token: string) => send<LeavePlanDetail>('GET', `${CONFIG}/plans/${id}`, token),
+  currentPlanVersion: (id: string, token: string) => send<LeavePlanVersionDetail>('GET', `${CONFIG}/plans/${id}/current-version`, token),
+  planVersion: (versionId: string, token: string) => send<LeavePlanVersionDetail>('GET', `${CONFIG}/plan-versions/${versionId}`, token),
+  createPlan: (payload: { name: string; description?: string; rules: PlanTypeRulePayload[]; proration?: PlanProration }, token: string) =>
+    send<LeavePlanDetail>('POST', `${CONFIG}/plans`, token, payload),
+  updatePlan: (id: string, payload: { name: string; description?: string; proration?: PlanProration }, token: string) =>
+    send<LeavePlanDetail>('PATCH', `${CONFIG}/plans/${id}`, token, payload),
+  /** LV-04: leavers with a last working day in [from, to] (default ±60 days). */
+  exitSettlements: (token: string, from?: string, to?: string) =>
+    send<ExitSettlement[]>('GET', `${CONFIG}/exit-settlements${from || to ? `?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) })}` : ''}`, token),
+  recomputeExitSettlement: (userId: string, token: string) =>
+    send<ExitSettlement[]>('POST', `${CONFIG}/exit-settlements/${userId}/recompute`, token),
+  savePlanVersion: (id: string, payload: { effectiveFrom: string; rules: PlanTypeRulePayload[]; recreditCredited: boolean }, token: string) =>
+    send<LeavePlanDetail>('POST', `${CONFIG}/plans/${id}/versions`, token, payload),
+  clonePlan: (id: string, name: string, token: string) => send<LeavePlanDetail>('POST', `${CONFIG}/plans/${id}/clone`, token, { name }),
+  setPlanActive: (id: string, active: boolean, token: string) => send<LeavePlanDetail>('PATCH', `${CONFIG}/plans/${id}/active`, token, { active }),
+  setDefaultPlan: (id: string, token: string) => send<LeavePlanDetail>('PATCH', `${CONFIG}/plans/${id}/default`, token),
+  deletePlan: (id: string, token: string) => send<void>('DELETE', `${CONFIG}/plans/${id}`, token),
+
+  planEmployees: (token: string) => send<EmployeePlanRow[]>('GET', `${CONFIG}/plan-allocations/employees`, token),
+  planEmployee: (userId: string, token: string) =>
+    send<{ row: EmployeePlanRow; history: PlanAllocation[] }>('GET', `${CONFIG}/plan-allocations/employees/${userId}`, token),
+  allocatePlan: (payload: { employeeUserId: string; planId: string; effectiveFrom: string; effectiveTo?: string | null }, token: string) =>
+    send<PlanAllocation>('POST', `${CONFIG}/plan-allocations`, token, payload),
+  updatePlanAllocation: (id: string, payload: { planId: string; effectiveFrom: string; effectiveTo?: string | null }, token: string) =>
+    send<PlanAllocation>('PUT', `${CONFIG}/plan-allocations/${id}`, token, payload),
+  removePlanAllocation: (id: string, token: string) => send<void>('DELETE', `${CONFIG}/plan-allocations/${id}`, token),
+  bulkAllocatePlan: (payload: { employeeUserIds: string[]; planId: string; effectiveFrom: string; effectiveTo?: string | null }, token: string) =>
+    send<BulkResult>('POST', `${CONFIG}/plan-allocations/bulk`, token, payload),
+  bulkRemovePlan: (employeeUserIds: string[], token: string) =>
+    send<BulkResult>('POST', `${CONFIG}/plan-allocations/bulk-remove`, token, { employeeUserIds }),
+  checkPlanConflicts: (payload: { employeeUserIds: string[]; effectiveFrom: string; effectiveTo?: string | null }, token: string) =>
+    send<Record<string, PlanAllocation>>('POST', `${CONFIG}/plan-allocations/check-conflicts`, token, payload),
 };

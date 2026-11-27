@@ -51,16 +51,20 @@ export function JoinersExitsTab({ runId }: { runId: string }) {
       <SectionHead title={`Exits (${exits.length})`} />
       <div style={panelStyle}>
         <table className="nf-pr-center nf-pr-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr>{['Employee', 'Last Working Day'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
+          <thead><tr>{['Employee', 'Last Working Day', 'Leave to Encash', 'Leave to Recover'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr></thead>
           <tbody>
             {exits.map(x => (
               <tr key={x.employeeId}>
                 <td style={tdStyle}><PersonCellById userId={x.employeeId} name={x.employeeName} /></td>
                 <td style={tdStyle}>{fmtDate(x.date)}</td>
+                <td style={tdStyle}>{x.leaveEncashableDays != null ? `${Number(x.leaveEncashableDays)} days` : '—'}</td>
+                <td style={{ ...tdStyle, color: (x.leaveRecoveryDays ?? 0) > 0 ? 'var(--risk)' : undefined, fontWeight: (x.leaveRecoveryDays ?? 0) > 0 ? 600 : undefined }}>
+                  {x.leaveRecoveryDays != null ? `${Number(x.leaveRecoveryDays)} days` : '—'}
+                </td>
               </tr>
             ))}
             {exits.length === 0 && (
-              <EmptyRow cols={2} msg={data.exits.length === 0 ? 'No exits this cycle.' : 'No matches for your search.'} />
+              <EmptyRow cols={4} msg={data.exits.length === 0 ? 'No exits this cycle.' : 'No matches for your search.'} />
             )}
           </tbody>
         </table>

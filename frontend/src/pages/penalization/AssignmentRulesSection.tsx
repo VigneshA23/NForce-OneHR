@@ -36,10 +36,17 @@ const btn = (primary = false): React.CSSProperties => ({
 });
 const iconBtn: React.CSSProperties = { background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 4, borderRadius: 5, display: 'inline-flex' };
 
-export default function AssignmentRulesSection({ token, domain = 'PENALIZATION', mock }: { token: string; domain?: AssignmentDomain; mock?: AssignmentRulesMock }) {
+/**
+ * {@code loadTargets} / {@code canEdit} / {@code noun} let another domain (LV-01 leave plans) reuse this
+ * screen; the defaults are the penalization policies.
+ */
+export default function AssignmentRulesSection({ token, domain = 'PENALIZATION', mock, loadTargets, canEdit: canEditProp, noun = 'policy' }: {
+  token: string; domain?: AssignmentDomain; mock?: AssignmentRulesMock;
+  loadTargets?: () => Promise<{ id: string; name: string }[]>; canEdit?: boolean; noun?: string;
+}) {
   const { showToast } = useToast();
   const can = useCan();
-  const canEdit = mock ? true : can('penalization', 'EDIT');
+  const canEdit = mock ? true : canEditProp ?? can('penalization', 'EDIT');
   const [rules, setRules] = useState<AssignmentRule[]>(mock?.rules ?? []);
   const [policies, setPolicies] = useState<{ id: string; name: string }[]>(mock?.policies ?? []);
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>(mock?.departments ?? []);
@@ -57,14 +64,16 @@ export default function AssignmentRulesSection({ token, domain = 'PENALIZATION',
     try {
       const [r, pol, dep, loc, sh, des] = await Promise.all([
         assignmentRulesApi.list(domain, token),
-        penalisationPoliciesApi.list(token) as Promise<PenalisationPolicySummary[]>,
+        loadTargets ? loadTargets()
+          : (penalisationPoliciesApi.list(token) as Promise<PenalisationPolicySummary[]>)
+              .then(list => list.filter(p => p.status === 'ACTIVE').map(p => ({ id: p.id, name: p.name }))),
         orgApi.listDepartments(token) as Promise<DepartmentRow[]>,
         orgApi.listLocations(token) as Promise<LocationRow[]>,
         orgApi.listShifts(token) as Promise<ShiftRow[]>,
         orgApi.listDesignations(token) as Promise<DesignationRow[]>,
       ]);
       setRules(r);
-      setPolicies(pol.filter(p => p.status === 'ACTIVE').map(p => ({ id: p.id, name: p.name })));
+      setPolicies(pol);
       setDepartments(dep.filter(d => d.active).map(d => ({ id: d.id, name: d.name })));
       setLocations(loc.filter(l => l.active).map(l => ({ id: l.id, name: l.name })));
       setShifts(sh.map(s => ({ id: s.id, name: s.name })));
@@ -117,7 +126,7 @@ export default function AssignmentRulesSection({ token, domain = 'PENALIZATION',
         <div style={{ maxWidth: 640 }}>
           <h2 style={{ margin: 0, fontSize: 14, color: 'var(--txt)' }}>Auto-assignment rules</h2>
           <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--txt-mut)', lineHeight: 1.5 }}>
-            Assign a policy automatically by department, location, shift, employment type or grade, so new joiners never need allocating by hand.
+            Assign a {noun} automatically by department, location, shift, employment type or grade, so new joiners never need allocating by hand.
             Rules are checked <b>top to bottom</b>; the first match wins. An <b>explicit employee allocation always overrides a rule</b>.
             Assignments re-evaluate whenever a rule or an employee's details change, and the effective dates are recorded.
           </p>
@@ -137,7 +146,7 @@ export default function AssignmentRulesSection({ token, domain = 'PENALIZATION',
           : (
             <div className="nf-req-wrap">
               <table className="nf-req-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr>{['Order', 'Rule', 'When (all must match)', 'Assign policy', 'Employees', 'Status', ''].map(h => <th key={h} style={{ ...th, background: 'transparent' }}>{h}</th>)}</tr></thead>
+                <thead><tr>{['Order', 'Rule', 'When (all must match)', `Assign ${noun}`, 'Employees', 'Status', ''].map(h => <th key={h} style={{ ...th, background: 'transparent' }}>{h}</th>)}</tr></thead>
                 <tbody>
                   {rules.map((r, i) => (
                     <tr key={r.id} data-testid="rule-row" style={{ opacity: r.active ? 1 : 0.55, ['--rc' as string]: r.active ? 'var(--brand)' : 'var(--txt-dim)' }}>
@@ -172,7 +181,7 @@ export default function AssignmentRulesSection({ token, domain = 'PENALIZATION',
 
       {editing && (
         <RuleModal
-          rule={editing === 'new' ? null : editing} domain={domain} policies={policies} departments={departments} locations={locations} shifts={shifts} grades={grades}
+          rule={editing === 'new' ? null : editing} domain={domain} noun={noun} policies={policies} departments={departments} locations={locations} shifts={shifts} grades={grades}
           busy={busy} onClose={() => setEditing(null)} onSave={save}
         />
       )}
@@ -180,7 +189,8 @@ export default function AssignmentRulesSection({ token, domain = 'PENALIZATION',
   );
 }
 
-function RuleModal({ rule, domain, policies, departments, locations, shifts, grades, busy, onClose, onSave }: {
+function RuleModal({ rule, domain, noun, policies, departments, locations, shifts, grades, busy, onClose, onSave }: {
+  noun: string;
   rule: AssignmentRule | null; domain: AssignmentDomain;
   policies: { id: string; name: string }[]; departments: { id: string; name: string }[]; locations: { id: string; name: string }[]; shifts: { id: string; name: string }[]; grades: string[];
   busy: boolean; onClose: () => void; onSave: (input: AssignmentRuleInput, existing: AssignmentRule | null) => void | Promise<unknown>;
@@ -222,18 +232,18 @@ function RuleModal({ rule, domain, policies, departments, locations, shifts, gra
           <div style={{ width: 38, height: 38, borderRadius: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', background: 'linear-gradient(135deg, var(--brand-bright, var(--brand)), var(--brand))', flexShrink: 0 }}><SlidersHorizontal size={18} /></div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--txt)' }}>{rule ? 'Edit rule' : 'Add auto-assignment rule'}</h3>
-            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>Employees who match are given this policy automatically.</div>
+            <div style={{ fontSize: 12, color: 'var(--txt-mut)', marginTop: 2 }}>Employees who match are given this {noun} automatically.</div>
           </div>
           <button aria-label="Close" onClick={onClose} style={iconBtn}><X size={16} /></button>
         </div>
 
         <div style={{ padding: '16px 20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {group('Rule', 'Name it and choose the policy it assigns.', (
+          {group('Rule', `Name it and choose the ${noun} it assigns.`, (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
               {cell('Rule name', <input data-testid="rule-name" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} maxLength={150} placeholder="e.g. Engineering, Bangalore" style={field} />)}
-              {cell('Assign this policy', (
+              {cell(`Assign this ${noun}`, (
                 <select data-testid="rule-policy" value={f.targetId} onChange={e => setF({ ...f, targetId: e.target.value })} style={field}>
-                  <option value="">Select a policy</option>{policies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  <option value="">Select a {noun}</option>{policies.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               ))}
             </div>
@@ -259,7 +269,7 @@ function RuleModal({ rule, domain, policies, departments, locations, shifts, gra
 
           <div data-testid="rule-summary" style={{ borderRadius: 12, padding: '12px 14px', fontSize: 12.5, lineHeight: 1.55, color: 'var(--txt)', background: 'color-mix(in srgb, var(--brand) 10%, var(--panel))', border: '1px solid color-mix(in srgb, var(--brand) 30%, var(--line))' }}>
             {hasCriterion
-              ? <>Employees <b>{parts.join(', ')}</b> will get <b>{policyName ?? 'the policy you pick'}</b>.</>
+              ? <>Employees <b>{parts.join(', ')}</b> will get <b>{policyName ?? `the ${noun} you pick`}</b>.</>
               : <span style={{ color: 'var(--warn)' }}>Pick at least one condition to see who this rule covers.</span>}
           </div>
 

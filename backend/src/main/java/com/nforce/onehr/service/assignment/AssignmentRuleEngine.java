@@ -9,6 +9,8 @@ import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.service.EmployeeShiftAssignmentResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +45,17 @@ public class AssignmentRuleEngine {
     private final EmployeeRepository employeeRepository;
     private final EmployeeShiftAssignmentResolver shiftResolver;
     private final List<AssignmentTargetResolver> targetResolvers;
+    /** LV-01: told when a recorded outcome changes (leave plans re-prorate balances). Optional so plain constructions work. */
+    private ApplicationEventPublisher eventPublisher;
+
+    @Autowired(required = false)
+    public void setEventPublisher(ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
+    }
+
+    private void outcomeChanged(String domain, UUID employeeUserId, LocalDate date) {
+        if (eventPublisher != null) eventPublisher.publishEvent(new AssignmentOutcomeChangedEvent(domain, employeeUserId, date));
+    }
 
     // -- pure matching -------------------------------------------------------------------------
 
@@ -96,6 +109,7 @@ public class AssignmentRuleEngine {
         if (match.isEmpty()) {
             if (open.isEmpty()) return false;
             close(open.get(), today);
+            outcomeChanged(domain, employee.getUserId(), today);
             return true;
         }
         AssignmentRule rule = match.get();
@@ -107,6 +121,7 @@ public class AssignmentRuleEngine {
         assignmentRepository.save(AssignmentRuleAssignment.builder()
                 .domain(domain).employeeUserId(employee.getUserId()).targetId(rule.getTargetId())
                 .ruleId(rule.getId()).ruleName(rule.getName()).effectiveFrom(today).build());
+        outcomeChanged(domain, employee.getUserId(), today);
         return true;
     }
 

@@ -3,62 +3,111 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.dto.LeaveConfigDtos.EligibilityConfig;
 import com.nforce.onehr.dto.LeaveEmployeeProfile;
 import com.nforce.onehr.entity.LeaveType;
-import com.nforce.onehr.entity.LeaveTypeEligibilityRule;
-import com.nforce.onehr.entity.LeaveTypeEmployeeOverride;
+import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.repository.EmployeeRepository;
-import com.nforce.onehr.repository.LeaveTypeEligibilityRuleRepository;
-import com.nforce.onehr.repository.LeaveTypeEmployeeOverrideRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 /**
- * Who a leave type applies to (V314). An employee is eligible unless hand-picked to be excluded;
+ * Who a leave type applies to (V314; per plan since LV-01). A type is available to an employee only if
+ * their leave plan on that date includes it ({@link LeavePlanCatalog}), and then by its "applies to"
+ * rules: an employee is eligible unless hand-picked to be excluded;
  * otherwise eligible when hand-picked to be included, or when they satisfy every rule type that has at
- * least one value (values of one rule type are OR'ed). No rules = everyone. Gender and employment
- * type compare case-insensitively; an employee with no gender on file never matches a gender rule.
+ * least one value (values of one rule type are OR'ed). No rules = everyone. Gender, marital status, grade
+ * and employment type compare case-insensitively; an employee with no value on file never matches such a rule.
  *
  * <p>Ineligible employees don't see the type, can't apply for it, get no balance or credits for it,
  * and penalties can't debit it. Losing eligibility later keeps what they already have.
+ *
+ * <p>LV-06 adds two conditions about <em>when</em>, checked on the leave's start date: a minimum tenure
+ * (months since joining) and "not during probation". The type stays listed for the employee with the date it
+ * becomes available; requests starting before then are refused with that date. Credits of a type not allowed
+ * during probation are held until probation is over, then caught up (see {@link LeaveAccrualService}).
  */
 @Service
 @RequiredArgsConstructor
 public class LeaveEligibilityService {
 
-    private final LeaveTypeEligibilityRuleRepository ruleRepository;
-    private final LeaveTypeEmployeeOverrideRepository overrideRepository;
+    private final LeavePlanRuleService planRuleService;
     private final EmployeeRepository employeeRepository;
+    private final AttendanceProperties attendanceProperties;
 
     /** One type's rules, loaded once and applied to many employees. */
     public record Rules(Set<String> genders, Set<String> departmentIds, Set<String> locationIds,
-                        Set<String> employmentTypes, Set<UUID> include, Set<UUID> exclude) {
+                        Set<String> employmentTypes, Set<UUID> include, Set<UUID> exclude,
+                        Set<String> maritalStatuses, Set<String> grades, Integer minTenureMonths, boolean allowedDuringProbation) {
 
         public static final Rules EVERYONE = new Rules(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of());
 
-        public boolean unrestricted() {
-            return genders.isEmpty() && departmentIds.isEmpty() && locationIds.isEmpty() && employmentTypes.isEmpty()
-                    && exclude.isEmpty();
+        /** Without the LV-06 criteria. */
+        public Rules(Set<String> genders, Set<String> departmentIds, Set<String> locationIds,
+                     Set<String> employmentTypes, Set<UUID> include, Set<UUID> exclude) {
+            this(genders, departmentIds, locationIds, employmentTypes, include, exclude, Set.of(), Set.of(), null, true);
         }
 
-        /** {@code profile} may be null (a user with no employee record): only no rules or an INCLUDE admit them. */
+        public boolean unrestricted() {
+            return noCriteria() && exclude.isEmpty() && minTenureMonths == null && allowedDuringProbation;
+        }
+
+        private boolean noCriteria() {
+            return genders.isEmpty() && departmentIds.isEmpty() && locationIds.isEmpty() && employmentTypes.isEmpty()
+                    && maritalStatuses.isEmpty() && grades.isEmpty();
+        }
+
+        /**
+         * Who the type is for (not when). {@code profile} may be null (a user with no employee record): only no
+         * rules or an INCLUDE admit them.
+         */
         public boolean matches(UUID userId, LeaveEmployeeProfile profile) {
             if (exclude.contains(userId)) return false;
             if (include.contains(userId)) return true;
-            if (genders.isEmpty() && departmentIds.isEmpty() && locationIds.isEmpty() && employmentTypes.isEmpty()) return true;
+            if (noCriteria()) return true;
             if (profile == null) return false;
             return matchesText(genders, profile.gender())
                     && (departmentIds.isEmpty() || (profile.departmentId() != null && departmentIds.contains(profile.departmentId().toString())))
                     && (locationIds.isEmpty() || (profile.locationId() != null && locationIds.contains(profile.locationId().toString())))
-                    && matchesText(employmentTypes, profile.employmentType());
+                    && matchesText(employmentTypes, profile.employmentType())
+                    && matchesText(maritalStatuses, profile.maritalStatus())
+                    && matchesText(grades, profile.grade());
+        }
+
+        /**
+         * LV-06: why the type can't be taken on {@code date} yet (tenure or probation), or empty. A hand-picked
+         * include is never held back.
+         */
+        public Optional<Gate> gate(UUID userId, LeaveEmployeeProfile profile, LocalDate date) {
+            if (include.contains(userId)) return Optional.empty();
+            if (minTenureMonths != null) {
+                LocalDate from = profile == null || profile.joiningDate() == null ? null : profile.joiningDate().plusMonths(minTenureMonths);
+                if (from == null || date.isBefore(from)) return Optional.of(new Gate(Gate.TENURE, from, minTenureMonths));
+            }
+            if (probationBlocks(userId, profile, date)) {
+                return Optional.of(new Gate(Gate.PROBATION, profile.probationOver(), null));
+            }
+            return Optional.empty();
+        }
+
+        /** Tenure reached on {@code date} (credits of a month need the tenure on the month's date). */
+        public boolean tenureMet(UUID userId, LeaveEmployeeProfile profile, LocalDate date) {
+            return gate(userId, profile, date).filter(g -> Gate.TENURE.equals(g.kind())).isEmpty();
+        }
+
+        /** The type isn't allowed during probation and the employee is on probation on {@code date}. */
+        public boolean probationBlocks(UUID userId, LeaveEmployeeProfile profile, LocalDate date) {
+            return !allowedDuringProbation && !include.contains(userId) && profile != null && profile.onProbation(date);
         }
 
         private static boolean matchesText(Set<String> allowed, String value) {
@@ -67,87 +116,110 @@ public class LeaveEligibilityService {
         }
     }
 
-    @Transactional(readOnly = true)
-    public Rules rulesFor(UUID leaveTypeId) {
-        if (leaveTypeId == null) return Rules.EVERYONE;
-        Set<String> genders = new HashSet<>(), departments = new HashSet<>(), locations = new HashSet<>(), types = new HashSet<>();
-        for (LeaveTypeEligibilityRule r : ruleRepository.findByLeaveTypeId(leaveTypeId)) {
-            switch (r.getRuleType()) {
-                case LeaveTypeEligibilityRule.GENDER -> genders.add(norm(r.getValue()));
-                case LeaveTypeEligibilityRule.DEPARTMENT -> departments.add(r.getValue());
-                case LeaveTypeEligibilityRule.LOCATION -> locations.add(r.getValue());
-                case LeaveTypeEligibilityRule.EMPLOYMENT_TYPE -> types.add(norm(r.getValue()));
-                default -> { }
-            }
-        }
-        Set<UUID> include = new HashSet<>(), exclude = new HashSet<>();
-        for (LeaveTypeEmployeeOverride o : overrideRepository.findByLeaveTypeId(leaveTypeId)) {
-            (LeaveTypeEmployeeOverride.INCLUDE.equals(o.getMode()) ? include : exclude).add(o.getEmployeeUserId());
-        }
-        return new Rules(genders, departments, locations, types, include, exclude);
+    /**
+     * LV-06: a dated condition not met yet. {@code kind} TENURE or PROBATION; {@code availableFrom} the first
+     * day it is met (null when unknown: no joining date, or no probation end on file).
+     */
+    public record Gate(String kind, LocalDate availableFrom, Integer months) {
+        public static final String TENURE = "TENURE";
+        public static final String PROBATION = "PROBATION";
     }
 
-    @Transactional(readOnly = true)
-    public boolean isEligible(UUID employeeUserId, LeaveType type) {
-        Rules rules = rulesFor(type.getId());
-        if (rules.unrestricted() && rules.include().isEmpty()) return true;
-        return rules.matches(employeeUserId, employeeRepository.findLeaveProfile(employeeUserId).orElse(null));
+    /**
+     * Whether an employee can take a type for leave starting on a date. {@code forEmployee}: the type is in their
+     * plan and its "who" rules admit them (otherwise it isn't shown at all). {@code reason}: why not, for the
+     * employee; {@code availableFrom}: when a dated condition will be met (may be null).
+     */
+    public record Availability(boolean available, boolean forEmployee, String reason, LocalDate availableFrom) {}
+
+    private static final java.time.format.DateTimeFormatter DAY =
+            java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH);
+
+    static Availability availability(LeavePlanCatalog catalog, UUID employeeUserId, LeaveEmployeeProfile profile,
+                                     LeaveType type, LocalDate date) {
+        Optional<LeavePlanCatalog.TypeRule> rule = applicableRule(catalog, employeeUserId, profile, type.getId(), date);
+        if (rule.isEmpty()) return new Availability(false, false, type.getName() + " does not apply to you.", null);
+        Optional<Gate> gate = rule.get().eligibility().gate(employeeUserId, profile, date);
+        if (gate.isEmpty()) return new Availability(true, true, null, null);
+        Gate g = gate.get();
+        String from = g.availableFrom() == null ? "" : ": you can take it from " + g.availableFrom().format(DAY);
+        String reason = Gate.TENURE.equals(g.kind())
+                ? type.getName() + " needs " + g.months() + (g.months() == 1 ? " month" : " months") + " of service"
+                        + (g.availableFrom() == null ? " (your joining date isn't on file)" : from) + "."
+                : type.getName() + " isn't available during probation" + from + ".";
+        return new Availability(false, true, reason, g.availableFrom());
     }
 
-    /** {@code type} restricted to the employee's eligibility; types with no rules always pass. */
+    /** Whether {@code type} can be taken for leave starting on {@code date}, and why not. */
     @Transactional(readOnly = true)
-    public List<LeaveType> eligibleTypes(UUID employeeUserId, Collection<LeaveType> types) {
-        LeaveEmployeeProfile profile = null;
-        boolean loaded = false;
-        List<LeaveType> out = new ArrayList<>();
+    public Availability availability(UUID employeeUserId, LeaveType type, LocalDate date) {
+        return availability(planRuleService.catalog(List.of(employeeUserId)), employeeUserId, profileOf(employeeUserId), type, date);
+    }
+
+    /**
+     * The types that are for the employee (their "who" rules, today), each with whether it can be taken today —
+     * the apply form lists them all and shows when a held-back one becomes available.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Map<LeaveType, Availability> typesForEmployee(UUID employeeUserId, Collection<LeaveType> types) {
+        LeavePlanCatalog catalog = planRuleService.catalog(List.of(employeeUserId));
+        LeaveEmployeeProfile profile = profileOf(employeeUserId);
+        LocalDate today = today();
+        java.util.Map<LeaveType, Availability> out = new java.util.LinkedHashMap<>();
         for (LeaveType t : types) {
-            Rules rules = rulesFor(t.getId());
-            if (!(rules.unrestricted() && rules.include().isEmpty())) {
-                if (!loaded) {
-                    profile = employeeRepository.findLeaveProfile(employeeUserId).orElse(null);
-                    loaded = true;
-                }
-                if (!rules.matches(employeeUserId, profile)) continue;
-            }
-            out.add(t);
+            Availability a = availability(catalog, employeeUserId, profile, t, today);
+            if (a.forEmployee()) out.put(t, a);
         }
         return out;
     }
 
-    // ── Configuration ───────────────────────────────────────────────────────────────────────────
+    /**
+     * The type's rule in the employee's plan on {@code date}, if its "applies to" rules admit the
+     * employee. {@code profile} may be null (no employee record): only no rules or an INCLUDE admit them.
+     */
+    public static Optional<LeavePlanCatalog.TypeRule> applicableRule(LeavePlanCatalog catalog, UUID employeeUserId,
+                                                                     LeaveEmployeeProfile profile, UUID leaveTypeId, LocalDate date) {
+        return catalog.ruleFor(employeeUserId, leaveTypeId, date)
+                .filter(r -> r.eligibility().matches(employeeUserId, profile));
+    }
 
+    /**
+     * The type is for this employee today: in their plan and admitted by its "who" rules. Tenure / probation
+     * aren't considered (balances, opening balances and penalty debits still apply to a type held back by them).
+     */
     @Transactional(readOnly = true)
-    public EligibilityConfig configOf(UUID leaveTypeId) {
-        Rules r = rulesFor(leaveTypeId);
-        List<String> genders = new ArrayList<>(), employmentTypes = new ArrayList<>();
-        for (LeaveTypeEligibilityRule rule : ruleRepository.findByLeaveTypeId(leaveTypeId)) {
-            // keep the stored spelling ("Female", "FULL_TIME") for display
-            if (LeaveTypeEligibilityRule.GENDER.equals(rule.getRuleType())) genders.add(rule.getValue());
-            if (LeaveTypeEligibilityRule.EMPLOYMENT_TYPE.equals(rule.getRuleType())) employmentTypes.add(rule.getValue());
-        }
-        return new EligibilityConfig(sorted(genders), sorted(r.departmentIds()), sorted(r.locationIds()), sorted(employmentTypes),
-                new ArrayList<>(r.include()), new ArrayList<>(r.exclude()));
+    public boolean isEligible(UUID employeeUserId, LeaveType type) {
+        return availability(employeeUserId, type, today()).forEmployee();
     }
 
-    /** Replaces the type's rules and overrides with {@code config}. */
-    @Transactional
-    public void replace(UUID leaveTypeId, EligibilityConfig config) {
-        EligibilityConfig c = clean(config);
-        ruleRepository.deleteByLeaveTypeId(leaveTypeId);
-        overrideRepository.deleteByLeaveTypeId(leaveTypeId);
-        List<LeaveTypeEligibilityRule> rules = new ArrayList<>();
-        c.genders().forEach(v -> rules.add(rule(leaveTypeId, LeaveTypeEligibilityRule.GENDER, v)));
-        c.departmentIds().forEach(v -> rules.add(rule(leaveTypeId, LeaveTypeEligibilityRule.DEPARTMENT, v)));
-        c.locationIds().forEach(v -> rules.add(rule(leaveTypeId, LeaveTypeEligibilityRule.LOCATION, v)));
-        c.employmentTypes().forEach(v -> rules.add(rule(leaveTypeId, LeaveTypeEligibilityRule.EMPLOYMENT_TYPE, v)));
-        ruleRepository.saveAll(rules);
-        List<LeaveTypeEmployeeOverride> overrides = new ArrayList<>();
-        c.includeEmployeeIds().forEach(id -> overrides.add(LeaveTypeEmployeeOverride.builder()
-                .leaveTypeId(leaveTypeId).employeeUserId(id).mode(LeaveTypeEmployeeOverride.INCLUDE).build()));
-        c.excludeEmployeeIds().forEach(id -> overrides.add(LeaveTypeEmployeeOverride.builder()
-                .leaveTypeId(leaveTypeId).employeeUserId(id).mode(LeaveTypeEmployeeOverride.EXCLUDE).build()));
-        overrideRepository.saveAll(overrides);
+    /** LV-06: eligible for leave starting on {@code date} — the "who" rules and the dated conditions (tenure, probation). */
+    @Transactional(readOnly = true)
+    public boolean isEligible(UUID employeeUserId, LeaveType type, LocalDate date) {
+        return availability(employeeUserId, type, date).available();
     }
+
+    /** {@code types} restricted to those the employee is eligible for today. */
+    @Transactional(readOnly = true)
+    public List<LeaveType> eligibleTypes(UUID employeeUserId, Collection<LeaveType> types) {
+        LeavePlanCatalog catalog = planRuleService.catalog(List.of(employeeUserId));
+        LocalDate today = today();
+        LeaveEmployeeProfile profile = profileOf(employeeUserId);
+        List<LeaveType> out = new ArrayList<>();
+        for (LeaveType t : types) {
+            if (applicableRule(catalog, employeeUserId, profile, t.getId(), today).isPresent()) out.add(t);
+        }
+        return out;
+    }
+
+    private LeaveEmployeeProfile profileOf(UUID employeeUserId) {
+        return employeeRepository.findLeaveProfile(employeeUserId).orElse(null);
+    }
+
+    private LocalDate today() {
+        return LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+    }
+
+    // ── Configuration helpers (used by LeavePlanService) ───────────────────────────────────────
 
     /** How many current employees {@code config} would cover, out of all current employees. */
     @Transactional(readOnly = true)
@@ -157,31 +229,32 @@ public class LeaveEligibilityService {
         for (LeaveEmployeeProfile p : employeeRepository.findLeaveProfiles()) {
             if (!p.employed()) continue;
             total++;
-            if (rules.matches(p.userId(), p)) eligible++;
+            if (rules.matches(p.userId(), p) && rules.gate(p.userId(), p, today()).isEmpty()) eligible++;
         }
         return new int[] {eligible, total};
     }
 
     /** Trimmed, de-duplicated, nulls dropped; an employee both included and excluded is excluded. */
     static EligibilityConfig clean(EligibilityConfig c) {
-        if (c == null) return new EligibilityConfig(List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+        if (c == null) return new EligibilityConfig(List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(), List.of(), null, true);
         Set<UUID> exclude = new LinkedHashSet<>(nonNull(c.excludeEmployeeIds()));
         Set<UUID> include = new LinkedHashSet<>(nonNull(c.includeEmployeeIds()));
         include.removeAll(exclude);
         return new EligibilityConfig(texts(c.genders()), texts(c.departmentIds()), texts(c.locationIds()), texts(c.employmentTypes()),
-                new ArrayList<>(include), new ArrayList<>(exclude));
+                new ArrayList<>(include), new ArrayList<>(exclude), texts(c.maritalStatuses()), texts(c.grades()),
+                c.minTenureMonths(), c.allowedDuringProbation() == null || c.allowedDuringProbation());
     }
 
-    private static Rules toRules(EligibilityConfig c) {
-        Set<String> genders = new HashSet<>(), types = new HashSet<>();
+    static Rules toRules(EligibilityConfig c) {
+        Set<String> genders = new HashSet<>(), types = new HashSet<>(), marital = new HashSet<>(), grades = new HashSet<>();
         c.genders().forEach(g -> genders.add(norm(g)));
         c.employmentTypes().forEach(t -> types.add(norm(t)));
+        c.maritalStatuses().forEach(m -> marital.add(norm(m)));
+        c.grades().forEach(g -> grades.add(norm(g)));
         return new Rules(genders, new HashSet<>(c.departmentIds()), new HashSet<>(c.locationIds()), types,
-                new HashSet<>(c.includeEmployeeIds()), new HashSet<>(c.excludeEmployeeIds()));
-    }
-
-    private static LeaveTypeEligibilityRule rule(UUID typeId, String ruleType, String value) {
-        return LeaveTypeEligibilityRule.builder().leaveTypeId(typeId).ruleType(ruleType).value(value).build();
+                new HashSet<>(c.includeEmployeeIds()), new HashSet<>(c.excludeEmployeeIds()), marital, grades,
+                c.minTenureMonths(), c.allowedDuringProbation() == null || c.allowedDuringProbation());
     }
 
     private static List<String> texts(List<String> values) {

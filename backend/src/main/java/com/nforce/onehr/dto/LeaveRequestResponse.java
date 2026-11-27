@@ -25,6 +25,14 @@ public class LeaveRequestResponse {
     private boolean halfDay;
     private String halfDaySession;
     private BigDecimal totalDays;
+    /** LV-07: weekly offs / holidays included in totalDays by the sandwich rule (0 when none). */
+    private BigDecimal sandwichedDays;
+    /** FULL_DAY / HALF_DAY / HOURLY. */
+    private String durationType;
+    /** LV-02: hours of an hourly request; null otherwise. */
+    private BigDecimal hours;
+    /** LV-02: the attached file's name (download at /api/leave/requests/{id}/attachment); null = none. */
+    private String attachmentName;
     /**
      * YE-03: leave year -> days, only for a request that spans two leave years (null otherwise). Each
      * portion is checked against and deducted from its own year's balance; the request stays one leave.

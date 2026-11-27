@@ -31,6 +31,7 @@ class PayrollJoinersExitsServiceTest {
     @Mock private PayrollRunRepository payrollRunRepository;
     @Mock private PayslipRepository payslipRepository;
     @Mock private EmployeeRepository employeeRepository;
+    @Mock private LeaveExitService leaveExitService;
 
     @InjectMocks private PayrollJoinersExitsService service;
 

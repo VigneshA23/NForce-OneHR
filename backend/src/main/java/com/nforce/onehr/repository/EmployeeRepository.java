@@ -255,8 +255,9 @@ public interface EmployeeRepository extends JpaRepository<Employee, UUID>, JpaSp
     List<Object[]> findActiveNoticeRecipients();
 
     String LEAVE_PROFILE_SELECT = "SELECT new com.nforce.onehr.dto.LeaveEmployeeProfile(e.userId, e.gender, d.id, l.id, "
-            + "e.employmentType, e.joiningDate, e.lastWorkingDay, u.active, u.deletedAt) "
-            + "FROM Employee e JOIN e.user u LEFT JOIN e.department d LEFT JOIN e.location l ";
+            + "e.employmentType, e.joiningDate, e.lastWorkingDay, u.active, u.deletedAt, e.maritalStatus, des.grade, "
+            + "e.probationEndDate, e.confirmationDate) "
+            + "FROM Employee e JOIN e.user u LEFT JOIN e.department d LEFT JOIN e.location l LEFT JOIN e.designation des ";
 
     /** Leave crediting / "applies to" facts of every non-deleted employee (V314). */
     @Query(LEAVE_PROFILE_SELECT + "WHERE u.deletedAt IS NULL")

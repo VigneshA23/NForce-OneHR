@@ -31,7 +31,7 @@ class PayrollProrationServiceTest {
     @Mock private PayrollProrationRepository payrollProrationRepository;
     @Mock private EmployeeRepository employeeRepository;
     @Mock private PayGroupRepository payGroupRepository;
-    @Mock private LeaveBalanceAvailabilityService leaveBalanceAvailabilityService;
+    @Mock private LeaveExitService leaveExitService;
     @Mock private UserRepository userRepository;
     @Mock private AuditService auditService;
     @Mock private AuditSnapshotSerializer auditSnapshot;
@@ -51,7 +51,7 @@ class PayrollProrationServiceTest {
     @BeforeEach
     void setUp() {
         service = new PayrollProrationService(payrollProrationRepository, employeeRepository, payGroupRepository,
-                leaveBalanceAvailabilityService, userRepository, auditService, auditSnapshot);
+                leaveExitService, userRepository, auditService, auditSnapshot);
 
         User actor = User.builder().id(actorId).email(actorEmail).build();
         lenient().when(userRepository.findByEmail(actorEmail)).thenReturn(Optional.of(actor));
@@ -118,7 +118,7 @@ class PayrollProrationServiceTest {
         employee(LocalDate.of(2020, 1, 1), LocalDate.of(2026, 6, 10));
         when(payrollProrationRepository.findByEmployeeIdAndCycleStartAndCycleEnd(employeeId, cycleStart, cycleEnd))
                 .thenReturn(Optional.empty());
-        when(leaveBalanceAvailabilityService.availablePaidDays(employeeId, 2026)).thenReturn(new BigDecimal("3.5"));
+        when(leaveExitService.encashableDays(employeeId)).thenReturn(new BigDecimal("3.5"));
 
         PayrollProrationResponse resp = service.recompute(req(), actorEmail);
 
@@ -133,7 +133,7 @@ class PayrollProrationServiceTest {
         employee(LocalDate.of(2026, 6, 5), LocalDate.of(2026, 6, 20));
         when(payrollProrationRepository.findByEmployeeIdAndCycleStartAndCycleEnd(employeeId, cycleStart, cycleEnd))
                 .thenReturn(Optional.empty());
-        when(leaveBalanceAvailabilityService.availablePaidDays(employeeId, 2026)).thenReturn(BigDecimal.ZERO);
+        when(leaveExitService.encashableDays(employeeId)).thenReturn(BigDecimal.ZERO);
 
         PayrollProrationResponse resp = service.recompute(req(), actorEmail);
 
@@ -162,7 +162,7 @@ class PayrollProrationServiceTest {
         employee(LocalDate.of(2020, 1, 1), cycleEnd);
         when(payrollProrationRepository.findByEmployeeIdAndCycleStartAndCycleEnd(employeeId, cycleStart, cycleEnd))
                 .thenReturn(Optional.empty());
-        when(leaveBalanceAvailabilityService.availablePaidDays(employeeId, 2026)).thenReturn(BigDecimal.ZERO);
+        when(leaveExitService.encashableDays(employeeId)).thenReturn(BigDecimal.ZERO);
 
         PayrollProrationResponse resp = service.recompute(req(), actorEmail);
 

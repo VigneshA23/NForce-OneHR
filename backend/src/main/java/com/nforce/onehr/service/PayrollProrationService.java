@@ -32,7 +32,8 @@ public class PayrollProrationService {
     private final PayrollProrationRepository payrollProrationRepository;
     private final EmployeeRepository employeeRepository;
     private final PayGroupRepository payGroupRepository;
-    private final LeaveBalanceAvailabilityService leaveBalanceAvailabilityService;
+    // LV-04: leave encashable on exit = the exit settlement (entitlement recomputed up to the last working day).
+    private final LeaveExitService leaveExitService;
     private final UserRepository userRepository;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
@@ -67,7 +68,7 @@ public class PayrollProrationService {
                 : ProrationType.FULL_CYCLE;
 
         BigDecimal leaveEncashmentDays = isExitCycle
-                ? leaveBalanceAvailabilityService.availablePaidDays(employee.getUserId(), window.start().getYear())
+                ? leaveExitService.encashableDays(employee.getUserId())
                 : null;
 
         Optional<PayrollProration> existing = payrollProrationRepository

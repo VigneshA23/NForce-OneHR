@@ -19,4 +19,6 @@ public interface LeaveCarryForwardTransferRepository extends JpaRepository<Leave
     List<LeaveCarryForwardTransfer> findByFromYear(@Param("fromYear") Integer fromYear);
 
     boolean existsByLeaveTypeId(UUID leaveTypeId);
+
+    List<LeaveCarryForwardTransfer> findByRunId(UUID runId);
 }

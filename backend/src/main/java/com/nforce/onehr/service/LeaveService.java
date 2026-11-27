@@ -3,7 +3,9 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
+import com.nforce.onehr.dto.LeavePreviewResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
+import com.nforce.onehr.dto.LeaveRuleSummary;
 import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -11,40 +13,42 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.entity.AttendancePenalty;
 import com.nforce.onehr.entity.AttendancePenaltyStatus;
 import com.nforce.onehr.entity.Employee;
-import com.nforce.onehr.entity.Holiday;
 import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveDurationType;
 import com.nforce.onehr.entity.LeaveHalfDaySession;
 import com.nforce.onehr.entity.LeaveRequest;
+import com.nforce.onehr.entity.LeaveRequestAttachment;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
-import com.nforce.onehr.repository.HolidayRepository;
+import com.nforce.onehr.repository.LeaveRequestAttachmentRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -70,8 +74,6 @@ public class LeaveService {
     // Matches RegularizationService's NOTIFICATION_DATE_FMT — same "d MMM yyyy" convention used
     // app-wide for dates embedded in notification text.
     private static final DateTimeFormatter NOTIFICATION_DATE_FMT = DateTimeFormatter.ofPattern("d MMM yyyy");
-    // Weekday included so a "non-working day" rejection is self-explanatory (e.g. "Saturday, 5 Dec 2026").
-    private static final DateTimeFormatter LEAVE_DATE_FMT = DateTimeFormatter.ofPattern("EEEE, d MMM yyyy", Locale.ENGLISH);
     private static final String APPROVALS_LINK = "/approvals?type=LEAVE";
     private static final String EMPLOYEE_LEAVE_LINK = "/my-requests?type=LEAVE";
 
@@ -89,13 +91,18 @@ public class LeaveService {
     private final AuditSnapshotSerializer auditSnapshot;
     private final NotificationService notificationService;
     private final AttendanceProperties attendanceProperties;
-    // Phase 4: weekly-off (not Shift.workingDays, now removed) is the sole source of truth for
-    // which days a leave request may span — resolved per date via the same batch resolver
-    // WorkingDayService/ExceptionService already share, never Employee.weeklyOffPolicy directly.
-    private final WorkingDayService workingDayService;
-    private final HolidayRepository holidayRepository;
+    // LV-07: how many days a request takes — working days, plus weekly offs / holidays under the plan's
+    // sandwich rule (weekly offs from the Weekly Off Policy governing each date, holidays from the Location).
+    private final LeaveDayCalculator dayCalculator;
     private final EffectivePermissionService effectivePermissionService;
     private final AttendancePenaltyRepository attendancePenaltyRepository;
+    // LV-02: the employee's plan rules (limits, notice, clubbing, attachments) and the attached files.
+    private final LeaveRuleValidator ruleValidator;
+    private final LeavePlanRuleService planRuleService;
+    private final LeaveRequestAttachmentRepository attachmentRepository;
+    /** LV-02: hourly leave is converted to days at this many hours a day. */
+    @Value("${app.leave.hours-per-day:8}")
+    private BigDecimal hoursPerDay = new BigDecimal("8");
     private static final ObjectMapper PENALTY_JSON = new ObjectMapper();
     // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
     // AttendancePenaltyEvaluationService -> EmployeeService -> LeaveService (EmployeeService has
@@ -123,12 +130,38 @@ public class LeaveService {
     public List<LeaveTypeResponse> listMyTypes(String actorEmail) {
         User actor = requireActor(actorEmail);
         boolean compOffOn = compOffService.policyEnabled();
-        return leaveEligibilityService.eligibleTypes(actor.getId(), leaveTypeRepository.findByActiveTrueOrderByNameAsc()).stream()
-                .filter(t -> compOffOn || !CompOffService.isCompOffType(t))
-                .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
-                        .classification(t.getClassification()).entitlementBasis(t.getEntitlementBasis())
-                        .systemKey(t.getSystemKey()).active(true).build())
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        LeavePlanCatalog catalog = planRuleService.catalog(List.of(actor.getId()));
+        Map<UUID, String> typeNames = new HashMap<>();
+        leaveTypeRepository.findAll().forEach(t -> typeNames.put(t.getId(), t.getName()));
+        // LV-06: a type held back today by tenure or probation is still listed, with when it becomes available
+        // (leave starting on/after that date can already be applied for).
+        return leaveEligibilityService.typesForEmployee(actor.getId(), leaveTypeRepository.findByActiveTrueOrderByNameAsc())
+                .entrySet().stream()
+                .filter(e -> compOffOn || !CompOffService.isCompOffType(e.getKey()))
+                .map(e -> {
+                    LeaveType t = e.getKey();
+                    LeaveEligibilityService.Availability a = e.getValue();
+                    return LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
+                            .classification(t.getClassification()).entitlementBasis(t.getEntitlementBasis())
+                            .systemKey(t.getSystemKey()).active(true)
+                            .rules(catalog.ruleFor(actor.getId(), t.getId(), today)
+                                    .map(r -> ruleSummary(r.limits(), typeNames)).orElse(null))
+                            .availableFrom(a.available() ? null : a.availableFrom())
+                            .availabilityNote(a.available() ? null : a.reason())
+                            .build();
+                })
                 .collect(Collectors.toList());
+    }
+
+    /** LV-02: the apply form's view of a type's rules. */
+    private LeaveRuleSummary ruleSummary(LeavePlanCatalog.Limits l, Map<UUID, String> typeNames) {
+        return new LeaveRuleSummary(l.entitlementMode(), l.minDaysPerRequest(), l.maxDaysPerRequest(),
+                l.maxRequestsPerMonth(), l.maxRequestsPerYear(), l.maxConsecutiveDays(), l.noticeDays(),
+                l.noticeAppliesOverDays(), l.allowHalfDay(), l.allowHourly(), l.minHours(), l.attachmentRequiredOverDays(),
+                LeaveRuleValidator.allowedExtensions(l), l.attachmentMaxMb(),
+                l.clubbingBlocked().stream().map(id -> typeNames.getOrDefault(id, "another leave type")).sorted().toList(),
+                hoursPerDay, l.sandwich().enabled(), l.sandwich().appliesTo(), l.sandwich().minDays(), l.sandwich().acrossRequests());
     }
 
     /**
@@ -212,15 +245,19 @@ public class LeaveService {
 
     @Transactional
     public LeaveRequestResponse submitRequest(CreateLeaveRequestRequest req, String actorEmail) {
+        return submitRequest(req, null, actorEmail);
+    }
+
+    /** Submit with an optional attachment (LV-02: some types need one over a number of days). */
+    @Transactional
+    public LeaveRequestResponse submitRequest(CreateLeaveRequestRequest req, MultipartFile attachment, String actorEmail) {
         User actor = requireActor(actorEmail);
         LeaveType type = leaveTypeRepository.findByCode(req.getLeaveTypeCode())
                 .orElseThrow(() -> new IllegalArgumentException("Unknown leave type: " + req.getLeaveTypeCode()));
         if (!type.isActive()) {
             throw new IllegalArgumentException(type.getName() + " is no longer available for new requests.");
         }
-        if (!leaveEligibilityService.isEligible(actor.getId(), type)) {
-            throw new IllegalArgumentException(type.getName() + " does not apply to you.");
-        }
+        requireAvailable(actor.getId(), type, req.getStartDate(), true);
 
         if (req.getEndDate().isBefore(req.getStartDate())) {
             throw new IllegalArgumentException("End date cannot be before start date");
@@ -232,6 +269,7 @@ public class LeaveService {
                 || LeaveHalfDaySession.SECOND_HALF.equals(req.getHalfDaySession()))) {
             throw new IllegalArgumentException("A half-day request must specify First Half or Second Half");
         }
+        requireValidHours(req);
 
         // "Today" is resolved in the business timezone (same convention as AttendanceProperties'
         // other consumers), not the JVM default, so a server running in UTC doesn't roll the day
@@ -240,12 +278,10 @@ public class LeaveService {
         if (req.getStartDate().isBefore(today)) {
             throw new IllegalArgumentException("Leave cannot be requested for a date before today");
         }
-        // Every requested date must be one of the employee's shift working days and not a Location
-        // holiday — so the plain inclusive day count below is exactly the working days requested.
-        // Per-occurrence leave (Maternity) is counted in calendar days and may span weekly offs/holidays.
-        if (!type.isPerOccurrence()) {
-            requireOnlyWorkingDays(actor.getId(), req.getStartDate(), req.getEndDate());
-        }
+        // LV-07: the range may cross weekly offs and holidays; only working days count unless the sandwich
+        // rule counts the ones in between. A range with no working day is refused. Maternity: calendar days.
+        LeaveDayCalculator.Result count = dayCalculator.calculate(actor.getId(), type, req.getStartDate(), req.getEndDate(),
+                fractionOf(req), null, null);
         // Any existing PENDING/APPROVED request whose date range overlaps this new one blocks the
         // submission, regardless of whether the new request starts today, in the future, or spans
         // multiple days; REJECTED never blocks. Overlap test: existing.start <= new.end AND
@@ -255,11 +291,13 @@ public class LeaveService {
             throw new IllegalArgumentException("You already have a pending or approved leave request that overlaps these dates.");
         }
 
-        BigDecimal totalDays = req.isHalfDay()
-                ? new BigDecimal("0.5")
-                : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
+        BigDecimal totalDays = count.total();
+        boolean hasFile = attachment != null && !attachment.isEmpty();
+        if (hasFile) checkAttachment(actor.getId(), type, req.getStartDate(), attachment);
+        ruleValidator.validate(new LeaveRuleValidator.Candidate(actor.getId(), type, req.getStartDate(), req.getEndDate(),
+                totalDays, req.isHalfDay(), req.getHours(), hasFile, null), today, false);
 
-        validateEntitlement(actor.getId(), type, req.getStartDate(), req.getEndDate(), totalDays, null);
+        validateEntitlement(actor.getId(), type, req.getStartDate(), req.getEndDate(), totalDays, null, count.counts());
 
         LeaveRequest request = LeaveRequest.builder()
                 .employeeUserId(actor.getId())
@@ -271,10 +309,10 @@ public class LeaveService {
                 .totalDays(totalDays)
                 .status("PENDING")
                 .employeeReason(req.getReason().trim())
-                // is_half_day stays authoritative (unchanged above); duration_type just mirrors it
-                // for the FULL_DAY/HALF_DAY cases this form actually submits — HOURLY/QUARTER_DAY
-                // have no submission UI yet, so submitRequest never produces them.
-                .durationType(req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY)
+                // is_half_day stays authoritative for half days; HOURLY (LV-02) keeps its hours in leave_hours.
+                .durationType(durationTypeOf(req))
+                .leaveHours(req.getHours())
+                .dayCounts(count.counts().toJson())
                 .build();
         // A Super Admin's own leave must never be self-approvable: fail the submission up front
         // (rather than leave a request nobody may decide) when neither an eligible manager nor
@@ -285,6 +323,7 @@ public class LeaveService {
                     "No eligible approver is available for your leave request. Contact your administrator.");
         }
         request = leaveRequestRepository.save(request);
+        if (hasFile) storeAttachment(request.getId(), attachment, actor.getId());
 
         auditService.log(actor.getId(), "LEAVE_REQUEST_SUBMITTED", request.getId());
         notifySubmission(request, type, actor);
@@ -302,6 +341,12 @@ public class LeaveService {
      */
     @Transactional
     public LeaveRequestResponse update(UUID requestId, CreateLeaveRequestRequest req, String actorEmail) {
+        return update(requestId, req, null, actorEmail);
+    }
+
+    /** {@link #update(UUID, CreateLeaveRequestRequest, String)} that may also replace the attachment (LV-02). */
+    @Transactional
+    public LeaveRequestResponse update(UUID requestId, CreateLeaveRequestRequest req, MultipartFile attachment, String actorEmail) {
         User actor = requireActor(actorEmail);
         LeaveRequest existing = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
@@ -323,9 +368,9 @@ public class LeaveService {
         if (!type.isActive() && typeChanged) {
             throw new IllegalArgumentException(type.getName() + " is no longer available for new requests.");
         }
-        if (typeChanged && !leaveEligibilityService.isEligible(actor.getId(), type)) {
-            throw new IllegalArgumentException(type.getName() + " does not apply to you.");
-        }
+        // A request already on a type the employee is no longer covered by may still be edited; switching to one
+        // may not. Tenure / probation (LV-06) are checked on the (new) start date either way.
+        requireAvailable(actor.getId(), type, req.getStartDate(), typeChanged);
 
         if (req.getEndDate().isBefore(req.getStartDate())) {
             throw new IllegalArgumentException("End date cannot be before start date");
@@ -337,25 +382,28 @@ public class LeaveService {
                 || LeaveHalfDaySession.SECOND_HALF.equals(req.getHalfDaySession()))) {
             throw new IllegalArgumentException("A half-day request must specify First Half or Second Half");
         }
+        requireValidHours(req);
 
         LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
         if (req.getStartDate().isBefore(today)) {
             throw new IllegalArgumentException("Leave cannot be requested for a date before today");
         }
-        if (!type.isPerOccurrence()) {
-            requireOnlyWorkingDays(actor.getId(), req.getStartDate(), req.getEndDate());
-        }
+        LeaveDayCalculator.Result count = dayCalculator.calculate(actor.getId(), type, req.getStartDate(), req.getEndDate(),
+                fractionOf(req), existingId, existing.getCreatedAt());
 
         if (leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
                 actor.getId(), OVERLAP_BLOCKING_STATUSES, req.getEndDate(), req.getStartDate(), existingId)) {
             throw new IllegalArgumentException("You already have a pending or approved leave request that overlaps these dates.");
         }
 
-        BigDecimal totalDays = req.isHalfDay()
-                ? new BigDecimal("0.5")
-                : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
+        BigDecimal totalDays = count.total();
+        boolean newFile = attachment != null && !attachment.isEmpty();
+        if (newFile) checkAttachment(actor.getId(), type, req.getStartDate(), attachment);
+        boolean hasFile = newFile || attachmentRepository.existsByLeaveRequestId(existingId);
+        ruleValidator.validate(new LeaveRuleValidator.Candidate(actor.getId(), type, req.getStartDate(), req.getEndDate(),
+                totalDays, req.isHalfDay(), req.getHours(), hasFile, existingId), today, false);
 
-        validateEntitlement(actor.getId(), type, req.getStartDate(), req.getEndDate(), totalDays, existingId);
+        validateEntitlement(actor.getId(), type, req.getStartDate(), req.getEndDate(), totalDays, existingId, count.counts());
 
         String before = auditSnapshot.toJson(Map.of(
                 "leaveTypeCode", existing.getLeaveType().getCode(),
@@ -375,8 +423,11 @@ public class LeaveService {
         existing.setHalfDaySession(req.isHalfDay() ? req.getHalfDaySession() : null);
         existing.setTotalDays(totalDays);
         existing.setEmployeeReason(req.getReason().trim());
-        existing.setDurationType(req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY);
+        existing.setDurationType(durationTypeOf(req));
+        existing.setLeaveHours(req.getHours());
+        existing.setDayCounts(count.counts().toJson());
         existing = leaveRequestRepository.save(existing);
+        if (newFile) storeAttachment(existing.getId(), attachment, actor.getId());
 
         String after = auditSnapshot.toJson(Map.of(
                 "leaveTypeCode", existing.getLeaveType().getCode(),
@@ -390,6 +441,143 @@ public class LeaveService {
     }
 
     /**
+     * LV-06: refuses leave starting on {@code start} when the type is held back by tenure or probation, with the
+     * date it becomes available; with {@code requireForEmployee} also when the type isn't for the employee at all.
+     */
+    private void requireAvailable(UUID employeeUserId, LeaveType type, LocalDate start, boolean requireForEmployee) {
+        LeaveEligibilityService.Availability a = leaveEligibilityService.availability(employeeUserId, type, start);
+        if (a.available() || (!a.forEmployee() && !requireForEmployee)) return;
+        throw new IllegalArgumentException(a.reason());
+    }
+
+    /** LV-02: hourly leave is one day, neither a half day, more than 0 and less than a full day's hours. */
+    private void requireValidHours(CreateLeaveRequestRequest req) {
+        if (req.getHours() == null) return;
+        if (req.isHalfDay()) throw new IllegalArgumentException("A request is either a half day or by the hour, not both.");
+        if (!req.getEndDate().isEqual(req.getStartDate())) {
+            throw new IllegalArgumentException("Leave by the hour must use the same start and end date");
+        }
+        if (req.getHours().signum() <= 0 || req.getHours().compareTo(hoursPerDay) >= 0) {
+            throw new IllegalArgumentException("Leave by the hour must be more than 0 and less than "
+                    + formatDays(hoursPerDay) + " hours; take a full day instead.");
+        }
+    }
+
+    /** The days of a single-date request: 0.5 for a half day, hours / hours-per-day for hourly leave; null = full days. */
+    private BigDecimal fractionOf(CreateLeaveRequestRequest req) {
+        if (req.getHours() != null) return req.getHours().divide(hoursPerDay, 2, RoundingMode.HALF_UP);
+        return req.isHalfDay() ? new BigDecimal("0.5") : null;
+    }
+
+    /**
+     * LV-07: what the request would take and the first reason it would be refused, without saving anything —
+     * the apply form's day count ("4 days: 2 working + 2 sandwiched"). {@code editingRequestId}: the caller's own
+     * pending request being edited, left out of the overlap/balance checks. The attachment rule is left to the
+     * form (no file is sent here). Deliberately not transactional: each check runs (and may fail) on its own.
+     */
+    public LeavePreviewResponse preview(CreateLeaveRequestRequest req, UUID editingRequestId, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        if (req.getLeaveTypeCode() == null || req.getStartDate() == null || req.getEndDate() == null) {
+            return LeavePreviewResponse.refused("Choose a leave type and the dates.");
+        }
+        LeaveRequest editing = editingRequestId == null ? null : leaveRequestRepository.findById(editingRequestId)
+                .filter(r -> r.getEmployeeUserId().equals(actor.getId()))
+                .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
+        LeaveType type = leaveTypeRepository.findByCode(req.getLeaveTypeCode())
+                .orElseThrow(() -> new IllegalArgumentException("Unknown leave type: " + req.getLeaveTypeCode()));
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        UUID excludeId = editing == null ? null : editing.getId();
+        LeaveDayCalculator.Result count;
+        try {
+            if (req.getEndDate().isBefore(req.getStartDate())) throw new IllegalArgumentException("End date cannot be before start date");
+            if ((req.isHalfDay() || req.getHours() != null) && !req.getEndDate().isEqual(req.getStartDate())) {
+                throw new IllegalArgumentException("A half-day or hourly request must use the same start and end date");
+            }
+            requireValidHours(req);
+            count = dayCalculator.calculate(actor.getId(), type, req.getStartDate(), req.getEndDate(), fractionOf(req),
+                    excludeId, editing == null ? null : editing.getCreatedAt());
+        } catch (IllegalArgumentException e) {
+            return LeavePreviewResponse.refused(e.getMessage());
+        }
+        String problem = null;
+        try {
+            if (req.getStartDate().isBefore(today)) throw new IllegalArgumentException("Leave cannot be requested for a date before today");
+            requireAvailable(actor.getId(), type, req.getStartDate(), editing == null || !editing.getLeaveType().getId().equals(type.getId()));
+            boolean overlaps = excludeId == null
+                    ? leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
+                            actor.getId(), OVERLAP_BLOCKING_STATUSES, req.getEndDate(), req.getStartDate())
+                    : leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqualAndIdNot(
+                            actor.getId(), OVERLAP_BLOCKING_STATUSES, req.getEndDate(), req.getStartDate(), excludeId);
+            if (overlaps) throw new IllegalArgumentException("You already have a pending or approved leave request that overlaps these dates.");
+            ruleValidator.validate(new LeaveRuleValidator.Candidate(actor.getId(), type, req.getStartDate(), req.getEndDate(),
+                    count.total(), req.isHalfDay(), req.getHours(), true, excludeId), today, false);
+            validateEntitlement(actor.getId(), type, req.getStartDate(), req.getEndDate(), count.total(), excludeId, count.counts());
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            problem = e.getMessage();
+        }
+        return new LeavePreviewResponse(count.total(), count.workingDays(), count.sandwichedDays(), count.summary(),
+                count.counts().byYear(),
+                count.days().stream().map(d -> new LeavePreviewResponse.Day(d.date(), d.kind(), d.days(), d.note())).toList(),
+                problem);
+    }
+
+    private static String durationTypeOf(CreateLeaveRequestRequest req) {
+        if (req.getHours() != null) return LeaveDurationType.HOURLY;
+        return req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY;
+    }
+
+    /** LV-02: the file must match the type's allowed extensions and size limit (10 MB when the plan sets none). */
+    private void checkAttachment(UUID employeeUserId, LeaveType type, LocalDate start, MultipartFile file) {
+        LeavePlanCatalog.Limits limits = planRuleService.ruleFor(employeeUserId, type.getId(), start)
+                .map(LeavePlanCatalog.TypeRule::limits).orElse(LeavePlanCatalog.Limits.NONE);
+        String problem = LeaveRuleValidator.checkFile(limits, type.getName(), file.getOriginalFilename(), file.getSize());
+        if (problem != null) throw new IllegalArgumentException(problem);
+    }
+
+    /** One attachment per request; a new upload replaces the old one. */
+    private void storeAttachment(UUID requestId, MultipartFile file, UUID actorId) {
+        LeaveRequestAttachment a = attachmentRepository.findByLeaveRequestId(requestId)
+                .orElseGet(() -> LeaveRequestAttachment.builder().leaveRequestId(requestId).build());
+        String name = file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()
+                ? "attachment" : file.getOriginalFilename();
+        a.setFileName(name.length() > 255 ? name.substring(name.length() - 255) : name);
+        a.setContentType(file.getContentType() == null || file.getContentType().isBlank()
+                ? "application/octet-stream" : file.getContentType());
+        a.setSizeBytes(file.getSize());
+        try {
+            a.setData(file.getBytes());
+        } catch (IOException e) {
+            throw new IllegalArgumentException("The attachment could not be read. Please try again.");
+        }
+        a.setUploadedBy(actorId);
+        attachmentRepository.save(a);
+    }
+
+    /** LV-02: a request's attachment — for the employee who made the request, or whoever may decide it. */
+    @Transactional(readOnly = true)
+    public LeaveRequestAttachment getAttachment(UUID requestId, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        LeaveRequest request = leaveRequestRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
+        if (!request.getEmployeeUserId().equals(actor.getId())) {
+            requireAuthorizedApprover(actor, request.getEmployeeUserId());
+        }
+        return attachmentRepository.findByLeaveRequestId(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("This leave request has no attachment"));
+    }
+
+    /** Fills {@code attachmentName} on list rows with one query. */
+    private List<LeaveRequestResponse> withAttachmentNames(List<LeaveRequestResponse> rows) {
+        if (rows.isEmpty()) return rows;
+        Map<UUID, String> names = new HashMap<>();
+        for (Object[] row : attachmentRepository.findNamesByRequestIds(rows.stream().map(LeaveRequestResponse::getId).toList())) {
+            names.put((UUID) row[0], (String) row[1]);
+        }
+        rows.forEach(r -> r.setAttachmentName(names.get(r.getId())));
+        return rows;
+    }
+
+    /**
      * Entitlement check shared by {@link #submitRequest} and {@link #update}. Unpaid types are
      * unlimited and never touch a paid balance, but an employee with paid leave still available
      * (any regular paid type, current request's leave year) must use that first — a business rule,
@@ -397,7 +585,7 @@ public class LeaveService {
      * split across leave years — see {@link LeaveBalanceService#requireAvailable}.
      */
     private void validateEntitlement(UUID employeeUserId, LeaveType type, LocalDate start, LocalDate end,
-                                     BigDecimal totalDays, UUID excludeRequestId) {
+                                     BigDecimal totalDays, UUID excludeRequestId, LeaveDayCounts counts) {
         if (CompOffService.isCompOffType(type)) {
             // Comp-Off draws from earned credits in the comp-off ledger, not from a leave balance.
             boolean halfDay = totalDays.remainder(BigDecimal.ONE).signum() != 0;
@@ -411,41 +599,7 @@ public class LeaveService {
             }
             return;
         }
-        leaveBalanceService.requireAvailable(employeeUserId, type, start, end, totalDays, excludeRequestId);
-    }
-
-    /**
-     * Rejects the request at the first date in [start, end] that is an active holiday of the
-     * employee's Location or a weekly-off day under the Weekly Off Policy governing that date.
-     * Resolved per date (never once for the whole range) via {@link WorkingDayService}'s shared
-     * batch resolver — the same one {@code WorkingDayService}/{@code ExceptionService} already use
-     * — since a policy reassignment or policy-definition edit can land inside the requested range.
-     * One assignment-history query and one policy-version-history query back the whole range
-     * (built once below), not a query per date. No effective Weekly Off Policy assignment at all
-     * falls back to Saturday/Sunday — the same explicit, pre-existing no-assignment behaviour this
-     * preserves (D1: never a silently-assigned default policy). Shift.workingDays ("Applicable
-     * Days") no longer has any bearing here — removed in Phase 4; WeeklyOffPolicy is now the sole
-     * source of truth for an employee's working days.
-     */
-    private void requireOnlyWorkingDays(UUID employeeUserId, LocalDate start, LocalDate end) {
-        Map<LocalDate, String> holidayNames = employeeRepository.findById(employeeUserId)
-                .map(Employee::getLocation)
-                .map(location -> holidayRepository.findByLocation_IdAndActiveTrueOrderByHolidayDateAsc(location.getId())
-                        .stream().collect(Collectors.toMap(Holiday::getHolidayDate, Holiday::getHolidayName, (a, b) -> a)))
-                .orElse(Map.of());
-        WorkingDayService.WeeklyOffBatchResolver offDaysResolver =
-                workingDayService.weeklyOffDaysResolver(List.of(employeeUserId));
-        for (LocalDate date : start.datesUntil(end.plusDays(1)).toList()) {
-            String holiday = holidayNames.get(date);
-            if (holiday != null) {
-                throw new IllegalArgumentException("Leave cannot be applied for " + date.format(LEAVE_DATE_FMT)
-                        + " — it is a holiday (" + holiday + "). Please choose only your working days.");
-            }
-            if (offDaysResolver.offDaysOn(employeeUserId, date).contains(date.getDayOfWeek())) {
-                throw new IllegalArgumentException("Leave cannot be applied for " + date.format(LEAVE_DATE_FMT)
-                        + " — it is a weekly-off day under your Weekly Off Policy. Please choose only your working days.");
-            }
-        }
+        leaveBalanceService.requireAvailable(employeeUserId, type, start, end, totalDays, excludeRequestId, counts);
     }
 
     @Transactional(readOnly = true)
@@ -460,7 +614,7 @@ public class LeaveService {
         rows.addAll(penaltyDeductionRows(actor.getId(), employeeName(actor.getId()), codesById.get(actor.getId())));
         rows.sort(Comparator.comparing(LeaveRequestResponse::getCreatedAt,
                 Comparator.nullsLast(Comparator.reverseOrder())));
-        return rows;
+        return withAttachmentNames(rows);
     }
 
     /**
@@ -553,9 +707,9 @@ public class LeaveService {
                     .collect(Collectors.toList());
             Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
             Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
-            return requests.stream()
+            return withAttachmentNames(requests.stream()
                     .map(r -> toRequestResponse(r, namesById, codesById))
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toList()));
         }
         List<UUID> reportIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
                 .map(EmployeeManagerHistory::getEmployeeUserId)
@@ -566,9 +720,9 @@ public class LeaveService {
         List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING");
         Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
         Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
-        return requests.stream()
+        return withAttachmentNames(requests.stream()
                 .map(r -> toRequestResponse(r, namesById, codesById))
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**
@@ -646,6 +800,16 @@ public class LeaveService {
             throw new IllegalStateException("Leave request has already been decided");
         }
 
+        // LV-06: tenure / probation on the leave's start date (the employee's dates may have changed since).
+        requireAvailable(request.getEmployeeUserId(), request.getLeaveType(), request.getStartDate(), false);
+        // LV-02: the plan's rules are checked again (everything except notice) — they may have changed,
+        // or another request may since have been approved next to this one.
+        ruleValidator.validate(new LeaveRuleValidator.Candidate(request.getEmployeeUserId(), request.getLeaveType(),
+                request.getStartDate(), request.getEndDate(), request.getTotalDays(), request.isHalfDay(),
+                LeaveDurationType.HOURLY.equals(request.getDurationType()) ? request.getLeaveHours() : null,
+                attachmentRepository.existsByLeaveRequestId(request.getId()), request.getId()),
+                LocalDate.now(ZoneId.of(attendanceProperties.getZone())), true);
+
         // Paid leave deducts from the type's OWN balance (split across leave years, carried-forward
         // days used in the type's configured priority) or, for Maternity-style types, from the
         // occurrence; unpaid leave deducts nothing. Classification is honoured as of NOW (no snapshot
@@ -655,7 +819,8 @@ public class LeaveService {
             compOffService.consumeForApprovedLeave(request, actor.getId());
         } else {
             leaveBalanceService.consume(request.getEmployeeUserId(), request.getLeaveType(),
-                    request.getStartDate(), request.getEndDate(), request.getTotalDays());
+                    request.getStartDate(), request.getEndDate(), request.getTotalDays(),
+                    LeaveDayCounts.parse(request.getDayCounts()));
         }
 
         String before = auditSnapshot.toJson(Map.of("status", "PENDING"));
@@ -715,9 +880,40 @@ public class LeaveService {
 
         String after = auditSnapshot.toJson(Map.of("status", "REJECTED", "decisionReason", request.getDecisionReason()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_REJECTED", request.getId(), before, after);
+        recountSandwichedNeighbours(request, actor);
 
         notifyDecision(request, "LEAVE_REJECTED", "Leave Request Rejected", "rejected", request.getDecisionReason(), actor);
         return toRequestResponse(request);
+    }
+
+    /**
+     * LV-07: a pending request of the same type that counted the weekly offs / holidays between itself and the
+     * request just rejected ("sandwich across requests") no longer has that neighbour, so its days are counted
+     * again. Approved requests are left as they are (their days are already deducted).
+     */
+    private void recountSandwichedNeighbours(LeaveRequest rejected, User actor) {
+        for (LeaveRequest r : leaveRequestRepository.findActiveInRange(rejected.getEmployeeUserId(), Set.of("PENDING"),
+                rejected.getStartDate().minusDays(31), rejected.getEndDate().plusDays(31))) {
+            if (r.getId().equals(rejected.getId()) || !r.getLeaveType().getId().equals(rejected.getLeaveType().getId())) continue;
+            LeaveDayCounts counts = LeaveDayCounts.parse(r.getDayCounts());
+            boolean chargedAGap = counts != null && counts.sandwiched().keySet().stream()
+                    .anyMatch(d -> d.isBefore(r.getStartDate()) || d.isAfter(r.getEndDate()));
+            if (!chargedAGap) continue;
+            LeaveDayCalculator.Result recount;
+            try {
+                recount = dayCalculator.calculate(r.getEmployeeUserId(), r.getLeaveType(), r.getStartDate(), r.getEndDate(),
+                        null, r.getId(), r.getCreatedAt());
+            } catch (IllegalArgumentException e) {
+                continue; // the dates can no longer be counted at all (e.g. a holiday was added); left for the approver
+            }
+            if (recount.total().compareTo(r.getTotalDays()) == 0) continue;
+            String before = auditSnapshot.toJson(Map.of("totalDays", r.getTotalDays(), "reason", "adjacent request rejected"));
+            r.setTotalDays(recount.total());
+            r.setDayCounts(recount.counts().toJson());
+            leaveRequestRepository.save(r);
+            auditService.log(actor.getId(), "LEAVE_REQUEST_RECALCULATED", r.getId(), before,
+                    auditSnapshot.toJson(Map.of("totalDays", r.getTotalDays(), "rejectedRequestId", rejected.getId().toString())));
+        }
     }
 
     /**
@@ -951,12 +1147,23 @@ public class LeaveService {
         return codesById;
     }
 
+    /** LV-07: the sandwiched days included in the request's total (0 for requests made before V323). */
+    private static BigDecimal sandwichedOf(LeaveRequest r) {
+        LeaveDayCounts counts = LeaveDayCounts.parse(r.getDayCounts());
+        return counts == null ? BigDecimal.ZERO : counts.sandwichedTotal();
+    }
+
     private static String formatDays(BigDecimal days) {
         return days.stripTrailingZeros().toPlainString();
     }
 
     /** Per-leave-year days of a request spanning two leave years (YE-03); null for the usual single-year request. */
     static Map<Integer, BigDecimal> yearBreakdown(LeaveRequest r) {
+        LeaveDayCounts counts = LeaveDayCounts.parse(r.getDayCounts());
+        if (counts != null) { // LV-07: the dates actually charged (a sandwiched gap may lie outside the range)
+            Map<Integer, BigDecimal> byYear = counts.byYear();
+            return byYear.size() > 1 ? byYear : null;
+        }
         if (r.getStartDate() == null || r.getEndDate() == null
                 || LeaveBalanceService.leaveYearOf(r.getStartDate()) == LeaveBalanceService.leaveYearOf(r.getEndDate())) {
             return null;
@@ -979,6 +1186,12 @@ public class LeaveService {
                 .halfDay(r.isHalfDay())
                 .halfDaySession(r.getHalfDaySession())
                 .totalDays(r.getTotalDays())
+                .sandwichedDays(sandwichedOf(r))
+                .durationType(r.getDurationType())
+                .hours(LeaveDurationType.HOURLY.equals(r.getDurationType()) ? r.getLeaveHours() : null)
+                .attachmentName(r.getId() == null ? null
+                        : attachmentRepository.findNamesByRequestIds(List.of(r.getId())).stream()
+                                .map(row -> (String) row[1]).findFirst().orElse(null))
                 .daysByYear(yearBreakdown(r))
                 .status(r.getStatus())
                 .employeeReason(r.getEmployeeReason())
@@ -1013,6 +1226,9 @@ public class LeaveService {
                 .halfDay(r.isHalfDay())
                 .halfDaySession(r.getHalfDaySession())
                 .totalDays(r.getTotalDays())
+                .sandwichedDays(sandwichedOf(r))
+                .durationType(r.getDurationType())
+                .hours(LeaveDurationType.HOURLY.equals(r.getDurationType()) ? r.getLeaveHours() : null)
                 .daysByYear(yearBreakdown(r))
                 .status(r.getStatus())
                 .employeeReason(r.getEmployeeReason())

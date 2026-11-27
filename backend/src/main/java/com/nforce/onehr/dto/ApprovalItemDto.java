@@ -34,6 +34,10 @@ public class ApprovalItemDto {
     private BigDecimal leaveTotalDays;
     private Boolean leaveHalfDay;
     private String leaveReason;
+    /** LV-02: hours of an hourly leave request; null otherwise. */
+    private BigDecimal leaveHours;
+    /** LV-02: the leave request's attachment (download at /api/leave/requests/{id}/attachment); null = none. */
+    private String leaveAttachmentName;
 
     // ── Attendance Regularization / Web Clock-In / WFH / Partial Day / Overtime (shared
     //    fields — WEB_CLOCK_IN has no requestedCheckOut; WFH/PARTIAL_DAY have neither;

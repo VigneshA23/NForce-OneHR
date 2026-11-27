@@ -409,6 +409,10 @@ export interface EmployeeDateEntry {
   employeeId: string;
   employeeName: string;
   date: string;
+  /** LV-04, exits only: paid leave left to encash on exit (null = not computed). */
+  leaveEncashableDays?: number | null;
+  /** LV-04, exits only: paid leave taken beyond the entitlement, to recover (null = not computed). */
+  leaveRecoveryDays?: number | null;
 }
 
 export interface PayrollJoinersExitsResponse {

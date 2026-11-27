@@ -58,6 +58,14 @@ public class LeaveRequest {
     @Column(name = "leave_hours")
     private BigDecimal leaveHours;
 
+    /**
+     * LV-07: the dates this request is charged for, {"working": {date: days}, "sandwiched": {date: days}}
+     * (see {@code LeaveDayCounts}); null for requests made before V323, which held only working days.
+     */
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+    @Column(name = "day_counts", columnDefinition = "jsonb")
+    private String dayCounts;
+
     @Column(nullable = false, length = 20)
     @Builder.Default
     private String status = "PENDING";

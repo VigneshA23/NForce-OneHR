@@ -128,7 +128,7 @@ class LeaveBalanceServiceTest {
 
     @Test
     void unpaidLeave_isUnlimited_neverReadsOrWritesABalance() {
-        assertTrue(service.entitlementDays(unpaid, Y).isEmpty());
+        assertTrue(service.entitlementDays(emp, unpaid, LocalDate.of(Y, 1, 1)).isEmpty());
         service.requireAvailable(emp, unpaid, LocalDate.of(Y, 3, 1), LocalDate.of(Y, 6, 30), new BigDecimal("122"), null);
         service.consume(emp, unpaid, LocalDate.of(Y, 3, 1), LocalDate.of(Y, 6, 30), new BigDecimal("122"));
         verifyNoInteractions(balanceRepo, occurrenceRepo);
@@ -261,7 +261,8 @@ class LeaveBalanceServiceTest {
     @Test
     void currentFirstPriority_usesCurrentYearBeforeCarriedForward() {
         LeaveType currentFirst = paidType("ANNUAL2", "Annual");
-        currentFirst.setCarryForwardPriority(LeaveType.CURRENT_FIRST);
+        currentFirst.setCarryForwardPriority(LeaveType.CURRENT_FIRST); // read as the plan's rule by the test adapter
+        when(typeRepo.findById(currentFirst.getId())).thenReturn(Optional.of(currentFirst));
         LeaveBalance b = LeaveBalance.builder().id(UUID.randomUUID()).employeeUserId(emp).leaveType(currentFirst).year(Y)
                 .totalDays(new BigDecimal("2")).usedDays(BigDecimal.ZERO).carriedForwardDays(new BigDecimal("5"))
                 .carriedForwardExpiresOn(LocalDate.of(Y, 3, 31)).build();

@@ -7,10 +7,7 @@ import com.nforce.onehr.dto.LeaveConfigDtos.AccrualRunResult;
 import com.nforce.onehr.dto.LeaveConfigDtos.BalanceAdjustmentRequest;
 import com.nforce.onehr.dto.LeaveConfigDtos.EligibilityConfig;
 import com.nforce.onehr.dto.LeaveConfigDtos.EligibilityPreview;
-import com.nforce.onehr.dto.LeaveConfigDtos.CarryForwardSettingsRequest;
 import com.nforce.onehr.dto.LeaveConfigDtos.CarryForwardTransferResponse;
-import com.nforce.onehr.dto.LeaveConfigDtos.EntitlementChangeRequest;
-import com.nforce.onehr.dto.LeaveConfigDtos.EntitlementPolicyResponse;
 import com.nforce.onehr.dto.LeaveConfigDtos.YearEndRunResult;
 import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.dto.UpdateLeaveTypeRequest;
@@ -35,8 +32,8 @@ import java.util.UUID;
 /**
  * Leave Configuration — Organization Masters / Organization Structure > Leave. Separate from leave
  * application/approval: every endpoint needs {@code leave_configuration}, never a {@code leave:*}
- * grant. VIEW reads configuration and balances, CONFIGURE changes policy (types, entitlements,
- * carry-forward, year-end run), EDIT adjusts an individual employee's balance.
+ * grant. VIEW reads configuration and balances, CONFIGURE changes policy (types, year-end run; leave
+ * plans in {@link LeavePlanController}), EDIT adjusts an individual employee's balance.
  */
 @RestController
 @RequestMapping("/api/leave-config")
@@ -87,14 +84,7 @@ public class LeaveConfigController {
         leaveTypeService.delete(id, principal.getName());
     }
 
-    // ── Who a type applies to ──
-
-    @PutMapping("/types/{id}/eligibility")
-    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
-    public LeaveTypeResponse updateEligibility(@PathVariable UUID id, @Valid @RequestBody EligibilityConfig config,
-                                               Principal principal) {
-        return leaveTypeService.updateEligibility(id, config, principal.getName());
-    }
+    // ── Who a plan's type applies to (the rules themselves are saved with the plan, LV-01) ──
 
     /** How many current employees a set of "applies to" rules would cover (for the dialog's live count). */
     @PostMapping("/types/eligibility-preview")
@@ -103,29 +93,7 @@ public class LeaveConfigController {
         return leaveTypeService.previewEligibility(config);
     }
 
-    // ── Entitlements ──
-
-    @GetMapping("/types/{id}/entitlements")
-    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
-    public List<EntitlementPolicyResponse> listEntitlements(@PathVariable UUID id) {
-        return leaveTypeService.listPolicies(id);
-    }
-
-    @PostMapping("/types/{id}/entitlements")
-    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
-    public List<EntitlementPolicyResponse> changeEntitlement(@PathVariable UUID id, @Valid @RequestBody EntitlementChangeRequest req,
-                                                             Principal principal) {
-        return leaveTypeService.changeEntitlement(id, req, principal.getName());
-    }
-
-    // ── Carry-forward ──
-
-    @PutMapping("/types/{id}/carry-forward")
-    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
-    public LeaveTypeResponse updateCarryForward(@PathVariable UUID id, @Valid @RequestBody CarryForwardSettingsRequest req,
-                                                Principal principal) {
-        return leaveTypeService.updateCarryForward(id, req, principal.getName());
-    }
+    // ── Year-end ──
 
     @GetMapping("/carry-forward/transfers")
     @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
@@ -151,6 +119,14 @@ public class LeaveConfigController {
         User actor = userRepository.findByEmail(principal.getName())
                 .orElseThrow(() -> new IllegalStateException("Actor not found"));
         return leaveAccrualService.run(actor.getId());
+    }
+
+    /** LV-03 dry run: what crediting on {@code asOf} (default today) would post, credited or paused; writes nothing. */
+    @GetMapping("/accrual/preview")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public com.nforce.onehr.dto.LeaveConfigDtos.AccrualPreview previewAccrual(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate asOf) {
+        return leaveAccrualService.preview(asOf);
     }
 
     /** YE-07: when the nightly crediting and year-end jobs last ran, who ran them and what they did. */

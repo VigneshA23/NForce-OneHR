@@ -158,6 +158,8 @@ public class ApprovalCenterService {
                 .leaveTotalDays(r.getTotalDays())
                 .leaveHalfDay(r.isHalfDay())
                 .leaveReason(r.getEmployeeReason())
+                .leaveHours(r.getHours())
+                .leaveAttachmentName(r.getAttachmentName())
                 .build();
     }
 

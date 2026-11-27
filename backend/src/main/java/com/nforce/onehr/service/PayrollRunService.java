@@ -195,6 +195,8 @@ public class PayrollRunService {
     private final PayrollRunReviewItemRepository payrollRunReviewItemRepository;
     private final BankTransferExcelService bankTransferExcelService;
     private final OtCalculationRepository otCalculationRepository;
+    /** LV-05: confirmed year-end leave encashments are added to the next draft as ad-hoc payments. */
+    private final LeaveEncashmentService leaveEncashmentService;
 
     /** Catalog component (V251) that automated overtime is posted under. */
     static final String OT_COMPONENT_NAME = "Over Time (OT)";
@@ -306,6 +308,10 @@ public class PayrollRunService {
         // so it can never double an employee up across repeated regenerates of the same run.
         applyActiveRecurringAdHocPaymentRules(run, payGroup.getId(),
                 included.stream().map(EmployeeCompensation::getEmployeeId).collect(Collectors.toList()));
+        // LV-05: year-end leave encashments waiting for payroll join this run as "Leave Encashment" ad-hoc payments
+        // (once added they belong to this run, so a regenerate never adds them twice).
+        leaveEncashmentService.attachPending(run,
+                included.stream().map(EmployeeCompensation::getEmployeeId).collect(Collectors.toList()), requireActor(actorEmail).getId());
 
         BigDecimal totalGross = BigDecimal.ZERO;
         BigDecimal totalDeductions = BigDecimal.ZERO;

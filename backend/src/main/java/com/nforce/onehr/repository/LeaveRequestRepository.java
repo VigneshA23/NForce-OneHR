@@ -76,6 +76,14 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, UUID
             UUID employeeUserId, Collection<String> statuses, LocalDate startDateAtOrBefore, LocalDate endDateAtOrAfter,
             UUID excludedId);
 
+    // LV-02 rule checks: the employee's PENDING/APPROVED requests (any type) overlapping [from, to] —
+    // request counts per month/year, adjacent leave for clubbing and consecutive-day limits.
+    @Query("SELECT r FROM LeaveRequest r JOIN FETCH r.leaveType WHERE r.employeeUserId = :employeeUserId "
+            + "AND r.status IN :statuses AND r.startDate <= :to AND r.endDate >= :from ORDER BY r.startDate")
+    List<LeaveRequest> findActiveInRange(@Param("employeeUserId") UUID employeeUserId,
+                                         @Param("statuses") Collection<String> statuses,
+                                         @Param("from") LocalDate from, @Param("to") LocalDate to);
+
     // Backs LeaveBalanceService's pending reservations (V310): PENDING requests of one leave type
     // overlapping [from, to]. Reservations are split per leave year in Java, so a request spanning
     // Dec/Jan reserves its December days against one year and its January days against the next.

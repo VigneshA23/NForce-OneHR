@@ -4,15 +4,16 @@ import PageTitleBlock from '../components/PageTitleBlock';
 import DashTile from '../components/DashTile';
 import {
   CalendarClock, CalendarPlus, CheckCircle2, ChevronLeft, ChevronRight, History, Hourglass, Pencil, Search,
-  Wallet, X, CalendarDays
+  Wallet, X, CalendarDays, ListChecks, Paperclip
 } from 'lucide-react';
 import './leaveModal.css';
 import { ActionDock } from '../components/ActionDock';
 import { useAuthStore } from '../store/authStore';
-import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
+import { leaveApi, type LeaveType, type LeaveBalance, type LeavePreview, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { useToast } from '../context/ToastContext';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
 import { daysByYear, roundDays, viewableBalanceYears, yearBreakdownLabel } from '../utils/leaveDays';
+import { attachmentProblem, hourlyDays, previewNotes, ruleLines } from './leave-config/planRules';
 
 // Notification types that mean "this employee's own leave balance/status may have changed" —
 // mirrors the backend's LeaveService notification events (LEAVE_APPROVED/LEAVE_REJECTED). Every
@@ -131,7 +132,8 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
   const available = Math.max(0, balanceDays);
   // V314: monthly crediting. A negative balance = days taken in advance of credits still to come.
   const inAdvance = balanceDays < 0 ? roundDays(-balanceDays) : 0;
-  const monthly = balance.creditFrequency === 'MONTHLY';
+  // Credited in parts through the year (monthly, quarterly, half-yearly), not all at once (LV-03).
+  const periodic = balance.creditFrequency != null && balance.creditFrequency !== 'YEARLY';
   const quota = balance.annualQuotaDays != null ? Number(balance.annualQuotaDays) : null;
   // roundDays strips the IEEE-754 noise this subtraction can reintroduce even on two already-exact
   // BigDecimal-derived values (e.g. 15 - 13.7 rendering as 1.3000000000000007) - see utils/leaveDays.ts.
@@ -167,13 +169,20 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
           <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No quota assigned</div>
         ) : (
           <>
+            {!perOccurrence && (
+              // LV-03: what has been credited (accrued) so far this year, separately from what is available.
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 4 }}>
+                <span style={{ width: 7, height: 7, borderRadius: 2, background: 'transparent', border: '1px solid var(--line2)', flexShrink: 0 }} />
+                Accrued to date <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{total}d</span>
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 2, background: ringColor, flexShrink: 0 }} />
-              Available <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{available}d</span>
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--line2)', flexShrink: 0 }} />
+              {pending > 0 ? 'Used & pending' : 'Used'} <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{consumed}d</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)' }}>
-              <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--line2)', flexShrink: 0 }} />
-              {pending > 0 ? 'Used & pending' : 'Consumed'} <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{consumed}d</span>
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: ringColor, flexShrink: 0 }} />
+              Available <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{available}d</span>
             </div>
             {pending > 0 && (
               <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{roundDays(pending)}d awaiting approval</div>
@@ -183,7 +192,7 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
                 {inAdvance}d taken in advance, covered by your next credits
               </div>
             )}
-            {!perOccurrence && monthly && quota != null && (
+            {!perOccurrence && quota != null && (periodic || balance.nextCreditDate) && (
               <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>
                 {roundDays(Number(balance.totalDays))}d of {roundDays(quota)}d credited this year
                 {balance.nextCreditDate && balance.nextCreditDays != null
@@ -219,7 +228,8 @@ function ExpectedBalanceCard({ balance, accent }: { balance: LeaveBalance; accen
   const used = Number(balance.usedDays ?? 0);
   const available = roundDays(Math.max(0, Number(balance.availableToApplyDays ?? quota - pending - used)));
   const pct = quota > 0 ? Math.min(100, Math.round((available / quota) * 100)) : 0;
-  const monthly = balance.creditFrequency === 'MONTHLY';
+  const how = balance.creditFrequency === 'MONTHLY' ? 'monthly' : balance.creditFrequency === 'QUARTERLY' ? 'quarterly'
+    : balance.creditFrequency === 'HALF_YEARLY' ? 'half-yearly' : null;
   return (
     <div className="nf-section-enter nf-leave-balance-card" style={{
       background: 'var(--panel)', border: '1px dashed var(--line2)', borderTop: `3px dashed ${accent}`, borderRadius: 16,
@@ -247,7 +257,8 @@ function ExpectedBalanceCard({ balance, accent }: { balance: LeaveBalance; accen
               Expected <b style={{ color: 'var(--txt)' }}>{roundDays(quota)}d</b> in {balance.year}
             </div>
             <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
-              {monthly ? `Credited monthly from 1 Jan ${balance.year}` : `Credited on 1 Jan ${balance.year}`}
+              {how ? `Credited ${how} from ${balance.nextCreditDate ? shortDate(balance.nextCreditDate) : `1 Jan ${balance.year}`}`
+                : `Credited on ${balance.nextCreditDate ? shortDate(balance.nextCreditDate) : `1 Jan ${balance.year}`}`}
             </div>
             {pending + used > 0 && (
               <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{roundDays(pending + used)}d already requested for {balance.year}</div>
@@ -289,8 +300,10 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
     endDate: editingRequest.endDate,
     halfDay: editingRequest.halfDay,
     halfDaySession: editingRequest.halfDaySession ?? undefined,
+    hours: editingRequest.hours ?? null,
     reason: editingRequest.employeeReason,
-  } : { leaveTypeCode: types[0]?.code ?? '', startDate: today, endDate: today, halfDay: false, halfDaySession: undefined, reason: '' });
+  } : { leaveTypeCode: types[0]?.code ?? '', startDate: today, endDate: today, halfDay: false, halfDaySession: undefined, hours: null, reason: '' });
+  const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -300,8 +313,43 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
   // "expected" view); a year that can't be fetched is left to the backend's own check.
   const [balancesByYear, setBalancesByYear] = useState<Record<number, LeaveBalance[] | 'error'>>({ [currentYear]: balances });
   useEffect(() => { setBalancesByYear(prev => ({ ...prev, [currentYear]: balances })); }, [balances, currentYear]);
-  const effectiveEndDate = form.halfDay ? form.startDate : form.endDate;
-  const segments = useMemo(() => daysByYear(form.startDate, effectiveEndDate, form.halfDay), [form.startDate, effectiveEndDate, form.halfDay]);
+  // LV-02: the selected type's rules from the employee's plan (null = no limits).
+  const rules = types.find(t => t.code === form.leaveTypeCode)?.rules ?? null;
+  // LV-06: held back today by tenure / probation — leave can start from this date (null = not held back).
+  const heldBack = types.find(t => t.code === form.leaveTypeCode);
+  const availableFrom = heldBack?.availableFrom && heldBack.availableFrom > today ? heldBack.availableFrom : null;
+  const hourly = form.hours != null;
+  const singleDay = form.halfDay || hourly;
+  const effectiveEndDate = singleDay ? form.startDate : form.endDate;
+  const hoursDays = hourly ? hourlyDays(Number(form.hours), rules?.hoursPerDay ?? 8) : null;
+
+  // LV-07: the server's day count — weekly offs / holidays aren't counted unless the plan's sandwich rule counts
+  // them — fetched shortly after the type, dates or duration change. Until it arrives (or if it fails) the form
+  // falls back to its own calendar-day estimate.
+  const [preview, setPreview] = useState<LeavePreview | null>(null);
+  const previewSeq = useRef(0);
+  const editingId = editingRequest?.id;
+  useEffect(() => {
+    const seq = ++previewSeq.current;
+    setPreview(null);
+    if (!form.leaveTypeCode || !form.startDate || !effectiveEndDate || effectiveEndDate < form.startDate) return;
+    const timer = setTimeout(() => {
+      leaveApi.preview({
+        leaveTypeCode: form.leaveTypeCode, startDate: form.startDate, endDate: effectiveEndDate, halfDay: form.halfDay,
+        halfDaySession: form.halfDaySession, hours: form.hours,
+      }, token, editingId)
+        .then(p => { if (seq === previewSeq.current) setPreview(p); })
+        .catch(() => undefined);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [form.leaveTypeCode, form.startDate, effectiveEndDate, form.halfDay, form.halfDaySession, form.hours, token, editingId]);
+  const counted = preview?.totalDays != null ? preview : null;
+
+  const segments = useMemo(() => counted
+    ? new Map(Object.entries(counted.daysByYear).map(([y, d]) => [Number(y), Number(d)] as [number, number]))
+    : hoursDays != null
+      ? new Map([[Number(form.startDate.slice(0, 4)), hoursDays]])
+      : daysByYear(form.startDate, effectiveEndDate, form.halfDay), [counted, form.startDate, effectiveEndDate, form.halfDay, hoursDays]);
   const segmentYearsKey = [...segments.keys()].join(',');
   useEffect(() => {
     for (const y of segments.keys()) {
@@ -373,6 +421,16 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
     // this against its own (timezone-correct) notion of "today" regardless of what's checked here.
     if (form.startDate < today) { setError('Leave cannot be requested for a date before today.'); return; }
     if (form.halfDay && !form.halfDaySession) { setError('Select First Half or Second Half.'); return; }
+    if (hourly && !(Number(form.hours) > 0 && Number(form.hours) < (rules?.hoursPerDay ?? 8))) {
+      setError(`Enter the hours: more than 0 and less than ${rules?.hoursPerDay ?? 8}.`);
+      return;
+    }
+    const fileProblem = file && rules ? attachmentProblem(rules, selectedType?.name ?? 'This leave', file.name, file.size) : null;
+    if (fileProblem) { setError(fileProblem); return; }
+    if (attachmentNeeded && !file && !editingRequest?.attachmentName) {
+      setError(`${selectedType?.name ?? 'This leave'} needs an attachment for this request.`);
+      return;
+    }
     if (shortYear && shortYear.balance) {
       setError(notEnoughMessage(shortYear));
       return;
@@ -383,10 +441,10 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
     }
     setSubmitting(true); setError(null);
     try {
-      const payload = { ...form, endDate: form.halfDay ? form.startDate : form.endDate };
+      const payload = { ...form, endDate: singleDay ? form.startDate : form.endDate, hours: hourly ? Number(form.hours) : null };
       const saved = editingRequest
-        ? await leaveApi.update(editingRequest.id, payload, token)
-        : await leaveApi.submit(payload, token);
+        ? await leaveApi.update(editingRequest.id, payload, token, file)
+        : await leaveApi.submit(payload, token, file);
       onSaved(saved, isEdit);
       showToast('success', isEdit ? 'Leave request updated' : 'Leave request submitted');
       onClose();
@@ -398,6 +456,10 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
   }
 
   const dayCount = Number.isFinite(requestedDays) && requestedDays > 0 ? requestedDays : null;
+  const ruleList = rules ? ruleLines(rules) : [];
+  const attachmentNeeded = rules?.attachmentRequiredOverDays != null && dayCount != null && dayCount > rules.attachmentRequiredOverDays;
+  const halfDayAllowed = rules ? rules.allowHalfDay : true;
+  const hourlyAllowed = rules?.allowHourly ?? false;
 
   // Portaled to the body: an ancestor that has finished its entrance animation keeps a resolved transform,
   // which would otherwise make this fixed overlay position against that ancestor (header clipped under the top bar).
@@ -417,8 +479,17 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
             <section className="nf-lv-sec">
               <div className="nf-lv-sec-hd"><span className="nf-lv-sec-ico"><Wallet size={15} /></span><span className="nf-lv-sec-title">Leave type</span></div>
               <Field label="Leave Type *">
-                <select style={inputStyle} value={form.leaveTypeCode} onChange={e => setForm(f => ({ ...f, leaveTypeCode: e.target.value }))}>
-                  {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
+                <select style={inputStyle} value={form.leaveTypeCode} onChange={e => {
+                  const next = types.find(t => t.code === e.target.value)?.rules ?? null;
+                  // Drop a half day / hours the newly chosen type doesn't allow.
+                  setForm(f => ({
+                    ...f, leaveTypeCode: e.target.value,
+                    halfDay: f.halfDay && (next ? next.allowHalfDay : true),
+                    halfDaySession: f.halfDay && (next ? next.allowHalfDay : true) ? f.halfDaySession : undefined,
+                    hours: f.hours != null && next?.allowHourly ? f.hours : null,
+                  }));
+                }}>
+                  {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}{t.availabilityNote ? (t.availableFrom ? ` (from ${t.availableFrom})` : ' (not yet available)') : ''}</option>)}
                 </select>
               </Field>
               {checked.map(c => (
@@ -434,7 +505,7 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
               {yearChecks.some(c => c.loading) && <div className="nf-lv-bal">Checking balance…</div>}
               {advanceDays > 0 && (
                 <div className="nf-lv-warn">
-                  {advanceDays} day{advanceDays === 1 ? '' : 's'} of this request will be taken in advance and covered by your upcoming monthly credits.
+                  {advanceDays} day{advanceDays === 1 ? '' : 's'} of this request will be taken in advance and covered by your upcoming credits.
                 </div>
               )}
               {blockedUnpaidWithPaidBalance && (
@@ -442,25 +513,59 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
                   You cannot apply for unpaid leave while you have an available paid leave balance.
                 </div>
               )}
+              {heldBack?.availabilityNote && (
+                <div className="nf-lv-warn" data-testid="leave-available-from">{heldBack.availabilityNote}</div>
+              )}
+              {ruleList.length > 0 && (
+                <div className="nf-lv-bal" data-testid="leave-rules" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <ListChecks size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span>{ruleList.join(' · ')}</span>
+                </div>
+              )}
             </section>
 
             <section className="nf-lv-sec">
               <div className="nf-lv-sec-hd">
                 <span className="nf-lv-sec-ico"><CalendarDays size={15} /></span><span className="nf-lv-sec-title">Dates</span>
-                {dayCount != null && <span className="nf-lv-days">{dayCount} day{dayCount === 1 ? '' : 's'}</span>}
+                {dayCount != null && (
+                  <span className="nf-lv-days" data-testid="leave-day-count">
+                    {counted?.summary ?? `${dayCount} day${dayCount === 1 ? '' : 's'}`}
+                  </span>
+                )}
               </div>
               <div className="nf-lv-grid">
                 <Field label="Start Date *">
-                  <input type="date" min={today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay ? e.target.value : f.endDate }))} />
+                  <input type="date" min={availableFrom ?? today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay || f.hours != null ? e.target.value : f.endDate }))} />
                 </Field>
                 <Field label="End Date *">
-                  <input type="date" style={inputStyle} value={form.halfDay ? form.startDate : form.endDate} disabled={form.halfDay} min={form.startDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+                  <input type="date" style={inputStyle} value={singleDay ? form.startDate : form.endDate} disabled={singleDay} min={form.startDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
                 </Field>
               </div>
-              <label htmlFor="halfDay" className={`nf-lv-half${form.halfDay ? ' on' : ''}`} style={{ marginTop: 12, marginBottom: 0 }}>
-                <input id="halfDay" type="checkbox" checked={form.halfDay} onChange={e => setForm(f => ({ ...f, halfDay: e.target.checked, halfDaySession: e.target.checked ? f.halfDaySession : undefined, endDate: e.target.checked ? f.startDate : f.endDate }))} />
-                <span style={{ display: 'block' }}><b>Half day</b><span>Take only the first or second half of the day.</span></span>
-              </label>
+              {halfDayAllowed && (
+                <label htmlFor="halfDay" className={`nf-lv-half${form.halfDay ? ' on' : ''}`} style={{ marginTop: 12, marginBottom: 0 }}>
+                  <input id="halfDay" type="checkbox" checked={form.halfDay} onChange={e => setForm(f => ({ ...f, halfDay: e.target.checked, hours: e.target.checked ? null : f.hours, halfDaySession: e.target.checked ? f.halfDaySession : undefined, endDate: e.target.checked ? f.startDate : f.endDate }))} />
+                  <span style={{ display: 'block' }}><b>Half day</b><span>Take only the first or second half of the day.</span></span>
+                </label>
+              )}
+              {hourlyAllowed && (
+                <label htmlFor="hourly" className={`nf-lv-half${hourly ? ' on' : ''}`} style={{ marginTop: 12, marginBottom: 0 }}>
+                  <input id="hourly" type="checkbox" checked={hourly} onChange={e => setForm(f => ({ ...f, hours: e.target.checked ? (rules?.minHours ?? 2) : null, halfDay: e.target.checked ? false : f.halfDay, halfDaySession: e.target.checked ? undefined : f.halfDaySession, endDate: e.target.checked ? f.startDate : f.endDate }))} />
+                  <span style={{ display: 'block' }}><b>By the hour</b><span>A few hours on one day ({rules?.hoursPerDay ?? 8} hours = 1 day).</span></span>
+                </label>
+              )}
+              {hourly && (
+                <div style={{ marginTop: 10, maxWidth: 160 }}>
+                  <Field label="Hours *">
+                    <input type="number" min={rules?.minHours ?? 0.5} max={(rules?.hoursPerDay ?? 8) - 0.5} step={0.5} style={inputStyle}
+                      value={form.hours ?? ''} aria-label="Hours"
+                      onChange={e => setForm(f => ({ ...f, hours: e.target.value === '' ? 0 : Number(e.target.value) }))} />
+                  </Field>
+                </div>
+              )}
+              {counted && previewNotes(counted).map(note => (
+                <div key={note} className="nf-lv-bal" style={{ marginTop: 8 }}>{note}</div>
+              ))}
+              {preview?.problem && <div className="nf-lv-warn" style={{ marginTop: 8 }} data-testid="leave-preview-problem">{preview.problem}</div>}
               {form.halfDay && (
                 <div className="nf-lv-sessions">
                   <label>
@@ -473,6 +578,21 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
                   </label>
                 </div>
               )}
+            </section>
+
+            <section className="nf-lv-sec">
+              <div className="nf-lv-sec-hd"><span className="nf-lv-sec-ico"><Paperclip size={15} /></span><span className="nf-lv-sec-title">Attachment</span></div>
+              <Field label={attachmentNeeded ? 'Attachment *' : 'Attachment (optional)'}>
+                <input type="file" style={inputStyle} aria-label="Attachment"
+                  accept={rules?.attachmentAllowedTypes.length ? rules.attachmentAllowedTypes.map(e => `.${e}`).join(',') : undefined}
+                  onChange={e => setFile(e.target.files?.[0] ?? null)} />
+              </Field>
+              <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 4 }}>
+                {editingRequest?.attachmentName && !file ? `Attached: ${editingRequest.attachmentName}. Choose a file to replace it. ` : ''}
+                {attachmentNeeded ? `Needed for ${selectedType?.name ?? 'this leave'} over ${rules!.attachmentRequiredOverDays} day(s). ` : ''}
+                {rules?.attachmentAllowedTypes.length ? `${rules.attachmentAllowedTypes.map(e => e.toUpperCase()).join(', ')}, ` : ''}
+                max {rules?.attachmentMaxMb ?? 10} MB.
+              </div>
             </section>
 
             <section className="nf-lv-sec">
@@ -763,9 +883,12 @@ export default function LeavePage() {
                         </span>
                       </div>
                     </td>
-                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.startDate}{r.startDate !== r.endDate ? ` to ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}</td>
+                    <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.startDate}{r.startDate !== r.endDate ? ` to ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}{r.hours != null ? ` (${r.hours} h)` : ''}</td>
                     <td style={tdStyle}>
                       <span className="nf-rep-code">{r.totalDays}</span>
+                      {r.sandwichedDays ? (
+                        <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3, whiteSpace: 'nowrap' }}>incl. {r.sandwichedDays} sandwiched</div>
+                      ) : null}
                       {yearBreakdownLabel(r.startDate, r.endDate, r.halfDay) && (
                         <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3, whiteSpace: 'nowrap' }} title="Each part is charged to that year's balance">
                           {yearBreakdownLabel(r.startDate, r.endDate, r.halfDay)}
@@ -775,6 +898,12 @@ export default function LeavePage() {
                     <td style={tdStyle}><StatusBadge status={r.status} /></td>
                     <td style={{ ...tdStyle, maxWidth: 220 }}>
                       <div style={{ overflowWrap: 'anywhere' }} title={r.employeeReason}>{r.employeeReason}</div>
+                      {r.attachmentName && (
+                        <button type="button" onClick={() => leaveApi.downloadAttachment(r.id, r.attachmentName!, token).catch(() => undefined)}
+                          style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', padding: 0, color: 'var(--brand)', fontSize: 12, cursor: 'pointer' }}>
+                          <Paperclip size={12} /> {r.attachmentName}
+                        </button>
+                      )}
                     </td>
                     <td style={{ ...tdStyle, maxWidth: 240 }}>
                       {r.status === 'PENDING' ? (

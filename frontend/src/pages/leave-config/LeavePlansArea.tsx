@@ -1,0 +1,648 @@
+/**
+ * LV-01 Leave Plans (Organization Masters > Leave > Leave Plans). A plan bundles leave types with their
+ * own rules — days, crediting, carry-forward and who each type applies to — and is assigned to employees
+ * on the Assignment tab. Rule changes are saved as a version from a chosen date; earlier versions stay
+ * as history. One plan is the organization default, used for anyone not assigned another plan.
+ */
+import { useCallback, useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { KebabMenu, type KebabItem } from '../../components/KebabMenu';
+import { useToast } from '../../context/ToastContext';
+import {
+  leaveConfigApi, type LeavePlanDetail, type LeavePlanSummary, type LeavePlanVersionDetail, type LeaveType, type PlanProration,
+} from '../../api/leave';
+import { AppliesToEditor, appliesToSummary } from './AppliesTo';
+import {
+  Badge, ConfirmDialog, Dialog, DialogActions, FormError, Table, days, errMsg, fmtDate, hintS, inputS, labelS,
+  primaryBtn, secondaryBtn, tdS, type Confirm,
+} from './leaveConfigUi';
+import {
+  accrualSummary, firstOfNextMonth, formsFor, isoDate, limitsPayload, modeFor, prorationExample, ruleLines, summaryOf, toPayload,
+  yearEndSummary, type AccrualForm, type LimitsForm, type RuleForm, type YearEndForm,
+} from './planRules';
+import type { Lookups } from './LeaveConfigSection';
+
+// ── Rule rows ──────────────────────────────────────────────────────────────────
+
+/** LV-02: how the type may be requested — limits, notice, half/hourly, attachments, clubbing. */
+function RequestRules({ type, limits, onChange, allTypes, readOnly }: {
+  type: LeaveType; limits: LimitsForm; onChange(next: LimitsForm): void; allTypes: LeaveType[]; readOnly: boolean;
+}) {
+  const set = (patch: Partial<LimitsForm>) => onChange({ ...limits, ...patch });
+  const small: React.CSSProperties = { ...inputS, width: 96 };
+  const field = (key: keyof LimitsForm, label: string, placeholder: string, step = 0.5, disabled = false) => (
+    <div>
+      <label style={labelS}>{label}</label>
+      <input type="number" min={0} step={step} style={small} value={limits[key] as string} placeholder={placeholder}
+        disabled={readOnly || disabled} aria-label={`${type.name} ${label.toLowerCase()}`}
+        onChange={e => set({ [key]: e.target.value } as Partial<LimitsForm>)} />
+    </div>
+  );
+  const others = allTypes.filter(t => t.id !== type.id && (t.active || limits.notNextToTypeIds.includes(t.id)));
+  const row: React.CSSProperties = { display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 };
+  return (
+    <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 12px' }}>
+      <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Request rules</legend>
+      <div style={row}>
+        {field('minDaysPerRequest', 'Min days / request', 'None')}
+        {field('maxDaysPerRequest', 'Max days / request', 'None')}
+        {field('maxConsecutiveDays', 'Max days in a row', 'None')}
+        {field('maxRequestsPerMonth', 'Requests / month', 'Any', 1)}
+        {field('maxRequestsPerYear', 'Requests / year', 'Any', 1)}
+      </div>
+      <div style={row}>
+        {field('noticeDays', 'Notice (days)', 'None', 1)}
+        {field('noticeAppliesOverDays', 'Notice only over (days)', 'Always', 0.5, limits.noticeDays.trim() === '')}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+          <input type="checkbox" checked={limits.allowHalfDay} disabled={readOnly} onChange={e => set({ allowHalfDay: e.target.checked })} />
+          Half days allowed
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+          <input type="checkbox" checked={limits.allowHourly} disabled={readOnly}
+            onChange={e => set({ allowHourly: e.target.checked, minHours: e.target.checked ? limits.minHours : '' })} />
+          By the hour
+        </label>
+        {field('minHours', 'Min hours', 'Any', 0.5, !limits.allowHourly)}
+      </div>
+      <div style={row}>
+        {field('attachmentRequiredOverDays', 'Attachment needed over (days)', 'Never')}
+        <div>
+          <label style={labelS}>File types</label>
+          <input style={{ ...inputS, width: 150 }} value={limits.attachmentAllowedTypes} placeholder="Any, e.g. pdf, jpg"
+            disabled={readOnly} aria-label={`${type.name} attachment file types`}
+            onChange={e => set({ attachmentAllowedTypes: e.target.value })} />
+        </div>
+        {field('attachmentMaxMb', 'Max size (MB)', '10', 1)}
+      </div>
+      {type.entitlementBasis !== 'PER_OCCURRENCE' && (
+        <div style={row}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+            <input type="checkbox" checked={limits.sandwichEnabled} disabled={readOnly}
+              onChange={e => set({ sandwichEnabled: e.target.checked })} />
+            Sandwich: count non-working days between leave days
+          </label>
+          <div>
+            <label style={labelS}>Counts</label>
+            <select style={{ ...inputS, width: 190 }} value={limits.sandwichAppliesTo} disabled={readOnly || !limits.sandwichEnabled}
+              aria-label={`${type.name} sandwich applies to`}
+              onChange={e => set({ sandwichAppliesTo: e.target.value as LimitsForm['sandwichAppliesTo'] })}>
+              <option value="BOTH">Weekly offs and holidays</option>
+              <option value="WEEK_OFFS">Weekly offs only</option>
+              <option value="HOLIDAYS">Holidays only</option>
+            </select>
+          </div>
+          {field('sandwichMinDays', 'Only from (working days)', 'Always', 0.5, !limits.sandwichEnabled)}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+            <input type="checkbox" checked={limits.sandwichAcrossRequests} disabled={readOnly || !limits.sandwichEnabled}
+              onChange={e => set({ sandwichAcrossRequests: e.target.checked })} />
+            Also between separate requests (e.g. Friday and Monday)
+          </label>
+        </div>
+      )}
+      {others.length > 0 && (
+        <div>
+          <label style={labelS}>Can't be taken next to</label>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {others.map(o => (
+              <label key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                <input type="checkbox" checked={limits.notNextToTypeIds.includes(o.id)} disabled={readOnly}
+                  onChange={e => set({
+                    notNextToTypeIds: e.target.checked
+                      ? [...limits.notNextToTypeIds, o.id]
+                      : limits.notNextToTypeIds.filter(id => id !== o.id),
+                  })} />
+                {o.name}
+              </label>
+            ))}
+          </div>
+          <div style={{ ...hintS, marginTop: 4 }}>Blocks a request that starts or ends next to one of these, with only weekly offs or holidays in between.</div>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+function RuleRow({ type, form, onChange, lookups, token, readOnly, allTypes }: {
+  type: LeaveType; form: RuleForm; onChange(next: RuleForm): void; lookups: Lookups; token: string; readOnly: boolean;
+  allTypes: LeaveType[];
+}) {
+  const [open, setOpen] = useState(false);
+  const paid = type.classification === 'PAID';
+  const annual = paid && type.entitlementBasis !== 'PER_OCCURRENCE';
+  const set = (patch: Partial<RuleForm>) => onChange({ ...form, ...patch });
+  const setYearEnd = (patch: Partial<YearEndForm>) => onChange({ ...form, yearEnd: { ...form.yearEnd, ...patch } });
+  const small: React.CSSProperties = { ...inputS, width: 96 };
+  const mode = modeFor(type, form.limits);
+  const compOff = type.code === 'COMP_OFF';
+  const limits = limitsPayload(type, form.limits, mode);
+  const rulesText = typeof limits === 'string' ? []
+    : ruleLines(summaryOf(limits, id => allTypes.find(t => t.id === id)?.name ?? 'another type'))
+      .filter(l => !l.startsWith('Unlimited') && !l.startsWith('Only days'));
+  return (
+    <div data-testid={`plan-rule-${type.code}`} style={{ border: '1px solid var(--line)', borderRadius: 8, marginBottom: 8, background: form.included ? 'var(--panel)' : 'transparent' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', flexWrap: 'wrap' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200, flex: '1 1 200px', cursor: readOnly ? 'default' : 'pointer' }}>
+          <input type="checkbox" checked={form.included} disabled={readOnly} onChange={e => set({ included: e.target.checked })}
+            aria-label={`Include ${type.name}`} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: form.included ? 'var(--txt)' : 'var(--txt-dim)' }}>{type.name}</span>
+          <Badge tone={paid ? 'ok' : 'warn'}>{paid ? (annual ? 'Paid' : 'Per occurrence') : 'Unpaid'}</Badge>
+          {!type.active && <Badge tone="dim">Inactive</Badge>}
+        </label>
+        {form.included && (
+          <>
+            {annual && !compOff && (
+              <select style={{ ...inputS, width: 150 }} value={mode} disabled={readOnly} aria-label={`${type.name} entitlement`}
+                onChange={e => set({ limits: { ...form.limits, entitlementMode: e.target.value as LimitsForm['entitlementMode'] } })}>
+                <option value="QUOTA">Fixed days</option>
+                <option value="UNLIMITED">Unlimited</option>
+                <option value="EARNED_ONLY">Earned only</option>
+              </select>
+            )}
+            {paid && mode === 'QUOTA' ? (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)' }}>
+                <input type="number" min={0} max={999} step={0.5} style={small} value={form.days} disabled={readOnly}
+                  aria-label={`${type.name} days`} onChange={e => set({ days: e.target.value })} />
+                {annual ? 'days / year' : 'days / occurrence'}
+              </label>
+            ) : !paid ? <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Unlimited</span>
+              : mode === 'EARNED_ONLY' ? <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Only days credited by HR or earned</span>
+                : <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No balance is deducted</span>}
+            {annual && mode === 'QUOTA' && (
+              <select style={{ ...inputS, width: 150 }} value={form.creditFrequency} disabled={readOnly} aria-label={`${type.name} crediting`}
+                onChange={e => set({ creditFrequency: e.target.value as RuleForm['creditFrequency'] })}>
+                <option value="MONTHLY">Monthly</option>
+                <option value="QUARTERLY">Quarterly</option>
+                <option value="HALF_YEARLY">Half-yearly</option>
+                <option value="YEARLY">All at once (yearly)</option>
+              </select>
+            )}
+            {annual && mode === 'QUOTA' && (
+              <select style={{ ...inputS, width: 170 }} value={form.accrual.timing} disabled={readOnly} aria-label={`${type.name} credit timing`}
+                onChange={e => set({ accrual: { ...form.accrual, timing: e.target.value as AccrualForm['timing'] } })}>
+                <option value="START">at the start of the period</option>
+                <option value="END">at the end of the period</option>
+              </select>
+            )}
+            <button type="button" onClick={() => setOpen(!open)} style={{ ...secondaryBtn, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              aria-expanded={open}>
+              {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />} More
+            </button>
+          </>
+        )}
+      </div>
+      {form.included && !open && (
+        <div style={{ padding: '0 12px 10px 36px', fontSize: 11.5, color: 'var(--txt-dim)' }}>
+          Applies to: {appliesToSummary(form, lookups.departments, lookups.locations)}
+          {annual && !compOff && mode !== 'UNLIMITED' && ` · ${yearEndSummary(form)}`}
+          {annual && mode === 'QUOTA' && ` · ${accrualSummary(form.creditFrequency, form.accrual)}`}
+          {rulesText.length > 0 && ` · ${rulesText.join(' · ')}`}
+        </div>
+      )}
+      {form.included && open && (
+        <div style={{ padding: '4px 12px 4px 36px' }}>
+          <RequestRules type={type} limits={form.limits} onChange={l => set({ limits: l })} allTypes={allTypes} readOnly={readOnly} />
+          {annual && mode === 'QUOTA' && (
+            <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 12px' }}>
+              <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Crediting pauses</legend>
+              <p style={{ fontSize: 11.5, color: 'var(--txt-dim)', margin: '0 0 8px' }}>
+                Withhold a period&apos;s credit when the employee had more than this many days in the period it depends on: the
+                period itself when credited at the end, the period before it when credited at the start. Loss of pay is
+                payroll&apos;s calculated figure. Blank = never withheld.
+              </p>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div>
+                  <label style={labelS}>Loss of pay over (days)</label>
+                  <input type="number" min={0} max={366} step={0.5} style={small} value={form.accrual.pauseLopOverDays} placeholder="Never"
+                    disabled={readOnly} aria-label={`${type.name} pause after loss of pay`}
+                    onChange={e => set({ accrual: { ...form.accrual, pauseLopOverDays: e.target.value } })} />
+                </div>
+                <div>
+                  <label style={labelS}>Unpaid leave over (days)</label>
+                  <input type="number" min={0} max={366} step={0.5} style={small} value={form.accrual.pauseUnpaidOverDays} placeholder="Never"
+                    disabled={readOnly} aria-label={`${type.name} pause after unpaid leave`}
+                    onChange={e => set({ accrual: { ...form.accrual, pauseUnpaidOverDays: e.target.value } })} />
+                </div>
+              </div>
+            </fieldset>
+          )}
+          {annual && mode !== 'UNLIMITED' && (
+            <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 12px' }}>
+              <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Carry-forward</legend>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+                  <input type="checkbox" checked={form.carryForwardEnabled} disabled={readOnly}
+                    onChange={e => set({ carryForwardEnabled: e.target.checked })} />
+                  Carry unused days into next year
+                </label>
+                <div>
+                  <label style={labelS}>Maximum days</label>
+                  <input type="number" min={0} max={999} step={0.5} style={small} value={form.carryForwardMaxDays} placeholder="No cap"
+                    disabled={readOnly || !form.carryForwardEnabled} aria-label={`${type.name} maximum carry-forward days`}
+                    onChange={e => set({ carryForwardMaxDays: e.target.value })} />
+                </div>
+                <div>
+                  <label style={labelS}>Maximum %</label>
+                  <input type="number" min={0} max={100} step={1} style={small} value={form.yearEnd.carryForwardMaxPercent} placeholder="No cap"
+                    disabled={readOnly || !form.carryForwardEnabled} aria-label={`${type.name} maximum carry-forward percent`}
+                    onChange={e => setYearEnd({ carryForwardMaxPercent: e.target.value })} />
+                </div>
+                <div>
+                  <label style={labelS}>Expires after (months)</label>
+                  <input type="number" min={1} max={24} style={small} value={form.carryForwardExpiryMonths} placeholder="Never"
+                    disabled={readOnly || !form.carryForwardEnabled || form.yearEnd.expiryMonth !== ''} aria-label={`${type.name} carry-forward expiry`}
+                    onChange={e => set({ carryForwardExpiryMonths: e.target.value })} />
+                </div>
+                <div>
+                  <label style={labelS}>Or use by (next year)</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input type="number" min={1} max={31} style={{ ...inputS, width: 64 }} value={form.yearEnd.expiryDay} placeholder="Day"
+                      disabled={readOnly || !form.carryForwardEnabled || form.carryForwardExpiryMonths !== ''} aria-label={`${type.name} carry-forward expiry day`}
+                      onChange={e => setYearEnd({ expiryDay: e.target.value })} />
+                    <select style={{ ...inputS, width: 96 }} value={form.yearEnd.expiryMonth} aria-label={`${type.name} carry-forward expiry month`}
+                      disabled={readOnly || !form.carryForwardEnabled || form.carryForwardExpiryMonths !== ''}
+                      onChange={e => setYearEnd({ expiryMonth: e.target.value })}>
+                      <option value="">Month</option>
+                      {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, i) =>
+                        <option key={m} value={String(i + 1)}>{m}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label style={labelS}>Use first</label>
+                  <select style={{ ...inputS, width: 170 }} value={form.carryForwardPriority} disabled={readOnly || !form.carryForwardEnabled}
+                    onChange={e => set({ carryForwardPriority: e.target.value as RuleForm['carryForwardPriority'] })}>
+                    <option value="CARRY_FORWARD_FIRST">Carried-forward first</option>
+                    <option value="CURRENT_FIRST">Current year first</option>
+                  </select>
+                </div>
+              </div>
+            </fieldset>
+          )}
+          {annual && mode !== 'UNLIMITED' && (
+            <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 12px' }}>
+              <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Encashment at year end</legend>
+              <p style={{ fontSize: 11.5, color: 'var(--txt-dim)', margin: '0 0 8px' }}>
+                Unused days beyond the carry-forward are paid, up to the maximum; the rest lapses. Amount = days × monthly
+                basis ÷ divisor, paid with the next payroll after HR confirms the year-end.
+              </p>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+                  <input type="checkbox" checked={form.yearEnd.encashEnabled} disabled={readOnly}
+                    onChange={e => setYearEnd({ encashEnabled: e.target.checked })} />
+                  Encash unused days
+                </label>
+                <div>
+                  <label style={labelS}>Maximum days</label>
+                  <input type="number" min={0} max={999} step={0.5} style={small} value={form.yearEnd.encashMaxDays} placeholder="No cap"
+                    disabled={readOnly || !form.yearEnd.encashEnabled} aria-label={`${type.name} maximum encashment days`}
+                    onChange={e => setYearEnd({ encashMaxDays: e.target.value })} />
+                </div>
+                <div>
+                  <label style={labelS}>Basis</label>
+                  <select style={{ ...inputS, width: 140 }} value={form.yearEnd.encashBasis} disabled={readOnly || !form.yearEnd.encashEnabled}
+                    aria-label={`${type.name} encashment basis`}
+                    onChange={e => setYearEnd({ encashBasis: e.target.value as YearEndForm['encashBasis'] })}>
+                    <option value="BASIC">Basic</option>
+                    <option value="BASIC_DA">Basic + DA</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelS}>Divided by</label>
+                  <select style={{ ...inputS, width: 90 }} value={form.yearEnd.encashDivisor} disabled={readOnly || !form.yearEnd.encashEnabled}
+                    aria-label={`${type.name} encashment divisor`}
+                    onChange={e => setYearEnd({ encashDivisor: e.target.value as YearEndForm['encashDivisor'] })}>
+                    <option value="30">30</option>
+                    <option value="26">26</option>
+                  </select>
+                </div>
+              </div>
+            </fieldset>
+          )}
+          <AppliesToEditor value={form.eligibility} onChange={eligibility => set({ eligibility })} departments={lookups.departments}
+            locations={lookups.locations} employees={lookups.employees} token={token} disabled={readOnly} grades={lookups.grades} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Proration (LV-04) ──────────────────────────────────────────────────────────
+
+const DEFAULT_PRORATION: PlanProration = { method: 'MONTHS', cutoffDay: null, rounding: 'NEAREST_HALF' };
+
+/** The plan's proration of part-year entitlements: method, cut-off day (months only) and rounding. */
+function ProrationFields({ value, onChange, readOnly }: { value: PlanProration; onChange(next: PlanProration): void; readOnly: boolean }) {
+  return (
+    <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 14px' }}>
+      <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Joiners and leavers (proration)</legend>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div>
+          <label style={labelS} htmlFor="lp-pr-method">Count the joining / exit month</label>
+          <select id="lp-pr-method" style={{ ...inputS, width: 230 }} value={value.method} disabled={readOnly}
+            onChange={e => onChange({ ...value, method: e.target.value as PlanProration['method'], cutoffDay: e.target.value === 'MONTHS' ? value.cutoffDay : null })}>
+            <option value="MONTHS">By whole months</option>
+            <option value="CALENDAR_DAYS">By the days served in it</option>
+          </select>
+        </div>
+        {value.method === 'MONTHS' && (
+          <div>
+            <label style={labelS} htmlFor="lp-pr-cutoff">Cut-off day</label>
+            <input id="lp-pr-cutoff" type="number" min={1} max={31} style={{ ...inputS, width: 110 }} disabled={readOnly}
+              value={value.cutoffDay ?? ''} placeholder="None"
+              onChange={e => onChange({ ...value, cutoffDay: e.target.value === '' ? null : Math.max(1, Math.min(31, Math.round(Number(e.target.value)))) })} />
+          </div>
+        )}
+        <div>
+          <label style={labelS} htmlFor="lp-pr-round">Rounding</label>
+          <select id="lp-pr-round" style={{ ...inputS, width: 200 }} value={value.rounding} disabled={readOnly}
+            onChange={e => onChange({ ...value, rounding: e.target.value as PlanProration['rounding'] })}>
+            <option value="NEAREST_HALF">Nearest half day</option>
+            <option value="DOWN_HALF">Down to a half day</option>
+            <option value="UP_HALF">Up to a half day</option>
+            <option value="NONE">No rounding</option>
+          </select>
+        </div>
+      </div>
+      <p style={{ ...hintS, margin: '8px 0 0', fontSize: 11.5 }}>
+        {prorationExample(value)} The last working day ends crediting the same way; leave taken beyond what was
+        earned by then is flagged for recovery on the Exits tab and in payroll.
+      </p>
+    </fieldset>
+  );
+}
+
+// ── Editor ─────────────────────────────────────────────────────────────────────
+
+function PlanEditor({ planId, types, token, canConfigure, lookups, onClose, onSaved }: {
+  planId: string | null; types: LeaveType[]; token: string; canConfigure: boolean; lookups: Lookups;
+  onClose(): void; onSaved(detail: LeavePlanDetail): void;
+}) {
+  const creating = planId === null;
+  const [detail, setDetail] = useState<LeavePlanDetail | null>(null);
+  const [version, setVersion] = useState<LeavePlanVersionDetail | null>(null);
+  const [forms, setForms] = useState<RuleForm[]>(() => creating ? formsFor(types, []).map(f => ({
+    ...f, included: types.find(t => t.id === f.leaveTypeId)?.systemKey != null,
+  })) : []);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  // LV-04: the plan's proration of part-year entitlements (joiners, leavers).
+  const [proration, setProration] = useState<PlanProration>(DEFAULT_PRORATION);
+  const [effectiveFrom, setEffectiveFrom] = useState(firstOfNextMonth(new Date()));
+  const [recredit, setRecredit] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const showVersion = useCallback((v: LeavePlanVersionDetail) => {
+    setVersion(v);
+    setForms(formsFor(types, v.rules));
+    if (v.version.status === 'SCHEDULED') setEffectiveFrom(v.version.effectiveFrom);
+  }, [types]);
+
+  useEffect(() => {
+    if (creating || !planId) return;
+    Promise.all([leaveConfigApi.plan(planId, token), leaveConfigApi.currentPlanVersion(planId, token)])
+      .then(([d, v]) => {
+        setDetail(d); setName(d.plan.name); setDescription(d.plan.description ?? '');
+        setProration(d.plan.proration ?? DEFAULT_PRORATION); showVersion(v);
+      })
+      .catch(e => setError(errMsg(e)));
+  }, [creating, planId, token, showVersion]);
+
+  const readOnly = !canConfigure;
+  const thisYear = new Date().getFullYear();
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setError('Name is required'); return; }
+    const { rules, error: invalid } = toPayload(forms, types);
+    if (invalid) { setError(invalid); return; }
+    if (!creating && effectiveFrom < `${thisYear}-01-01`) { setError(`Changes can't take effect before 1 Jan ${thisYear}: earlier leave years are closed.`); return; }
+    setBusy(true);
+    setError('');
+    try {
+      let saved: LeavePlanDetail;
+      if (creating) {
+        saved = await leaveConfigApi.createPlan({ name: name.trim(), description: description.trim() || undefined, rules, proration }, token);
+      } else {
+        const prorationChanged = detail != null && JSON.stringify(proration) !== JSON.stringify(detail.plan.proration ?? DEFAULT_PRORATION);
+        if (detail && (prorationChanged || name.trim() !== detail.plan.name || (description.trim() || null) !== (detail.plan.description ?? null))) {
+          await leaveConfigApi.updatePlan(planId!, { name: name.trim(), description: description.trim() || undefined, proration }, token);
+        }
+        saved = await leaveConfigApi.savePlanVersion(planId!, { effectiveFrom, rules, recreditCredited: recredit }, token);
+      }
+      onSaved(saved);
+      onClose();
+    } catch (err) {
+      setError(errMsg(err));
+      setBusy(false);
+    }
+  }
+
+  const typeById = new Map(types.map(t => [t.id, t]));
+  return (
+    <Dialog title={creating ? 'Add Leave Plan' : `Leave Plan — ${detail?.plan.name ?? ''}`} kind={creating ? 'add' : 'edit'} width={880} onClose={onClose}>
+      <form onSubmit={submit}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+          <div style={{ flex: '1 1 240px' }}>
+            <label style={labelS} htmlFor="lp-name">Plan name *</label>
+            <input id="lp-name" style={inputS} value={name} maxLength={100} disabled={readOnly} onChange={e => setName(e.target.value)}
+              placeholder="e.g. Full-time India, Interns" autoFocus={creating} />
+          </div>
+          <div style={{ flex: '2 1 320px' }}>
+            <label style={labelS} htmlFor="lp-desc">Description</label>
+            <input id="lp-desc" style={inputS} value={description} maxLength={500} disabled={readOnly} onChange={e => setDescription(e.target.value)} />
+          </div>
+          <div style={{ width: 150 }}>
+            <label style={labelS}>Leave year</label>
+            <input style={{ ...inputS, opacity: 0.7 }} value="January – December" disabled
+              title="Other leave-year start months are not available yet" />
+          </div>
+        </div>
+
+        <ProrationFields value={proration} onChange={setProration} readOnly={readOnly} />
+
+        {!creating && detail && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelS}>Versions</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {detail.versions.map(v => (
+                <button key={v.id} type="button" onClick={() => leaveConfigApi.planVersion(v.id, token).then(showVersion).catch(e2 => setError(errMsg(e2)))}
+                  style={{ ...secondaryBtn, borderColor: version?.version.id === v.id ? 'var(--brand)' : 'var(--line2)', color: version?.version.id === v.id ? 'var(--brand)' : 'var(--txt-mut)' }}>
+                  v{v.version} · {fmtDate(v.effectiveFrom)}{v.effectiveTo ? ` – ${fmtDate(v.effectiveTo)}` : ' onwards'}
+                  {v.status !== 'PAST' && <span style={{ marginLeft: 6 }}><Badge tone={v.status === 'CURRENT' ? 'ok' : 'info'}>{v.status === 'CURRENT' ? 'In effect' : 'Scheduled'}</Badge></span>}
+                </button>
+              ))}
+            </div>
+            <p style={{ ...hintS, margin: '6px 0 0', fontSize: 11.5 }}>
+              Showing the rules of v{version?.version.version}. Saving creates a new version from the date below (or replaces the
+              version that starts on that date); versions before and after it are kept.
+            </p>
+          </div>
+        )}
+
+        <label style={labelS}>Leave types in this plan</label>
+        <p style={{ ...hintS, fontSize: 11.5 }}>
+          Only the types ticked here are available to employees on this plan. Paid leave needs a number of days.
+        </p>
+        <div style={{ maxHeight: '46vh', overflowY: 'auto', marginBottom: 14 }}>
+          {forms.map((f, i) => {
+            const t = typeById.get(f.leaveTypeId);
+            return t ? (
+              <RuleRow key={f.leaveTypeId} type={t} form={f} lookups={lookups} token={token} readOnly={readOnly} allTypes={types}
+                onChange={next => setForms(forms.map((x, j) => (j === i ? next : x)))} />
+            ) : null;
+          })}
+        </div>
+
+        {!creating && canConfigure && (
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+            <div style={{ width: 170 }}>
+              <label style={labelS} htmlFor="lp-from">Changes take effect from *</label>
+              <input id="lp-from" type="date" style={inputS} value={effectiveFrom} min={`${thisYear}-01-01`} onChange={e => setEffectiveFrom(e.target.value)} />
+            </div>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, maxWidth: 520, color: 'var(--txt-mut)' }}>
+              <input type="checkbox" checked={recredit} onChange={e => setRecredit(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>Re-credit months already credited from this date (otherwise only months not credited yet follow the new days).</span>
+            </label>
+          </div>
+        )}
+        {creating && (
+          <p style={{ ...hintS, fontSize: 11.5 }}>
+            The plan applies from {fmtDate(isoDate(new Date(new Date().getFullYear(), 0, 1)))} for anyone assigned to it. Assign
+            employees on the Assignment tab.
+          </p>
+        )}
+        <FormError error={error} />
+        {canConfigure
+          ? <DialogActions busy={busy} label={creating ? 'Create Plan' : 'Save'} onCancel={onClose} />
+          : <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button type="button" style={secondaryBtn} onClick={onClose}>Close</button></div>}
+      </form>
+    </Dialog>
+  );
+}
+
+// ── Clone / rename ─────────────────────────────────────────────────────────────
+
+function CloneDialog({ plan, token, onClose, onSaved }: { plan: LeavePlanSummary; token: string; onClose(): void; onSaved(d: LeavePlanDetail): void }) {
+  const [name, setName] = useState(`${plan.name} (copy)`);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setError('Name is required'); return; }
+    setBusy(true);
+    try { onSaved(await leaveConfigApi.clonePlan(plan.id, name.trim(), token)); onClose(); } catch (err) { setError(errMsg(err)); setBusy(false); }
+  }
+  return (
+    <Dialog title={`Clone "${plan.name}"`} kind="add" width={440} onClose={onClose}>
+      <form onSubmit={submit}>
+        <p style={hintS}>The new plan starts with the rules in effect today. Nobody is assigned to it until you assign them.</p>
+        <label style={labelS} htmlFor="lp-clone">New plan name *</label>
+        <input id="lp-clone" style={{ ...inputS, marginBottom: 16 }} value={name} maxLength={100} onChange={e => setName(e.target.value)} autoFocus />
+        <FormError error={error} />
+        <DialogActions busy={busy} label="Clone" onCancel={onClose} />
+      </form>
+    </Dialog>
+  );
+}
+
+// ── Area ───────────────────────────────────────────────────────────────────────
+
+export default function LeavePlansArea({ types, token, canConfigure, lookups }: {
+  types: LeaveType[]; token: string; canConfigure: boolean; lookups: Lookups;
+}) {
+  const { showToast } = useToast();
+  const [plans, setPlans] = useState<LeavePlanSummary[] | null>(null);
+  const [error, setError] = useState('');
+  const [editor, setEditor] = useState<{ planId: string | null; key: number } | null>(null);
+  const [cloning, setCloning] = useState<LeavePlanSummary | null>(null);
+  const [confirm, setConfirm] = useState<Confirm | null>(null);
+
+  const reload = useCallback(async () => {
+    try { setPlans(await leaveConfigApi.plans(token)); setError(''); } catch (e) { setError(errMsg(e)); }
+  }, [token]);
+  useEffect(() => { void reload(); }, [reload]);
+
+  function items(p: LeavePlanSummary): KebabItem[] {
+    const open = { label: canConfigure ? 'Edit rules' : 'View rules', onClick: () => setEditor({ planId: p.id, key: Date.now() }) };
+    if (!canConfigure) return [open];
+    const out: KebabItem[] = [open, { label: 'Clone', onClick: () => setCloning(p) }];
+    if (!p.orgDefault && p.status === 'ACTIVE') {
+      out.push({
+        label: 'Make organization default', onClick: () => setConfirm({
+          title: `Make "${p.name}" the default`,
+          body: `Everyone with no plan assigned directly or by a rule, including new joiners, will be on "${p.name}" from today. Months already credited this year are re-credited under it.`,
+          confirmLabel: 'Make default',
+          onConfirm: async () => { await leaveConfigApi.setDefaultPlan(p.id, token); showToast('success', `"${p.name}" is now the default plan`); await reload(); },
+        }),
+      });
+    }
+    if (!p.orgDefault) {
+      out.push({
+        label: p.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate', dividerBefore: true, onClick: () => setConfirm({
+          title: p.status === 'ACTIVE' ? `Deactivate "${p.name}"` : `Reactivate "${p.name}"`,
+          body: p.status === 'ACTIVE'
+            ? `The ${p.employeeCount} employee(s) on "${p.name}" move to their rule's plan or the organization default from today, and months already credited are re-credited.`
+            : `Employees assigned to "${p.name}" (directly or by a rule) are on it again from today.`,
+          confirmLabel: p.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate',
+          danger: p.status === 'ACTIVE',
+          onConfirm: async () => { await leaveConfigApi.setPlanActive(p.id, p.status !== 'ACTIVE', token); showToast('success', 'Plan updated'); await reload(); },
+        }),
+      });
+      out.push({
+        label: 'Delete', danger: true, onClick: () => setConfirm({
+          title: `Delete "${p.name}"`,
+          body: `"${p.name}" will be permanently deleted. Only a plan that was never assigned to anyone can be deleted; otherwise deactivate it.`,
+          confirmLabel: 'Delete', danger: true,
+          onConfirm: async () => { await leaveConfigApi.deletePlan(p.id, token); showToast('success', `"${p.name}" deleted`); await reload(); },
+        }),
+      });
+    }
+    return out;
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <p style={{ ...hintS, margin: 0, maxWidth: 680 }}>
+          A leave plan bundles leave types with their own days, crediting, carry-forward and "applies to" rules, so different
+          groups get different entitlements. Every employee is on exactly one plan: the one assigned to them directly, else the
+          first matching rule, else the organization default. Rule changes take effect from a date you choose.
+        </p>
+        {canConfigure && <button style={primaryBtn()} onClick={() => setEditor({ planId: null, key: Date.now() })}>Add Leave Plan</button>}
+      </div>
+      <FormError error={error} />
+      {plans === null ? <p style={hintS}>Loading…</p> : (
+        <Table head={['Plan', 'Leave types', 'Employees today', 'Rules in effect', 'Status', '']} empty={plans.length === 0 && 'No leave plans yet.'}>
+          {plans.map(p => (
+            <tr key={p.id}>
+              <td style={{ ...tdS, color: 'var(--txt)' }}>
+                <button type="button" onClick={() => setEditor({ planId: p.id, key: Date.now() })}
+                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--txt)', fontWeight: 600, fontSize: 13 }}>
+                  {p.name}
+                </button>
+                {p.orgDefault && <span style={{ marginLeft: 8 }}><Badge tone="info">Organization default</Badge></span>}
+                {p.description && <div style={{ fontSize: 11.5, color: 'var(--txt-dim)', marginTop: 2 }}>{p.description}</div>}
+              </td>
+              <td style={tdS}>{p.leaveTypeCount}</td>
+              <td style={tdS}>{days(p.employeeCount)}</td>
+              <td style={tdS}>{p.currentVersion != null ? `v${p.currentVersion} since ${fmtDate(p.currentVersionFrom)}` : '–'}</td>
+              <td style={tdS}><Badge tone={p.status === 'ACTIVE' ? 'ok' : 'dim'}>{p.status === 'ACTIVE' ? 'Active' : 'Inactive'}</Badge></td>
+              <td style={{ ...tdS, textAlign: 'right', width: 52 }}><KebabMenu items={items(p)} /></td>
+            </tr>
+          ))}
+        </Table>
+      )}
+      {editor && (
+        <PlanEditor key={editor.key} planId={editor.planId} types={types} token={token} canConfigure={canConfigure} lookups={lookups}
+          onClose={() => setEditor(null)}
+          onSaved={d => { showToast('success', editor.planId ? `"${d.plan.name}" saved` : `"${d.plan.name}" created`); void reload(); }} />
+      )}
+      {cloning && (
+        <CloneDialog plan={cloning} token={token} onClose={() => setCloning(null)}
+          onSaved={d => { showToast('success', `"${d.plan.name}" created`); void reload(); }} />
+      )}
+      {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
+    </div>
+  );
+}

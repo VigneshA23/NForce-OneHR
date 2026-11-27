@@ -10,7 +10,6 @@ import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.LeaveAccrualCreditRepository;
 import com.nforce.onehr.repository.LeaveBalanceRepository;
-import com.nforce.onehr.repository.LeaveEntitlementPolicyRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,15 +42,16 @@ class LeaveAccrualServiceTest {
 
     @Mock private LeaveTypeRepository typeRepo;
     @Mock private LeaveBalanceRepository balanceRepo;
-    @Mock private LeaveEntitlementPolicyRepository policyRepo;
     @Mock private LeaveAccrualCreditRepository creditRepo;
     @Mock private EmployeeRepository employeeRepo;
-    @Mock private LeaveEligibilityService eligibility;
     @Mock private AuditService auditService;
     @Mock private LeaveJobMonitor jobMonitor;
     @Mock private PlatformTransactionManager txManager;
+    @Mock private LeaveAccrualPauseFacts pauseFacts;
 
     private LeaveAccrualService service;
+    /** LV-01: the employee's leave plan (one org-default plan, in memory). */
+    private final TestLeavePlans plans = new TestLeavePlans();
     private final UUID emp = UUID.randomUUID();
     private final LeaveType paid = LeaveType.builder().id(UUID.randomUUID()).code("PAID").name("Paid Leave")
             .systemKey(LeaveType.SYSTEM_PAID).build();
@@ -61,9 +61,16 @@ class LeaveAccrualServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new LeaveAccrualService(typeRepo, balanceRepo, policyRepo, creditRepo, employeeRepo, eligibility,
-                new AttendanceProperties(), txManager, jobMonitor);
-        lenient().when(eligibility.rulesFor(any())).thenReturn(LeaveEligibilityService.Rules.EVERYONE);
+        service = new LeaveAccrualService(typeRepo, balanceRepo, creditRepo, employeeRepo, plans.service(),
+                new AttendanceProperties(), txManager, jobMonitor, pauseFacts);
+        lenient().when(pauseFacts.of(any())).thenReturn(LeaveAccrualPauseFacts.Facts.NONE);
+        lenient().when(creditRepo.insertPausedIfAbsent(any(), any(), any(), anyInt(), anyInt())).thenAnswer(inv -> {
+            int year = inv.getArgument(3), month = inv.getArgument(4);
+            if (ledger.stream().anyMatch(c -> c.getYear() == year && c.getMonth() == month)) return 0;
+            ledger.add(LeaveAccrualCredit.builder().year(year).month(month).days(BigDecimal.ZERO)
+                    .source(LeaveAccrualCredit.SOURCE_PAUSED).build());
+            return 1;
+        });
         lenient().when(creditRepo.findByEmployeeUserIdAndLeaveTypeIdAndYearOrderByMonthAsc(any(), any(), any()))
                 .thenAnswer(inv -> ledger.stream().filter(c -> c.getYear().equals(inv.getArgument(2))).toList());
         lenient().when(creditRepo.insertIfAbsent(any(), any(), any(), anyInt(), anyInt(), any())).thenAnswer(inv -> {
@@ -90,10 +97,9 @@ class LeaveAccrualServiceTest {
                 "FULL_TIME", joining, lastWorkingDay, active, null)));
     }
 
+    /** Paid Leave in the employee's plan: {@code days} a year, credited {@code frequency}. */
     private void policy(String days, String frequency) {
-        lenient().when(policyRepo.findFirstByLeaveTypeIdAndEffectiveYearLessThanEqualOrderByEffectiveYearDesc(eq(paid.getId()), any()))
-                .thenReturn(Optional.of(LeaveEntitlementPolicy.builder().effectiveYear(2000).days(new BigDecimal(days))
-                        .creditFrequency(frequency).build()));
+        plans.with(paid, days, frequency);
     }
 
     private static void assertDays(String expected, BigDecimal actual) {
@@ -212,13 +218,42 @@ class LeaveAccrualServiceTest {
         assertDays("0", service.accrue(emp, paid, 2025));
 
         employee(LocalDate.of(2020, 1, 1), null, true);
-        when(eligibility.rulesFor(paid.getId())).thenReturn(new LeaveEligibilityService.Rules(
+        plans.eligibility(paid, new LeaveEligibilityService.Rules(
                 Set.of("male"), Set.of(), Set.of(), Set.of(), Set.of(), Set.of()));
         assertDays("0", service.accrue(emp, paid, 2025)); // the profile is Female
 
         LeaveType inactive = LeaveType.builder().id(UUID.randomUUID()).code("OLD").name("Old").active(false).build();
         assertDays("0", service.accrue(emp, inactive, 2025));
         verify(creditRepo, never()).insertIfAbsent(any(), any(), any(), anyInt(), anyInt(), any());
+    }
+
+    // ── LV-06 ──
+
+    private void profile(LocalDate joining, LocalDate probationEnd, LocalDate confirmed) {
+        when(employeeRepo.findLeaveProfile(emp)).thenReturn(Optional.of(new LeaveEmployeeProfile(emp, "Female", null, null,
+                "FULL_TIME", joining, null, true, null, null, null, probationEnd, confirmed)));
+    }
+
+    @Test
+    void minimumTenure_creditsOnlyTheMonthsFromWhenItIsReached() {
+        profile(LocalDate.of(2025, 1, 1), null, null);
+        policy("12", M);
+        plans.eligibility(paid, new LeaveEligibilityService.Rules(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of(),
+                Set.of(), Set.of(), 6, true));
+        assertDays("6", service.accrue(emp, paid, 2025)); // July-December
+    }
+
+    @Test
+    void probation_holdsTheCredits_andConfirmationCatchesThemUp() {
+        policy("12", M);
+        plans.eligibility(paid, new LeaveEligibilityService.Rules(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of(),
+                Set.of(), Set.of(), null, false));
+        profile(LocalDate.of(2025, 1, 1), LocalDate.of(2099, 12, 31), null); // still on probation today
+        assertDays("0", service.accrue(emp, paid, 2025));
+        assertTrue(ledger.isEmpty());
+
+        profile(LocalDate.of(2025, 1, 1), LocalDate.of(2025, 6, 30), LocalDate.of(2025, 7, 1)); // confirmed since
+        assertDays("12", service.accrue(emp, paid, 2025)); // the probation months included
     }
 
     @Test
@@ -239,10 +274,95 @@ class LeaveAccrualServiceTest {
         assertDays("12", balance.getTotalDays());
     }
 
-    // ── re-crediting after an entitlement change ──
+    // ── LV-03: periods, timing, pause ──
 
     @Test
-    void recreditExisting_addsTheDifferenceForCreditedMonths_orResetsAMigratedBalance() {
+    void quarterly_creditsEachQuarterTogether_andAddsUpToTheQuota() {
+        employee(LocalDate.of(2020, 1, 1), null, true);
+        policy("10", LeaveEntitlementPolicy.QUARTERLY);
+        assertDays("10", service.accrue(emp, paid, 2025));
+        assertEquals(12, ledger.size(), "one ledger row per month, credited a quarter at a time");
+        assertDays("0", service.accrue(emp, paid, 2025));
+    }
+
+    /** Unpaid leave days by month of 2025 for {@link #emp}. */
+    private void unpaidLeave(Map<Integer, String> daysByMonth) {
+        when(pauseFacts.of(emp)).thenReturn(new LeaveAccrualPauseFacts.Facts() {
+            @Override public BigDecimal lopDays(LocalDate from, LocalDate to) { return BigDecimal.ZERO; }
+            @Override public BigDecimal unpaidDays(LocalDate from, LocalDate to) {
+                BigDecimal sum = BigDecimal.ZERO;
+                for (Map.Entry<Integer, String> e : daysByMonth.entrySet()) {
+                    LocalDate d = LocalDate.of(2025, e.getKey(), 1);
+                    if (!d.isBefore(from.withDayOfMonth(1)) && !d.isAfter(to)) sum = sum.add(new BigDecimal(e.getValue()));
+                }
+                return sum;
+            }
+        });
+    }
+
+    @Test
+    void pause_withholdsTheCreditAfterAMonthWithTooMuchUnpaidLeave_recordedAsPaused_andNeverCreditedLater() {
+        employee(LocalDate.of(2020, 1, 1), null, true);
+        policy("12", M);
+        plans.accrual(paid, new LeavePlanCatalog.Accrual("START", null, new BigDecimal("2")));
+        unpaidLeave(Map.of(2, "3", 5, "2")); // February over the limit; May exactly at it (not over)
+        // Credited at the START: March's credit depends on February.
+        assertDays("11", service.accrue(emp, paid, 2025));
+        LeaveAccrualCredit march = ledger.stream().filter(c -> c.getMonth() == 3).findFirst().orElseThrow();
+        assertEquals(LeaveAccrualCredit.SOURCE_PAUSED, march.getSource());
+        assertDays("0", march.getDays());
+        assertEquals(12, ledger.size());
+        assertDays("0", service.accrue(emp, paid, 2025)); // a re-run neither credits nor re-pauses
+        assertEquals(12, ledger.size());
+
+        // A later plan change re-credits the credited months but leaves the paused month withheld.
+        when(balanceRepo.findByEmployeeUserIdInAndYearGreaterThanEqual(List.of(emp), 2025)).thenReturn(List.of(balance));
+        policy("24", M);
+        plans.accrual(paid, new LeavePlanCatalog.Accrual("START", null, new BigDecimal("2")));
+        service.reconcile(List.of(emp), LocalDate.of(2025, 1, 1), false);
+        assertDays("22", balance.getTotalDays());
+        assertDays("0", march.getDays());
+    }
+
+    @Test
+    void pause_atTheEnd_looksAtTheMonthItself() {
+        employee(LocalDate.of(2020, 1, 1), null, true);
+        policy("12", M);
+        plans.accrual(paid, new LeavePlanCatalog.Accrual("END", null, new BigDecimal("2")));
+        unpaidLeave(Map.of(2, "3"));
+        assertDays("11", service.accrue(emp, paid, 2025));
+        assertEquals(LeaveAccrualCredit.SOURCE_PAUSED, ledger.stream().filter(c -> c.getMonth() == 2).findFirst().orElseThrow().getSource());
+    }
+
+    @Test
+    void preview_listsWhatWouldBePosted_withoutWritingAnything() {
+        LeaveEmployeeProfile p = new LeaveEmployeeProfile(emp, "Female", null, null, "FULL_TIME", LocalDate.of(2020, 1, 1), null, true, null);
+        when(employeeRepo.findLeaveProfiles()).thenReturn(List.of(p));
+        when(typeRepo.findByActiveTrueOrderByNameAsc()).thenReturn(List.of(paid));
+        when(employeeRepo.findNamesByUserIds(Set.of(emp))).thenReturn(List.<Object[]>of(new Object[] {emp, "Asha"}));
+        when(employeeRepo.findCodesByUserIds(Set.of(emp))).thenReturn(List.<Object[]>of(new Object[] {emp, "E1"}));
+        policy("12", LeaveEntitlementPolicy.QUARTERLY);
+        plans.accrual(paid, new LeavePlanCatalog.Accrual("END", null, new BigDecimal("2")));
+        unpaidLeave(Map.of(5, "4")); // Q2 over the limit
+
+        var preview = service.preview(LocalDate.of(2025, 10, 1)); // Q1-Q3 are over
+        assertEquals(3, preview.lines().size());
+        assertEquals(List.of(4, 5, 6), preview.lines().get(1).months());
+        assertEquals("PAUSED", preview.lines().get(1).status());
+        assertTrue(preview.lines().get(1).reason().startsWith("Unpaid leave 4 day(s)"), preview.lines().get(1).reason());
+        assertEquals(LocalDate.of(2025, 7, 1), preview.lines().get(1).creditDate());
+        assertDays("6", preview.creditDays());
+        assertEquals(1, preview.paused());
+        assertEquals("Asha", preview.lines().get(0).employeeName());
+        assertTrue(ledger.isEmpty(), "a dry run writes nothing");
+        verify(creditRepo, never()).insertIfAbsent(any(), any(), any(), anyInt(), anyInt(), any());
+        verify(creditRepo, never()).insertPausedIfAbsent(any(), any(), any(), anyInt(), anyInt());
+    }
+
+    // ── re-crediting after a plan change (LV-01) ──
+
+    @Test
+    void reconcile_addsTheDifferenceForCreditedMonths_orResetsAMigratedBalance() {
         employee(LocalDate.of(2020, 1, 1), null, true);
         policy("24", M); // was 12 a year: 1 per month, now 2
         balance = LeaveBalance.builder().employeeUserId(emp).leaveType(paid).year(2027)
@@ -250,8 +370,8 @@ class LeaveAccrualServiceTest {
         for (int m = 1; m <= 3; m++) {
             ledger.add(LeaveAccrualCredit.builder().year(2027).month(m).days(BigDecimal.ONE).source("ACCRUAL").build());
         }
-        when(balanceRepo.findByLeaveTypeIdAndYearGreaterThanEqual(paid.getId(), 2027)).thenReturn(List.of(balance));
-        assertEquals(1, service.recreditExisting(paid, 2027, Integer.MAX_VALUE));
+        when(balanceRepo.findByEmployeeUserIdInAndYearGreaterThanEqual(List.of(emp), 2027)).thenReturn(List.of(balance));
+        assertEquals(1, service.reconcile(List.of(emp), LocalDate.of(2027, 1, 1), true));
         assertDays("7.5", balance.getTotalDays());
         ledger.forEach(c -> assertDays("2", c.getDays()));
 
@@ -261,8 +381,62 @@ class LeaveAccrualServiceTest {
         for (int m = 1; m <= 12; m++) {
             ledger.add(LeaveAccrualCredit.builder().year(2027).month(m).days(BigDecimal.ZERO).source("MIGRATION").build());
         }
-        service.recreditExisting(paid, 2027, Integer.MAX_VALUE);
+        assertEquals(0, service.reconcile(List.of(emp), LocalDate.of(2027, 1, 1), false)); // only with "re-credit"
+        assertDays("45", balance.getTotalDays());
+        service.reconcile(List.of(emp), LocalDate.of(2027, 1, 1), true);
         assertDays("24", balance.getTotalDays());
         assertTrue(ledger.stream().allMatch(c -> "ACCRUAL".equals(c.getSource())));
+    }
+
+    /** Plan A gives 12 days a year, plan B 24; the employee is allocated to B from 1 July 2025. */
+    private LeavePlanCatalog switchToRicherPlanInJuly(String frequencyA, boolean bHasPaid) {
+        UUID a = UUID.randomUUID(), b = UUID.randomUUID(), va = UUID.randomUUID(), vb = UUID.randomUUID();
+        Map<UUID, Map<UUID, LeavePlanCatalog.TypeRule>> rules = new java.util.HashMap<>();
+        rules.put(va, Map.of(paid.getId(), new LeavePlanCatalog.TypeRule(UUID.randomUUID(), a, va, paid.getId(),
+                new BigDecimal("12"), frequencyA, false, null, null, LeaveType.CF_FIRST, LeaveEligibilityService.Rules.EVERYONE)));
+        rules.put(vb, bHasPaid ? Map.of(paid.getId(), new LeavePlanCatalog.TypeRule(UUID.randomUUID(), b, vb, paid.getId(),
+                new BigDecimal("24"), Y, false, null, null, LeaveType.CF_FIRST, LeaveEligibilityService.Rules.EVERYONE)) : Map.of());
+        LeavePlanCatalog catalog = new LeavePlanCatalog(
+                Map.of(a, com.nforce.onehr.entity.LeavePlan.builder().id(a).name("A").orgDefault(true).build(),
+                       b, com.nforce.onehr.entity.LeavePlan.builder().id(b).name("B").build()),
+                Map.of(a, List.of(com.nforce.onehr.entity.LeavePlanVersion.builder().id(va).planId(a).version(1)
+                                .effectiveFrom(LocalDate.of(2000, 1, 1)).build()),
+                       b, List.of(com.nforce.onehr.entity.LeavePlanVersion.builder().id(vb).planId(b).version(1)
+                                .effectiveFrom(LocalDate.of(2000, 1, 1)).build())),
+                rules,
+                Map.of(emp, List.of(com.nforce.onehr.entity.LeavePlanAllocation.builder().employeeUserId(emp).planId(b)
+                        .effectiveFrom(LocalDate.of(2025, 7, 1)).build())),
+                Map.of(), null);
+        when(plans.service().catalog(any())).thenReturn(catalog);
+        return catalog;
+    }
+
+    @Test
+    void planSwitchMidYear_creditsEachMonthUnderThePlanInEffectThatMonth() {
+        employee(LocalDate.of(2020, 1, 1), null, true);
+        switchToRicherPlanInJuly(Y, true);
+        // Jan-Jun under A (12/yr -> 1 a month) + Jul-Dec under B (24/yr -> 2 a month)
+        assertDays("18", service.accrue(emp, paid, 2025));
+        assertDays("18", balance.getTotalDays());
+    }
+
+    @Test
+    void planSwitchAfterTheYearWasCredited_reCreditsTheMonthsFromTheSwitch() {
+        employee(LocalDate.of(2020, 1, 1), null, true);
+        balance = LeaveBalance.builder().employeeUserId(emp).leaveType(paid).year(2025)
+                .totalDays(new BigDecimal("12")).usedDays(BigDecimal.ZERO).build();
+        for (int m = 1; m <= 12; m++) { // all of 2025 credited up front under plan A
+            ledger.add(LeaveAccrualCredit.builder().year(2025).month(m).days(BigDecimal.ONE).source("ACCRUAL").build());
+        }
+        when(balanceRepo.findByEmployeeUserIdInAndYearGreaterThanEqual(List.of(emp), 2025)).thenReturn(List.of(balance));
+
+        switchToRicherPlanInJuly(Y, true);
+        assertEquals(1, service.reconcile(List.of(emp), LocalDate.of(2025, 7, 1), false));
+        assertDays("18", balance.getTotalDays()); // 6 x 1 + 6 x 2
+
+        // A plan without the type takes the not-yet-earned months back.
+        switchToRicherPlanInJuly(Y, false);
+        service.reconcile(List.of(emp), LocalDate.of(2025, 7, 1), false);
+        assertDays("6", balance.getTotalDays());
     }
 }
