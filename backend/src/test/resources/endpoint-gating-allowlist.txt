@@ -246,3 +246,4 @@ MyTaxController#filing | SELF - enabled partner links, same for everyone
 CompOffController#policy | OPEN - which of OT / Comp-Off the company uses, readable by any signed-in user
 CompOffController#mine | SELF - own data only (identity from the token)
 CompOffController#choose | SELF - acts only on the caller's own working day (ownership checked in the service)
+CompOffController#requestCompOff | SELF - acts only on the caller's own working day (identity from the token)
