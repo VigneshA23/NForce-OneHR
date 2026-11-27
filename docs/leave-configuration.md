@@ -1,4 +1,4 @@
-# Leave configuration (V310, V314, V321, V322, V323)
+# Leave configuration (V310, V314, V321, V322, V323, V324)
 
 Leave types, leave plans (each type's days, crediting, carry-forward and who it applies to), who is on which
 plan, balances and year-end live in **Organization Masters / Organization Structure → Leave** (the
@@ -139,6 +139,27 @@ to repeat). `leave_balances.total_days` now means **credited so far**.
   at 0 credited. Paid Leave's policy is 15 days `YEARLY` up to the migration year and 15 days `MONTHLY`
   from the next year.
 
+## Eligibility: marital status, grade, tenure, probation (V324, LV-06 / ONEHR-892)
+
+Each type in a plan (plan editor → a type → More → Applies to) can now also be limited by:
+
+- **Marital status** (as on the employee profile) and **grade** (the grade of the employee's designation). Like
+  gender, department, location and employment type, these say *who* the type is for: an employee it isn't for
+  doesn't see it on the apply form, and the backend answers "Paid Leave does not apply to you."
+- **Minimum service (months)** and **not during probation** say *when*. They are checked on the leave's **start
+  date**, not the day it is applied for. The type stays on the apply form with the date it becomes available
+  (the start-date picker begins there), and a request starting earlier is refused with that date, e.g. "Paid
+  Leave isn't available during probation: you can take it from 1 Apr 2027."
+- Probation: before `confirmation_date`; with no confirmation date, up to `probation_end_date`; no dates = not on
+  probation. Both dates come from the employee record (the app doesn't edit them).
+- Crediting: a month counts once the minimum service is reached on its date. A type not allowed during probation
+  gets **no credits while the employee is on probation**; the first crediting run after probation (nightly, or
+  "Run crediting now") credits every due month, including the probation months — the remaining entitlement
+  arrives on confirmation.
+- Hand-picked "always include" employees bypass every condition; "always exclude" always wins. Balances, opening
+  balances and penalty debits only look at *who* (a type held back by tenure/probation still has its balance).
+- Rules follow the plan version in effect on the leave's start date, like every other plan rule.
+
 ## Who a type applies to (V314; per plan since V321)
 
 A type is available only if the employee's plan includes it; then its "applies to" rules in that plan
@@ -234,6 +255,11 @@ Drop `leave_plan_allocations`, `leave_plan_type_overrides`, `leave_plan_type_eli
 `leave_plan_type_rules`, `leave_plan_versions` and `leave_plans`, and delete `assignment_rules` /
 `assignment_rule_assignments` rows of domain `LEAVE_PLAN`. The app before LV-01 reads the old tables, which
 V321 left untouched.
+
+## Rollback (V324)
+
+Delete `leave_plan_type_eligibility` rows of `MARITAL_STATUS` / `GRADE`, restore the four-value `rule_type` CHECK,
+and drop `leave_plan_type_rules.min_tenure_months` and `allowed_during_probation`.
 
 ## Rollback (V323)
 

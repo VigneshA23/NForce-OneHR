@@ -224,7 +224,7 @@ function RuleRow({ type, form, onChange, lookups, token, readOnly, allTypes }: {
             </fieldset>
           )}
           <AppliesToEditor value={form.eligibility} onChange={eligibility => set({ eligibility })} departments={lookups.departments}
-            locations={lookups.locations} employees={lookups.employees} token={token} disabled={readOnly} />
+            locations={lookups.locations} employees={lookups.employees} token={token} disabled={readOnly} grades={lookups.grades} />
         </div>
       )}
     </div>

@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { leaveConfigApi, type DirectoryEmployee, type EligibilityConfig } from '../../api/leave';
+import { MARITAL_STATUSES } from '../profile/shared';
 
 /**
  * "Applies to" for a leave type (V314): gender, departments, locations, employment types, plus
  * employees always included or excluded. Empty = no restriction of that kind. Values of one kind
  * are OR'ed, kinds are AND'ed; an employee with no gender on file never matches a gender rule.
+ * LV-06 adds marital status and grade, and two conditions checked on the leave's start date: a minimum
+ * tenure and "not during probation". Hand-picked includes bypass all of them.
  */
 
 export const GENDER_OPTIONS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
@@ -15,7 +18,11 @@ export interface NamedOption { id: string; name: string }
 
 export const EMPTY_ELIGIBILITY: EligibilityConfig = {
   genders: [], departmentIds: [], locationIds: [], employmentTypes: [], includeEmployeeIds: [], excludeEmployeeIds: [],
+  maritalStatuses: [], grades: [], minTenureMonths: null, allowedDuringProbation: true,
 };
+
+/** Marital statuses an "applies to" rule can name ("Prefer not to say" isn't a status to target). */
+export const MARITAL_OPTIONS = MARITAL_STATUSES.filter(m => m !== 'Prefer not to say');
 
 export function employmentLabel(v: string): string {
   const s = v.replace(/_/g, ' ').toLowerCase();
@@ -23,8 +30,9 @@ export function employmentLabel(v: string): string {
 }
 
 export function sameEligibility(a: EligibilityConfig, b: EligibilityConfig): boolean {
-  const k = (c: EligibilityConfig) => JSON.stringify([c.genders, c.departmentIds, c.locationIds, c.employmentTypes,
-    c.includeEmployeeIds, c.excludeEmployeeIds].map(l => [...(l ?? [])].sort()));
+  const k = (c: EligibilityConfig) => JSON.stringify([...[c.genders, c.departmentIds, c.locationIds, c.employmentTypes,
+    c.includeEmployeeIds, c.excludeEmployeeIds, c.maritalStatuses, c.grades].map(l => [...(l ?? [])].sort()),
+    c.minTenureMonths ?? null, c.allowedDuringProbation !== false]);
   return k(a) === k(b);
 }
 
@@ -38,7 +46,11 @@ export function appliesToSummary(t: { eligibility?: EligibilityConfig | null }, 
   if (e.departmentIds.length) parts.push(e.departmentIds.length > 2 ? `${e.departmentIds.length} departments` : e.departmentIds.map(id => name(departments, id)).join(' or '));
   if (e.locationIds.length) parts.push(e.locationIds.length > 2 ? `${e.locationIds.length} locations` : e.locationIds.map(id => name(locations, id)).join(' or '));
   if (e.employmentTypes.length) parts.push(e.employmentTypes.map(employmentLabel).join(' or '));
+  if (e.maritalStatuses?.length) parts.push(e.maritalStatuses.join(' or '));
+  if (e.grades?.length) parts.push(`grade ${e.grades.join(' or ')}`);
   let s = parts.length ? parts.join(' · ') : 'Everyone';
+  if (e.minTenureMonths) s += ` · after ${e.minTenureMonths} month${e.minTenureMonths === 1 ? '' : 's'} of service`;
+  if (e.allowedDuringProbation === false) s += ' · not during probation';
   if (e.includeEmployeeIds.length) s += ` · +${e.includeEmployeeIds.length} included`;
   if (e.excludeEmployeeIds.length) s += ` · ${e.excludeEmployeeIds.length} excluded`;
   return s;
@@ -128,9 +140,11 @@ function EmployeePicker({ label, employees, selected, onChange, disabled }: {
 }
 
 /** The editor. Loads nothing itself except the live eligible-employee count. */
-export function AppliesToEditor({ value, onChange, departments, locations, employees, token, disabled }: {
+export function AppliesToEditor({ value, onChange, departments, locations, employees, token, disabled, grades = [] }: {
   value: EligibilityConfig; onChange(next: EligibilityConfig): void;
   departments: NamedOption[]; locations: NamedOption[]; employees: DirectoryEmployee[]; token: string; disabled?: boolean;
+  /** LV-06: the grades used by designations. */
+  grades?: string[];
 }) {
   const [count, setCount] = useState<{ eligibleCount: number; totalCount: number } | null>(null);
   const key = JSON.stringify(value);
@@ -157,6 +171,27 @@ export function AppliesToEditor({ value, onChange, departments, locations, emplo
         selected={value.employmentTypes} onChange={employmentTypes => set({ employmentTypes })} />
       <Chips label="Departments" disabled={disabled} options={departments} selected={value.departmentIds} onChange={departmentIds => set({ departmentIds })} />
       <Chips label="Locations" disabled={disabled} options={locations} selected={value.locationIds} onChange={locationIds => set({ locationIds })} />
+      <Chips label="Marital status" disabled={disabled} options={MARITAL_OPTIONS.map(m => ({ id: m, name: m }))}
+        selected={value.maritalStatuses ?? []} onChange={maritalStatuses => set({ maritalStatuses })} />
+      <Chips label="Grade" disabled={disabled} options={grades.map(g => ({ id: g, name: g }))}
+        selected={value.grades ?? []} onChange={g => set({ grades: g })} />
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+        <div>
+          <label style={labelS} htmlFor="nf-applies-tenure">Minimum service (months)</label>
+          <input id="nf-applies-tenure" type="number" min={1} max={600} step={1} style={{ ...inputS, width: 120 }} disabled={disabled}
+            value={value.minTenureMonths ?? ''} placeholder="None"
+            onChange={e => set({ minTenureMonths: e.target.value === '' ? null : Math.max(1, Math.min(600, Math.round(Number(e.target.value)))) })} />
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, paddingBottom: 8 }}>
+          <input type="checkbox" checked={value.allowedDuringProbation !== false} disabled={disabled}
+            onChange={e => set({ allowedDuringProbation: e.target.checked })} />
+          Allowed during probation
+        </label>
+      </div>
+      <p style={{ ...hintS, marginTop: -6 }}>
+        Service and probation are checked on the first day of the leave. A type not allowed during probation is credited
+        once probation ends, including the months of probation.
+      </p>
       <EmployeePicker label="Always include" disabled={disabled} employees={employees} selected={value.includeEmployeeIds}
         onChange={includeEmployeeIds => set({ includeEmployeeIds, excludeEmployeeIds: value.excludeEmployeeIds.filter(id => !includeEmployeeIds.includes(id)) })} />
       <EmployeePicker label="Always exclude" disabled={disabled} employees={employees} selected={value.excludeEmployeeIds}

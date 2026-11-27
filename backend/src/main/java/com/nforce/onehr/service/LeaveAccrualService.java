@@ -183,10 +183,24 @@ public class LeaveAccrualService {
         LocalDate date = LocalDate.of(year, m, 1);
         LocalDate joining = profile != null ? profile.joiningDate() : null;
         if (joining != null && joining.getYear() == year && joining.getMonthValue() == m && joining.isAfter(date)) date = joining;
+        final LocalDate on = date;
         Optional<LeavePlanCatalog.TypeRule> rule = requireEligible
                 ? LeaveEligibilityService.applicableRule(catalog, employeeUserId, profile, type.getId(), date)
+                        // LV-06: a month counts only once the type's minimum tenure is reached on its date
+                        .filter(r -> r.eligibility().tenureMet(employeeUserId, profile, on))
                 : catalog.ruleFor(employeeUserId, type.getId(), date);
         return rule.map(r -> new MonthRule(r.planId(), r.creditedQuota(), r.creditFrequency())).orElse(null);
+    }
+
+    /**
+     * LV-06: the type isn't allowed during probation and the employee is on probation {@code today}: nothing is
+     * credited yet. Once probation is over the due months — including those of the probation period — are
+     * credited by the next run, so the entitlement is caught up on confirmation.
+     */
+    static boolean heldForProbation(LeavePlanCatalog catalog, UUID employeeUserId, LeaveEmployeeProfile profile,
+                                    LeaveType type, LocalDate today) {
+        return catalog.ruleFor(employeeUserId, type.getId(), today)
+                .map(r -> r.eligibility().probationBlocks(employeeUserId, profile, today)).orElse(false);
     }
 
     // ── Per balance ─────────────────────────────────────────────────────────────────────────────
@@ -206,6 +220,7 @@ public class LeaveAccrualService {
         LeaveEmployeeProfile profile = employeeRepository.findLeaveProfile(employeeUserId).orElse(null);
         if (profile == null || !profile.employed()) return ZERO;
         LeavePlanCatalog catalog = planRuleService.catalog(List.of(employeeUserId));
+        if (heldForProbation(catalog, employeeUserId, profile, type, today())) return ZERO;
         IntFunction<MonthRule> rules = m -> monthRule(catalog, employeeUserId, profile, type, year, m, true);
         Map<Integer, BigDecimal> schedule = schedule(rules, profile.joiningDate(), profile.lastWorkingDay(), year);
         Set<Integer> due = dueMonths(schedule, rules, year, today());
@@ -405,6 +420,7 @@ public class LeaveAccrualService {
                 credited.computeIfAbsent((UUID) row[0], k -> new HashSet<>()).add((Integer) row[1]);
             }
             for (LeaveEmployeeProfile p : employees) {
+                if (heldForProbation(catalog, p.userId(), p, type, today)) continue;
                 IntFunction<MonthRule> rules = m -> monthRule(catalog, p.userId(), p, type, year, m, true);
                 Map<Integer, BigDecimal> schedule = schedule(rules, p.joiningDate(), p.lastWorkingDay(), year);
                 Set<Integer> due = dueMonths(schedule, rules, year, today);

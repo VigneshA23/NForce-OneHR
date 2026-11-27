@@ -49,13 +49,30 @@ public final class LeaveConfigDtos {
                                                LocalDate expiresOn, LocalDateTime processedAt, LocalDateTime updatedAt) {}
 
     /** Who a leave type applies to (V314). Empty lists = no restriction of that kind. */
+    /**
+     * Who a type in a plan applies to. LV-06: {@code maritalStatuses}, {@code grades} (designation grade); and,
+     * checked on the leave's start date, {@code minTenureMonths} of service and {@code allowedDuringProbation}
+     * (null = true). Hand-picked includes bypass every condition; excludes always win.
+     */
     public record EligibilityConfig(
             @Size(max = 10) List<String> genders,
             @Size(max = 500) List<String> departmentIds,
             @Size(max = 500) List<String> locationIds,
             @Size(max = 20) List<String> employmentTypes,
             @Size(max = 5000) List<UUID> includeEmployeeIds,
-            @Size(max = 5000) List<UUID> excludeEmployeeIds) {}
+            @Size(max = 5000) List<UUID> excludeEmployeeIds,
+            @Size(max = 10) List<String> maritalStatuses,
+            @Size(max = 100) List<String> grades,
+            @jakarta.validation.constraints.Min(1) @jakarta.validation.constraints.Max(600) Integer minTenureMonths,
+            Boolean allowedDuringProbation) {
+
+        /** Without the LV-06 criteria. */
+        public EligibilityConfig(List<String> genders, List<String> departmentIds, List<String> locationIds,
+                                 List<String> employmentTypes, List<UUID> includeEmployeeIds, List<UUID> excludeEmployeeIds) {
+            this(genders, departmentIds, locationIds, employmentTypes, includeEmployeeIds, excludeEmployeeIds,
+                    null, null, null, null);
+        }
+    }
 
     public record EligibilityPreview(int eligibleCount, int totalCount) {}
 

@@ -28,4 +28,8 @@ public class LeaveTypeResponse {
     private Long referenceCount;
     /** LV-02, {@code /types/mine} only: the caller's plan rules for this type, shown on the apply form; null = no limits. */
     private LeaveRuleSummary rules;
+    /** LV-06, {@code /types/mine} only: held back today by tenure or probation — the first day it can be taken (null = unknown). */
+    private java.time.LocalDate availableFrom;
+    /** LV-06: why it is held back, e.g. "Paid Leave isn't available during probation: you can take it from 1 Mar 2027." */
+    private String availabilityNote;
 }

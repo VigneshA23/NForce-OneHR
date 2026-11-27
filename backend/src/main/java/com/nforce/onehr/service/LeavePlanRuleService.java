@@ -149,7 +149,8 @@ public class LeavePlanRuleService {
                                                 List<LeavePlanTypeOverride> overrides, Set<UUID> clubbingBlocked) {
         return new LeavePlanCatalog.TypeRule(r.getId(), planId, r.getVersionId(), r.getLeaveTypeId(), r.getDays(),
                 r.getCreditFrequency(), r.isCarryForwardEnabled(), r.getCarryForwardMaxDays(), r.getCarryForwardExpiryMonths(),
-                r.getCarryForwardPriority(), eligibilityRules(eligibility, overrides), limitsOf(r, clubbingBlocked));
+                r.getCarryForwardPriority(), eligibilityRules(eligibility, overrides, r.getMinTenureMonths(), r.isAllowedDuringProbation()),
+                limitsOf(r, clubbingBlocked));
     }
 
     static LeavePlanCatalog.Limits limitsOf(LeavePlanTypeRule r, Set<UUID> clubbingBlocked) {
@@ -170,14 +171,25 @@ public class LeavePlanRuleService {
 
     static LeaveEligibilityService.Rules eligibilityRules(List<LeavePlanTypeEligibility> eligibility,
                                                          List<LeavePlanTypeOverride> overrides) {
-        if (eligibility.isEmpty() && overrides.isEmpty()) return LeaveEligibilityService.Rules.EVERYONE;
+        return eligibilityRules(eligibility, overrides, null, true);
+    }
+
+    static LeaveEligibilityService.Rules eligibilityRules(List<LeavePlanTypeEligibility> eligibility,
+                                                         List<LeavePlanTypeOverride> overrides,
+                                                         Integer minTenureMonths, boolean allowedDuringProbation) {
+        if (eligibility.isEmpty() && overrides.isEmpty() && minTenureMonths == null && allowedDuringProbation) {
+            return LeaveEligibilityService.Rules.EVERYONE;
+        }
         Set<String> genders = new HashSet<>(), departments = new HashSet<>(), locations = new HashSet<>(), types = new HashSet<>();
+        Set<String> marital = new HashSet<>(), grades = new HashSet<>();
         for (LeavePlanTypeEligibility e : eligibility) {
             switch (e.getRuleType()) {
                 case LeavePlanTypeEligibility.GENDER -> genders.add(LeaveEligibilityService.norm(e.getValue()));
                 case LeavePlanTypeEligibility.DEPARTMENT -> departments.add(e.getValue());
                 case LeavePlanTypeEligibility.LOCATION -> locations.add(e.getValue());
                 case LeavePlanTypeEligibility.EMPLOYMENT_TYPE -> types.add(LeaveEligibilityService.norm(e.getValue()));
+                case LeavePlanTypeEligibility.MARITAL_STATUS -> marital.add(LeaveEligibilityService.norm(e.getValue()));
+                case LeavePlanTypeEligibility.GRADE -> grades.add(LeaveEligibilityService.norm(e.getValue()));
                 default -> { }
             }
         }
@@ -185,22 +197,29 @@ public class LeavePlanRuleService {
         for (LeavePlanTypeOverride o : overrides) {
             (LeavePlanTypeOverride.INCLUDE.equals(o.getMode()) ? include : exclude).add(o.getEmployeeUserId());
         }
-        return new LeaveEligibilityService.Rules(genders, departments, locations, types, include, exclude);
+        return new LeaveEligibilityService.Rules(genders, departments, locations, types, include, exclude, marital, grades,
+                minTenureMonths, allowedDuringProbation);
     }
 
     /** The display form of one rule's "applies to" values, keeping the stored spelling ("Female", "FULL_TIME"). */
     @Transactional(readOnly = true)
     public com.nforce.onehr.dto.LeaveConfigDtos.EligibilityConfig eligibilityConfig(UUID ruleId) {
         List<String> genders = new ArrayList<>(), departments = new ArrayList<>(), locations = new ArrayList<>(), types = new ArrayList<>();
+        List<String> marital = new ArrayList<>(), grades = new ArrayList<>();
         for (LeavePlanTypeEligibility e : eligibilityRepository.findByRuleIdIn(List.of(ruleId))) {
             switch (e.getRuleType()) {
                 case LeavePlanTypeEligibility.GENDER -> genders.add(e.getValue());
                 case LeavePlanTypeEligibility.DEPARTMENT -> departments.add(e.getValue());
                 case LeavePlanTypeEligibility.LOCATION -> locations.add(e.getValue());
                 case LeavePlanTypeEligibility.EMPLOYMENT_TYPE -> types.add(e.getValue());
+                case LeavePlanTypeEligibility.MARITAL_STATUS -> marital.add(e.getValue());
+                case LeavePlanTypeEligibility.GRADE -> grades.add(e.getValue());
                 default -> { }
             }
         }
+        marital.sort(null);
+        grades.sort(null);
+        Optional<LeavePlanTypeRule> rule = ruleRepository.findById(ruleId);
         List<UUID> include = new ArrayList<>(), exclude = new ArrayList<>();
         for (LeavePlanTypeOverride o : overrideRepository.findByRuleIdIn(List.of(ruleId))) {
             (LeavePlanTypeOverride.INCLUDE.equals(o.getMode()) ? include : exclude).add(o.getEmployeeUserId());
@@ -209,6 +228,8 @@ public class LeavePlanRuleService {
         departments.sort(null);
         locations.sort(null);
         types.sort(null);
-        return new com.nforce.onehr.dto.LeaveConfigDtos.EligibilityConfig(genders, departments, locations, types, include, exclude);
+        return new com.nforce.onehr.dto.LeaveConfigDtos.EligibilityConfig(genders, departments, locations, types, include, exclude,
+                marital, grades, rule.map(LeavePlanTypeRule::getMinTenureMonths).orElse(null),
+                rule.map(LeavePlanTypeRule::isAllowedDuringProbation).orElse(true));
     }
 }

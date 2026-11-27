@@ -305,6 +305,9 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
   useEffect(() => { setBalancesByYear(prev => ({ ...prev, [currentYear]: balances })); }, [balances, currentYear]);
   // LV-02: the selected type's rules from the employee's plan (null = no limits).
   const rules = types.find(t => t.code === form.leaveTypeCode)?.rules ?? null;
+  // LV-06: held back today by tenure / probation — leave can start from this date (null = not held back).
+  const heldBack = types.find(t => t.code === form.leaveTypeCode);
+  const availableFrom = heldBack?.availableFrom && heldBack.availableFrom > today ? heldBack.availableFrom : null;
   const hourly = form.hours != null;
   const singleDay = form.halfDay || hourly;
   const effectiveEndDate = singleDay ? form.startDate : form.endDate;
@@ -476,7 +479,7 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
                     hours: f.hours != null && next?.allowHourly ? f.hours : null,
                   }));
                 }}>
-                  {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}</option>)}
+                  {types.map(t => <option key={t.code} value={t.code}>{t.name}{t.classification === 'UNPAID' ? ' (Unpaid)' : ''}{t.availabilityNote ? (t.availableFrom ? ` (from ${t.availableFrom})` : ' (not yet available)') : ''}</option>)}
                 </select>
               </Field>
               {checked.map(c => (
@@ -500,6 +503,9 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
                   You cannot apply for unpaid leave while you have an available paid leave balance.
                 </div>
               )}
+              {heldBack?.availabilityNote && (
+                <div className="nf-lv-warn" data-testid="leave-available-from">{heldBack.availabilityNote}</div>
+              )}
               {ruleList.length > 0 && (
                 <div className="nf-lv-bal" data-testid="leave-rules" style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <ListChecks size={14} style={{ flexShrink: 0, marginTop: 2 }} />
@@ -519,7 +525,7 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
               </div>
               <div className="nf-lv-grid">
                 <Field label="Start Date *">
-                  <input type="date" min={today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay || f.hours != null ? e.target.value : f.endDate }))} />
+                  <input type="date" min={availableFrom ?? today} style={inputStyle} value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: f.halfDay || f.hours != null ? e.target.value : f.endDate }))} />
                 </Field>
                 <Field label="End Date *">
                   <input type="date" style={inputStyle} value={singleDay ? form.startDate : form.endDate} disabled={singleDay} min={form.startDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />

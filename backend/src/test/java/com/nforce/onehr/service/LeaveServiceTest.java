@@ -322,6 +322,17 @@ class LeaveServiceTest {
     }
 
     @Test
+    void submitRequest_heldBackByTenureOrProbation_isRefusedWithTheReason_checkedOnTheStartDate() {
+        LeaveEligibilityService eligibility = mock(LeaveEligibilityService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(leaveService, "leaveEligibilityService", eligibility);
+        LocalDate monday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+        when(eligibility.availability(employeeId, annual, monday)).thenReturn(new LeaveEligibilityService.Availability(false, true,
+                "Annual Leave isn't available during probation: you can take it from 1 Mar 2027.", LocalDate.of(2027, 3, 1)));
+
+        assertRejected(monday, monday, "isn't available during probation: you can take it from 1 Mar 2027");
+    }
+
+    @Test
     void submitRequest_onlyWeeklyOffs_isRejected() {
         stubWeeklyOffPolicy("SATURDAY,SUNDAY");
         LocalDate saturday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.SATURDAY));

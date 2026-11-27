@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { EMPTY_ELIGIBILITY, appliesToSummary, sameEligibility } from './AppliesTo';
 import type { LeavePreview, LeaveRuleSummary, LeaveType, PlanTypeRule } from '../../api/leave';
 import {
   EMPTY_LIMITS, EMPTY_RULE_ELIGIBILITY, attachmentProblem, firstOfNextMonth, formsFor, hourlyDays, limitsPayload, modeFor, previewNotes, ruleLines, toPayload,
@@ -170,5 +171,19 @@ describe('sandwich rule (LV-07)', () => {
       'Counted as leave (sandwich): Sat 6 Mar (Weekly off), Sun 7 Mar (Weekly off)',
       'Not counted: Wed 10 Mar (Holi)',
     ]);
+  });
+});
+
+describe('applies to: LV-06 criteria', () => {
+  it('summarises marital status, grade, tenure and probation', () => {
+    const e = { ...EMPTY_ELIGIBILITY, maritalStatuses: ['Married'], grades: ['G3'], minTenureMonths: 6, allowedDuringProbation: false };
+    expect(appliesToSummary({ eligibility: e }, [], [])).toBe('Married · grade G3 · after 6 months of service · not during probation');
+  });
+
+  it('treats a changed tenure or probation flag as a change, and missing fields as the defaults', () => {
+    const legacy = { genders: [], departmentIds: [], locationIds: [], employmentTypes: [], includeEmployeeIds: [], excludeEmployeeIds: [] };
+    expect(sameEligibility(legacy, EMPTY_ELIGIBILITY)).toBe(true);
+    expect(sameEligibility(EMPTY_ELIGIBILITY, { ...EMPTY_ELIGIBILITY, minTenureMonths: 3 })).toBe(false);
+    expect(sameEligibility(EMPTY_ELIGIBILITY, { ...EMPTY_ELIGIBILITY, allowedDuringProbation: false })).toBe(false);
   });
 });

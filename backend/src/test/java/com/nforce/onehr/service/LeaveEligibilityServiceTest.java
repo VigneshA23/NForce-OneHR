@@ -132,6 +132,81 @@ class LeaveEligibilityServiceTest {
         assertArrayEquals(new int[] {1, 2}, counts);
     }
 
+    // ── LV-06: marital status, grade, tenure on the start date, probation ──
+
+    private UUID employee(String marital, String grade, LocalDate joining, LocalDate probationEnd, LocalDate confirmed) {
+        UUID id = UUID.randomUUID();
+        lenient().when(employeeRepo.findLeaveProfile(id)).thenReturn(Optional.of(new LeaveEmployeeProfile(id, "Female", null, null,
+                "FULL_TIME", joining, null, true, null, marital, grade, probationEnd, confirmed)));
+        return id;
+    }
+
+    private void dated(Integer minTenureMonths, boolean allowedDuringProbation) {
+        plans.eligibility(maternity, LeavePlanRuleService.eligibilityRules(rules, overrides, minTenureMonths, allowedDuringProbation));
+    }
+
+    @Test
+    void maritalStatusAndGradeRules_matchCaseInsensitively() {
+        rule(LeavePlanTypeEligibility.MARITAL_STATUS, "Married");
+        rule(LeavePlanTypeEligibility.GRADE, "G3");
+        assertTrue(service.isEligible(employee("married", "g3", null, null, null), maternity));
+        assertFalse(service.isEligible(employee("Single", "G3", null, null, null), maternity));
+        assertFalse(service.isEligible(employee("Married", null, null, null, null), maternity));
+    }
+
+    @Test
+    void tenure_isCheckedOnTheLeaveStartDate_withTheDateItIsReached() {
+        dated(6, true);
+        UUID joiner = employee(null, null, LocalDate.of(2026, 3, 15), null, null);
+        LeaveEligibilityService.Availability early = service.availability(joiner, maternity, LocalDate.of(2026, 9, 14));
+        assertFalse(early.available());
+        assertTrue(early.forEmployee(), "still listed for the employee");
+        assertEquals(LocalDate.of(2026, 9, 15), early.availableFrom());
+        assertEquals("Maternity Leave needs 6 months of service: you can take it from 15 Sep 2026.", early.reason());
+        assertTrue(service.isEligible(joiner, maternity, LocalDate.of(2026, 9, 15)));
+        // No joining date on file: held back, with no date to offer.
+        UUID unknown = employee(null, null, null, null, null);
+        assertEquals("Maternity Leave needs 6 months of service (your joining date isn't on file).",
+                service.availability(unknown, maternity, LocalDate.of(2026, 9, 15)).reason());
+        // The "who" check alone ignores tenure (balances, penalties).
+        assertTrue(service.isEligible(joiner, maternity));
+    }
+
+    @Test
+    void probation_endsAtConfirmation_orAfterTheProbationEndDate() {
+        dated(null, false);
+        UUID confirmedLater = employee(null, null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 30), LocalDate.of(2026, 8, 1));
+        LeaveEligibilityService.Availability a = service.availability(confirmedLater, maternity, LocalDate.of(2026, 7, 15));
+        assertFalse(a.available());
+        assertEquals("Maternity Leave isn't available during probation: you can take it from 1 Aug 2026.", a.reason());
+        assertTrue(service.isEligible(confirmedLater, maternity, LocalDate.of(2026, 8, 1)));
+        UUID noConfirmation = employee(null, null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 6, 30), null);
+        assertFalse(service.isEligible(noConfirmation, maternity, LocalDate.of(2026, 6, 30)));
+        assertTrue(service.isEligible(noConfirmation, maternity, LocalDate.of(2026, 7, 1)));
+        // No probation dates at all = not on probation.
+        assertTrue(service.isEligible(employee(null, null, LocalDate.of(2026, 1, 1), null, null), maternity, LocalDate.of(2026, 2, 1)));
+    }
+
+    @Test
+    void aHandPickedInclude_bypassesTenureAndProbation() {
+        UUID onProbation = employee(null, null, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), null);
+        overrides.add(LeavePlanTypeOverride.builder().employeeUserId(onProbation).mode(LeavePlanTypeOverride.INCLUDE).build());
+        dated(12, false);
+        assertTrue(service.isEligible(onProbation, maternity, LocalDate.of(2026, 3, 1)));
+    }
+
+    @Test
+    void typesForEmployee_listsHeldBackTypes_butNotTypesForOthers() {
+        rule(LeavePlanTypeEligibility.MARITAL_STATUS, "Married");
+        dated(600, true); // held back by tenure for anyone
+        UUID married = employee("Married", null, LocalDate.of(2026, 1, 1), null, null);
+        UUID single = employee("Single", null, LocalDate.of(2026, 1, 1), null, null);
+        var forMarried = service.typesForEmployee(married, List.of(maternity));
+        assertEquals(1, forMarried.size());
+        assertFalse(forMarried.get(maternity).available());
+        assertTrue(service.typesForEmployee(single, List.of(maternity)).isEmpty());
+    }
+
     @Test
     void clean_dropsBlanksAndDuplicates_andExcludeWinsOverInclude() {
         UUID both = UUID.randomUUID();

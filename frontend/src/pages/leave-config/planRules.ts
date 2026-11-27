@@ -9,6 +9,7 @@ import type {
 
 export const EMPTY_RULE_ELIGIBILITY: EligibilityConfig = {
   genders: [], departmentIds: [], locationIds: [], employmentTypes: [], includeEmployeeIds: [], excludeEmployeeIds: [],
+  maritalStatuses: [], grades: [], minTenureMonths: null, allowedDuringProbation: true,
 };
 
 export interface RuleForm {

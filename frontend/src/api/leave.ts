@@ -28,6 +28,14 @@ export interface EligibilityConfig {
   employmentTypes: string[];
   includeEmployeeIds: string[];
   excludeEmployeeIds: string[];
+  /** LV-06: e.g. "Married" (as on the employee profile). */
+  maritalStatuses?: string[];
+  /** LV-06: the grade of the employee's designation. */
+  grades?: string[];
+  /** LV-06: months of service needed, checked on the leave's start date; null = none. */
+  minTenureMonths?: number | null;
+  /** LV-06: false = not while on probation (credits held until then). Missing = true. */
+  allowedDuringProbation?: boolean;
 }
 
 export interface LeaveType {
@@ -47,6 +55,10 @@ export interface LeaveType {
   referenceCount?: number;
   /** LV-02, listMyTypes only: the caller's plan rules for this type (null = no limits). */
   rules?: LeaveRuleSummary | null;
+  /** LV-06, listMyTypes only: held back today by tenure or probation — the first day it can be taken (null = unknown). */
+  availableFrom?: string | null;
+  /** LV-06: why it is held back. */
+  availabilityNote?: string | null;
 }
 
 /** LV-02: QUOTA = the plan's days; UNLIMITED = paid, nothing deducted; EARNED_ONLY = only what HR credits. */

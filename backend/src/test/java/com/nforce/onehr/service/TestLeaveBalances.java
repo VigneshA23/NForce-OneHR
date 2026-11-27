@@ -109,6 +109,16 @@ final class TestLeaveBalances {
         lenient().when(eligibility.isEligible(any(), any())).thenReturn(true);
         lenient().when(eligibility.isEligible(any(), any(), any())).thenReturn(true);
         lenient().when(eligibility.eligibleTypes(any(), any())).thenAnswer(inv -> List.copyOf((Collection<LeaveType>) inv.getArgument(1)));
+        // LV-06: available on any date, and every type listed as available on the apply form.
+        lenient().when(eligibility.availability(any(), any(), any()))
+                .thenReturn(new LeaveEligibilityService.Availability(true, true, null, null));
+        lenient().when(eligibility.typesForEmployee(any(), any())).thenAnswer(inv -> {
+            java.util.Map<LeaveType, LeaveEligibilityService.Availability> out = new java.util.LinkedHashMap<>();
+            for (LeaveType t : (Collection<LeaveType>) inv.getArgument(1)) {
+                out.put(t, new LeaveEligibilityService.Availability(true, true, null, null));
+            }
+            return out;
+        });
         return eligibility;
     }
 }

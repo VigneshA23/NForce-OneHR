@@ -15,6 +15,10 @@ public class LeavePlanTypeEligibility {
     public static final String DEPARTMENT = "DEPARTMENT";
     public static final String LOCATION = "LOCATION";
     public static final String EMPLOYMENT_TYPE = "EMPLOYMENT_TYPE";
+    /** LV-06 */
+    public static final String MARITAL_STATUS = "MARITAL_STATUS";
+    /** LV-06: the grade of the employee's designation. */
+    public static final String GRADE = "GRADE";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

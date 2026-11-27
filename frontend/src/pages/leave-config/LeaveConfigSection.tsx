@@ -37,7 +37,7 @@ import LeavePlanAssignment from './LeavePlanAssignment';
 type Area = 'types' | 'plans' | 'assignment' | 'balances' | 'yearend';
 
 /** Departments, locations and employees for the "applies to" editor and summaries. */
-export interface Lookups { departments: NamedOption[]; locations: NamedOption[]; employees: DirectoryEmployee[] }
+export interface Lookups { departments: NamedOption[]; locations: NamedOption[]; employees: DirectoryEmployee[]; grades: string[] }
 
 // ── Leave type dialog ──────────────────────────────────────────────────────────
 
@@ -776,7 +776,7 @@ export default function LeaveConfigSection({ token }: { token: string }) {
   const [types, setTypes] = useState<LeaveType[] | null>(null);
   const [error, setError] = useState('');
 
-  const [lookups, setLookups] = useState<Lookups>({ departments: [], locations: [], employees: [] });
+  const [lookups, setLookups] = useState<Lookups>({ departments: [], locations: [], employees: [], grades: [] });
 
   const reload = useCallback(async () => {
     try { setTypes(await leaveConfigApi.listTypes(token)); setError(''); } catch (e) { setError(errMsg(e)); }
@@ -789,10 +789,12 @@ export default function LeaveConfigSection({ token }: { token: string }) {
       orgApi.listDepartments(token).catch(() => []),
       orgApi.listLocations(token).catch(() => []),
       leaveConfigApi.employees(token).catch(() => []),
-    ]).then(([d, l, e]) => setLookups({
+      orgApi.listDesignations(token).catch(() => []),
+    ]).then(([d, l, e, des]) => setLookups({
       departments: d.filter(x => x.active).map(x => ({ id: x.id, name: x.name })),
       locations: l.filter(x => x.active).map(x => ({ id: x.id, name: x.name })),
       employees: e,
+      grades: [...new Set(des.map(x => x.grade?.trim()).filter((g): g is string => !!g))].sort(),
     }));
   }, [token]);
 

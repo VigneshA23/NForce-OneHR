@@ -105,6 +105,17 @@ public class LeavePlanTypeRule {
     @Column(name = "attachment_max_mb")
     private Integer attachmentMaxMb;
 
+    // ── LV-06: dated "applies to" conditions, checked on the leave's start date ──
+
+    /** Months of service since joining before the type can be taken; null = none. */
+    @Column(name = "min_tenure_months")
+    private Integer minTenureMonths;
+
+    /** False = not available (and credits held) while the employee is on probation. */
+    @Column(name = "allowed_during_probation", nullable = false)
+    @Builder.Default
+    private boolean allowedDuringProbation = true;
+
     // ── LV-07: sandwich rule ──
 
     public static final String SANDWICH_HOLIDAYS = "HOLIDAYS";

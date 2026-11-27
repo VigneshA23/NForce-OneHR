@@ -423,6 +423,8 @@ public class LeavePlanService {
                     .carryForwardMaxDays(annual && req.carryForwardEnabled() ? req.carryForwardMaxDays() : null)
                     .carryForwardExpiryMonths(annual && req.carryForwardEnabled() ? req.carryForwardExpiryMonths() : null)
                     .carryForwardPriority(req.carryForwardPriority() != null ? req.carryForwardPriority() : LeaveType.CF_FIRST)
+                    .minTenureMonths(LeaveEligibilityService.clean(req.eligibility()).minTenureMonths())
+                    .allowedDuringProbation(LeaveEligibilityService.clean(req.eligibility()).allowedDuringProbation())
                     .build());
             EligibilityConfig c = LeaveEligibilityService.clean(req.eligibility());
             List<LeavePlanTypeEligibility> values = new ArrayList<>();
@@ -430,6 +432,8 @@ public class LeavePlanService {
             c.departmentIds().forEach(v -> values.add(eligibility(rule.getId(), LeavePlanTypeEligibility.DEPARTMENT, v)));
             c.locationIds().forEach(v -> values.add(eligibility(rule.getId(), LeavePlanTypeEligibility.LOCATION, v)));
             c.employmentTypes().forEach(v -> values.add(eligibility(rule.getId(), LeavePlanTypeEligibility.EMPLOYMENT_TYPE, v)));
+            c.maritalStatuses().forEach(v -> values.add(eligibility(rule.getId(), LeavePlanTypeEligibility.MARITAL_STATUS, v)));
+            c.grades().forEach(v -> values.add(eligibility(rule.getId(), LeavePlanTypeEligibility.GRADE, v)));
             eligibilityRepository.saveAll(values);
             List<LeavePlanTypeOverride> overrides = new ArrayList<>();
             c.includeEmployeeIds().forEach(id -> overrides.add(LeavePlanTypeOverride.builder()
@@ -553,6 +557,10 @@ public class LeavePlanService {
             m.put("employmentTypes", e.employmentTypes().stream().map(LeaveEligibilityService::norm).sorted().toList());
             m.put("includeEmployeeIds", e.includeEmployeeIds().stream().map(UUID::toString).sorted().toList());
             m.put("excludeEmployeeIds", e.excludeEmployeeIds().stream().map(UUID::toString).sorted().toList());
+            m.put("maritalStatuses", e.maritalStatuses().stream().map(LeaveEligibilityService::norm).sorted().toList());
+            m.put("grades", e.grades().stream().map(LeaveEligibilityService::norm).sorted().toList());
+            m.put("minTenureMonths", e.minTenureMonths());
+            m.put("allowedDuringProbation", e.allowedDuringProbation());
             RuleLimits l = limitsOf(r);
             String mode = modeOf(t, l);
             if (!LeavePlanTypeRule.MODE_QUOTA.equals(mode) && t.isPaid()) m.put("days", null);

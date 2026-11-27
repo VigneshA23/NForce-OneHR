@@ -218,6 +218,35 @@ class LeaveAccrualServiceTest {
         verify(creditRepo, never()).insertIfAbsent(any(), any(), any(), anyInt(), anyInt(), any());
     }
 
+    // ── LV-06 ──
+
+    private void profile(LocalDate joining, LocalDate probationEnd, LocalDate confirmed) {
+        when(employeeRepo.findLeaveProfile(emp)).thenReturn(Optional.of(new LeaveEmployeeProfile(emp, "Female", null, null,
+                "FULL_TIME", joining, null, true, null, null, null, probationEnd, confirmed)));
+    }
+
+    @Test
+    void minimumTenure_creditsOnlyTheMonthsFromWhenItIsReached() {
+        profile(LocalDate.of(2025, 1, 1), null, null);
+        policy("12", M);
+        plans.eligibility(paid, new LeaveEligibilityService.Rules(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of(),
+                Set.of(), Set.of(), 6, true));
+        assertDays("6", service.accrue(emp, paid, 2025)); // July-December
+    }
+
+    @Test
+    void probation_holdsTheCredits_andConfirmationCatchesThemUp() {
+        policy("12", M);
+        plans.eligibility(paid, new LeaveEligibilityService.Rules(Set.of(), Set.of(), Set.of(), Set.of(), Set.of(), Set.of(),
+                Set.of(), Set.of(), null, false));
+        profile(LocalDate.of(2025, 1, 1), LocalDate.of(2099, 12, 31), null); // still on probation today
+        assertDays("0", service.accrue(emp, paid, 2025));
+        assertTrue(ledger.isEmpty());
+
+        profile(LocalDate.of(2025, 1, 1), LocalDate.of(2025, 6, 30), LocalDate.of(2025, 7, 1)); // confirmed since
+        assertDays("12", service.accrue(emp, paid, 2025)); // the probation months included
+    }
+
     @Test
     void switchingMonthlyToYearly_creditsTheRestAtOnce_andBackNeverDoubles() {
         employee(LocalDate.of(2020, 1, 1), null, true);

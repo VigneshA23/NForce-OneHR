@@ -134,14 +134,23 @@ public class LeaveService {
         LeavePlanCatalog catalog = planRuleService.catalog(List.of(actor.getId()));
         Map<UUID, String> typeNames = new HashMap<>();
         leaveTypeRepository.findAll().forEach(t -> typeNames.put(t.getId(), t.getName()));
-        return leaveEligibilityService.eligibleTypes(actor.getId(), leaveTypeRepository.findByActiveTrueOrderByNameAsc()).stream()
-                .filter(t -> compOffOn || !CompOffService.isCompOffType(t))
-                .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
-                        .classification(t.getClassification()).entitlementBasis(t.getEntitlementBasis())
-                        .systemKey(t.getSystemKey()).active(true)
-                        .rules(catalog.ruleFor(actor.getId(), t.getId(), today)
-                                .map(r -> ruleSummary(r.limits(), typeNames)).orElse(null))
-                        .build())
+        // LV-06: a type held back today by tenure or probation is still listed, with when it becomes available
+        // (leave starting on/after that date can already be applied for).
+        return leaveEligibilityService.typesForEmployee(actor.getId(), leaveTypeRepository.findByActiveTrueOrderByNameAsc())
+                .entrySet().stream()
+                .filter(e -> compOffOn || !CompOffService.isCompOffType(e.getKey()))
+                .map(e -> {
+                    LeaveType t = e.getKey();
+                    LeaveEligibilityService.Availability a = e.getValue();
+                    return LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
+                            .classification(t.getClassification()).entitlementBasis(t.getEntitlementBasis())
+                            .systemKey(t.getSystemKey()).active(true)
+                            .rules(catalog.ruleFor(actor.getId(), t.getId(), today)
+                                    .map(r -> ruleSummary(r.limits(), typeNames)).orElse(null))
+                            .availableFrom(a.available() ? null : a.availableFrom())
+                            .availabilityNote(a.available() ? null : a.reason())
+                            .build();
+                })
                 .collect(Collectors.toList());
     }
 
@@ -248,9 +257,7 @@ public class LeaveService {
         if (!type.isActive()) {
             throw new IllegalArgumentException(type.getName() + " is no longer available for new requests.");
         }
-        if (!leaveEligibilityService.isEligible(actor.getId(), type)) {
-            throw new IllegalArgumentException(type.getName() + " does not apply to you.");
-        }
+        requireAvailable(actor.getId(), type, req.getStartDate(), true);
 
         if (req.getEndDate().isBefore(req.getStartDate())) {
             throw new IllegalArgumentException("End date cannot be before start date");
@@ -361,9 +368,9 @@ public class LeaveService {
         if (!type.isActive() && typeChanged) {
             throw new IllegalArgumentException(type.getName() + " is no longer available for new requests.");
         }
-        if (typeChanged && !leaveEligibilityService.isEligible(actor.getId(), type)) {
-            throw new IllegalArgumentException(type.getName() + " does not apply to you.");
-        }
+        // A request already on a type the employee is no longer covered by may still be edited; switching to one
+        // may not. Tenure / probation (LV-06) are checked on the (new) start date either way.
+        requireAvailable(actor.getId(), type, req.getStartDate(), typeChanged);
 
         if (req.getEndDate().isBefore(req.getStartDate())) {
             throw new IllegalArgumentException("End date cannot be before start date");
@@ -433,6 +440,16 @@ public class LeaveService {
         return toRequestResponse(existing);
     }
 
+    /**
+     * LV-06: refuses leave starting on {@code start} when the type is held back by tenure or probation, with the
+     * date it becomes available; with {@code requireForEmployee} also when the type isn't for the employee at all.
+     */
+    private void requireAvailable(UUID employeeUserId, LeaveType type, LocalDate start, boolean requireForEmployee) {
+        LeaveEligibilityService.Availability a = leaveEligibilityService.availability(employeeUserId, type, start);
+        if (a.available() || (!a.forEmployee() && !requireForEmployee)) return;
+        throw new IllegalArgumentException(a.reason());
+    }
+
     /** LV-02: hourly leave is one day, neither a half day, more than 0 and less than a full day's hours. */
     private void requireValidHours(CreateLeaveRequestRequest req) {
         if (req.getHours() == null) return;
@@ -485,7 +502,7 @@ public class LeaveService {
         String problem = null;
         try {
             if (req.getStartDate().isBefore(today)) throw new IllegalArgumentException("Leave cannot be requested for a date before today");
-            if (!leaveEligibilityService.isEligible(actor.getId(), type)) throw new IllegalArgumentException(type.getName() + " does not apply to you.");
+            requireAvailable(actor.getId(), type, req.getStartDate(), editing == null || !editing.getLeaveType().getId().equals(type.getId()));
             boolean overlaps = excludeId == null
                     ? leaveRequestRepository.existsByEmployeeUserIdAndStatusInAndStartDateLessThanEqualAndEndDateGreaterThanEqual(
                             actor.getId(), OVERLAP_BLOCKING_STATUSES, req.getEndDate(), req.getStartDate())
@@ -783,6 +800,8 @@ public class LeaveService {
             throw new IllegalStateException("Leave request has already been decided");
         }
 
+        // LV-06: tenure / probation on the leave's start date (the employee's dates may have changed since).
+        requireAvailable(request.getEmployeeUserId(), request.getLeaveType(), request.getStartDate(), false);
         // LV-02: the plan's rules are checked again (everything except notice) — they may have changed,
         // or another request may since have been approved next to this one.
         ruleValidator.validate(new LeaveRuleValidator.Candidate(request.getEmployeeUserId(), request.getLeaveType(),
