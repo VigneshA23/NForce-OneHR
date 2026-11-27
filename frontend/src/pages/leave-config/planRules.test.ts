@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EMPTY_ELIGIBILITY, appliesToSummary, sameEligibility } from './AppliesTo';
 import type { LeavePreview, LeaveRuleSummary, LeaveType, PlanTypeRule } from '../../api/leave';
 import {
-  EMPTY_LIMITS, EMPTY_RULE_ELIGIBILITY, attachmentProblem, firstOfNextMonth, formsFor, hourlyDays, limitsPayload, modeFor, previewNotes, ruleLines, toPayload,
+  EMPTY_LIMITS, EMPTY_RULE_ELIGIBILITY, attachmentProblem, firstOfNextMonth, formsFor, hourlyDays, limitsPayload, modeFor, previewNotes, prorationExample, ruleLines, toPayload,
 } from './planRules';
 
 const paid: LeaveType = { id: 'p', code: 'PAID', name: 'Paid Leave', classification: 'PAID', entitlementBasis: 'ANNUAL', active: true };
@@ -185,5 +185,18 @@ describe('applies to: LV-06 criteria', () => {
     expect(sameEligibility(legacy, EMPTY_ELIGIBILITY)).toBe(true);
     expect(sameEligibility(EMPTY_ELIGIBILITY, { ...EMPTY_ELIGIBILITY, minTenureMonths: 3 })).toBe(false);
     expect(sameEligibility(EMPTY_ELIGIBILITY, { ...EMPTY_ELIGIBILITY, allowedDuringProbation: false })).toBe(false);
+  });
+});
+
+describe('proration example (LV-04)', () => {
+  it('shows the effect of each setting on a 16 October joiner, matching the server', () => {
+    expect(prorationExample({ method: 'MONTHS', cutoffDay: null, rounding: 'NEAREST_HALF' }))
+      .toBe('Example: 15 days a year, joined 16 Oct → 3.75 days for Oct–Dec, rounded to 4.');
+    expect(prorationExample({ method: 'MONTHS', cutoffDay: 15, rounding: 'NEAREST_HALF' }))
+      .toBe('Example: 15 days a year, joined 16 Oct → 2.5 days for Oct–Dec.');
+    expect(prorationExample({ method: 'CALENDAR_DAYS', cutoffDay: null, rounding: 'NEAREST_HALF' }))
+      .toBe('Example: 15 days a year, joined 16 Oct → 3.15 days for Oct–Dec, rounded to 3.');
+    expect(prorationExample({ method: 'CALENDAR_DAYS', cutoffDay: null, rounding: 'UP_HALF' })).toContain('rounded to 3.5');
+    expect(prorationExample({ method: 'MONTHS', cutoffDay: null, rounding: 'DOWN_HALF' })).toContain('rounded to 3.5');
   });
 });

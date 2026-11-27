@@ -64,7 +64,8 @@ class LeaveConfigEndpointsSecurityTest {
 
         @Bean com.nforce.onehr.controller.LeavePlanController leavePlanController() {
             return new com.nforce.onehr.controller.LeavePlanController(mock(com.nforce.onehr.service.LeavePlanService.class),
-                    mock(com.nforce.onehr.service.LeavePlanAllocationService.class));
+                    mock(com.nforce.onehr.service.LeavePlanAllocationService.class), mock(com.nforce.onehr.service.LeaveExitService.class),
+                    mock(com.nforce.onehr.repository.EmployeeRepository.class), mock(com.nforce.onehr.repository.LeaveTypeRepository.class));
         }
     }
 
@@ -96,6 +97,8 @@ class LeaveConfigEndpointsSecurityTest {
                 Arguments.of("PATCH", "/api/leave-config/plans/" + ID + "/active", "{\"active\":false}", CONFIGURE),
                 Arguments.of("PATCH", "/api/leave-config/plans/" + ID + "/default", null, CONFIGURE),
                 Arguments.of("DELETE", "/api/leave-config/plans/" + ID, null, CONFIGURE),
+                Arguments.of("GET", "/api/leave-config/exit-settlements", null, VIEW),
+                Arguments.of("POST", "/api/leave-config/exit-settlements/" + ID + "/recompute", null, CONFIGURE),
                 Arguments.of("GET", "/api/leave-config/plan-allocations/employees", null, VIEW),
                 Arguments.of("GET", "/api/leave-config/plan-allocations/employees/" + ID, null, VIEW),
                 Arguments.of("POST", "/api/leave-config/plan-allocations", "{\"employeeUserId\":\"" + ID + "\",\"planId\":\"" + ID + "\",\"effectiveFrom\":\"2027-01-01\"}", CONFIGURE),

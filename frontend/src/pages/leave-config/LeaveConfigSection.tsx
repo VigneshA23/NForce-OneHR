@@ -24,6 +24,7 @@ import {
 } from './leaveConfigUi';
 import LeavePlansArea from './LeavePlansArea';
 import LeavePlanAssignment from './LeavePlanAssignment';
+import LeaveExitsArea from './LeaveExitsArea';
 
 /**
  * Organization Masters / Organization Structure > Leave (V310, V314, LV-01). Areas: Leave Types (the
@@ -34,7 +35,7 @@ import LeavePlanAssignment from './LeavePlanAssignment';
  * reads, CONFIGURE changes policy, EDIT adjusts a balance.
  */
 
-type Area = 'types' | 'plans' | 'assignment' | 'balances' | 'yearend';
+type Area = 'types' | 'plans' | 'assignment' | 'balances' | 'yearend' | 'exits';
 
 /** Departments, locations and employees for the "applies to" editor and summaries. */
 export interface Lookups { departments: NamedOption[]; locations: NamedOption[]; employees: DirectoryEmployee[]; grades: string[] }
@@ -804,6 +805,7 @@ export default function LeaveConfigSection({ token }: { token: string }) {
     { key: 'assignment' as const, label: 'Assignment' },
     { key: 'balances' as const, label: 'Balances' },
     { key: 'yearend' as const, label: 'Year-End' },
+    { key: 'exits' as const, label: 'Exits' },
   ], []);
 
   return (
@@ -817,7 +819,8 @@ export default function LeaveConfigSection({ token }: { token: string }) {
           : area === 'plans' ? <LeavePlansArea types={types} token={token} canConfigure={canConfigure} lookups={lookups} />
             : area === 'assignment' ? <LeavePlanAssignment token={token} canConfigure={canConfigure} />
               : area === 'balances' ? <BalancesArea token={token} canConfigure={canConfigure} canEdit={canEdit} />
-                : <YearEndProcessing token={token} canConfigure={canConfigure} />
+                : area === 'exits' ? <LeaveExitsArea token={token} canConfigure={canConfigure} />
+                  : <YearEndProcessing token={token} canConfigure={canConfigure} />
       )}
     </div>
   );

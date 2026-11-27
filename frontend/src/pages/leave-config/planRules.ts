@@ -4,7 +4,7 @@
  */
 import type {
   CarryForwardPriority, CreditFrequency, EligibilityConfig, EntitlementMode, LeaveRuleSummary, LeaveType, PlanRuleLimits,
-  LeavePreview, PlanTypeRule, PlanTypeRulePayload, SandwichAppliesTo,
+  LeavePreview, PlanProration, PlanTypeRule, PlanTypeRulePayload, SandwichAppliesTo,
 } from '../../api/leave';
 
 export const EMPTY_RULE_ELIGIBILITY: EligibilityConfig = {
@@ -302,4 +302,16 @@ export function previewNotes(p: LeavePreview): string[] {
   if (sandwiched.length) out.push(`Counted as leave (sandwich): ${sandwiched.map(label).join(', ')}`);
   if (skipped.length) out.push(`Not counted: ${skipped.map(label).join(', ')}`);
   return out;
+}
+
+/** "Joined 16 Oct with 15 days a year: …" — the effect of the settings on a sample joiner. */
+export function prorationExample(p: PlanProration): string {
+  const month = 15 / 12; // 1.25
+  const oct = p.method === 'CALENDAR_DAYS' ? Math.round(month * 16 / 31 * 100) / 100
+    : p.cutoffDay != null && 16 > p.cutoffDay ? 0 : month;
+  const raw = Math.round((oct + 2 * month) * 100) / 100;
+  const half = (x: number, f: (n: number) => number) => f(x * 2) / 2;
+  const rounded = p.rounding === 'NONE' ? raw : p.rounding === 'DOWN_HALF' ? half(raw, Math.floor)
+    : p.rounding === 'UP_HALF' ? half(raw, Math.ceil) : half(raw, Math.round);
+  return `Example: 15 days a year, joined 16 Oct → ${raw} days for Oct–Dec${rounded !== raw ? `, rounded to ${rounded}` : ''}.`;
 }

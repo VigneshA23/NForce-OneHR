@@ -16,6 +16,7 @@ import com.nforce.onehr.dto.LeavePlanDtos.UpdateAllocationRequest;
 import com.nforce.onehr.dto.LeavePlanDtos.UpdatePlanRequest;
 import com.nforce.onehr.dto.LeavePlanDtos.VersionDetail;
 import com.nforce.onehr.dto.assignments.AssignmentBulkResultResponse;
+import com.nforce.onehr.service.LeaveExitService;
 import com.nforce.onehr.service.LeavePlanAllocationService;
 import com.nforce.onehr.service.LeavePlanService;
 import jakarta.validation.Valid;
@@ -41,6 +42,48 @@ public class LeavePlanController {
 
     private final LeavePlanService planService;
     private final LeavePlanAllocationService allocationService;
+    private final LeaveExitService exitService;
+    private final com.nforce.onehr.repository.EmployeeRepository employeeRepository;
+    private final com.nforce.onehr.repository.LeaveTypeRepository leaveTypeRepository;
+
+    // ── Exit settlements (LV-04) ──
+
+    /** Leavers' leave positions with a last working day in [from, to] (default: 60 days either side of today). */
+    @GetMapping("/exit-settlements")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public List<com.nforce.onehr.dto.LeavePlanDtos.ExitSettlementDto> exitSettlements(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate from,
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate to) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        return toDtos(exitService.storedBetween(from != null ? from : today.minusDays(60), to != null ? to : today.plusDays(60)));
+    }
+
+    /** Recomputes one employee's exit settlement now (after their last working day or leave changed). */
+    @PostMapping("/exit-settlements/{userId}/recompute")
+    @PreAuthorize("hasAuthority('leave_configuration:CONFIGURE:ALL')")
+    public List<com.nforce.onehr.dto.LeavePlanDtos.ExitSettlementDto> recomputeExitSettlement(@PathVariable UUID userId) {
+        return toDtos(exitService.settle(userId));
+    }
+
+    private List<com.nforce.onehr.dto.LeavePlanDtos.ExitSettlementDto> toDtos(List<com.nforce.onehr.entity.LeaveExitSettlement> rows) {
+        java.util.Set<UUID> ids = new java.util.HashSet<>();
+        rows.forEach(r -> ids.add(r.getEmployeeUserId()));
+        java.util.Map<UUID, String> names = new java.util.HashMap<>(), codes = new java.util.HashMap<>();
+        if (!ids.isEmpty()) {
+            for (Object[] row : employeeRepository.findNamesByUserIds(ids)) names.put((UUID) row[0], (String) row[1]);
+            for (Object[] row : employeeRepository.findCodesByUserIds(ids)) codes.put((UUID) row[0], (String) row[1]);
+        }
+        java.util.Map<UUID, String> typeNames = new java.util.HashMap<>();
+        leaveTypeRepository.findAll().forEach(t -> typeNames.put(t.getId(), t.getName()));
+        return rows.stream()
+                .sorted(java.util.Comparator.comparing(com.nforce.onehr.entity.LeaveExitSettlement::getLastWorkingDay)
+                        .thenComparing(r -> names.getOrDefault(r.getEmployeeUserId(), "")))
+                .map(r -> new com.nforce.onehr.dto.LeavePlanDtos.ExitSettlementDto(r.getEmployeeUserId(),
+                        names.getOrDefault(r.getEmployeeUserId(), "Unknown"), codes.get(r.getEmployeeUserId()), r.getLastWorkingDay(),
+                        r.getLeaveTypeId(), typeNames.getOrDefault(r.getLeaveTypeId(), "Leave"), r.getYear(), r.getEntitledDays(),
+                        r.getCarriedForwardDays(), r.getUsedDays(), r.getEncashableDays(), r.getRecoveryDays(), r.getComputedAt()))
+                .toList();
+    }
 
     // ── Plans ──
 

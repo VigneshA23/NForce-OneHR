@@ -9,7 +9,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { KebabMenu, type KebabItem } from '../../components/KebabMenu';
 import { useToast } from '../../context/ToastContext';
 import {
-  leaveConfigApi, type LeavePlanDetail, type LeavePlanSummary, type LeavePlanVersionDetail, type LeaveType,
+  leaveConfigApi, type LeavePlanDetail, type LeavePlanSummary, type LeavePlanVersionDetail, type LeaveType, type PlanProration,
 } from '../../api/leave';
 import { AppliesToEditor, appliesToSummary } from './AppliesTo';
 import {
@@ -17,7 +17,7 @@ import {
   primaryBtn, secondaryBtn, tdS, type Confirm,
 } from './leaveConfigUi';
 import {
-  firstOfNextMonth, formsFor, isoDate, limitsPayload, modeFor, ruleLines, summaryOf, toPayload, type LimitsForm, type RuleForm,
+  firstOfNextMonth, formsFor, isoDate, limitsPayload, modeFor, prorationExample, ruleLines, summaryOf, toPayload, type LimitsForm, type RuleForm,
 } from './planRules';
 import type { Lookups } from './LeaveConfigSection';
 
@@ -231,6 +231,51 @@ function RuleRow({ type, form, onChange, lookups, token, readOnly, allTypes }: {
   );
 }
 
+// ── Proration (LV-04) ──────────────────────────────────────────────────────────
+
+const DEFAULT_PRORATION: PlanProration = { method: 'MONTHS', cutoffDay: null, rounding: 'NEAREST_HALF' };
+
+/** The plan's proration of part-year entitlements: method, cut-off day (months only) and rounding. */
+function ProrationFields({ value, onChange, readOnly }: { value: PlanProration; onChange(next: PlanProration): void; readOnly: boolean }) {
+  return (
+    <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 14px' }}>
+      <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Joiners and leavers (proration)</legend>
+      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div>
+          <label style={labelS} htmlFor="lp-pr-method">Count the joining / exit month</label>
+          <select id="lp-pr-method" style={{ ...inputS, width: 230 }} value={value.method} disabled={readOnly}
+            onChange={e => onChange({ ...value, method: e.target.value as PlanProration['method'], cutoffDay: e.target.value === 'MONTHS' ? value.cutoffDay : null })}>
+            <option value="MONTHS">By whole months</option>
+            <option value="CALENDAR_DAYS">By the days served in it</option>
+          </select>
+        </div>
+        {value.method === 'MONTHS' && (
+          <div>
+            <label style={labelS} htmlFor="lp-pr-cutoff">Cut-off day</label>
+            <input id="lp-pr-cutoff" type="number" min={1} max={31} style={{ ...inputS, width: 110 }} disabled={readOnly}
+              value={value.cutoffDay ?? ''} placeholder="None"
+              onChange={e => onChange({ ...value, cutoffDay: e.target.value === '' ? null : Math.max(1, Math.min(31, Math.round(Number(e.target.value)))) })} />
+          </div>
+        )}
+        <div>
+          <label style={labelS} htmlFor="lp-pr-round">Rounding</label>
+          <select id="lp-pr-round" style={{ ...inputS, width: 200 }} value={value.rounding} disabled={readOnly}
+            onChange={e => onChange({ ...value, rounding: e.target.value as PlanProration['rounding'] })}>
+            <option value="NEAREST_HALF">Nearest half day</option>
+            <option value="DOWN_HALF">Down to a half day</option>
+            <option value="UP_HALF">Up to a half day</option>
+            <option value="NONE">No rounding</option>
+          </select>
+        </div>
+      </div>
+      <p style={{ ...hintS, margin: '8px 0 0', fontSize: 11.5 }}>
+        {prorationExample(value)} The last working day ends crediting the same way; leave taken beyond what was
+        earned by then is flagged for recovery on the Exits tab and in payroll.
+      </p>
+    </fieldset>
+  );
+}
+
 // ── Editor ─────────────────────────────────────────────────────────────────────
 
 function PlanEditor({ planId, types, token, canConfigure, lookups, onClose, onSaved }: {
@@ -245,6 +290,8 @@ function PlanEditor({ planId, types, token, canConfigure, lookups, onClose, onSa
   })) : []);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  // LV-04: the plan's proration of part-year entitlements (joiners, leavers).
+  const [proration, setProration] = useState<PlanProration>(DEFAULT_PRORATION);
   const [effectiveFrom, setEffectiveFrom] = useState(firstOfNextMonth(new Date()));
   const [recredit, setRecredit] = useState(false);
   const [error, setError] = useState('');
@@ -259,7 +306,10 @@ function PlanEditor({ planId, types, token, canConfigure, lookups, onClose, onSa
   useEffect(() => {
     if (creating || !planId) return;
     Promise.all([leaveConfigApi.plan(planId, token), leaveConfigApi.currentPlanVersion(planId, token)])
-      .then(([d, v]) => { setDetail(d); setName(d.plan.name); setDescription(d.plan.description ?? ''); showVersion(v); })
+      .then(([d, v]) => {
+        setDetail(d); setName(d.plan.name); setDescription(d.plan.description ?? '');
+        setProration(d.plan.proration ?? DEFAULT_PRORATION); showVersion(v);
+      })
       .catch(e => setError(errMsg(e)));
   }, [creating, planId, token, showVersion]);
 
@@ -277,10 +327,11 @@ function PlanEditor({ planId, types, token, canConfigure, lookups, onClose, onSa
     try {
       let saved: LeavePlanDetail;
       if (creating) {
-        saved = await leaveConfigApi.createPlan({ name: name.trim(), description: description.trim() || undefined, rules }, token);
+        saved = await leaveConfigApi.createPlan({ name: name.trim(), description: description.trim() || undefined, rules, proration }, token);
       } else {
-        if (detail && (name.trim() !== detail.plan.name || (description.trim() || null) !== (detail.plan.description ?? null))) {
-          await leaveConfigApi.updatePlan(planId!, { name: name.trim(), description: description.trim() || undefined }, token);
+        const prorationChanged = detail != null && JSON.stringify(proration) !== JSON.stringify(detail.plan.proration ?? DEFAULT_PRORATION);
+        if (detail && (prorationChanged || name.trim() !== detail.plan.name || (description.trim() || null) !== (detail.plan.description ?? null))) {
+          await leaveConfigApi.updatePlan(planId!, { name: name.trim(), description: description.trim() || undefined, proration }, token);
         }
         saved = await leaveConfigApi.savePlanVersion(planId!, { effectiveFrom, rules, recreditCredited: recredit }, token);
       }
@@ -312,6 +363,8 @@ function PlanEditor({ planId, types, token, canConfigure, lookups, onClose, onSa
               title="Other leave-year start months are not available yet" />
           </div>
         </div>
+
+        <ProrationFields value={proration} onChange={setProration} readOnly={readOnly} />
 
         {!creating && detail && (
           <div style={{ marginBottom: 14 }}>

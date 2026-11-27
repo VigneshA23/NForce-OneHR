@@ -1,4 +1,4 @@
-# Leave configuration (V310, V314, V321, V322, V323, V324)
+# Leave configuration (V310, V314, V321, V322, V323, V324, V325)
 
 Leave types, leave plans (each type's days, crediting, carry-forward and who it applies to), who is on which
 plan, balances and year-end live in **Organization Masters / Organization Structure → Leave** (the
@@ -139,6 +139,31 @@ to repeat). `leave_balances.total_days` now means **credited so far**.
   at 0 credited. Paid Leave's policy is 15 days `YEARLY` up to the migration year and 15 days `MONTHLY`
   from the next year.
 
+## Proration and exits (V325, LV-04 / ONEHR-890)
+
+Each plan says how a part-year entitlement is prorated (plan editor → "Joiners and leavers"):
+
+- **By whole months** (default): the joining and exit months count in full. With a **cut-off day**, joining after
+  it skips the joining month ("joining after the 15th counts from the next month") and leaving before it skips the
+  exit month.
+- **By calendar days**: the joining / exit month counts the share of its days served.
+- **Rounding**: nearest half day (default), down or up to a half day, or none. All-at-once crediting rounds the
+  part-year total; monthly crediting rounds only a partly-served month (full months stay exact). Rounding down
+  never makes a month negative.
+- Worked example: 15 days a year, joined 1 October, whole months → 3 × 1.25 = 3.75 → nearest 0.5 = **4**.
+- The defaults (whole months, no cut-off, nearest half) are exactly how crediting worked before, so nothing
+  changes until HR changes a plan. Changing a plan's proration re-credits this year's joining / exit months.
+- A mid-year plan switch is still prorated month by month (each month follows its plan, see Leave plans).
+
+**Exits.** For an employee with a last working day (entered on the employee record — there is no exit screen
+yet), `LeaveExitService` recomputes the leave year of that day: credits after it are taken back and the exit
+month is prorated, then per regular paid type it stores (`leave_exit_settlements`) what was earned, carried,
+used, and the result — days to **encash**, or days taken beyond the entitlement to **recover** in the final
+settlement. It runs nightly (`app.leave.exit.cron`, 00:45) for last working days within 60 days of today, and on
+demand: Leave → Exits → Recompute, and payroll's exit-cycle proration (whose leave encashment days now come from
+it instead of the plain balance). Payroll's Joiners & Exits shows "Leave to encash" / "Leave to recover" per
+leaver. Clearing a last working day removes the settlement and restores the year's credits.
+
 ## Eligibility: marital status, grade, tenure, probation (V324, LV-06 / ONEHR-892)
 
 Each type in a plan (plan editor → a type → More → Applies to) can now also be limited by:
@@ -255,6 +280,11 @@ Drop `leave_plan_allocations`, `leave_plan_type_overrides`, `leave_plan_type_eli
 `leave_plan_type_rules`, `leave_plan_versions` and `leave_plans`, and delete `assignment_rules` /
 `assignment_rule_assignments` rows of domain `LEAVE_PLAN`. The app before LV-01 reads the old tables, which
 V321 left untouched.
+
+## Rollback (V325)
+
+Drop `leave_exit_settlements` and `leave_plans.proration_method`, `proration_cutoff_day`, `proration_rounding`.
+Payroll's exit proration then reads the plain available balance again.
 
 ## Rollback (V324)
 

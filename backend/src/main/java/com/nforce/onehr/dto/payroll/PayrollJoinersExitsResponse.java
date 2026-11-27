@@ -11,5 +11,16 @@ import java.util.UUID;
 public record PayrollJoinersExitsResponse(UUID runId, LocalDate cycleStart, LocalDate cycleEnd,
                                           List<EmployeeDateEntry> joiners, List<EmployeeDateEntry> exits) {
 
-    public record EmployeeDateEntry(UUID employeeId, String employeeName, LocalDate date) {}
+    /**
+     * LV-04, exits only: {@code leaveEncashableDays} / {@code leaveRecoveryDays} from the employee's leave exit
+     * settlement (regular paid leave, recomputed up to the last working day) — recovery &gt; 0 means leave was
+     * taken beyond the entitlement and is to be recovered in the final settlement. Null when not computed.
+     */
+    public record EmployeeDateEntry(UUID employeeId, String employeeName, LocalDate date,
+                                    java.math.BigDecimal leaveEncashableDays, java.math.BigDecimal leaveRecoveryDays) {
+
+        public EmployeeDateEntry(UUID employeeId, String employeeName, LocalDate date) {
+            this(employeeId, employeeName, date, null, null);
+        }
+    }
 }

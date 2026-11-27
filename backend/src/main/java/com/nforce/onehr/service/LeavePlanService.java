@@ -163,11 +163,13 @@ public class LeavePlanService {
         }
         requireJanuary(req.leaveYearStartMonth());
         Map<UUID, LeaveType> types = validateRules(req.rules());
-        LeavePlan plan = planRepository.save(LeavePlan.builder()
+        LeavePlan plan = LeavePlan.builder()
                 .name(name)
                 .description(blankToNull(req.description()))
                 .createdBy(actor.getId())
-                .build());
+                .build();
+        applyProration(plan, req.proration());
+        plan = planRepository.save(plan);
         // The first version covers the whole current leave year, so the plan works for any assignment from now on.
         LeavePlanVersion v = versionRepository.save(LeavePlanVersion.builder()
                 .planId(plan.getId()).version(1)
@@ -190,13 +192,20 @@ public class LeavePlanService {
         }
         requireJanuary(req.leaveYearStartMonth());
         String before = auditSnapshot.toJson(planSnapshot(plan, null));
+        LeaveAccrualService.Proration prorationBefore = LeaveAccrualService.Proration.of(plan);
         boolean changed = !plan.getName().equals(name) || !Objects.equals(plan.getDescription(), blankToNull(req.description()));
-        if (changed) {
-            plan.setName(name);
-            plan.setDescription(blankToNull(req.description()));
+        plan.setName(name);
+        plan.setDescription(blankToNull(req.description()));
+        applyProration(plan, req.proration());
+        boolean prorationChanged = !prorationBefore.equals(LeaveAccrualService.Proration.of(plan));
+        if (changed || prorationChanged) {
             planRepository.save(plan);
             planRuleService.invalidate();
             auditService.log(actor.getId(), "LEAVE_PLAN_UPDATED", plan.getId(), before, auditSnapshot.toJson(planSnapshot(plan, null)));
+        }
+        if (prorationChanged) {
+            // Joining / exit months already credited this year follow the new proration (other months are unchanged).
+            accrualService.reconcile(null, LeaveBalanceService.yearStart(LeaveBalanceService.leaveYearOf(today())), false);
         }
         return detail(planId);
     }
@@ -210,7 +219,8 @@ public class LeavePlanService {
                 r.creditFrequency(), r.carryForwardEnabled(), r.carryForwardMaxDays(), r.carryForwardExpiryMonths(),
                 r.carryForwardPriority(), r.eligibility(), r.limits())).toList();
         LeavePlan from = requirePlan(planId);
-        PlanDetail created = create(new CreatePlanRequest(req.name(), from.getDescription(), from.getLeaveYearStartMonth(), rules), actorEmail);
+        PlanDetail created = create(new CreatePlanRequest(req.name(), from.getDescription(), from.getLeaveYearStartMonth(), rules,
+                prorationDto(from)), actorEmail);
         User actor = requireActor(actorEmail);
         auditService.log(actor.getId(), "LEAVE_PLAN_CLONED", created.plan().id(), null,
                 auditSnapshot.toJson(Map.of("clonedFrom", from.getName(), "name", created.plan().name())));
@@ -613,7 +623,22 @@ public class LeavePlanService {
         int typeCount = current.map(v -> catalog.rulesOfVersion(v.getId()).size()).orElse(0);
         return new PlanSummary(p.getId(), p.getName(), p.getDescription(), p.getLeaveYearStartMonth(), p.getStatus(),
                 p.isOrgDefault(), current.map(LeavePlanVersion::getVersion).orElse(null),
-                current.map(LeavePlanVersion::getEffectiveFrom).orElse(null), typeCount, employees, p.getUpdatedAt());
+                current.map(LeavePlanVersion::getEffectiveFrom).orElse(null), typeCount, employees, p.getUpdatedAt(),
+                prorationDto(p));
+    }
+
+    private static com.nforce.onehr.dto.LeavePlanDtos.Proration prorationDto(LeavePlan p) {
+        LeaveAccrualService.Proration r = LeaveAccrualService.Proration.of(p);
+        return new com.nforce.onehr.dto.LeavePlanDtos.Proration(r.method(), r.cutoffDay(), r.rounding());
+    }
+
+    /** LV-04: null leaves the plan's proration as it is; a cut-off day only means something for MONTHS. */
+    private static void applyProration(LeavePlan plan, com.nforce.onehr.dto.LeavePlanDtos.Proration p) {
+        if (p == null) return;
+        String method = p.method() == null ? LeavePlan.PRORATE_MONTHS : p.method();
+        plan.setProrationMethod(method);
+        plan.setProrationCutoffDay(LeavePlan.PRORATE_MONTHS.equals(method) ? p.cutoffDay() : null);
+        plan.setProrationRounding(p.rounding() == null ? LeavePlan.ROUND_NEAREST_HALF : p.rounding());
     }
 
     private static VersionSummary versionSummary(LeavePlanVersion v, LocalDate today, Map<UUID, String> names) {
@@ -638,6 +663,9 @@ public class LeavePlanService {
         m.put("leaveYearStartMonth", p.getLeaveYearStartMonth());
         m.put("status", p.getStatus());
         m.put("orgDefault", p.isOrgDefault());
+        m.put("prorationMethod", p.getProrationMethod());
+        m.put("prorationCutoffDay", p.getProrationCutoffDay());
+        m.put("prorationRounding", p.getProrationRounding());
         if (rules != null) m.put("rules", rules);
         return m;
     }

@@ -7,6 +7,7 @@ import com.nforce.onehr.dto.LeaveEmployeeProfile;
 import com.nforce.onehr.entity.LeaveAccrualCredit;
 import com.nforce.onehr.entity.LeaveBalance;
 import com.nforce.onehr.entity.LeaveEntitlementPolicy;
+import com.nforce.onehr.entity.LeavePlan;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.LeaveAccrualCreditRepository;
@@ -48,14 +49,19 @@ import static java.math.BigDecimal.ZERO;
  * <ul>
  *   <li><b>Share of month m</b> = round2(quota·m/12) − round2(quota·(m−1)/12), so the year always adds up
  *       to the quota exactly (15 → 1.25 each month; 10 → 0.83, 0.84, 0.83 …).</li>
- *   <li><b>Eligible months</b>: from the joining month (credited in full, no pro-rating) to December,
- *       stopping after the month of the last working day. A month whose plan doesn't include the type
- *       (or whose "applies to" rules exclude the employee) is not credited.</li>
- *   <li><b>MONTHLY</b>: a month is credited once its 1st has arrived.</li>
+ *   <li><b>Eligible months</b>: from the joining month to December, stopping after the month of the last
+ *       working day. A month whose plan doesn't include the type (or whose "applies to" rules exclude the
+ *       employee) is not credited.</li>
+ *   <li><b>Joining and exit months</b> (LV-04, per plan): by MONTHS they count whole — or not at all when the
+ *       plan's cut-off day says so (joined after it / left before it); by CALENDAR_DAYS they count the share of
+ *       the month served.</li>
+ *   <li><b>MONTHLY</b>: a month is credited once its 1st has arrived; a partly-served month is rounded per the
+ *       plan (nearest / down / up to 0.5, or not at all).</li>
  *   <li><b>YEARLY</b> (all at once): a run of months under one plan and quota is credited once its first
- *       month has arrived. A part-year run (joiner, leaver, plan switch) is rounded to the nearest 0.5,
- *       the difference on its last month.</li>
+ *       month has arrived. A part-year run (joiner, leaver, plan switch) is rounded per the plan (by default
+ *       to the nearest 0.5), the difference on its last month.</li>
  * </ul>
+ * Worked example: quota 15, joined 1 October, whole months → 3 × 1.25 = 3.75, nearest 0.5 → 4.
  * A credit is added to {@code leave_balances.total_days} only when its ledger row is inserted, so
  * running this again (nightly, on view, from "Run now", on two instances) never double-credits.
  * Employees no longer active, or no longer eligible for the type, get no new credits; what they already
@@ -88,8 +94,60 @@ public class LeaveAccrualService {
         return quota.multiply(BigDecimal.valueOf(months)).divide(TWELVE, 2, RoundingMode.HALF_UP);
     }
 
+    /**
+     * LV-04: how a plan prorates a part-year entitlement. {@code method} MONTHS or CALENDAR_DAYS; {@code cutoffDay}
+     * (MONTHS) joining on/before it counts the joining month, leaving on/after it the exit month (null = always);
+     * {@code rounding} NEAREST_HALF, DOWN_HALF, UP_HALF or NONE.
+     */
+    public record Proration(String method, Integer cutoffDay, String rounding) {
+        /** How crediting worked before LV-04: whole joining and exit months, nearest 0.5. */
+        public static final Proration DEFAULT = new Proration(LeavePlan.PRORATE_MONTHS, null, LeavePlan.ROUND_NEAREST_HALF);
+
+        public static Proration of(LeavePlan p) {
+            return new Proration(p.getProrationMethod() == null ? LeavePlan.PRORATE_MONTHS : p.getProrationMethod(),
+                    p.getProrationCutoffDay(), p.getProrationRounding() == null ? LeavePlan.ROUND_NEAREST_HALF : p.getProrationRounding());
+        }
+
+        /**
+         * The part of month {@code m} of {@code year} the employee counts for (0 to 1): 1 unless it is the joining
+         * or the exit month.
+         */
+        BigDecimal fraction(int year, int m, LocalDate joining, LocalDate lastWorkingDay) {
+            boolean joinMonth = joining != null && joining.getYear() == year && joining.getMonthValue() == m;
+            boolean exitMonth = lastWorkingDay != null && lastWorkingDay.getYear() == year && lastWorkingDay.getMonthValue() == m;
+            if (!joinMonth && !exitMonth) return BigDecimal.ONE;
+            int length = java.time.YearMonth.of(year, m).lengthOfMonth();
+            int from = joinMonth ? joining.getDayOfMonth() : 1;
+            int to = exitMonth ? lastWorkingDay.getDayOfMonth() : length;
+            if (to < from) return ZERO;
+            if (LeavePlan.PRORATE_CALENDAR_DAYS.equals(method)) {
+                return BigDecimal.valueOf(to - from + 1).divide(BigDecimal.valueOf(length), 6, RoundingMode.HALF_UP);
+            }
+            if (cutoffDay == null) return BigDecimal.ONE;
+            boolean counts = (!joinMonth || from <= cutoffDay) && (!exitMonth || to >= Math.min(cutoffDay, length));
+            return counts ? BigDecimal.ONE : ZERO;
+        }
+
+        /** {@code days} rounded to a half day per {@link #rounding} (2 decimals for NONE). */
+        BigDecimal round(BigDecimal days) {
+            RoundingMode mode = switch (rounding == null ? LeavePlan.ROUND_NEAREST_HALF : rounding) {
+                case LeavePlan.ROUND_DOWN_HALF -> RoundingMode.FLOOR;
+                case LeavePlan.ROUND_UP_HALF -> RoundingMode.CEILING;
+                case LeavePlan.ROUND_NONE -> null;
+                default -> RoundingMode.HALF_UP;
+            };
+            if (mode == null) return days.setScale(2, RoundingMode.HALF_UP);
+            return days.multiply(TWO).setScale(0, mode).divide(TWO, 2, RoundingMode.UNNECESSARY);
+        }
+    }
+
     /** What governs one month's credit: the plan (null in single-rule calls), the yearly quota and the frequency. */
-    public record MonthRule(UUID planId, BigDecimal quota, String frequency) {
+    public record MonthRule(UUID planId, BigDecimal quota, String frequency, Proration proration) {
+
+        public MonthRule(UUID planId, BigDecimal quota, String frequency) {
+            this(planId, quota, frequency, Proration.DEFAULT);
+        }
+
         boolean yearly() {
             return !LeaveEntitlementPolicy.MONTHLY.equals(frequency);
         }
@@ -109,8 +167,9 @@ public class LeaveAccrualService {
     /**
      * month → days for every eligible month of {@code year}: from the joining month to the month of the
      * last working day, each month's share from that month's rule; a month with no rule or a 0 quota is
-     * not credited. A YEARLY run (see {@link #runs}) that isn't the whole year is rounded to the nearest
-     * 0.5, the difference on its last month.
+     * not credited. The joining and exit months are prorated by their plan's {@link Proration} (a month that
+     * doesn't count at all is left out). A YEARLY run (see {@link #runs}) that isn't the whole year is rounded
+     * per its plan, the difference on its last month; a partly-served MONTHLY month is rounded likewise.
      */
     public static Map<Integer, BigDecimal> schedule(IntFunction<MonthRule> ruleOfMonth, LocalDate joining,
                                                     LocalDate lastWorkingDay, int year) {
@@ -119,18 +178,44 @@ public class LeaveAccrualService {
         int last = lastWorkingDay == null || lastWorkingDay.getYear() > year ? 12
                 : lastWorkingDay.getYear() == year ? lastWorkingDay.getMonthValue() : 0;
         Map<Integer, MonthRule> rules = new HashMap<>();
+        Set<Integer> partial = new HashSet<>();
         for (int m = first; m <= last; m++) {
             MonthRule r = ruleOfMonth.apply(m);
             if (r == null || r.quota() == null || r.quota().signum() <= 0) continue;
+            Proration p = r.proration() == null ? Proration.DEFAULT : r.proration();
+            BigDecimal fraction = p.fraction(year, m, joining, lastWorkingDay);
+            if (fraction.signum() == 0) continue;
+            BigDecimal share = monthShare(r.quota(), m);
+            if (fraction.compareTo(BigDecimal.ONE) < 0) {
+                share = share.multiply(fraction).setScale(2, RoundingMode.HALF_UP);
+                partial.add(m);
+            }
             rules.put(m, r);
-            out.put(m, monthShare(r.quota(), m));
+            out.put(m, share);
         }
         for (List<Integer> run : runs(out.keySet(), rules)) {
-            if (!rules.get(run.get(0)).yearly() || (run.get(0) == 1 && run.get(run.size() - 1) == 12)) continue;
+            MonthRule r = rules.get(run.get(0));
+            Proration p = r.proration() == null ? Proration.DEFAULT : r.proration();
+            if (!r.yearly()) {
+                for (int m : run) if (partial.contains(m)) out.put(m, p.round(out.get(m)));
+                continue;
+            }
+            if (run.get(0) == 1 && run.get(run.size() - 1) == 12) continue;
             BigDecimal total = run.stream().map(out::get).reduce(ZERO, BigDecimal::add);
-            BigDecimal rounded = total.multiply(TWO).setScale(0, RoundingMode.HALF_UP).divide(TWO, 2, RoundingMode.UNNECESSARY);
-            int lastMonth = run.get(run.size() - 1);
-            out.put(lastMonth, out.get(lastMonth).add(rounded.subtract(total)));
+            // The difference goes on the run's last month; a rounding-down larger than that month (a short
+            // exit month) continues on the months before it, so no month goes negative.
+            BigDecimal diff = p.round(total).subtract(total);
+            for (int i = run.size() - 1; i >= 0 && diff.signum() != 0; i--) {
+                int month = run.get(i);
+                BigDecimal adjusted = out.get(month).add(diff);
+                if (adjusted.signum() >= 0 || i == 0) {
+                    out.put(month, adjusted.max(ZERO));
+                    diff = ZERO;
+                } else {
+                    diff = adjusted;
+                    out.put(month, ZERO);
+                }
+            }
         }
         return out;
     }
@@ -189,7 +274,8 @@ public class LeaveAccrualService {
                         // LV-06: a month counts only once the type's minimum tenure is reached on its date
                         .filter(r -> r.eligibility().tenureMet(employeeUserId, profile, on))
                 : catalog.ruleFor(employeeUserId, type.getId(), date);
-        return rule.map(r -> new MonthRule(r.planId(), r.creditedQuota(), r.creditFrequency())).orElse(null);
+        return rule.map(r -> new MonthRule(r.planId(), r.creditedQuota(), r.creditFrequency(),
+                catalog.plan(r.planId()).map(Proration::of).orElse(Proration.DEFAULT))).orElse(null);
     }
 
     /**

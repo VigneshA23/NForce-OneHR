@@ -42,6 +42,29 @@ public class LeavePlan {
     @Builder.Default
     private boolean orgDefault = false;
 
+    // ── LV-04: proration of a part-year entitlement ──
+
+    public static final String PRORATE_MONTHS = "MONTHS";
+    public static final String PRORATE_CALENDAR_DAYS = "CALENDAR_DAYS";
+    public static final String ROUND_NEAREST_HALF = "NEAREST_HALF";
+    public static final String ROUND_DOWN_HALF = "DOWN_HALF";
+    public static final String ROUND_UP_HALF = "UP_HALF";
+    public static final String ROUND_NONE = "NONE";
+
+    /** MONTHS or CALENDAR_DAYS. */
+    @Column(name = "proration_method", nullable = false, length = 14)
+    @Builder.Default
+    private String prorationMethod = PRORATE_MONTHS;
+
+    /** MONTHS: joining on/before this day counts the joining month, leaving on/after it the exit month; null = always. */
+    @Column(name = "proration_cutoff_day")
+    private Integer prorationCutoffDay;
+
+    /** NEAREST_HALF, DOWN_HALF, UP_HALF or NONE. */
+    @Column(name = "proration_rounding", nullable = false, length = 12)
+    @Builder.Default
+    private String prorationRounding = ROUND_NEAREST_HALF;
+
     @Column(name = "created_by")
     private UUID createdBy;
 

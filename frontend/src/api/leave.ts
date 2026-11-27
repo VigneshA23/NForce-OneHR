@@ -302,6 +302,36 @@ export interface LeavePlanSummary {
   /** Employees on the plan today (allocation, rule or default). */
   employeeCount: number;
   updatedAt: string;
+  /** LV-04: how a part-year entitlement is prorated. */
+  proration: PlanProration;
+}
+
+/**
+ * LV-04: MONTHS (whole months; with a cut-off day, joining after it skips the joining month and leaving before it
+ * skips the exit month) or CALENDAR_DAYS (the days served in those months); then rounded to a half day.
+ */
+export interface PlanProration {
+  method: 'MONTHS' | 'CALENDAR_DAYS';
+  cutoffDay: number | null;
+  rounding: 'NEAREST_HALF' | 'DOWN_HALF' | 'UP_HALF' | 'NONE';
+}
+
+/** LV-04: a leaver's regular paid leave for the leave year of their last working day. */
+export interface ExitSettlement {
+  employeeUserId: string;
+  employeeName: string;
+  employeeCode: string | null;
+  lastWorkingDay: string;
+  leaveTypeId: string;
+  leaveTypeName: string;
+  year: number;
+  entitledDays: number;
+  carriedForwardDays: number;
+  usedDays: number;
+  encashableDays: number;
+  /** Leave taken beyond the entitlement, to recover in the final settlement. */
+  recoveryDays: number;
+  computedAt: string;
 }
 
 export interface LeavePlanVersionSummary {
@@ -562,10 +592,15 @@ export const leaveConfigApi = {
   plan: (id: string, token: string) => send<LeavePlanDetail>('GET', `${CONFIG}/plans/${id}`, token),
   currentPlanVersion: (id: string, token: string) => send<LeavePlanVersionDetail>('GET', `${CONFIG}/plans/${id}/current-version`, token),
   planVersion: (versionId: string, token: string) => send<LeavePlanVersionDetail>('GET', `${CONFIG}/plan-versions/${versionId}`, token),
-  createPlan: (payload: { name: string; description?: string; rules: PlanTypeRulePayload[] }, token: string) =>
+  createPlan: (payload: { name: string; description?: string; rules: PlanTypeRulePayload[]; proration?: PlanProration }, token: string) =>
     send<LeavePlanDetail>('POST', `${CONFIG}/plans`, token, payload),
-  updatePlan: (id: string, payload: { name: string; description?: string }, token: string) =>
+  updatePlan: (id: string, payload: { name: string; description?: string; proration?: PlanProration }, token: string) =>
     send<LeavePlanDetail>('PATCH', `${CONFIG}/plans/${id}`, token, payload),
+  /** LV-04: leavers with a last working day in [from, to] (default ±60 days). */
+  exitSettlements: (token: string, from?: string, to?: string) =>
+    send<ExitSettlement[]>('GET', `${CONFIG}/exit-settlements${from || to ? `?${new URLSearchParams({ ...(from ? { from } : {}), ...(to ? { to } : {}) })}` : ''}`, token),
+  recomputeExitSettlement: (userId: string, token: string) =>
+    send<ExitSettlement[]>('POST', `${CONFIG}/exit-settlements/${userId}/recompute`, token),
   savePlanVersion: (id: string, payload: { effectiveFrom: string; rules: PlanTypeRulePayload[]; recreditCredited: boolean }, token: string) =>
     send<LeavePlanDetail>('POST', `${CONFIG}/plans/${id}/versions`, token, payload),
   clonePlan: (id: string, name: string, token: string) => send<LeavePlanDetail>('POST', `${CONFIG}/plans/${id}/clone`, token, { name }),

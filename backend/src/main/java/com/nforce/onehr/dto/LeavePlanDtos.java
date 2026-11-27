@@ -27,7 +27,19 @@ public final class LeavePlanDtos {
     /** {@code employeeCount}: employees on the plan today (allocation, rule or default). */
     public record PlanSummary(UUID id, String name, String description, int leaveYearStartMonth, String status,
                               boolean orgDefault, Integer currentVersion, LocalDate currentVersionFrom,
-                              int leaveTypeCount, long employeeCount, LocalDateTime updatedAt) {}
+                              int leaveTypeCount, long employeeCount, LocalDateTime updatedAt,
+                              Proration proration) {}
+
+    /**
+     * LV-04: how the plan prorates a part-year entitlement. {@code method} MONTHS (whole months; with
+     * {@code cutoffDay}, joining after it skips the joining month and leaving before it skips the exit month) or
+     * CALENDAR_DAYS (the days served in those months); {@code rounding} NEAREST_HALF, DOWN_HALF, UP_HALF or NONE.
+     * Null fields = the defaults (MONTHS, no cut-off, NEAREST_HALF).
+     */
+    public record Proration(
+            @Pattern(regexp = "MONTHS|CALENDAR_DAYS") String method,
+            @Min(1) @Max(31) Integer cutoffDay,
+            @Pattern(regexp = "NEAREST_HALF|DOWN_HALF|UP_HALF|NONE") String rounding) {}
 
     /** PAST, CURRENT or SCHEDULED relative to today. */
     public record VersionSummary(UUID id, int version, LocalDate effectiveFrom, LocalDate effectiveTo, String status,
@@ -115,12 +127,33 @@ public final class LeavePlanDtos {
             @NotBlank @Size(max = 100) String name,
             @Size(max = 500) String description,
             @Min(1) @Max(12) Integer leaveYearStartMonth,
-            @NotNull @Size(max = 100) @Valid List<TypeRuleRequest> rules) {}
+            @NotNull @Size(max = 100) @Valid List<TypeRuleRequest> rules,
+            @Valid Proration proration) {
 
+        public CreatePlanRequest(String name, String description, Integer leaveYearStartMonth, List<TypeRuleRequest> rules) {
+            this(name, description, leaveYearStartMonth, rules, null);
+        }
+    }
+
+    /** {@code proration} null = leave it as it is. */
     public record UpdatePlanRequest(
             @NotBlank @Size(max = 100) String name,
             @Size(max = 500) String description,
-            @Min(1) @Max(12) Integer leaveYearStartMonth) {}
+            @Min(1) @Max(12) Integer leaveYearStartMonth,
+            @Valid Proration proration) {
+
+        public UpdatePlanRequest(String name, String description, Integer leaveYearStartMonth) {
+            this(name, description, leaveYearStartMonth, null);
+        }
+    }
+
+    // ── Exit settlements (LV-04) ──
+
+    /** One leave type's position for a leaver; {@code recoveryDays} > 0 = leave taken beyond the entitlement. */
+    public record ExitSettlementDto(UUID employeeUserId, String employeeName, String employeeCode, LocalDate lastWorkingDay,
+                                    UUID leaveTypeId, String leaveTypeName, int year, BigDecimal entitledDays,
+                                    BigDecimal carriedForwardDays, BigDecimal usedDays, BigDecimal encashableDays,
+                                    BigDecimal recoveryDays, LocalDateTime computedAt) {}
 
     /**
      * New rules from {@code effectiveFrom}; replaces the version starting that day if there is one.

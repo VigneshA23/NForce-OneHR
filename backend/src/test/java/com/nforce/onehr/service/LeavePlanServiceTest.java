@@ -250,6 +250,25 @@ class LeavePlanServiceTest {
     }
 
     @Test
+    void changingTheProration_recreditsThisYear_andAnUnchangedOneDoesNot() {
+        service.update(plan.getId(), new LeavePlanDtos.UpdatePlanRequest(plan.getName(), null, 1, null), "hr@test.com");
+        verify(accrual, never()).reconcile(any(), any(), anyBoolean());
+
+        service.update(plan.getId(), new LeavePlanDtos.UpdatePlanRequest(plan.getName(), null, 1,
+                new LeavePlanDtos.Proration("MONTHS", 15, "DOWN_HALF")), "hr@test.com");
+        assertEquals(15, plan.getProrationCutoffDay());
+        assertEquals("DOWN_HALF", plan.getProrationRounding());
+        verify(accrual).reconcile(null, jan1(), false);
+        verify(audit).log(eq(hr.getId()), eq("LEAVE_PLAN_UPDATED"), eq(plan.getId()), any(), any());
+
+        // A cut-off day means nothing for calendar days.
+        service.update(plan.getId(), new LeavePlanDtos.UpdatePlanRequest(plan.getName(), null, 1,
+                new LeavePlanDtos.Proration("CALENDAR_DAYS", 15, null)), "hr@test.com");
+        assertNull(plan.getProrationCutoffDay());
+        assertEquals("NEAREST_HALF", plan.getProrationRounding());
+    }
+
+    @Test
     void theOrgDefault_cantBeDeactivatedOrDeleted() {
         assertThrows(IllegalArgumentException.class, () -> service.setActive(plan.getId(), false, "hr@test.com"));
         assertThrows(IllegalArgumentException.class, () -> service.delete(plan.getId(), "hr@test.com"));
