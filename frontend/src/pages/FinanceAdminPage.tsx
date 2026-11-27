@@ -251,6 +251,8 @@ function FormAndDueDate({ api }: { api: ReturnType<typeof financeAdminApi> }) {
   const [due, setDue] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const st = useLoad(() => api.form130Status(fy), [api, fy, rev]);
+  const saved = useLoad(() => api.getDueDate(fy), [api, fy, rev]);
+  useEffect(() => { if (saved.data) setDue(saved.data.dueDate ?? ''); }, [saved.data]);
   const act = async (fn: () => Promise<unknown>, ok: string) => { setMsg(null); try { await fn(); setMsg(ok); setRev(r => r + 1); } catch (e) { setMsg(e instanceof Error ? e.message : 'Failed'); } };
   return (
     <Card title="Form 130 and ITR due date">

@@ -82,6 +82,17 @@ public class MyTaxProfileService {
         auditService.log(actor, "TAX_REGIME_UNLOCKED", employeeId, null, null);
     }
 
+    /** The configured regime-change window as the admin Windows card shows it (dates null when never set). */
+    @Transactional(readOnly = true)
+    public TaxDeclarationService.WindowView regimeWindow() {
+        List<LocalDate[]> w = jdbc.query("SELECT opens_on, closes_on FROM tax_regime_window WHERE id = 1",
+                (rs, i) -> new LocalDate[]{ rs.getObject(1, LocalDate.class), rs.getObject(2, LocalDate.class) });
+        LocalDate o = w.isEmpty() ? null : w.get(0)[0], c = w.isEmpty() ? null : w.get(0)[1];
+        LocalDate today = LocalDate.now();
+        boolean open = o != null && c != null && !today.isBefore(o) && !today.isAfter(c);
+        return new TaxDeclarationService.WindowView("REGIME", open, o, c, false);
+    }
+
     @Transactional
     public void setWindow(String actorEmail, LocalDate opensOn, LocalDate closesOn) {
         if (opensOn == null || closesOn == null || closesOn.isBefore(opensOn))
