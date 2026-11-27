@@ -32,6 +32,7 @@ import {
   type SubmitAttendanceRequestPayload,
 } from '../api/attendanceRequests';
 import { overtimeRequestApi, type OvertimeRequestRecord } from '../api/overtimeRequests';
+import { compOffApi } from '../api/compOff';
 import { usePreviewMode } from '../lib/previewMode';
 import { webClockInApi, type WebClockInRecord } from '../api/webClockIn';
 import { directoryApi, type DirectoryEntry } from '../api/directory';
@@ -6724,6 +6725,15 @@ function OvertimeRequestsSection({ token, canApprove, isPreview = false }: { tok
   const [pending, setPending] = useState<OvertimeRequestRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRequest, setShowRequest] = useState(false);
+  const [showCompOff, setShowCompOff] = useState(false);
+  // Company OT / Comp-Off policy; until it loads (or in preview) behave as before: OT only.
+  const [policy, setPolicy] = useState<{ overtimeEnabled: boolean; compOffEnabled: boolean } | null>(null);
+  useEffect(() => {
+    if (isPreview) return;
+    compOffApi.policy(token).then(setPolicy).catch(() => { /* keep default */ });
+  }, [token, isPreview]);
+  const otEnabled = policy ? policy.overtimeEnabled : true;
+  const compOffOn = !!policy?.compOffEnabled;
   const [month, setMonth] = useState(ALL_MONTHS_VALUE);
   const [drawer, setDrawer] = useState<{ request: OvertimeRequestRecord; mode: 'VIEW' | 'APPROVE' | 'REJECT' } | null>(null);
   const [comment, setComment] = useState('');
@@ -6848,16 +6858,27 @@ function OvertimeRequestsSection({ token, canApprove, isPreview = false }: { tok
           <SectionHeading title="My Requests" />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <MonthFilter month={month} onChange={setMonth} />
-            <button
-              onClick={() => setShowRequest(true)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 13px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
-            >
-              <CalendarPlus size={12} /> New Request
-            </button>
+            {otEnabled && (
+              <button
+                onClick={() => setShowRequest(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 13px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+              >
+                <CalendarPlus size={12} /> New Request
+              </button>
+            )}
+            {compOffOn && (
+              <button
+                onClick={() => setShowCompOff(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '7px 13px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}
+              >
+                <CalendarPlus size={12} /> Request Comp-Off
+              </button>
+            )}
           </div>
         </div>
         {loading ? <div style={{ ...panelStyle, padding: 28, textAlign: 'center', color: 'var(--txt-dim)', fontSize: 12 }}>Loading…</div> : renderTable(filteredMyRequests, false)}
       </div>
+      {showCompOff && <CompOffRequestModal token={token} onClose={() => setShowCompOff(false)} />}
       {showRequest && (
         <OvertimeRequestModal
           token={token}
@@ -7149,6 +7170,60 @@ function OvertimeRequestModal({ onClose, onSaved, token, existingRequests }: {
               }}
             >
               {submitting ? 'Submitting…' : 'Submit for Approval'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ─── Comp-Off request — shown when company policy has Comp-Off enabled. Needs no Overtime config. ──
+function CompOffRequestModal({ onClose, token }: { onClose: () => void; token: string }) {
+  const { showToast } = useToast();
+  const [workDate, setWorkDate] = useState(todayIsoDate());
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await compOffApi.requestForDate(token, workDate);
+      showToast('success', res.autoCredited > 0
+        ? 'Comp-Off requested — it will be credited once approved (see My Comp-Off)'
+        : 'Comp-Off request created — choose Comp-Off in My Comp-Off to claim it');
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to submit Comp-Off request';
+      setError(msg);
+      showToast('error', msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return createPortal(
+    <div style={overlayStyle}>
+      <div className="nf-modal" style={{ ...modalStyle, maxWidth: 460 }}>
+        <ModalHeader title="Request Comp-Off" onClose={onClose} />
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {error && <OhNoError message={error} onDismiss={() => setError(null)} />}
+          <Field label="Date worked (additional working day, weekly off or holiday)">
+            <input type="date" value={workDate} max={todayIsoDate()} onChange={(e) => setWorkDate(e.target.value)} style={inputStyle} />
+          </Field>
+          <div style={{ background: 'rgba(224,169,59,.12)', border: '1px solid rgba(224,169,59,.35)', borderRadius: 7, padding: '8px 10px', fontSize: 11.5, color: 'var(--txt-mut)' }}>
+            Eligibility and credit (full or half day) are worked out from your attendance for that date under the company Comp-Off policy.
+          </div>
+          <div className="nf-modal-actions" style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={{ background: 'var(--raised2)', color: 'var(--txt-mut)', border: '1px solid var(--line2)', borderRadius: 7, padding: '9px 16px', fontSize: 12.5, cursor: 'pointer' }}>Cancel</button>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting || !workDate}
+              style={{ background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 18px', fontSize: 12.5, fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.6 : 1 }}
+            >
+              {submitting ? 'Submitting…' : 'Submit Request'}
             </button>
           </div>
         </div>

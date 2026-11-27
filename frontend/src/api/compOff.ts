@@ -74,6 +74,7 @@ const qs = (f: ReportFilter) => {
 export const compOffApi = {
   policy: (token: string) => get<CompOffPolicy>('/policy', token),
   mine: (token: string) => get<MyCompOff>('/me', token),
+  requestForDate: (token: string, workDate: string) => send<CompOffDetectResult>('POST', '/request', token, { workDate }),
   choose: (token: string, claimId: string, choice: 'OT' | 'COMP_OFF') =>
     send<CompOffClaim>('POST', `/claims/${claimId}/choose`, token, { choice }),
 

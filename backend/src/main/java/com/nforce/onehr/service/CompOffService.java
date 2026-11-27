@@ -207,6 +207,33 @@ public class CompOffService {
         return new DetectResult(created, auto, unchanged, skipped);
     }
 
+    /**
+     * Employee self-service Comp-Off request for one worked day (additional working day, weekly off or
+     * holiday). Applies the same eligibility rules as detection, so no Overtime configuration is needed;
+     * the credit then follows the normal approval setting.
+     */
+    @Transactional
+    public DetectResult requestForDate(LocalDate workDate, String actorEmail) {
+        User actor = actor(actorEmail);
+        if (!policyService.compOffEnabled()) throw new IllegalStateException("Comp-Off is not enabled by company policy");
+        if (workDate == null) throw new IllegalArgumentException("Select the date you worked");
+        if (workDate.isAfter(LocalDate.now())) throw new IllegalArgumentException("Cannot request Comp-Off for a future date");
+        employeeRepository.findById(actor.getId()).map(Employee::getJoiningDate).ifPresent(j -> {
+            if (j != null && workDate.isBefore(j)) throw new IllegalArgumentException("Comp-Off cannot be requested before your joining date");
+        });
+        if (attendanceRepository.findByEmployeeUserIdInAndWorkDateBetween(List.of(actor.getId()), workDate, workDate).isEmpty()) {
+            throw new IllegalArgumentException("No attendance is recorded for " + workDate);
+        }
+        DetectResult result = detect(workDate, workDate, List.of(actor.getId()), actor.getId());
+        if (result.created() == 0) {
+            if (result.unchanged() > 0) throw new IllegalStateException("A Comp-Off request already exists for " + workDate);
+            if (!result.skipped().isEmpty()) throw new IllegalArgumentException(result.skipped().get(0).reason());
+            throw new IllegalArgumentException("Your hours on " + workDate + " are not eligible for Comp-Off under the company policy");
+        }
+        auditService.log(actor.getId(), "COMP_OFF_REQUESTED", actor.getId());
+        return result;
+    }
+
     public static BigDecimal creditFor(CompOffSettings s, int eligibleMinutes) {
         if (eligibleMinutes >= s.getMinMinutesFullDay()) return BigDecimal.ONE;
         if (eligibleMinutes >= s.getMinMinutesHalfDay()) return HALF;
