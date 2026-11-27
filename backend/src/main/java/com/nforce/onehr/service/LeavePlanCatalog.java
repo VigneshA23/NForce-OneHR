@@ -68,10 +68,37 @@ public final class LeavePlanCatalog {
                          Integer maxRequestsPerMonth, Integer maxRequestsPerYear, BigDecimal maxConsecutiveDays,
                          Integer noticeDays, BigDecimal noticeAppliesOverDays, boolean allowHalfDay, boolean allowHourly,
                          BigDecimal minHours, BigDecimal attachmentRequiredOverDays, String attachmentAllowedTypes,
-                         Integer attachmentMaxMb, java.util.Set<UUID> clubbingBlocked) {
+                         Integer attachmentMaxMb, java.util.Set<UUID> clubbingBlocked, Sandwich sandwich) {
 
         public static final Limits NONE = new Limits(com.nforce.onehr.entity.LeavePlanTypeRule.MODE_QUOTA, null, null, null, null,
-                null, null, null, true, false, null, null, null, null, java.util.Set.of());
+                null, null, null, true, false, null, null, null, null, java.util.Set.of(), Sandwich.OFF);
+
+        /** Without a sandwich rule (LV-02 shape). */
+        public Limits(String entitlementMode, BigDecimal minDaysPerRequest, BigDecimal maxDaysPerRequest,
+                      Integer maxRequestsPerMonth, Integer maxRequestsPerYear, BigDecimal maxConsecutiveDays,
+                      Integer noticeDays, BigDecimal noticeAppliesOverDays, boolean allowHalfDay, boolean allowHourly,
+                      BigDecimal minHours, BigDecimal attachmentRequiredOverDays, String attachmentAllowedTypes,
+                      Integer attachmentMaxMb, java.util.Set<UUID> clubbingBlocked) {
+            this(entitlementMode, minDaysPerRequest, maxDaysPerRequest, maxRequestsPerMonth, maxRequestsPerYear,
+                    maxConsecutiveDays, noticeDays, noticeAppliesOverDays, allowHalfDay, allowHourly, minHours,
+                    attachmentRequiredOverDays, attachmentAllowedTypes, attachmentMaxMb, clubbingBlocked, Sandwich.OFF);
+        }
+    }
+
+    /**
+     * LV-07: whether weekly offs / holidays between leave days count. {@code appliesTo}: HOLIDAYS, WEEK_OFFS or
+     * BOTH; {@code minDays}: only when the leave covers at least this many working days (null = always).
+     */
+    public record Sandwich(boolean enabled, String appliesTo, BigDecimal minDays, boolean acrossRequests) {
+        public static final Sandwich OFF = new Sandwich(false, com.nforce.onehr.entity.LeavePlanTypeRule.SANDWICH_BOTH, null, false);
+
+        public boolean countsHolidays() {
+            return enabled && !com.nforce.onehr.entity.LeavePlanTypeRule.SANDWICH_WEEK_OFFS.equals(appliesTo);
+        }
+
+        public boolean countsWeekOffs() {
+            return enabled && !com.nforce.onehr.entity.LeavePlanTypeRule.SANDWICH_HOLIDAYS.equals(appliesTo);
+        }
     }
 
     /** The plan an employee is on for a date, and why. {@code ruleName} only for {@link #SOURCE_RULE}. */

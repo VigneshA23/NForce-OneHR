@@ -2,6 +2,7 @@ package com.nforce.onehr.controller;
 
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
+import com.nforce.onehr.dto.LeavePreviewResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.dto.RejectLeaveRequestRequest;
@@ -69,6 +70,17 @@ public class LeaveController {
                                                             @RequestPart(value = "attachment", required = false) MultipartFile attachment,
                                                             Principal principal) {
         return leaveService.submitRequest(req, attachment, principal.getName());
+    }
+
+    /**
+     * LV-07: the day count of an unsaved request ("4 days: 2 working + 2 sandwiched") and the first reason it
+     * would be refused, for the apply form. Nothing is saved. {@code editing}: the caller's own pending request
+     * being edited. No bean validation: the form asks before a reason is typed.
+     */
+    @PostMapping("/requests/preview")
+    public LeavePreviewResponse previewRequest(@RequestBody CreateLeaveRequestRequest req,
+                                               @RequestParam(required = false) UUID editing, Principal principal) {
+        return leaveService.preview(req, editing, principal.getName());
     }
 
     /** LV-02: a request's attachment — the requester, or whoever may decide the request. */

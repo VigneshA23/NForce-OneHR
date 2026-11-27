@@ -72,6 +72,26 @@ export interface LeaveRuleSummary {
   /** Leave types that can't be taken directly before or after this one. */
   notNextTo: string[];
   hoursPerDay: number;
+  /** LV-07: weekly offs / holidays between leave days count as leave. */
+  sandwichEnabled: boolean;
+  sandwichAppliesTo: SandwichAppliesTo;
+  sandwichMinDays: number | null;
+  sandwichAcrossRequests: boolean;
+}
+
+export type SandwichAppliesTo = 'HOLIDAYS' | 'WEEK_OFFS' | 'BOTH';
+
+/** LV-07: what an unsaved request would take (POST /requests/preview). Only `problem` is set when the dates can't be counted. */
+export interface LeavePreview {
+  totalDays: number | null;
+  workingDays: number | null;
+  sandwichedDays: number | null;
+  /** "4 days: 2 working + 2 sandwiched" */
+  summary: string | null;
+  daysByYear: Record<string, number>;
+  days: { date: string; kind: 'WORKING' | 'SANDWICHED' | 'WEEKLY_OFF' | 'HOLIDAY'; days: number; note: string | null }[];
+  /** The first reason it would be refused (dates, a plan rule, the balance), else null. */
+  problem: string | null;
 }
 
 export interface CreateLeaveTypePayload {
@@ -146,6 +166,8 @@ export interface LeaveRequestRecord {
   halfDay: boolean;
   halfDaySession: 'FIRST_HALF' | 'SECOND_HALF' | null;
   totalDays: number;
+  /** LV-07: weekly offs / holidays included in totalDays by the sandwich rule. */
+  sandwichedDays?: number | null;
   durationType?: 'FULL_DAY' | 'HALF_DAY' | 'HOURLY' | 'QUARTER_DAY';
   /** LV-02: hours of an hourly request. */
   hours?: number | null;
@@ -205,6 +227,12 @@ export const leaveApi = {
   /** Edit a still-pending request — own requests only, PENDING status only (server-enforced). A file replaces the attachment. */
   update: (id: string, payload: SubmitLeaveRequestPayload, token: string, file?: File | null) =>
     fetch(`${BASE}/requests/${id}`, requestInit('PATCH', payload, token, file)).then(handle<LeaveRequestRecord>),
+
+  /** LV-07: the day count and first problem of an unsaved request; `editingId` = the own pending request being edited. */
+  preview: (payload: Omit<SubmitLeaveRequestPayload, 'reason'> & { reason?: string }, token: string, editingId?: string) =>
+    fetch(`${BASE}/requests/preview${editingId ? `?editing=${editingId}` : ''}`, {
+      method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload),
+    }).then(handle<LeavePreview>),
 
   /** LV-02: the request's attachment as a file download (the requester, or whoever may decide it). */
   downloadAttachment: async (id: string, fileName: string, token: string) => {
@@ -316,6 +344,11 @@ export interface PlanRuleLimits {
   attachmentMaxMb: number | null;
   /** Leave type ids that can't be taken directly before or after this type. */
   notNextToTypeIds: string[];
+  /** LV-07 sandwich rule. */
+  sandwichEnabled: boolean;
+  sandwichAppliesTo: SandwichAppliesTo;
+  sandwichMinDays: number | null;
+  sandwichAcrossRequests: boolean;
 }
 
 export interface LeavePlanVersionDetail {

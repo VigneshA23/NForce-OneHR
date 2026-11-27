@@ -4,7 +4,7 @@
  */
 import type {
   CarryForwardPriority, CreditFrequency, EligibilityConfig, EntitlementMode, LeaveRuleSummary, LeaveType, PlanRuleLimits,
-  PlanTypeRule, PlanTypeRulePayload,
+  LeavePreview, PlanTypeRule, PlanTypeRulePayload, SandwichAppliesTo,
 } from '../../api/leave';
 
 export const EMPTY_RULE_ELIGIBILITY: EligibilityConfig = {
@@ -41,12 +41,17 @@ export interface LimitsForm {
   attachmentAllowedTypes: string;
   attachmentMaxMb: string;
   notNextToTypeIds: string[];
+  sandwichEnabled: boolean;
+  sandwichAppliesTo: SandwichAppliesTo;
+  sandwichMinDays: string;
+  sandwichAcrossRequests: boolean;
 }
 
 export const EMPTY_LIMITS: LimitsForm = {
   entitlementMode: 'QUOTA', minDaysPerRequest: '', maxDaysPerRequest: '', maxRequestsPerMonth: '', maxRequestsPerYear: '',
   maxConsecutiveDays: '', noticeDays: '', noticeAppliesOverDays: '', allowHalfDay: true, allowHourly: false, minHours: '',
   attachmentRequiredOverDays: '', attachmentAllowedTypes: '', attachmentMaxMb: '', notNextToTypeIds: [],
+  sandwichEnabled: false, sandwichAppliesTo: 'BOTH', sandwichMinDays: '', sandwichAcrossRequests: false,
 };
 
 function limitsForm(l: PlanRuleLimits | null | undefined): LimitsForm {
@@ -59,6 +64,8 @@ function limitsForm(l: PlanRuleLimits | null | undefined): LimitsForm {
     allowHalfDay: l.allowHalfDay, allowHourly: l.allowHourly, minHours: str(l.minHours),
     attachmentRequiredOverDays: str(l.attachmentRequiredOverDays), attachmentAllowedTypes: l.attachmentAllowedTypes ?? '',
     attachmentMaxMb: str(l.attachmentMaxMb), notNextToTypeIds: l.notNextToTypeIds ?? [],
+    sandwichEnabled: l.sandwichEnabled ?? false, sandwichAppliesTo: l.sandwichAppliesTo ?? 'BOTH',
+    sandwichMinDays: str(l.sandwichMinDays), sandwichAcrossRequests: l.sandwichAcrossRequests ?? false,
   };
 }
 
@@ -140,7 +147,7 @@ function num(v: string, label: string, min: number, max: number, int = false): n
 }
 
 type NumericLimit = 'minDaysPerRequest' | 'maxDaysPerRequest' | 'maxRequestsPerMonth' | 'maxRequestsPerYear' | 'maxConsecutiveDays'
-  | 'noticeDays' | 'noticeAppliesOverDays' | 'minHours' | 'attachmentRequiredOverDays' | 'attachmentMaxMb';
+  | 'noticeDays' | 'noticeAppliesOverDays' | 'minHours' | 'attachmentRequiredOverDays' | 'attachmentMaxMb' | 'sandwichMinDays';
 
 /** The limits payload for one type, or the first problem. Mirrors the server's checks. */
 export function limitsPayload(t: LeaveType, f: LimitsForm, mode: EntitlementMode): PlanRuleLimits | string {
@@ -155,6 +162,7 @@ export function limitsPayload(t: LeaveType, f: LimitsForm, mode: EntitlementMode
     ['minHours', 'minimum hours', 0.5, 23.5, false],
     ['attachmentRequiredOverDays', 'attachment required over', 0, 366, false],
     ['attachmentMaxMb', 'maximum file size', 1, 10, true],
+    ['sandwichMinDays', 'sandwich minimum days', 0.5, 366, false],
   ];
   const out = {} as Record<NumericLimit, number | null>;
   for (const [key, label, min, max, int] of fields) {
@@ -188,8 +196,16 @@ export function limitsPayload(t: LeaveType, f: LimitsForm, mode: EntitlementMode
     attachmentAllowedTypes: exts.length ? [...new Set(exts)].join(',') : null,
     attachmentMaxMb: out.attachmentMaxMb,
     notNextToTypeIds: f.notNextToTypeIds.filter(id => id !== t.id),
+    // Per-occurrence leave (Maternity) counts calendar days, so the sandwich rule never applies to it.
+    ...(f.sandwichEnabled && t.entitlementBasis !== 'PER_OCCURRENCE'
+      ? { sandwichEnabled: true, sandwichAppliesTo: f.sandwichAppliesTo, sandwichMinDays: out.sandwichMinDays, sandwichAcrossRequests: f.sandwichAcrossRequests }
+      : { sandwichEnabled: false, sandwichAppliesTo: 'BOTH' as const, sandwichMinDays: null, sandwichAcrossRequests: false }),
   };
 }
+
+const SANDWICH_WHAT: Record<SandwichAppliesTo, string> = {
+  BOTH: 'Weekly offs and holidays', WEEK_OFFS: 'Weekly offs', HOLIDAYS: 'Holidays',
+};
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const dayText = (n: number) => plural(n, 'day');
@@ -219,6 +235,11 @@ export function ruleLines(r: LeaveRuleSummary): string[] {
     out.push(`Attachment needed${r.attachmentRequiredOverDays > 0 ? ` over ${dayText(r.attachmentRequiredOverDays)}` : ''}${what ? ` (${what})` : ''}`);
   }
   if (r.notNextTo.length) out.push(`Not next to ${r.notNextTo.join(', ')}`);
+  if (r.sandwichEnabled) {
+    out.push(`${SANDWICH_WHAT[r.sandwichAppliesTo] ?? SANDWICH_WHAT.BOTH} between leave days count as leave`
+      + `${r.sandwichMinDays != null ? ` (leave of ${dayText(r.sandwichMinDays)} or more)` : ''}`
+      + `${r.sandwichAcrossRequests ? ', also between separate requests' : ''}`);
+  }
   return out;
 }
 
@@ -264,4 +285,20 @@ export function attachmentProblem(r: LeaveRuleSummary, typeName: string, fileNam
 export function modeFor(t: LeaveType, f: LimitsForm): EntitlementMode {
   if (t.code === 'COMP_OFF') return 'EARNED_ONLY';
   return t.classification === 'PAID' && t.entitlementBasis !== 'PER_OCCURRENCE' ? f.entitlementMode : 'QUOTA';
+}
+
+const shortDay = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+};
+
+/** LV-07: the preview's dates as two short lines — what is sandwiched and what isn't counted. */
+export function previewNotes(p: LeavePreview): string[] {
+  const label = (d: LeavePreview['days'][number]) => `${shortDay(d.date)}${d.note ? ` (${d.note})` : ''}`;
+  const sandwiched = p.days.filter(d => d.kind === 'SANDWICHED');
+  const skipped = p.days.filter(d => d.kind === 'WEEKLY_OFF' || d.kind === 'HOLIDAY');
+  const out: string[] = [];
+  if (sandwiched.length) out.push(`Counted as leave (sandwich): ${sandwiched.map(label).join(', ')}`);
+  if (skipped.length) out.push(`Not counted: ${skipped.map(label).join(', ')}`);
+  return out;
 }

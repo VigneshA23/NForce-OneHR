@@ -104,4 +104,28 @@ public class LeavePlanTypeRule {
 
     @Column(name = "attachment_max_mb")
     private Integer attachmentMaxMb;
+
+    // ── LV-07: sandwich rule ──
+
+    public static final String SANDWICH_HOLIDAYS = "HOLIDAYS";
+    public static final String SANDWICH_WEEK_OFFS = "WEEK_OFFS";
+    public static final String SANDWICH_BOTH = "BOTH";
+
+    /** Weekly offs / holidays between two leave days count as leave. */
+    @Column(name = "sandwich_enabled", nullable = false)
+    @Builder.Default
+    private boolean sandwichEnabled = false;
+
+    @Column(name = "sandwich_applies_to", nullable = false, length = 10)
+    @Builder.Default
+    private String sandwichAppliesTo = SANDWICH_BOTH;
+
+    /** Only when the leave covers at least this many working days; null = always. */
+    @Column(name = "sandwich_min_days")
+    private BigDecimal sandwichMinDays;
+
+    /** Also between this request and an adjacent request of the same type. */
+    @Column(name = "sandwich_across_requests", nullable = false)
+    @Builder.Default
+    private boolean sandwichAcrossRequests = false;
 }

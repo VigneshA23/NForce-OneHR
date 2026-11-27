@@ -73,6 +73,31 @@ function RequestRules({ type, limits, onChange, allTypes, readOnly }: {
         </div>
         {field('attachmentMaxMb', 'Max size (MB)', '10', 1)}
       </div>
+      {type.entitlementBasis !== 'PER_OCCURRENCE' && (
+        <div style={row}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+            <input type="checkbox" checked={limits.sandwichEnabled} disabled={readOnly}
+              onChange={e => set({ sandwichEnabled: e.target.checked })} />
+            Sandwich: count non-working days between leave days
+          </label>
+          <div>
+            <label style={labelS}>Counts</label>
+            <select style={{ ...inputS, width: 190 }} value={limits.sandwichAppliesTo} disabled={readOnly || !limits.sandwichEnabled}
+              aria-label={`${type.name} sandwich applies to`}
+              onChange={e => set({ sandwichAppliesTo: e.target.value as LimitsForm['sandwichAppliesTo'] })}>
+              <option value="BOTH">Weekly offs and holidays</option>
+              <option value="WEEK_OFFS">Weekly offs only</option>
+              <option value="HOLIDAYS">Holidays only</option>
+            </select>
+          </div>
+          {field('sandwichMinDays', 'Only from (working days)', 'Always', 0.5, !limits.sandwichEnabled)}
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+            <input type="checkbox" checked={limits.sandwichAcrossRequests} disabled={readOnly || !limits.sandwichEnabled}
+              onChange={e => set({ sandwichAcrossRequests: e.target.checked })} />
+            Also between separate requests (e.g. Friday and Monday)
+          </label>
+        </div>
+      )}
       {others.length > 0 && (
         <div>
           <label style={labelS}>Can't be taken next to</label>

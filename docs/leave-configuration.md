@@ -1,4 +1,4 @@
-# Leave configuration (V310, V314, V321, V322)
+# Leave configuration (V310, V314, V321, V322, V323)
 
 Leave types, leave plans (each type's days, crediting, carry-forward and who it applies to), who is on which
 plan, balances and year-end live in **Organization Masters / Organization Structure → Leave** (the
@@ -72,6 +72,32 @@ Request rules). Blank means no limit; the seeded Default plan has none, so nothi
   half day when it isn't allowed, offers "By the hour" when it is, and has the file input.
 - The old balance-group idea from the story is not built: V314 already merged every paid type into Paid Leave
   with its own balance.
+
+## Day count and the sandwich rule (V323, LV-07 / ONEHR-893)
+
+A request may now span weekly offs and holidays (before LV-07 any such date was refused, so a Friday–Monday
+leave had to be split). `LeaveDayCalculator` counts it:
+
+- **Sandwich off (default)**: only working days count. Weekly offs come from the Weekly Off Policy governing each
+  date (Saturday/Sunday when none is assigned), holidays from the employee's Location.
+- **Sandwich on** (plan editor → a type → Request rules): the weekly offs / holidays *between* two leave days of
+  the request count too. Options: holidays, weekly offs or both; only when the leave covers at least N working
+  days. Non-working days at the start or end of the range are never counted.
+- **Across separate requests** (option): the non-working days between this request and an adjacent PENDING or
+  APPROVED request of the same type (Friday, then Monday) count too, and are charged to the **later-made**
+  request, so they are never counted twice. Full-day requests only. If the earlier request is rejected, a
+  pending later one is recounted (`LEAVE_REQUEST_RECALCULATED` in the audit log); an approved one keeps its
+  count.
+- A range with no working day is refused; a single non-working date keeps the old message naming the date.
+  Half-day and hourly leave must fall on a working day. Per-occurrence leave (Maternity) still counts calendar
+  days, and the sandwich rule doesn't apply to it.
+- The dates charged are stored on the request (`leave_requests.day_counts`). Balances split a cross-year request
+  per leave year, and apply carry-forward expiry, from those dates; requests made before V323 have none and
+  every date in their range counted, as before. Payroll LOP and reports use `total_days`, which includes
+  sandwiched days.
+- The apply form asks `POST /api/leave/requests/preview` (`?editing=` for an edit) as the dates change and
+  shows "4 days: 2 working + 2 sandwiched", which dates are sandwiched or not counted, and the first reason the
+  request would be refused. My Requests shows "incl. N sandwiched".
 
 ## Paid and Unpaid leave (V314)
 
@@ -208,6 +234,12 @@ Drop `leave_plan_allocations`, `leave_plan_type_overrides`, `leave_plan_type_eli
 `leave_plan_type_rules`, `leave_plan_versions` and `leave_plans`, and delete `assignment_rules` /
 `assignment_rule_assignments` rows of domain `LEAVE_PLAN`. The app before LV-01 reads the old tables, which
 V321 left untouched.
+
+## Rollback (V323)
+
+Drop the four `sandwich_*` columns of `leave_plan_type_rules` and `leave_requests.day_counts`. Requests saved
+since V323 may span non-working days: their `total_days` stays right, but older code would split a cross-year
+one by calendar days.
 
 ## Rollback (V322)
 

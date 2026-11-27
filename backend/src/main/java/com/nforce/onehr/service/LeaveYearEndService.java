@@ -215,7 +215,8 @@ public class LeaveYearEndService {
         BigDecimal claimed = ZERO;
         for (LeaveRequest r : leaveRequestRepository.findPendingOverlapping(b.getEmployeeUserId(), b.getLeaveType().getId(),
                 LeaveBalanceService.yearStart(b.getYear()), cutoff)) {
-            claimed = claimed.add(LeaveBalanceService.daysOnOrBefore(r.getStartDate(), r.getEndDate(), r.getTotalDays(), b.getYear(), cutoff));
+            claimed = claimed.add(LeaveBalanceService.daysOnOrBefore(r.getStartDate(), r.getEndDate(), r.getTotalDays(), b.getYear(), cutoff,
+                    LeaveDayCounts.parse(r.getDayCounts())));
         }
         BigDecimal newlyExpired = LeaveBalanceService.carriedForwardAvailable(b).subtract(claimed);
         if (newlyExpired.signum() <= 0) return false;

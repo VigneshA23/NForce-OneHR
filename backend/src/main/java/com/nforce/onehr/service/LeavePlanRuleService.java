@@ -157,7 +157,9 @@ public class LeavePlanRuleService {
                 r.getMinDaysPerRequest(), r.getMaxDaysPerRequest(), r.getMaxRequestsPerMonth(), r.getMaxRequestsPerYear(),
                 r.getMaxConsecutiveDays(), r.getNoticeDays(), r.getNoticeAppliesOverDays(), r.isAllowHalfDay(), r.isAllowHourly(),
                 r.getMinHours(), r.getAttachmentRequiredOverDays(), r.getAttachmentAllowedTypes(), r.getAttachmentMaxMb(),
-                Set.copyOf(clubbingBlocked));
+                Set.copyOf(clubbingBlocked), new LeavePlanCatalog.Sandwich(r.isSandwichEnabled(),
+                        r.getSandwichAppliesTo() == null ? LeavePlanTypeRule.SANDWICH_BOTH : r.getSandwichAppliesTo(),
+                        r.getSandwichMinDays(), r.isSandwichAcrossRequests()));
     }
 
     /** The leave types a rule blocks from being taken adjacent to it (the plan editor). */

@@ -414,6 +414,10 @@ public class LeavePlanService {
                     .attachmentRequiredOverDays(l.attachmentRequiredOverDays())
                     .attachmentAllowedTypes(normalizedExtensions(l.attachmentAllowedTypes()))
                     .attachmentMaxMb(l.attachmentMaxMb())
+                    .sandwichEnabled(sandwichOn(type, l))
+                    .sandwichAppliesTo(sandwichAppliesTo(l))
+                    .sandwichMinDays(sandwichOn(type, l) ? l.sandwichMinDays() : null)
+                    .sandwichAcrossRequests(sandwichOn(type, l) && l.sandwichAcrossRequests())
                     .creditFrequency(annual && req.creditFrequency() != null ? req.creditFrequency() : LeaveEntitlementPolicy.YEARLY)
                     .carryForwardEnabled(annual && req.carryForwardEnabled())
                     .carryForwardMaxDays(annual && req.carryForwardEnabled() ? req.carryForwardMaxDays() : null)
@@ -485,6 +489,15 @@ public class LeavePlanService {
         }
     }
 
+    /** LV-07: per-occurrence leave (Maternity) counts calendar days, so a sandwich rule means nothing for it. */
+    private static boolean sandwichOn(LeaveType type, RuleLimits l) {
+        return l.sandwichEnabled() && !type.isPerOccurrence();
+    }
+
+    private static String sandwichAppliesTo(RuleLimits l) {
+        return l.sandwichAppliesTo() == null ? LeavePlanTypeRule.SANDWICH_BOTH : l.sandwichAppliesTo();
+    }
+
     /** "PDF, .jpg " -> "pdf,jpg"; null when blank. */
     static String normalizedExtensions(String csv) {
         if (csv == null) return null;
@@ -499,7 +512,9 @@ public class LeavePlanService {
                 r.getMaxRequestsPerMonth(), r.getMaxRequestsPerYear(), r.getMaxConsecutiveDays(), r.getNoticeDays(),
                 r.getNoticeAppliesOverDays(), r.isAllowHalfDay(), r.isAllowHourly(), r.getMinHours(),
                 r.getAttachmentRequiredOverDays(), r.getAttachmentAllowedTypes(), r.getAttachmentMaxMb(),
-                planRuleService.clubbingOf(r.getId()));
+                planRuleService.clubbingOf(r.getId()), r.isSandwichEnabled(),
+                r.getSandwichAppliesTo() == null ? LeavePlanTypeRule.SANDWICH_BOTH : r.getSandwichAppliesTo(),
+                r.getSandwichMinDays(), r.isSandwichAcrossRequests());
     }
 
     private static LeavePlanTypeEligibility eligibility(UUID ruleId, String type, String value) {
@@ -556,6 +571,11 @@ public class LeavePlanService {
             m.put("attachmentAllowedTypes", normalizedExtensions(l.attachmentAllowedTypes()));
             m.put("attachmentMaxMb", l.attachmentMaxMb());
             m.put("notNextTo", nullSafe(l.notNextToTypeIds()).stream().map(UUID::toString).distinct().sorted().toList());
+            boolean sandwich = sandwichOn(t, l);
+            m.put("sandwichEnabled", sandwich);
+            m.put("sandwichAppliesTo", sandwich ? sandwichAppliesTo(l) : null);
+            m.put("sandwichMinDays", sandwich ? plain(l.sandwichMinDays()) : null);
+            m.put("sandwichAcrossRequests", sandwich && l.sandwichAcrossRequests());
             out.add(m);
         }
         out.sort(Comparator.comparing(m -> (String) m.get("leaveTypeCode")));

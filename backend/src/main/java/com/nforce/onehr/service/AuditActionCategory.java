@@ -81,6 +81,9 @@ public enum AuditActionCategory {
             "EXPENSE_FINAL_APPROVED", "EXPENSE_FINAL_REJECTED", "EXPENSE_MARKED_PAID",
             // LeaveService — LEAVE_REQUEST_SUBMITTED (self-submitted) intentionally omitted
             "LEAVE_REQUEST_APPROVED", "LEAVE_REQUEST_REJECTED",
+            // LV-07: a pending request's day count changed because the adjacent request it was
+            // sandwiched with was rejected (a side effect of the approver's decision).
+            "LEAVE_REQUEST_RECALCULATED",
             // RegularizationService — REGULARIZATION_REQUESTED/UPDATED (self-submitted/self-edit)
             // intentionally omitted
             "REGULARIZATION_APPROVED", "REGULARIZATION_REJECTED",

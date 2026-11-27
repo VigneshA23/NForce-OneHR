@@ -46,6 +46,9 @@ public final class LeavePlanDtos {
      * (the days above), UNLIMITED (paid, nothing deducted) or EARNED_ONLY (nothing credited automatically).
      * {@code attachmentAllowedTypes}: file extensions, e.g. "pdf,jpg"; blank = any. {@code notNextToTypeIds}: leave
      * types that may not be taken directly before or after this one (only weekly offs/holidays in between).
+     * LV-07 sandwich: {@code sandwichEnabled} counts weekly offs / holidays between leave days;
+     * {@code sandwichAppliesTo} HOLIDAYS, WEEK_OFFS or BOTH; {@code sandwichMinDays} only when the leave covers at
+     * least that many working days; {@code sandwichAcrossRequests} also between adjacent requests of the type.
      */
     public record RuleLimits(
             @Pattern(regexp = "QUOTA|UNLIMITED|EARNED_ONLY") String entitlementMode,
@@ -62,11 +65,27 @@ public final class LeavePlanDtos {
             @DecimalMin("0") @DecimalMax("366") BigDecimal attachmentRequiredOverDays,
             @Size(max = 200) String attachmentAllowedTypes,
             @Min(1) @Max(10) Integer attachmentMaxMb,
-            @Size(max = 100) List<UUID> notNextToTypeIds) {
+            @Size(max = 100) List<UUID> notNextToTypeIds,
+            boolean sandwichEnabled,
+            @Pattern(regexp = "HOLIDAYS|WEEK_OFFS|BOTH") String sandwichAppliesTo,
+            @DecimalMin("0.5") @DecimalMax("366") BigDecimal sandwichMinDays,
+            boolean sandwichAcrossRequests) {
 
-        /** No limits: quota, half days allowed, nothing else. */
+        /** No limits: quota, half days allowed, no sandwich, nothing else. */
         public static final RuleLimits DEFAULTS = new RuleLimits("QUOTA", null, null, null, null, null, null, null,
                 true, false, null, null, null, null, List.of());
+
+        /** Without a sandwich rule (LV-02 shape). */
+        public RuleLimits(String entitlementMode, BigDecimal minDaysPerRequest, BigDecimal maxDaysPerRequest,
+                          Integer maxRequestsPerMonth, Integer maxRequestsPerYear, BigDecimal maxConsecutiveDays,
+                          Integer noticeDays, BigDecimal noticeAppliesOverDays, Boolean allowHalfDay, boolean allowHourly,
+                          BigDecimal minHours, BigDecimal attachmentRequiredOverDays, String attachmentAllowedTypes,
+                          Integer attachmentMaxMb, List<UUID> notNextToTypeIds) {
+            this(entitlementMode, minDaysPerRequest, maxDaysPerRequest, maxRequestsPerMonth, maxRequestsPerYear,
+                    maxConsecutiveDays, noticeDays, noticeAppliesOverDays, allowHalfDay, allowHourly, minHours,
+                    attachmentRequiredOverDays, attachmentAllowedTypes, attachmentMaxMb, notNextToTypeIds,
+                    false, "BOTH", null, false);
+        }
     }
 
     public record VersionDetail(UUID planId, String planName, VersionSummary version, List<TypeRuleDto> rules) {}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { LeaveRuleSummary, LeaveType, PlanTypeRule } from '../../api/leave';
+import type { LeavePreview, LeaveRuleSummary, LeaveType, PlanTypeRule } from '../../api/leave';
 import {
-  EMPTY_LIMITS, EMPTY_RULE_ELIGIBILITY, attachmentProblem, firstOfNextMonth, formsFor, hourlyDays, limitsPayload, modeFor, ruleLines, toPayload,
+  EMPTY_LIMITS, EMPTY_RULE_ELIGIBILITY, attachmentProblem, firstOfNextMonth, formsFor, hourlyDays, limitsPayload, modeFor, previewNotes, ruleLines, toPayload,
 } from './planRules';
 
 const paid: LeaveType = { id: 'p', code: 'PAID', name: 'Paid Leave', classification: 'PAID', entitlementBasis: 'ANNUAL', active: true };
@@ -85,6 +85,7 @@ describe('request rules (LV-02)', () => {
         entitlementMode: 'QUOTA', minDaysPerRequest: null, maxDaysPerRequest: 3, maxRequestsPerMonth: 2, maxRequestsPerYear: null,
         maxConsecutiveDays: null, noticeDays: 7, noticeAppliesOverDays: 2, allowHalfDay: false, allowHourly: true, minHours: 2,
         attachmentRequiredOverDays: 2, attachmentAllowedTypes: 'pdf', attachmentMaxMb: 5, notNextToTypeIds: ['u'],
+        sandwichEnabled: false, sandwichAppliesTo: 'BOTH', sandwichMinDays: null, sandwichAcrossRequests: false,
       },
     };
     expect(formsFor(types, [saved])[0].limits).toMatchObject({
@@ -97,7 +98,7 @@ describe('request rules (LV-02)', () => {
     entitlementMode: 'QUOTA', minDaysPerRequest: null, maxDaysPerRequest: 3, maxRequestsPerMonth: 1, maxRequestsPerYear: null,
     maxConsecutiveDays: null, noticeDays: 7, noticeAppliesOverDays: 2, allowHalfDay: false, allowHourly: true, minHours: 2,
     attachmentRequiredOverDays: 2, attachmentAllowedTypes: ['pdf', 'jpg'], attachmentMaxMb: 5, notNextTo: ['Casual Leave'],
-    hoursPerDay: 8,
+    hoursPerDay: 8, sandwichEnabled: false, sandwichAppliesTo: 'BOTH', sandwichMinDays: null, sandwichAcrossRequests: false,
   };
 
   it('describes the rules for the apply form', () => {
@@ -129,5 +130,45 @@ describe('entitlement mode (LV-02)', () => {
     expect(modeFor(compOff, { ...EMPTY_LIMITS, entitlementMode: 'QUOTA' })).toBe('EARNED_ONLY');
     expect(modeFor(maternity, { ...EMPTY_LIMITS, entitlementMode: 'UNLIMITED' })).toBe('QUOTA');
     expect(modeFor(paid, { ...EMPTY_LIMITS, entitlementMode: 'UNLIMITED' })).toBe('UNLIMITED');
+  });
+});
+
+describe('sandwich rule (LV-07)', () => {
+  it('sends the sandwich options, never for per-occurrence leave', () => {
+    const f = { ...EMPTY_LIMITS, sandwichEnabled: true, sandwichAppliesTo: 'WEEK_OFFS' as const, sandwichMinDays: '3', sandwichAcrossRequests: true };
+    expect(limitsPayload(paid, f, 'QUOTA')).toMatchObject({
+      sandwichEnabled: true, sandwichAppliesTo: 'WEEK_OFFS', sandwichMinDays: 3, sandwichAcrossRequests: true,
+    });
+    expect(limitsPayload(maternity, f, 'QUOTA')).toMatchObject({ sandwichEnabled: false, sandwichMinDays: null, sandwichAcrossRequests: false });
+    expect(limitsPayload(paid, { ...f, sandwichMinDays: '0' }, 'QUOTA')).toMatch(/sandwich minimum days/);
+  });
+
+  it('describes it on the apply form', () => {
+    const base: LeaveRuleSummary = {
+      entitlementMode: 'QUOTA', minDaysPerRequest: null, maxDaysPerRequest: null, maxRequestsPerMonth: null, maxRequestsPerYear: null,
+      maxConsecutiveDays: null, noticeDays: null, noticeAppliesOverDays: null, allowHalfDay: true, allowHourly: false, minHours: null,
+      attachmentRequiredOverDays: null, attachmentAllowedTypes: [], attachmentMaxMb: null, notNextTo: [], hoursPerDay: 8,
+      sandwichEnabled: true, sandwichAppliesTo: 'BOTH', sandwichMinDays: 3, sandwichAcrossRequests: true,
+    };
+    expect(ruleLines(base)).toEqual(['Weekly offs and holidays between leave days count as leave (leave of 3 days or more), also between separate requests']);
+    expect(ruleLines({ ...base, sandwichAppliesTo: 'HOLIDAYS', sandwichMinDays: null, sandwichAcrossRequests: false }))
+      .toEqual(['Holidays between leave days count as leave']);
+  });
+
+  it('lists sandwiched and uncounted dates from the preview', () => {
+    const p: LeavePreview = {
+      totalDays: 4, workingDays: 2, sandwichedDays: 2, summary: '4 days: 2 working + 2 sandwiched', daysByYear: { 2027: 4 }, problem: null,
+      days: [
+        { date: '2027-03-05', kind: 'WORKING', days: 1, note: null },
+        { date: '2027-03-06', kind: 'SANDWICHED', days: 1, note: 'Weekly off' },
+        { date: '2027-03-07', kind: 'SANDWICHED', days: 1, note: 'Weekly off' },
+        { date: '2027-03-08', kind: 'WORKING', days: 1, note: null },
+        { date: '2027-03-10', kind: 'HOLIDAY', days: 0, note: 'Holi' },
+      ],
+    };
+    expect(previewNotes(p)).toEqual([
+      'Counted as leave (sandwich): Sat 6 Mar (Weekly off), Sun 7 Mar (Weekly off)',
+      'Not counted: Wed 10 Mar (Holi)',
+    ]);
   });
 });

@@ -181,6 +181,19 @@ class LeaveServiceTest {
                 TestLeaveBalances.everyoneEligible());
         lenient().when(planRuleService.catalog(any())).thenReturn(
                 new LeavePlanCatalog(Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), null));
+        // LV-07: the real day count over this test's calendar mocks (holidays, weekly-off policy).
+        org.springframework.test.util.ReflectionTestUtils.setField(leaveService, "dayCalculator",
+                new LeaveDayCalculator(new LeaveCalendar(employeeRepository, holidayRepository, workingDayService),
+                        planRuleService, leaveRequestRepository));
+    }
+
+    /** Puts the fixture employee's Annual Leave under a sandwich rule (LV-07). */
+    private void stubSandwich(String appliesTo, BigDecimal minDays, boolean acrossRequests) {
+        LeavePlanCatalog.Limits l = new LeavePlanCatalog.Limits("QUOTA", null, null, null, null, null, null, null, true, false,
+                null, null, null, null, Set.of(), new LeavePlanCatalog.Sandwich(true, appliesTo, minDays, acrossRequests));
+        when(planRuleService.ruleFor(eq(employeeId), eq(annual.getId()), any())).thenReturn(Optional.of(new LeavePlanCatalog.TypeRule(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), annual.getId(), new BigDecimal("20"), "YEARLY",
+                false, null, null, null, null, l)));
     }
 
     private LeaveType typeById(UUID id) {
@@ -293,12 +306,105 @@ class LeaveServiceTest {
         verify(leaveRequestRepository, never()).save(any());
     }
 
+    // LV-07: a range may cross weekly offs; only working days count (sandwich off by default).
     @Test
-    void submitRequest_rangeIncludingWeeklyOffDay_isRejectedNamingTheDate() {
+    void submitRequest_rangeAcrossTheWeekend_countsOnlyTheWorkingDays() {
         stubWeeklyOffPolicy("SATURDAY,SUNDAY");
         LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
 
-        assertRejected(friday, friday.plusDays(3), "Saturday, " + friday.plusDays(1).getDayOfMonth() + " ");
+        LeaveRequestResponse r = submitAnnual(friday, friday.plusDays(3));
+        assertEquals(0, new BigDecimal("2").compareTo(r.getTotalDays()));
+        assertEquals(0, r.getSandwichedDays().signum());
+        ArgumentCaptor<LeaveRequest> saved = ArgumentCaptor.forClass(LeaveRequest.class);
+        verify(leaveRequestRepository).save(saved.capture());
+        LeaveDayCounts counts = LeaveDayCounts.parse(saved.getValue().getDayCounts());
+        assertEquals(Set.of(friday, friday.plusDays(3)), counts.working().keySet());
+    }
+
+    @Test
+    void submitRequest_onlyWeeklyOffs_isRejected() {
+        stubWeeklyOffPolicy("SATURDAY,SUNDAY");
+        LocalDate saturday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.SATURDAY));
+
+        assertRejected(saturday, saturday.plusDays(1), "covers only weekly offs and holidays");
+        assertRejected(saturday, saturday, "Saturday, " + saturday.getDayOfMonth() + " ");
+    }
+
+    @Test
+    void submitRequest_sandwichOn_countsTheWeekendBetweenLeaveDays() {
+        stubWeeklyOffPolicy("SATURDAY,SUNDAY");
+        stubSandwich("BOTH", null, false);
+        LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
+
+        LeaveRequestResponse r = submitAnnual(friday, friday.plusDays(3));
+        assertEquals(0, new BigDecimal("4").compareTo(r.getTotalDays()));
+        assertEquals(0, new BigDecimal("2").compareTo(r.getSandwichedDays()));
+    }
+
+    @Test
+    void submitRequest_sandwichAcrossRequests_chargesTheWeekendToTheLaterRequest() {
+        stubWeeklyOffPolicy("SATURDAY,SUNDAY");
+        stubSandwich("WEEK_OFFS", null, true);
+        LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
+        LeaveRequest fridayLeave = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId).leaveType(annual)
+                .startDate(friday).endDate(friday).totalDays(BigDecimal.ONE).status("APPROVED")
+                .durationType(LeaveDurationType.FULL_DAY).createdAt(java.time.LocalDateTime.now().minusDays(1)).build();
+        lenient().when(leaveRequestRepository.findActiveInRange(eq(employeeId), any(), any(), any())).thenReturn(List.of(fridayLeave));
+
+        LeaveRequestResponse monday = submitAnnual(friday.plusDays(3), friday.plusDays(3));
+        assertEquals(0, new BigDecimal("3").compareTo(monday.getTotalDays()), "Monday + the Saturday/Sunday after Friday's leave");
+        assertEquals(0, new BigDecimal("2").compareTo(monday.getSandwichedDays()));
+    }
+
+    @Test
+    void preview_breaksTheCountDown_andReportsAProblemWithoutSaving() {
+        stubWeeklyOffPolicy("SATURDAY,SUNDAY");
+        stubSandwich("BOTH", null, false);
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveTypeRepository.findByCode("ANNUAL")).thenReturn(Optional.of(annual));
+        LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
+
+        com.nforce.onehr.dto.LeavePreviewResponse p = leaveService.preview(request(friday, friday.plusDays(3), false, null), null, employeeEmail);
+        assertEquals("4 days: 2 working + 2 sandwiched", p.summary());
+        assertEquals(List.of("WORKING", "SANDWICHED", "SANDWICHED", "WORKING"),
+                p.days().stream().map(com.nforce.onehr.dto.LeavePreviewResponse.Day::kind).toList());
+        assertNotNull(p.problem(), "the zero balance stubbed by default can't cover 4 days");
+        assertTrue(p.problem().startsWith("Not enough"), p.problem());
+
+        com.nforce.onehr.dto.LeavePreviewResponse weekend = leaveService.preview(
+                request(friday.plusDays(1), friday.plusDays(2), false, null), null, employeeEmail);
+        assertNull(weekend.totalDays());
+        assertTrue(weekend.problem().contains("covers only weekly offs and holidays"), weekend.problem());
+        verify(leaveRequestRepository, never()).save(any());
+    }
+
+    @Test
+    void reject_recountsAPendingRequestThatWasSandwichedWithIt() {
+        stubWeeklyOffPolicy("SATURDAY,SUNDAY");
+        stubSandwich("BOTH", null, true);
+        LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
+        LeaveRequest fridayLeave = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId).leaveType(annual)
+                .startDate(friday).endDate(friday).totalDays(BigDecimal.ONE).status("PENDING").employeeReason("x")
+                .durationType(LeaveDurationType.FULL_DAY).createdAt(java.time.LocalDateTime.now().minusDays(2)).build();
+        java.util.TreeMap<LocalDate, BigDecimal> w = new java.util.TreeMap<>(Map.of(friday.plusDays(3), BigDecimal.ONE));
+        java.util.TreeMap<LocalDate, BigDecimal> sw = new java.util.TreeMap<>(Map.of(friday.plusDays(1), BigDecimal.ONE, friday.plusDays(2), BigDecimal.ONE));
+        LeaveRequest mondayLeave = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId).leaveType(annual)
+                .startDate(friday.plusDays(3)).endDate(friday.plusDays(3)).totalDays(new BigDecimal("3")).status("PENDING")
+                .employeeReason("y").durationType(LeaveDurationType.FULL_DAY).createdAt(java.time.LocalDateTime.now().minusDays(1))
+                .dayCounts(new LeaveDayCounts(w, sw).toJson()).build();
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(fridayLeave.getId())).thenReturn(Optional.of(fridayLeave));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+        // After the rejection only Monday's request is active.
+        when(leaveRequestRepository.findActiveInRange(eq(employeeId), any(), any(), any())).thenReturn(List.of(mondayLeave));
+
+        leaveService.reject(fridayLeave.getId(), "No", managerEmail);
+
+        assertEquals(0, BigDecimal.ONE.compareTo(mondayLeave.getTotalDays()));
+        assertEquals(0, LeaveDayCounts.parse(mondayLeave.getDayCounts()).sandwichedTotal().signum());
+        verify(auditService).log(eq(managerId), eq("LEAVE_REQUEST_RECALCULATED"), eq(mondayLeave.getId()), any(), any());
     }
 
     @Test
@@ -306,10 +412,12 @@ class LeaveServiceTest {
         stubWeeklyOffPolicy("MONDAY");
         LocalDate friday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.FRIDAY));
 
-        assertEquals(new BigDecimal("3"), submitAnnual(friday, friday.plusDays(2)).getTotalDays());
-        // ...but Monday is this policy's off day.
+        assertEquals(0, new BigDecimal("3").compareTo(submitAnnual(friday, friday.plusDays(2)).getTotalDays()));
+        // ...but Monday is this policy's off day: still allowed (LV-07), just not counted.
         clearInvocations(leaveRequestRepository);
-        assertRejected(friday, friday.plusDays(3), "weekly-off day under your Weekly Off Policy");
+        assertEquals(0, new BigDecimal("3").compareTo(submitAnnual(friday, friday.plusDays(3)).getTotalDays()));
+        clearInvocations(leaveRequestRepository);
+        assertRejected(friday.plusDays(3), friday.plusDays(3), "weekly-off day under your Weekly Off Policy");
     }
 
     /**
@@ -322,7 +430,9 @@ class LeaveServiceTest {
     void submitRequest_employeeWithNoWeeklyOffPolicyAssignment_fallsBackToSaturdaySunday() {
         LocalDate saturday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.SATURDAY));
 
-        assertRejected(saturday.minusDays(1), saturday, "Saturday");
+        assertEquals(0, BigDecimal.ONE.compareTo(submitAnnual(saturday.minusDays(1), saturday).getTotalDays()));
+        clearInvocations(leaveRequestRepository);
+        assertRejected(saturday, saturday, "Saturday");
     }
 
     /**
@@ -348,7 +458,7 @@ class LeaveServiceTest {
         // Monday-Thursday: Monday/Tuesday are still governed by oldPolicy (Friday off, irrelevant
         // here); the reassignment to newPolicy (Monday off) only takes effect Wednesday — so every
         // date in this range is a working day.
-        assertEquals(new BigDecimal("4"), submitAnnual(monday, monday.plusDays(3)).getTotalDays());
+        assertEquals(0, new BigDecimal("4").compareTo(submitAnnual(monday, monday.plusDays(3)).getTotalDays()));
 
         // The following Monday, however, is fully governed by newPolicy and is rejected.
         clearInvocations(leaveRequestRepository);
@@ -374,7 +484,7 @@ class LeaveServiceTest {
 
         // Monday is still governed by the OLD version (Friday off) — the edit to "Monday off"
         // doesn't take effect until Wednesday.
-        assertEquals(new BigDecimal("4"), submitAnnual(monday, monday.plusDays(3)).getTotalDays());
+        assertEquals(0, new BigDecimal("4").compareTo(submitAnnual(monday, monday.plusDays(3)).getTotalDays()));
 
         clearInvocations(leaveRequestRepository);
         LocalDate nextMonday = monday.plusWeeks(1);
@@ -404,11 +514,13 @@ class LeaveServiceTest {
     }
 
     @Test
-    void submitRequest_rangeIncludingHoliday_isRejectedNamingTheHoliday() {
+    void submitRequest_rangeIncludingHoliday_skipsIt_andAHolidayAloneIsRejected() {
         LocalDate monday = LocalDate.now().plusDays(7).with(TemporalAdjusters.next(DayOfWeek.MONDAY));
         stubLocationHoliday(monday.plusDays(2));
 
-        assertRejected(monday, monday.plusDays(4), "it is a holiday (Diwali)");
+        assertEquals(0, new BigDecimal("4").compareTo(submitAnnual(monday, monday.plusDays(4)).getTotalDays()));
+        clearInvocations(leaveRequestRepository);
+        assertRejected(monday.plusDays(2), monday.plusDays(2), "it is a holiday (Diwali)");
     }
 
     @Test

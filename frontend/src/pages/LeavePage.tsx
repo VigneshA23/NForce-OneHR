@@ -9,11 +9,11 @@ import {
 import './leaveModal.css';
 import { ActionDock } from '../components/ActionDock';
 import { useAuthStore } from '../store/authStore';
-import { leaveApi, type LeaveType, type LeaveBalance, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
+import { leaveApi, type LeaveType, type LeaveBalance, type LeavePreview, type LeaveRequestRecord, type SubmitLeaveRequestPayload } from '../api/leave';
 import { useToast } from '../context/ToastContext';
 import { subscribeToNewNotifications } from '../lib/notificationEvents';
 import { daysByYear, roundDays, viewableBalanceYears, yearBreakdownLabel } from '../utils/leaveDays';
-import { attachmentProblem, hourlyDays, ruleLines } from './leave-config/planRules';
+import { attachmentProblem, hourlyDays, previewNotes, ruleLines } from './leave-config/planRules';
 
 // Notification types that mean "this employee's own leave balance/status may have changed" —
 // mirrors the backend's LeaveService notification events (LEAVE_APPROVED/LEAVE_REJECTED). Every
@@ -309,9 +309,34 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
   const singleDay = form.halfDay || hourly;
   const effectiveEndDate = singleDay ? form.startDate : form.endDate;
   const hoursDays = hourly ? hourlyDays(Number(form.hours), rules?.hoursPerDay ?? 8) : null;
-  const segments = useMemo(() => hoursDays != null
-    ? new Map([[Number(form.startDate.slice(0, 4)), hoursDays]])
-    : daysByYear(form.startDate, effectiveEndDate, form.halfDay), [form.startDate, effectiveEndDate, form.halfDay, hoursDays]);
+
+  // LV-07: the server's day count — weekly offs / holidays aren't counted unless the plan's sandwich rule counts
+  // them — fetched shortly after the type, dates or duration change. Until it arrives (or if it fails) the form
+  // falls back to its own calendar-day estimate.
+  const [preview, setPreview] = useState<LeavePreview | null>(null);
+  const previewSeq = useRef(0);
+  const editingId = editingRequest?.id;
+  useEffect(() => {
+    const seq = ++previewSeq.current;
+    setPreview(null);
+    if (!form.leaveTypeCode || !form.startDate || !effectiveEndDate || effectiveEndDate < form.startDate) return;
+    const timer = setTimeout(() => {
+      leaveApi.preview({
+        leaveTypeCode: form.leaveTypeCode, startDate: form.startDate, endDate: effectiveEndDate, halfDay: form.halfDay,
+        halfDaySession: form.halfDaySession, hours: form.hours,
+      }, token, editingId)
+        .then(p => { if (seq === previewSeq.current) setPreview(p); })
+        .catch(() => undefined);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [form.leaveTypeCode, form.startDate, effectiveEndDate, form.halfDay, form.halfDaySession, form.hours, token, editingId]);
+  const counted = preview?.totalDays != null ? preview : null;
+
+  const segments = useMemo(() => counted
+    ? new Map(Object.entries(counted.daysByYear).map(([y, d]) => [Number(y), Number(d)] as [number, number]))
+    : hoursDays != null
+      ? new Map([[Number(form.startDate.slice(0, 4)), hoursDays]])
+      : daysByYear(form.startDate, effectiveEndDate, form.halfDay), [counted, form.startDate, effectiveEndDate, form.halfDay, hoursDays]);
   const segmentYearsKey = [...segments.keys()].join(',');
   useEffect(() => {
     for (const y of segments.keys()) {
@@ -486,7 +511,11 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
             <section className="nf-lv-sec">
               <div className="nf-lv-sec-hd">
                 <span className="nf-lv-sec-ico"><CalendarDays size={15} /></span><span className="nf-lv-sec-title">Dates</span>
-                {dayCount != null && <span className="nf-lv-days">{dayCount} day{dayCount === 1 ? '' : 's'}</span>}
+                {dayCount != null && (
+                  <span className="nf-lv-days" data-testid="leave-day-count">
+                    {counted?.summary ?? `${dayCount} day${dayCount === 1 ? '' : 's'}`}
+                  </span>
+                )}
               </div>
               <div className="nf-lv-grid">
                 <Field label="Start Date *">
@@ -517,6 +546,10 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
                   </Field>
                 </div>
               )}
+              {counted && previewNotes(counted).map(note => (
+                <div key={note} className="nf-lv-bal" style={{ marginTop: 8 }}>{note}</div>
+              ))}
+              {preview?.problem && <div className="nf-lv-warn" style={{ marginTop: 8 }} data-testid="leave-preview-problem">{preview.problem}</div>}
               {form.halfDay && (
                 <div className="nf-lv-sessions">
                   <label>
@@ -837,6 +870,9 @@ export default function LeavePage() {
                     <td style={{ ...tdStyle, color: 'var(--txt)', fontWeight: 600 }}>{r.startDate}{r.startDate !== r.endDate ? ` to ${r.endDate}` : ''}{r.halfDay ? ` (${r.halfDaySession === 'SECOND_HALF' ? 'second half' : 'first half'})` : ''}{r.hours != null ? ` (${r.hours} h)` : ''}</td>
                     <td style={tdStyle}>
                       <span className="nf-rep-code">{r.totalDays}</span>
+                      {r.sandwichedDays ? (
+                        <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3, whiteSpace: 'nowrap' }}>incl. {r.sandwichedDays} sandwiched</div>
+                      ) : null}
                       {yearBreakdownLabel(r.startDate, r.endDate, r.halfDay) && (
                         <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 3, whiteSpace: 'nowrap' }} title="Each part is charged to that year's balance">
                           {yearBreakdownLabel(r.startDate, r.endDate, r.halfDay)}

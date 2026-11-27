@@ -25,6 +25,8 @@ public class LeaveRequestResponse {
     private boolean halfDay;
     private String halfDaySession;
     private BigDecimal totalDays;
+    /** LV-07: weekly offs / holidays included in totalDays by the sandwich rule (0 when none). */
+    private BigDecimal sandwichedDays;
     /** FULL_DAY / HALF_DAY / HOURLY. */
     private String durationType;
     /** LV-02: hours of an hourly request; null otherwise. */

@@ -88,6 +88,11 @@ public class LeaveBalanceService {
         return LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
     }
 
+    /** {@link #daysByYear(LocalDate, LocalDate, BigDecimal)} from the request's charged dates when it has them (LV-07). */
+    public static Map<Integer, BigDecimal> daysByYear(LocalDate start, LocalDate end, BigDecimal totalDays, LeaveDayCounts counts) {
+        return counts != null ? counts.byYear() : daysByYear(start, end, totalDays);
+    }
+
     /** The days of [start, end] that fall in each leave year (a half day is always a single date). */
     public static Map<Integer, BigDecimal> daysByYear(LocalDate start, LocalDate end, BigDecimal totalDays) {
         Map<Integer, BigDecimal> out = new TreeMap<>();
@@ -101,6 +106,12 @@ public class LeaveBalanceService {
             out.put(y, BigDecimal.valueOf(ChronoUnit.DAYS.between(from, to) + 1));
         }
         return out;
+    }
+
+    /** {@link #daysOnOrBefore(LocalDate, LocalDate, BigDecimal, int, LocalDate)} from the charged dates when known (LV-07). */
+    static BigDecimal daysOnOrBefore(LocalDate start, LocalDate end, BigDecimal totalDays, int year, LocalDate cutoff,
+                                     LeaveDayCounts counts) {
+        return counts != null ? counts.onOrBefore(year, cutoff) : daysOnOrBefore(start, end, totalDays, year, cutoff);
     }
 
     /** The days of the request in {@code year} dated on/before {@code cutoff} (null = all of them). */
@@ -189,8 +200,9 @@ public class LeaveBalanceService {
         for (LeaveRequest r : leaveRequestRepository.findPendingOverlapping(
                 b.getEmployeeUserId(), b.getLeaveType().getId(), yearStart(year), yearEnd(year))) {
             if (r.getId().equals(excludeRequestId)) continue;
-            pending = pending.add(daysByYear(r.getStartDate(), r.getEndDate(), r.getTotalDays()).getOrDefault(year, ZERO));
-            pendingEligible = pendingEligible.add(daysOnOrBefore(r.getStartDate(), r.getEndDate(), r.getTotalDays(), year, cutoff));
+            LeaveDayCounts counts = LeaveDayCounts.parse(r.getDayCounts());
+            pending = pending.add(daysByYear(r.getStartDate(), r.getEndDate(), r.getTotalDays(), counts).getOrDefault(year, ZERO));
+            pendingEligible = pendingEligible.add(daysOnOrBefore(r.getStartDate(), r.getEndDate(), r.getTotalDays(), year, cutoff, counts));
         }
         return new AnnualPosition(b,
                 b.getTotalDays().subtract(b.getUsedDays()),
@@ -253,6 +265,13 @@ public class LeaveBalanceService {
     @Transactional
     public void requireAvailable(UUID employeeUserId, LeaveType type, LocalDate start, LocalDate end,
                                  BigDecimal totalDays, UUID excludeRequestId) {
+        requireAvailable(employeeUserId, type, start, end, totalDays, excludeRequestId, null);
+    }
+
+    /** {@code counts}: the request's charged dates (LV-07), so a range with uncounted days splits per year correctly. */
+    @Transactional
+    public void requireAvailable(UUID employeeUserId, LeaveType type, LocalDate start, LocalDate end,
+                                 BigDecimal totalDays, UUID excludeRequestId, LeaveDayCounts counts) {
         if (!type.isPaid() || unlimitedInPlan(employeeUserId, type, start)) return;
         if (type.isPerOccurrence()) {
             OccurrencePosition p = occurrencePosition(employeeUserId, type, start, excludeRequestId);
@@ -262,12 +281,12 @@ public class LeaveBalanceService {
             }
             return;
         }
-        Map<Integer, BigDecimal> segments = daysByYear(start, end, totalDays);
+        Map<Integer, BigDecimal> segments = daysByYear(start, end, totalDays, counts);
         for (Map.Entry<Integer, BigDecimal> seg : segments.entrySet()) {
             int year = seg.getKey();
             LeaveBalance b = ensureBalance(employeeUserId, type, year);
             AnnualPosition p = position(b, excludeRequestId);
-            BigDecimal eligible = daysOnOrBefore(start, end, totalDays, year, b.getCarriedForwardExpiresOn());
+            BigDecimal eligible = daysOnOrBefore(start, end, totalDays, year, b.getCarriedForwardExpiresOn(), counts);
             BigDecimal demand = p.pendingDays().add(seg.getValue());
             BigDecimal supply = p.currentAvailable()
                     .add(p.upcomingCredits())
@@ -289,6 +308,13 @@ public class LeaveBalanceService {
      */
     @Transactional
     public void consume(UUID employeeUserId, LeaveType type, LocalDate start, LocalDate end, BigDecimal totalDays) {
+        consume(employeeUserId, type, start, end, totalDays, null);
+    }
+
+    /** {@code counts}: the request's charged dates (LV-07); null for a request made before V323. */
+    @Transactional
+    public void consume(UUID employeeUserId, LeaveType type, LocalDate start, LocalDate end, BigDecimal totalDays,
+                        LeaveDayCounts counts) {
         if (!type.isPaid() || unlimitedInPlan(employeeUserId, type, start)) return;
         if (type.isPerOccurrence()) {
             LeaveOccurrence o = occurrenceRepository.findCovering(employeeUserId, type.getId(), start)
@@ -300,10 +326,10 @@ public class LeaveBalanceService {
             occurrenceRepository.save(o);
             return;
         }
-        for (Map.Entry<Integer, BigDecimal> seg : daysByYear(start, end, totalDays).entrySet()) {
+        for (Map.Entry<Integer, BigDecimal> seg : daysByYear(start, end, totalDays, counts).entrySet()) {
             LeaveBalance b = ensureBalance(employeeUserId, type, seg.getKey());
             BigDecimal days = seg.getValue();
-            BigDecimal eligible = daysOnOrBefore(start, end, totalDays, seg.getKey(), b.getCarriedForwardExpiresOn()).min(days);
+            BigDecimal eligible = daysOnOrBefore(start, end, totalDays, seg.getKey(), b.getCarriedForwardExpiresOn(), counts).min(days);
             BigDecimal cfAvailable = carriedForwardAvailable(b);
             BigDecimal current = b.getTotalDays().subtract(b.getUsedDays());
             BigDecimal fromCf;
