@@ -422,8 +422,18 @@ function ReviewModal({ item, mode, onClose, onApproved, onRejected, token }: {
             <div className="apv-detail-grid">
               <Row label="Type" value={item.leaveTypeName} />
               <Row label="Days" value={`${item.leaveTotalDays}${yearBreakdownLabel(item.leaveStartDate, item.leaveEndDate, item.leaveHalfDay) ? ` (${yearBreakdownLabel(item.leaveStartDate, item.leaveEndDate, item.leaveHalfDay)})` : ''}`} />
-              <Row label="Dates" value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` to ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}`} span />
+              <Row label="Dates" value={`${item.leaveStartDate}${item.leaveStartDate !== item.leaveEndDate ? ` to ${item.leaveEndDate}` : ''}${item.leaveHalfDay ? ' (half day)' : ''}${item.leaveHours != null ? ` (${item.leaveHours} hours)` : ''}`} span />
               <Row label="Reason" value={item.leaveReason} span />
+              {item.leaveAttachmentName && (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <button type="button" className="apv-link"
+                    onClick={() => leaveApi.downloadAttachment(item.id, item.leaveAttachmentName!, token)
+                      .catch(e => showToast('error', e instanceof Error ? e.message : 'Download failed'))}
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'var(--brand)', cursor: 'pointer', fontSize: 13 }}>
+                    Attachment: {item.leaveAttachmentName}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

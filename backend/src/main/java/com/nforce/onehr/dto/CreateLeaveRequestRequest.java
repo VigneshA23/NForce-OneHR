@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 @Data
@@ -21,6 +22,9 @@ public class CreateLeaveRequestRequest {
 
     /** Required when halfDay is true — FIRST_HALF or SECOND_HALF (see LeaveHalfDaySession). Null otherwise. */
     private String halfDaySession;
+
+    /** LV-02: hours of leave on a single day (hourly leave, when the plan allows it); null = a full or half day. */
+    private BigDecimal hours;
 
     @NotBlank
     private String reason;

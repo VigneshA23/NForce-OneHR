@@ -41,6 +41,10 @@ export interface ApprovalItem {
   leaveTotalDays?: number;
   leaveHalfDay?: boolean;
   leaveReason?: string;
+  /** LV-02: hours of an hourly leave request. */
+  leaveHours?: number | null;
+  /** LV-02: the leave request's attachment name; download with leaveApi.downloadAttachment. */
+  leaveAttachmentName?: string | null;
 
   // Regularization / WFH / Partial Day / Overtime (shared — see backend ApprovalItemDto)
   attendanceDate?: string;

@@ -1,4 +1,4 @@
-# Leave configuration (V310, V314, V321)
+# Leave configuration (V310, V314, V321, V322)
 
 Leave types, leave plans (each type's days, crediting, carry-forward and who it applies to), who is on which
 plan, balances and year-end live in **Organization Masters / Organization Structure → Leave** (the
@@ -41,6 +41,37 @@ A **leave plan** bundles leave types with their own rules, so different groups (
 - Endpoints: `/api/leave-config/plans`, `/plan-versions/{id}`, `/plan-allocations/*` (VIEW reads,
   CONFIGURE changes); rules via `/api/assignment-rules?domain=LEAVE_PLAN`, also guarded by
   `leave_configuration` (every rule change needs CONFIGURE, since the module has no CREATE/DELETE grants).
+
+## Request rules per type (V322, LV-02 / ONEHR-887)
+
+Each type in a plan also says how it may be requested (`leave_plan_type_rules`, plan editor → a type → More →
+Request rules). Blank means no limit; the seeded Default plan has none, so nothing changes on release day.
+
+| Rule | Meaning |
+|---|---|
+| Entitlement | **Fixed days** (the plan's days), **Unlimited** (paid, nothing checked or deducted; no carry-forward) or **Earned only** (nothing credited automatically, only what HR credits). Regular paid types only. Comp-Off is always earned-only: its days come from the comp-off ledger. |
+| Min / max days per request | The request's day count. |
+| Requests a month / a year | PENDING and APPROVED requests of the type in the month / year the request starts in. |
+| Max days in a row | The request plus same-type leave directly before and after it, with only weekly offs and holidays between, chained. |
+| Notice (days), only over N days | The request must be made at least N days before it starts, optionally only for requests longer than N days. Checked on submit and edit, not on approval. |
+| Half days, by the hour, min hours | Half days are allowed unless switched off. Hourly leave is one day and less than a full day; it counts as hours ÷ `app.leave.hours-per-day` (default 8) days, to 2 decimals, and is stored as `duration_type = HOURLY` with `leave_hours`. |
+| Attachment needed over N days, file types, max MB | The request needs a file when it is longer than N days (0 = always). File types are extensions (e.g. `pdf,jpg`); the size limit is 1–10 MB, 10 MB when not set. |
+| Can't be taken next to | Leave types (`leave_plan_type_clubbing`) that may not end on the working day before this type starts or start on the working day after it ends. Checked from both sides: either type's rule blocks the pair. |
+
+- Enforcement (`LeaveRuleValidator`): on submit, on edit and again on approval (everything except notice).
+  The first broken rule is returned as a 400 naming the type and the limit, e.g. "Paid Leave over 1 day needs
+  an attachment (PDF, max 1 MB)." A type with no rule in the employee's plan isn't checked here (eligibility
+  already hides it).
+- Working days for "in a row" and "next to" come from `LeaveCalendar`: the employee's Location holidays and
+  the Weekly Off Policy governing each date (Saturday/Sunday when none is assigned).
+- Attachments: one per request (`leave_request_attachments`, bytes in the DB, like Helpdesk). Submit and edit
+  accept `multipart/form-data` with a JSON part `request` and a file part `attachment`; a new file replaces
+  the old one. `GET /api/leave/requests/{id}/attachment` is open to the requester and to whoever may decide
+  the request. My Requests and the Approval Center show the file name.
+- The apply form shows the selected type's rules (`/api/leave/types/mine` returns them as `rules`), hides
+  half day when it isn't allowed, offers "By the hour" when it is, and has the file input.
+- The old balance-group idea from the story is not built: V314 already merged every paid type into Paid Leave
+  with its own balance.
 
 ## Paid and Unpaid leave (V314)
 
@@ -177,6 +208,12 @@ Drop `leave_plan_allocations`, `leave_plan_type_overrides`, `leave_plan_type_eli
 `leave_plan_type_rules`, `leave_plan_versions` and `leave_plans`, and delete `assignment_rules` /
 `assignment_rule_assignments` rows of domain `LEAVE_PLAN`. The app before LV-01 reads the old tables, which
 V321 left untouched.
+
+## Rollback (V322)
+
+Drop `leave_request_attachments` and `leave_plan_type_clubbing` and the LV-02 columns of
+`leave_plan_type_rules` (`entitlement_mode` through `attachment_max_mb`). Requests saved as `HOURLY` keep their
+`leave_hours`; the app before LV-02 shows them as full days.
 
 ## Audit actions
 

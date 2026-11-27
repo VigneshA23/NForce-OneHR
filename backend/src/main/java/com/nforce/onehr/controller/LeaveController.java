@@ -5,13 +5,19 @@ import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
 import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.dto.RejectLeaveRequestRequest;
+import com.nforce.onehr.entity.LeaveRequestAttachment;
 import com.nforce.onehr.service.LeaveService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.security.Principal;
 import java.time.LocalDate;
@@ -50,10 +56,35 @@ public class LeaveController {
         return leaveService.listTeamBalances(principal.getName(), year);
     }
 
-    @PostMapping("/requests")
+    @PostMapping(value = "/requests", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public LeaveRequestResponse submitRequest(@Valid @RequestBody CreateLeaveRequestRequest req, Principal principal) {
         return leaveService.submitRequest(req, principal.getName());
+    }
+
+    /** LV-02: the same request as multipart — part "request" (JSON) plus an optional file part "attachment". */
+    @PostMapping(value = "/requests", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public LeaveRequestResponse submitRequestWithAttachment(@Valid @RequestPart("request") CreateLeaveRequestRequest req,
+                                                            @RequestPart(value = "attachment", required = false) MultipartFile attachment,
+                                                            Principal principal) {
+        return leaveService.submitRequest(req, attachment, principal.getName());
+    }
+
+    /** LV-02: a request's attachment — the requester, or whoever may decide the request. */
+    @GetMapping("/requests/{id}/attachment")
+    public ResponseEntity<byte[]> downloadAttachment(@PathVariable UUID id, Principal principal) {
+        LeaveRequestAttachment a = leaveService.getAttachment(id, principal.getName());
+        MediaType mediaType;
+        try {
+            mediaType = MediaType.parseMediaType(a.getContentType());
+        } catch (IllegalArgumentException e) {
+            mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(a.getFileName()).build().toString())
+                .contentType(mediaType)
+                .body(a.getData());
     }
 
     @GetMapping("/requests/mine")
@@ -62,11 +93,20 @@ public class LeaveController {
     }
 
     /** Edit a still-pending leave request — own requests only, PENDING status only (enforced in the service). */
-    @PatchMapping("/requests/{id}")
+    @PatchMapping(value = "/requests/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public LeaveRequestResponse updateRequest(@PathVariable UUID id,
                                                @Valid @RequestBody CreateLeaveRequestRequest req,
                                                Principal principal) {
         return leaveService.update(id, req, principal.getName());
+    }
+
+    /** LV-02: edit as multipart, optionally replacing the attachment. */
+    @PatchMapping(value = "/requests/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public LeaveRequestResponse updateRequestWithAttachment(@PathVariable UUID id,
+                                                            @Valid @RequestPart("request") CreateLeaveRequestRequest req,
+                                                            @RequestPart(value = "attachment", required = false) MultipartFile attachment,
+                                                            Principal principal) {
+        return leaveService.update(id, req, attachment, principal.getName());
     }
 
     @PreAuthorize("hasAuthority('leave:APPROVE:TEAM')")

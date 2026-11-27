@@ -49,4 +49,59 @@ public class LeavePlanTypeRule {
     @Column(name = "carry_forward_priority", nullable = false, length = 30)
     @Builder.Default
     private String carryForwardPriority = LeaveType.CF_FIRST;
+
+    // ── LV-02: limits enforced on submit and approve (null = no limit) ──
+
+    public static final String MODE_QUOTA = "QUOTA";
+    public static final String MODE_UNLIMITED = "UNLIMITED";
+    public static final String MODE_EARNED_ONLY = "EARNED_ONLY";
+
+    /** QUOTA (days), UNLIMITED (nothing checked or deducted) or EARNED_ONLY (no automatic credits). */
+    @Column(name = "entitlement_mode", nullable = false, length = 12)
+    @Builder.Default
+    private String entitlementMode = MODE_QUOTA;
+
+    @Column(name = "min_days_per_request")
+    private BigDecimal minDaysPerRequest;
+
+    @Column(name = "max_days_per_request")
+    private BigDecimal maxDaysPerRequest;
+
+    @Column(name = "max_requests_per_month")
+    private Integer maxRequestsPerMonth;
+
+    @Column(name = "max_requests_per_year")
+    private Integer maxRequestsPerYear;
+
+    @Column(name = "max_consecutive_days")
+    private BigDecimal maxConsecutiveDays;
+
+    @Column(name = "notice_days")
+    private Integer noticeDays;
+
+    /** Notice applies only to requests longer than this; null = always. */
+    @Column(name = "notice_applies_over_days")
+    private BigDecimal noticeAppliesOverDays;
+
+    @Column(name = "allow_half_day", nullable = false)
+    @Builder.Default
+    private boolean allowHalfDay = true;
+
+    @Column(name = "allow_hourly", nullable = false)
+    @Builder.Default
+    private boolean allowHourly = false;
+
+    @Column(name = "min_hours")
+    private BigDecimal minHours;
+
+    /** An attachment is required for requests longer than this (0 = always); null = never. */
+    @Column(name = "attachment_required_over_days")
+    private BigDecimal attachmentRequiredOverDays;
+
+    /** CSV of lower-case extensions, e.g. "pdf,jpg,png"; null = any. */
+    @Column(name = "attachment_allowed_types", length = 200)
+    private String attachmentAllowedTypes;
+
+    @Column(name = "attachment_max_mb")
+    private Integer attachmentMaxMb;
 }

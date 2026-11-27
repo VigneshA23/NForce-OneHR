@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { LeaveType, PlanTypeRule } from '../../api/leave';
-import { EMPTY_RULE_ELIGIBILITY, firstOfNextMonth, formsFor, toPayload } from './planRules';
+import type { LeaveRuleSummary, LeaveType, PlanTypeRule } from '../../api/leave';
+import {
+  EMPTY_LIMITS, EMPTY_RULE_ELIGIBILITY, attachmentProblem, firstOfNextMonth, formsFor, hourlyDays, limitsPayload, modeFor, ruleLines, toPayload,
+} from './planRules';
 
 const paid: LeaveType = { id: 'p', code: 'PAID', name: 'Paid Leave', classification: 'PAID', entitlementBasis: 'ANNUAL', active: true };
 const unpaid: LeaveType = { id: 'u', code: 'UNPAID', name: 'Unpaid Leave', classification: 'UNPAID', entitlementBasis: 'UNLIMITED', active: true };
@@ -40,5 +42,92 @@ describe('plan rule forms (LV-01)', () => {
   it('defaults a change to the 1st of next month, across a year end', () => {
     expect(firstOfNextMonth(new Date(2026, 10, 27))).toBe('2026-12-01');
     expect(firstOfNextMonth(new Date(2026, 11, 5))).toBe('2027-01-01');
+  });
+});
+
+describe('request rules (LV-02)', () => {
+  const blank = formsFor(types, [paidRule])[0];
+
+  it('sends no limits as nulls, and keeps half days allowed by default', () => {
+    const { rules } = toPayload([blank], types);
+    expect(rules[0].limits).toMatchObject({
+      entitlementMode: 'QUOTA', maxDaysPerRequest: null, noticeDays: null, allowHalfDay: true, allowHourly: false,
+      attachmentAllowedTypes: null, notNextToTypeIds: [],
+    });
+  });
+
+  it('normalises file types, drops minimum hours without hourly leave, and a type blocking itself', () => {
+    const l = limitsPayload(paid, {
+      ...EMPTY_LIMITS, attachmentAllowedTypes: ' PDF, .jpg,pdf ', minHours: '2', notNextToTypeIds: ['p', 'u'],
+    }, 'QUOTA');
+    expect(l).toMatchObject({ attachmentAllowedTypes: 'pdf,jpg', minHours: null, notNextToTypeIds: ['u'] });
+  });
+
+  it('rejects limits that contradict each other, naming the type', () => {
+    expect(limitsPayload(paid, { ...EMPTY_LIMITS, minDaysPerRequest: '3', maxDaysPerRequest: '2' }, 'QUOTA'))
+      .toBe("Paid Leave: the minimum days per request can't be more than the maximum");
+    expect(limitsPayload(paid, { ...EMPTY_LIMITS, noticeAppliesOverDays: '2' }, 'QUOTA')).toMatch(/notice days/);
+    expect(limitsPayload(paid, { ...EMPTY_LIMITS, maxRequestsPerMonth: '1.5' }, 'QUOTA')).toMatch(/whole number/);
+    expect(limitsPayload(paid, { ...EMPTY_LIMITS, attachmentAllowedTypes: 'pdf, ../exe' }, 'QUOTA')).toMatch(/isn't a file extension/);
+  });
+
+  it('earned-only and unlimited paid leave need no days; unlimited leave cannot carry forward', () => {
+    const earned = { ...blank, days: '', carryForwardEnabled: false, limits: { ...EMPTY_LIMITS, entitlementMode: 'EARNED_ONLY' as const } };
+    expect(toPayload([earned], types).rules[0]).toMatchObject({ days: 0, limits: { entitlementMode: 'EARNED_ONLY' } });
+    const unlimited = { ...blank, carryForwardEnabled: true, limits: { ...EMPTY_LIMITS, entitlementMode: 'UNLIMITED' as const } };
+    expect(toPayload([unlimited], types).error).toMatch(/no balance to carry forward/);
+  });
+
+  it('reads back a saved rule into the form', () => {
+    const saved: PlanTypeRule = {
+      ...paidRule,
+      limits: {
+        entitlementMode: 'QUOTA', minDaysPerRequest: null, maxDaysPerRequest: 3, maxRequestsPerMonth: 2, maxRequestsPerYear: null,
+        maxConsecutiveDays: null, noticeDays: 7, noticeAppliesOverDays: 2, allowHalfDay: false, allowHourly: true, minHours: 2,
+        attachmentRequiredOverDays: 2, attachmentAllowedTypes: 'pdf', attachmentMaxMb: 5, notNextToTypeIds: ['u'],
+      },
+    };
+    expect(formsFor(types, [saved])[0].limits).toMatchObject({
+      maxDaysPerRequest: '3', maxRequestsPerMonth: '2', noticeDays: '7', allowHalfDay: false, allowHourly: true, minHours: '2',
+      attachmentAllowedTypes: 'pdf', notNextToTypeIds: ['u'],
+    });
+  });
+
+  const summary: LeaveRuleSummary = {
+    entitlementMode: 'QUOTA', minDaysPerRequest: null, maxDaysPerRequest: 3, maxRequestsPerMonth: 1, maxRequestsPerYear: null,
+    maxConsecutiveDays: null, noticeDays: 7, noticeAppliesOverDays: 2, allowHalfDay: false, allowHourly: true, minHours: 2,
+    attachmentRequiredOverDays: 2, attachmentAllowedTypes: ['pdf', 'jpg'], attachmentMaxMb: 5, notNextTo: ['Casual Leave'],
+    hoursPerDay: 8,
+  };
+
+  it('describes the rules for the apply form', () => {
+    expect(ruleLines(summary)).toEqual([
+      'At most 3 days per request',
+      'At most 1 request a month',
+      'Apply 7 days ahead for more than 2 days',
+      'No half days',
+      'Can be taken by the hour (at least 2 hours)',
+      'Attachment needed over 2 days (PDF, JPG, max 5 MB)',
+      'Not next to Casual Leave',
+    ]);
+    expect(ruleLines({ ...summary, maxDaysPerRequest: null, maxRequestsPerMonth: null, noticeDays: null, allowHalfDay: true,
+      allowHourly: false, attachmentRequiredOverDays: null, notNextTo: [] })).toEqual([]);
+  });
+
+  it('checks a file before upload and converts hours to days', () => {
+    expect(attachmentProblem(summary, 'Sick Leave', 'scan.docx', 100)).toBe('Sick Leave attachments must be PDF, JPG.');
+    expect(attachmentProblem(summary, 'Sick Leave', 'scan.PDF', 6 * 1024 * 1024)).toBe('Sick Leave attachments can be at most 5 MB.');
+    expect(attachmentProblem(summary, 'Sick Leave', 'scan.pdf', 1024)).toBeNull();
+    expect(hourlyDays(2, 8)).toBe(0.25);
+    expect(hourlyDays(3, 8)).toBe(0.38);
+  });
+});
+
+describe('entitlement mode (LV-02)', () => {
+  it('is always earned-only for Comp-Off and only selectable for regular paid leave', () => {
+    const compOff: LeaveType = { id: 'c', code: 'COMP_OFF', name: 'Comp-Off', classification: 'PAID', entitlementBasis: 'ANNUAL', active: true };
+    expect(modeFor(compOff, { ...EMPTY_LIMITS, entitlementMode: 'QUOTA' })).toBe('EARNED_ONLY');
+    expect(modeFor(maternity, { ...EMPTY_LIMITS, entitlementMode: 'UNLIMITED' })).toBe('QUOTA');
+    expect(modeFor(paid, { ...EMPTY_LIMITS, entitlementMode: 'UNLIMITED' })).toBe('UNLIMITED');
   });
 });

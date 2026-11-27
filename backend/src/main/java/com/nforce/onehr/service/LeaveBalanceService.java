@@ -124,7 +124,7 @@ public class LeaveBalanceService {
     public Optional<BigDecimal> entitlementDays(UUID employeeUserId, LeaveType type, LocalDate date) {
         if (!type.isPaid()) return Optional.empty();
         return Optional.of(planRuleService.ruleFor(employeeUserId, type.getId(), date)
-                .map(LeavePlanCatalog.TypeRule::days).orElse(ZERO));
+                .map(LeavePlanCatalog.TypeRule::creditedQuota).orElse(ZERO)); // LV-02: 0 for earned-only / unlimited
     }
 
     /**
@@ -253,7 +253,7 @@ public class LeaveBalanceService {
     @Transactional
     public void requireAvailable(UUID employeeUserId, LeaveType type, LocalDate start, LocalDate end,
                                  BigDecimal totalDays, UUID excludeRequestId) {
-        if (!type.isPaid()) return;
+        if (!type.isPaid() || unlimitedInPlan(employeeUserId, type, start)) return;
         if (type.isPerOccurrence()) {
             OccurrencePosition p = occurrencePosition(employeeUserId, type, start, excludeRequestId);
             if (p.remaining().compareTo(totalDays) < 0) {
@@ -289,7 +289,7 @@ public class LeaveBalanceService {
      */
     @Transactional
     public void consume(UUID employeeUserId, LeaveType type, LocalDate start, LocalDate end, BigDecimal totalDays) {
-        if (!type.isPaid()) return;
+        if (!type.isPaid() || unlimitedInPlan(employeeUserId, type, start)) return;
         if (type.isPerOccurrence()) {
             LeaveOccurrence o = occurrenceRepository.findCovering(employeeUserId, type.getId(), start)
                     .orElseGet(() -> openOccurrence(employeeUserId, type, start));
@@ -328,6 +328,11 @@ public class LeaveBalanceService {
             b.setUsedDays(b.getUsedDays().add(fromCurrent));
             leaveBalanceRepository.save(b);
         }
+    }
+
+    /** LV-02: the employee's plan gives this paid type without limit — nothing is checked or deducted. */
+    private boolean unlimitedInPlan(UUID employeeUserId, LeaveType type, LocalDate date) {
+        return planRuleService.ruleFor(employeeUserId, type.getId(), date).map(LeavePlanCatalog.TypeRule::unlimited).orElse(false);
     }
 
     private static IllegalStateException insufficient() {
@@ -422,8 +427,13 @@ public class LeaveBalanceService {
         Set<UUID> eligible = eligibilityService.eligibleTypes(employeeUserId, all).stream().map(LeaveType::getId)
                 .collect(Collectors.toSet());
         List<LeaveBalanceResponse> out = new ArrayList<>();
+        LocalDate asOf = year == leaveYearOf(today()) ? today() : yearStart(year);
         for (LeaveType type : all) {
             boolean canUse = type.isActive() && eligible.contains(type.getId());
+            if (canUse && type.isPaid() && unlimitedInPlan(employeeUserId, type, asOf)) {
+                out.add(unlimitedResponse(type, year)); // LV-02: unlimited in the employee's plan
+                continue;
+            }
             if (type.isAnnualBalance()) {
                 LeaveBalance b = rows.get(type.getId());
                 if (canUse) {

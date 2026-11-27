@@ -138,6 +138,9 @@ LeaveController#myRequests | SELF - own data only (ownership checked in the serv
 LeaveController#peers | OPEN - readable by any signed-in user (or public auth flow)
 LeaveController#submitRequest | SELF - own data only (ownership checked in the service)
 LeaveController#updateRequest | SELF - own data only (ownership checked in the service)
+LeaveController#submitRequestWithAttachment | SELF - own data only (ownership checked in the service)
+LeaveController#updateRequestWithAttachment | SELF - own data only (ownership checked in the service)
+LeaveController#downloadAttachment | SERVICE - requester, or an authorized approver of the request (checked in the service)
 MeController#accessCatalogue | OPEN - page requirements carry no user data; every signed-in user needs them
 MeController#myPermissions | SELF - own data only (ownership checked in the service)
 MyAllocationController#myAllocations | SELF - own data only (ownership checked in the service)

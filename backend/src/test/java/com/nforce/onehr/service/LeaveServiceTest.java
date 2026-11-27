@@ -101,6 +101,10 @@ class LeaveServiceTest {
     @Mock private LeaveYearEndService leaveYearEndService;
 
     @Mock private CompOffService compOffService;
+    // LV-02: plan rule checks (their own test: LeaveRuleValidatorTest) and attachments.
+    @Mock private LeaveRuleValidator ruleValidator;
+    @Mock private LeavePlanRuleService planRuleService;
+    @Mock private com.nforce.onehr.repository.LeaveRequestAttachmentRepository attachmentRepository;
     @InjectMocks private LeaveService leaveService;
 
     private final UUID employeeId = UUID.randomUUID();
@@ -175,6 +179,8 @@ class LeaveServiceTest {
                         policyRepository, occurrenceRepository, attendanceProperties));
         org.springframework.test.util.ReflectionTestUtils.setField(leaveService, "leaveEligibilityService",
                 TestLeaveBalances.everyoneEligible());
+        lenient().when(planRuleService.catalog(any())).thenReturn(
+                new LeavePlanCatalog(Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), null));
     }
 
     private LeaveType typeById(UUID id) {
@@ -451,6 +457,78 @@ class LeaveServiceTest {
         assertNull(saved.get(0).getLeaveHours());
         assertEquals(LeaveDurationType.HALF_DAY, saved.get(1).getDurationType());
         assertNull(saved.get(1).getLeaveHours());
+    }
+
+    @Test
+    void submitRequest_hourly_convertsHoursToDays_andChecksThePlanRules() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> inv.getArgument(0));
+        LocalDate day = LocalDate.now().plusDays(10).with(TemporalAdjusters.nextOrSame(DayOfWeek.WEDNESDAY));
+        CreateLeaveRequestRequest req = request(day, day, false, "Appointment");
+        req.setHours(new BigDecimal("2"));
+
+        LeaveRequestResponse resp = leaveService.submitRequest(req, employeeEmail);
+
+        assertEquals(new BigDecimal("0.25"), resp.getTotalDays());
+        assertEquals(LeaveDurationType.HOURLY, resp.getDurationType());
+        assertEquals(new BigDecimal("2"), resp.getHours());
+        ArgumentCaptor<LeaveRuleValidator.Candidate> c = ArgumentCaptor.forClass(LeaveRuleValidator.Candidate.class);
+        verify(ruleValidator).validate(c.capture(), any(), eq(false));
+        assertEquals(new BigDecimal("2"), c.getValue().hours());
+        assertFalse(c.getValue().hasAttachment());
+    }
+
+    @Test
+    void submitRequest_hourly_mustBeOneDayAndLessThanAFullDay() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        LocalDate day = LocalDate.now().plusDays(10).with(TemporalAdjusters.nextOrSame(DayOfWeek.WEDNESDAY));
+        CreateLeaveRequestRequest twoDays = request(day, day.plusDays(1), false, "x");
+        twoDays.setHours(new BigDecimal("2"));
+        assertEquals("Leave by the hour must use the same start and end date",
+                assertThrows(IllegalArgumentException.class, () -> leaveService.submitRequest(twoDays, employeeEmail)).getMessage());
+        CreateLeaveRequestRequest fullDay = request(day, day, false, "x");
+        fullDay.setHours(new BigDecimal("8"));
+        assertThrows(IllegalArgumentException.class, () -> leaveService.submitRequest(fullDay, employeeEmail));
+    }
+
+    @Test
+    void submitRequest_withAttachment_storesItAndTellsTheRulesThereIsOne() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        when(leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(eq(employeeId), eq(annual.getId()), any()))
+                .thenReturn(Optional.of(balanceOf(new BigDecimal("20"), BigDecimal.ZERO)));
+        when(leaveRequestRepository.save(any(LeaveRequest.class))).thenAnswer(inv -> {
+            LeaveRequest r = inv.getArgument(0);
+            r.setId(UUID.randomUUID());
+            return r;
+        });
+        when(planRuleService.ruleFor(any(), any(), any())).thenReturn(Optional.empty());
+        LocalDate day = LocalDate.now().plusDays(10).with(TemporalAdjusters.nextOrSame(DayOfWeek.WEDNESDAY));
+        var file = new org.springframework.mock.web.MockMultipartFile("attachment", "note.pdf", "application/pdf", new byte[]{1, 2, 3});
+
+        leaveService.submitRequest(request(day, day, false, "Sick"), file, employeeEmail);
+
+        ArgumentCaptor<LeaveRuleValidator.Candidate> c = ArgumentCaptor.forClass(LeaveRuleValidator.Candidate.class);
+        verify(ruleValidator).validate(c.capture(), any(), eq(false));
+        assertTrue(c.getValue().hasAttachment());
+        ArgumentCaptor<com.nforce.onehr.entity.LeaveRequestAttachment> saved =
+                ArgumentCaptor.forClass(com.nforce.onehr.entity.LeaveRequestAttachment.class);
+        verify(attachmentRepository).save(saved.capture());
+        assertEquals("note.pdf", saved.getValue().getFileName());
+        assertEquals(3, saved.getValue().getSizeBytes());
+    }
+
+    @Test
+    void submitRequest_aRuleViolation_isNotSaved() {
+        when(userRepository.findByEmail(employeeEmail)).thenReturn(Optional.of(employeeUser));
+        doThrow(new IllegalArgumentException("Annual Leave requests can be at most 1 day (this one is 2 days)."))
+                .when(ruleValidator).validate(any(), any(), anyBoolean());
+        LocalDate start = LocalDate.now().with(TemporalAdjusters.next(DayOfWeek.MONDAY));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> leaveService.submitRequest(request(start, start.plusDays(1), false, "x"), employeeEmail));
+        verify(leaveRequestRepository, never()).save(any());
     }
 
     @Test
@@ -1561,6 +1639,27 @@ class LeaveServiceTest {
         verify(leaveBalanceRepository).save(balance);
         verify(auditService).log(eq(managerId), eq("LEAVE_REQUEST_APPROVED"), eq(pending.getId()), any(), any());
         verify(notificationService, times(1)).send(eq(employeeId), eq("LEAVE_APPROVED"), any(), any(), any());
+        // LV-02: the plan rules are checked again at approval (notice excluded), the request itself left out.
+        ArgumentCaptor<LeaveRuleValidator.Candidate> c = ArgumentCaptor.forClass(LeaveRuleValidator.Candidate.class);
+        verify(ruleValidator).validate(c.capture(), any(), eq(true));
+        assertEquals(pending.getId(), c.getValue().excludeRequestId());
+    }
+
+    @Test
+    void approve_aRuleNowBroken_isRefusedAndNothingIsDeducted() {
+        LeaveRequest pending = LeaveRequest.builder().id(UUID.randomUUID()).employeeUserId(employeeId)
+                .leaveType(annual).startDate(LocalDate.now()).endDate(LocalDate.now())
+                .totalDays(new BigDecimal("1")).status("PENDING").employeeReason("Trip").build();
+        when(userRepository.findByEmail(managerEmail)).thenReturn(Optional.of(managerUser));
+        when(leaveRequestRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(historyRepository.findByEmployeeUserIdAndEffectiveToIsNull(employeeId))
+                .thenReturn(Optional.of(EmployeeManagerHistory.builder().employeeUserId(employeeId).managerUserId(managerId).build()));
+        doThrow(new IllegalArgumentException("You can make at most 1 Annual Leave request(s) a month; March 2027 already has 1."))
+                .when(ruleValidator).validate(any(), any(), eq(true));
+
+        assertThrows(IllegalArgumentException.class, () -> leaveService.approve(pending.getId(), managerEmail));
+        assertEquals("PENDING", pending.getStatus());
+        verify(leaveBalanceRepository, never()).save(any());
     }
 
     // ── Gap-034: leave approval re-evaluates penalties the leave may have invalidated ────────

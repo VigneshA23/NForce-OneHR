@@ -35,7 +35,44 @@ public final class LeavePlanCatalog {
     public record TypeRule(UUID ruleId, UUID planId, UUID versionId, UUID leaveTypeId, BigDecimal days,
                            String creditFrequency, boolean carryForwardEnabled, BigDecimal carryForwardMaxDays,
                            Integer carryForwardExpiryMonths, String carryForwardPriority,
-                           LeaveEligibilityService.Rules eligibility) {}
+                           LeaveEligibilityService.Rules eligibility, Limits limits) {
+
+        /** A rule with no LV-02 limits (quota mode, half-day allowed, nothing else restricted). */
+        public TypeRule(UUID ruleId, UUID planId, UUID versionId, UUID leaveTypeId, BigDecimal days,
+                        String creditFrequency, boolean carryForwardEnabled, BigDecimal carryForwardMaxDays,
+                        Integer carryForwardExpiryMonths, String carryForwardPriority,
+                        LeaveEligibilityService.Rules eligibility) {
+            this(ruleId, planId, versionId, leaveTypeId, days, creditFrequency, carryForwardEnabled, carryForwardMaxDays,
+                    carryForwardExpiryMonths, carryForwardPriority, eligibility, Limits.NONE);
+        }
+
+        public boolean unlimited() {
+            return com.nforce.onehr.entity.LeavePlanTypeRule.MODE_UNLIMITED.equals(limits.entitlementMode());
+        }
+
+        public boolean earnedOnly() {
+            return com.nforce.onehr.entity.LeavePlanTypeRule.MODE_EARNED_ONLY.equals(limits.entitlementMode());
+        }
+
+        /** Days credited automatically each year: 0 for unlimited or earned-only types. */
+        public BigDecimal creditedQuota() {
+            return unlimited() || earnedOnly() || days == null ? BigDecimal.ZERO : days;
+        }
+    }
+
+    /**
+     * LV-02: what a request of the type must satisfy (null = no limit). {@code clubbingBlocked}: leave
+     * types that may not be taken adjacent to this one.
+     */
+    public record Limits(String entitlementMode, BigDecimal minDaysPerRequest, BigDecimal maxDaysPerRequest,
+                         Integer maxRequestsPerMonth, Integer maxRequestsPerYear, BigDecimal maxConsecutiveDays,
+                         Integer noticeDays, BigDecimal noticeAppliesOverDays, boolean allowHalfDay, boolean allowHourly,
+                         BigDecimal minHours, BigDecimal attachmentRequiredOverDays, String attachmentAllowedTypes,
+                         Integer attachmentMaxMb, java.util.Set<UUID> clubbingBlocked) {
+
+        public static final Limits NONE = new Limits(com.nforce.onehr.entity.LeavePlanTypeRule.MODE_QUOTA, null, null, null, null,
+                null, null, null, true, false, null, null, null, null, java.util.Set.of());
+    }
 
     /** The plan an employee is on for a date, and why. {@code ruleName} only for {@link #SOURCE_RULE}. */
     public record PlanResolution(UUID planId, String source, String ruleName) {}

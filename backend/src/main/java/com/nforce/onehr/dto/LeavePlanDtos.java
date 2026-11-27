@@ -39,7 +39,35 @@ public final class LeavePlanDtos {
     public record TypeRuleDto(UUID leaveTypeId, String leaveTypeCode, String leaveTypeName, String classification,
                               String entitlementBasis, boolean leaveTypeActive, BigDecimal days, String creditFrequency,
                               boolean carryForwardEnabled, BigDecimal carryForwardMaxDays, Integer carryForwardExpiryMonths,
-                              String carryForwardPriority, LeaveConfigDtos.EligibilityConfig eligibility) {}
+                              String carryForwardPriority, LeaveConfigDtos.EligibilityConfig eligibility, RuleLimits limits) {}
+
+    /**
+     * LV-02: how a type may be requested under the plan. Null numbers = no limit. {@code entitlementMode}: QUOTA
+     * (the days above), UNLIMITED (paid, nothing deducted) or EARNED_ONLY (nothing credited automatically).
+     * {@code attachmentAllowedTypes}: file extensions, e.g. "pdf,jpg"; blank = any. {@code notNextToTypeIds}: leave
+     * types that may not be taken directly before or after this one (only weekly offs/holidays in between).
+     */
+    public record RuleLimits(
+            @Pattern(regexp = "QUOTA|UNLIMITED|EARNED_ONLY") String entitlementMode,
+            @DecimalMin("0.5") @DecimalMax("366") BigDecimal minDaysPerRequest,
+            @DecimalMin("0.5") @DecimalMax("366") BigDecimal maxDaysPerRequest,
+            @Min(1) @Max(31) Integer maxRequestsPerMonth,
+            @Min(1) @Max(366) Integer maxRequestsPerYear,
+            @DecimalMin("0.5") @DecimalMax("366") BigDecimal maxConsecutiveDays,
+            @Min(1) @Max(365) Integer noticeDays,
+            @DecimalMin("0") @DecimalMax("366") BigDecimal noticeAppliesOverDays,
+            Boolean allowHalfDay,
+            boolean allowHourly,
+            @DecimalMin("0.5") @DecimalMax("23.5") BigDecimal minHours,
+            @DecimalMin("0") @DecimalMax("366") BigDecimal attachmentRequiredOverDays,
+            @Size(max = 200) String attachmentAllowedTypes,
+            @Min(1) @Max(10) Integer attachmentMaxMb,
+            @Size(max = 100) List<UUID> notNextToTypeIds) {
+
+        /** No limits: quota, half days allowed, nothing else. */
+        public static final RuleLimits DEFAULTS = new RuleLimits("QUOTA", null, null, null, null, null, null, null,
+                true, false, null, null, null, null, List.of());
+    }
 
     public record VersionDetail(UUID planId, String planName, VersionSummary version, List<TypeRuleDto> rules) {}
 
@@ -52,7 +80,17 @@ public final class LeavePlanDtos {
             @DecimalMin("0") @DecimalMax("999") BigDecimal carryForwardMaxDays,
             @Min(1) @Max(24) Integer carryForwardExpiryMonths,
             @Pattern(regexp = "CARRY_FORWARD_FIRST|CURRENT_FIRST") String carryForwardPriority,
-            @Valid LeaveConfigDtos.EligibilityConfig eligibility) {}
+            @Valid LeaveConfigDtos.EligibilityConfig eligibility,
+            @Valid RuleLimits limits) {
+
+        /** Without LV-02 limits (= {@link RuleLimits#DEFAULTS}). */
+        public TypeRuleRequest(UUID leaveTypeId, BigDecimal days, String creditFrequency, boolean carryForwardEnabled,
+                               BigDecimal carryForwardMaxDays, Integer carryForwardExpiryMonths, String carryForwardPriority,
+                               LeaveConfigDtos.EligibilityConfig eligibility) {
+            this(leaveTypeId, days, creditFrequency, carryForwardEnabled, carryForwardMaxDays, carryForwardExpiryMonths,
+                    carryForwardPriority, eligibility, null);
+        }
+    }
 
     public record CreatePlanRequest(
             @NotBlank @Size(max = 100) String name,

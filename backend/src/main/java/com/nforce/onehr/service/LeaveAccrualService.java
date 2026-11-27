@@ -186,7 +186,7 @@ public class LeaveAccrualService {
         Optional<LeavePlanCatalog.TypeRule> rule = requireEligible
                 ? LeaveEligibilityService.applicableRule(catalog, employeeUserId, profile, type.getId(), date)
                 : catalog.ruleFor(employeeUserId, type.getId(), date);
-        return rule.map(r -> new MonthRule(r.planId(), r.days() == null ? ZERO : r.days(), r.creditFrequency())).orElse(null);
+        return rule.map(r -> new MonthRule(r.planId(), r.creditedQuota(), r.creditFrequency())).orElse(null);
     }
 
     // ── Per balance ─────────────────────────────────────────────────────────────────────────────

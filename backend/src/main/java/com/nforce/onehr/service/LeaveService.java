@@ -4,6 +4,7 @@ import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateLeaveRequestRequest;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveRequestResponse;
+import com.nforce.onehr.dto.LeaveRuleSummary;
 import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -16,23 +17,29 @@ import com.nforce.onehr.entity.EmployeeManagerHistory;
 import com.nforce.onehr.entity.LeaveDurationType;
 import com.nforce.onehr.entity.LeaveHalfDaySession;
 import com.nforce.onehr.entity.LeaveRequest;
+import com.nforce.onehr.entity.LeaveRequestAttachment;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.AttendancePenaltyRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.HolidayRepository;
+import com.nforce.onehr.repository.LeaveRequestAttachmentRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import com.nforce.onehr.security.EffectivePermissionService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -96,6 +103,13 @@ public class LeaveService {
     private final HolidayRepository holidayRepository;
     private final EffectivePermissionService effectivePermissionService;
     private final AttendancePenaltyRepository attendancePenaltyRepository;
+    // LV-02: the employee's plan rules (limits, notice, clubbing, attachments) and the attached files.
+    private final LeaveRuleValidator ruleValidator;
+    private final LeavePlanRuleService planRuleService;
+    private final LeaveRequestAttachmentRepository attachmentRepository;
+    /** LV-02: hourly leave is converted to days at this many hours a day. */
+    @Value("${app.leave.hours-per-day:8}")
+    private BigDecimal hoursPerDay = new BigDecimal("8");
     private static final ObjectMapper PENALTY_JSON = new ObjectMapper();
     // @Lazy breaks a genuine construction-time cycle: LeaveService -> ExceptionService ->
     // AttendancePenaltyEvaluationService -> EmployeeService -> LeaveService (EmployeeService has
@@ -123,12 +137,29 @@ public class LeaveService {
     public List<LeaveTypeResponse> listMyTypes(String actorEmail) {
         User actor = requireActor(actorEmail);
         boolean compOffOn = compOffService.policyEnabled();
+        LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
+        LeavePlanCatalog catalog = planRuleService.catalog(List.of(actor.getId()));
+        Map<UUID, String> typeNames = new HashMap<>();
+        leaveTypeRepository.findAll().forEach(t -> typeNames.put(t.getId(), t.getName()));
         return leaveEligibilityService.eligibleTypes(actor.getId(), leaveTypeRepository.findByActiveTrueOrderByNameAsc()).stream()
                 .filter(t -> compOffOn || !CompOffService.isCompOffType(t))
                 .map(t -> LeaveTypeResponse.builder().id(t.getId()).code(t.getCode()).name(t.getName())
                         .classification(t.getClassification()).entitlementBasis(t.getEntitlementBasis())
-                        .systemKey(t.getSystemKey()).active(true).build())
+                        .systemKey(t.getSystemKey()).active(true)
+                        .rules(catalog.ruleFor(actor.getId(), t.getId(), today)
+                                .map(r -> ruleSummary(r.limits(), typeNames)).orElse(null))
+                        .build())
                 .collect(Collectors.toList());
+    }
+
+    /** LV-02: the apply form's view of a type's rules. */
+    private LeaveRuleSummary ruleSummary(LeavePlanCatalog.Limits l, Map<UUID, String> typeNames) {
+        return new LeaveRuleSummary(l.entitlementMode(), l.minDaysPerRequest(), l.maxDaysPerRequest(),
+                l.maxRequestsPerMonth(), l.maxRequestsPerYear(), l.maxConsecutiveDays(), l.noticeDays(),
+                l.noticeAppliesOverDays(), l.allowHalfDay(), l.allowHourly(), l.minHours(), l.attachmentRequiredOverDays(),
+                LeaveRuleValidator.allowedExtensions(l), l.attachmentMaxMb(),
+                l.clubbingBlocked().stream().map(id -> typeNames.getOrDefault(id, "another leave type")).sorted().toList(),
+                hoursPerDay);
     }
 
     /**
@@ -212,6 +243,12 @@ public class LeaveService {
 
     @Transactional
     public LeaveRequestResponse submitRequest(CreateLeaveRequestRequest req, String actorEmail) {
+        return submitRequest(req, null, actorEmail);
+    }
+
+    /** Submit with an optional attachment (LV-02: some types need one over a number of days). */
+    @Transactional
+    public LeaveRequestResponse submitRequest(CreateLeaveRequestRequest req, MultipartFile attachment, String actorEmail) {
         User actor = requireActor(actorEmail);
         LeaveType type = leaveTypeRepository.findByCode(req.getLeaveTypeCode())
                 .orElseThrow(() -> new IllegalArgumentException("Unknown leave type: " + req.getLeaveTypeCode()));
@@ -232,6 +269,7 @@ public class LeaveService {
                 || LeaveHalfDaySession.SECOND_HALF.equals(req.getHalfDaySession()))) {
             throw new IllegalArgumentException("A half-day request must specify First Half or Second Half");
         }
+        requireValidHours(req);
 
         // "Today" is resolved in the business timezone (same convention as AttendanceProperties'
         // other consumers), not the JVM default, so a server running in UTC doesn't roll the day
@@ -255,9 +293,11 @@ public class LeaveService {
             throw new IllegalArgumentException("You already have a pending or approved leave request that overlaps these dates.");
         }
 
-        BigDecimal totalDays = req.isHalfDay()
-                ? new BigDecimal("0.5")
-                : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
+        BigDecimal totalDays = requestedDays(req);
+        boolean hasFile = attachment != null && !attachment.isEmpty();
+        if (hasFile) checkAttachment(actor.getId(), type, req.getStartDate(), attachment);
+        ruleValidator.validate(new LeaveRuleValidator.Candidate(actor.getId(), type, req.getStartDate(), req.getEndDate(),
+                totalDays, req.isHalfDay(), req.getHours(), hasFile, null), today, false);
 
         validateEntitlement(actor.getId(), type, req.getStartDate(), req.getEndDate(), totalDays, null);
 
@@ -271,10 +311,9 @@ public class LeaveService {
                 .totalDays(totalDays)
                 .status("PENDING")
                 .employeeReason(req.getReason().trim())
-                // is_half_day stays authoritative (unchanged above); duration_type just mirrors it
-                // for the FULL_DAY/HALF_DAY cases this form actually submits — HOURLY/QUARTER_DAY
-                // have no submission UI yet, so submitRequest never produces them.
-                .durationType(req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY)
+                // is_half_day stays authoritative for half days; HOURLY (LV-02) keeps its hours in leave_hours.
+                .durationType(durationTypeOf(req))
+                .leaveHours(req.getHours())
                 .build();
         // A Super Admin's own leave must never be self-approvable: fail the submission up front
         // (rather than leave a request nobody may decide) when neither an eligible manager nor
@@ -285,6 +324,7 @@ public class LeaveService {
                     "No eligible approver is available for your leave request. Contact your administrator.");
         }
         request = leaveRequestRepository.save(request);
+        if (hasFile) storeAttachment(request.getId(), attachment, actor.getId());
 
         auditService.log(actor.getId(), "LEAVE_REQUEST_SUBMITTED", request.getId());
         notifySubmission(request, type, actor);
@@ -302,6 +342,12 @@ public class LeaveService {
      */
     @Transactional
     public LeaveRequestResponse update(UUID requestId, CreateLeaveRequestRequest req, String actorEmail) {
+        return update(requestId, req, null, actorEmail);
+    }
+
+    /** {@link #update(UUID, CreateLeaveRequestRequest, String)} that may also replace the attachment (LV-02). */
+    @Transactional
+    public LeaveRequestResponse update(UUID requestId, CreateLeaveRequestRequest req, MultipartFile attachment, String actorEmail) {
         User actor = requireActor(actorEmail);
         LeaveRequest existing = leaveRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
@@ -337,6 +383,7 @@ public class LeaveService {
                 || LeaveHalfDaySession.SECOND_HALF.equals(req.getHalfDaySession()))) {
             throw new IllegalArgumentException("A half-day request must specify First Half or Second Half");
         }
+        requireValidHours(req);
 
         LocalDate today = LocalDate.now(ZoneId.of(attendanceProperties.getZone()));
         if (req.getStartDate().isBefore(today)) {
@@ -351,9 +398,12 @@ public class LeaveService {
             throw new IllegalArgumentException("You already have a pending or approved leave request that overlaps these dates.");
         }
 
-        BigDecimal totalDays = req.isHalfDay()
-                ? new BigDecimal("0.5")
-                : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
+        BigDecimal totalDays = requestedDays(req);
+        boolean newFile = attachment != null && !attachment.isEmpty();
+        if (newFile) checkAttachment(actor.getId(), type, req.getStartDate(), attachment);
+        boolean hasFile = newFile || attachmentRepository.existsByLeaveRequestId(existingId);
+        ruleValidator.validate(new LeaveRuleValidator.Candidate(actor.getId(), type, req.getStartDate(), req.getEndDate(),
+                totalDays, req.isHalfDay(), req.getHours(), hasFile, existingId), today, false);
 
         validateEntitlement(actor.getId(), type, req.getStartDate(), req.getEndDate(), totalDays, existingId);
 
@@ -375,8 +425,10 @@ public class LeaveService {
         existing.setHalfDaySession(req.isHalfDay() ? req.getHalfDaySession() : null);
         existing.setTotalDays(totalDays);
         existing.setEmployeeReason(req.getReason().trim());
-        existing.setDurationType(req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY);
+        existing.setDurationType(durationTypeOf(req));
+        existing.setLeaveHours(req.getHours());
         existing = leaveRequestRepository.save(existing);
+        if (newFile) storeAttachment(existing.getId(), attachment, actor.getId());
 
         String after = auditSnapshot.toJson(Map.of(
                 "leaveTypeCode", existing.getLeaveType().getCode(),
@@ -387,6 +439,83 @@ public class LeaveService {
                 "reason", existing.getEmployeeReason()));
         auditService.log(actor.getId(), "LEAVE_REQUEST_UPDATED", existing.getId(), before, after);
         return toRequestResponse(existing);
+    }
+
+    /** LV-02: hourly leave is one day, neither a half day, more than 0 and less than a full day's hours. */
+    private void requireValidHours(CreateLeaveRequestRequest req) {
+        if (req.getHours() == null) return;
+        if (req.isHalfDay()) throw new IllegalArgumentException("A request is either a half day or by the hour, not both.");
+        if (!req.getEndDate().isEqual(req.getStartDate())) {
+            throw new IllegalArgumentException("Leave by the hour must use the same start and end date");
+        }
+        if (req.getHours().signum() <= 0 || req.getHours().compareTo(hoursPerDay) >= 0) {
+            throw new IllegalArgumentException("Leave by the hour must be more than 0 and less than "
+                    + formatDays(hoursPerDay) + " hours; take a full day instead.");
+        }
+    }
+
+    /** Days the request takes: 0.5 for a half day, hours / hours-per-day for hourly leave, else the inclusive day count. */
+    private BigDecimal requestedDays(CreateLeaveRequestRequest req) {
+        if (req.getHours() != null) return req.getHours().divide(hoursPerDay, 2, RoundingMode.HALF_UP);
+        return req.isHalfDay()
+                ? new BigDecimal("0.5")
+                : BigDecimal.valueOf(ChronoUnit.DAYS.between(req.getStartDate(), req.getEndDate()) + 1);
+    }
+
+    private static String durationTypeOf(CreateLeaveRequestRequest req) {
+        if (req.getHours() != null) return LeaveDurationType.HOURLY;
+        return req.isHalfDay() ? LeaveDurationType.HALF_DAY : LeaveDurationType.FULL_DAY;
+    }
+
+    /** LV-02: the file must match the type's allowed extensions and size limit (10 MB when the plan sets none). */
+    private void checkAttachment(UUID employeeUserId, LeaveType type, LocalDate start, MultipartFile file) {
+        LeavePlanCatalog.Limits limits = planRuleService.ruleFor(employeeUserId, type.getId(), start)
+                .map(LeavePlanCatalog.TypeRule::limits).orElse(LeavePlanCatalog.Limits.NONE);
+        String problem = LeaveRuleValidator.checkFile(limits, type.getName(), file.getOriginalFilename(), file.getSize());
+        if (problem != null) throw new IllegalArgumentException(problem);
+    }
+
+    /** One attachment per request; a new upload replaces the old one. */
+    private void storeAttachment(UUID requestId, MultipartFile file, UUID actorId) {
+        LeaveRequestAttachment a = attachmentRepository.findByLeaveRequestId(requestId)
+                .orElseGet(() -> LeaveRequestAttachment.builder().leaveRequestId(requestId).build());
+        String name = file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()
+                ? "attachment" : file.getOriginalFilename();
+        a.setFileName(name.length() > 255 ? name.substring(name.length() - 255) : name);
+        a.setContentType(file.getContentType() == null || file.getContentType().isBlank()
+                ? "application/octet-stream" : file.getContentType());
+        a.setSizeBytes(file.getSize());
+        try {
+            a.setData(file.getBytes());
+        } catch (IOException e) {
+            throw new IllegalArgumentException("The attachment could not be read. Please try again.");
+        }
+        a.setUploadedBy(actorId);
+        attachmentRepository.save(a);
+    }
+
+    /** LV-02: a request's attachment — for the employee who made the request, or whoever may decide it. */
+    @Transactional(readOnly = true)
+    public LeaveRequestAttachment getAttachment(UUID requestId, String actorEmail) {
+        User actor = requireActor(actorEmail);
+        LeaveRequest request = leaveRequestRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("Leave request not found"));
+        if (!request.getEmployeeUserId().equals(actor.getId())) {
+            requireAuthorizedApprover(actor, request.getEmployeeUserId());
+        }
+        return attachmentRepository.findByLeaveRequestId(requestId)
+                .orElseThrow(() -> new IllegalArgumentException("This leave request has no attachment"));
+    }
+
+    /** Fills {@code attachmentName} on list rows with one query. */
+    private List<LeaveRequestResponse> withAttachmentNames(List<LeaveRequestResponse> rows) {
+        if (rows.isEmpty()) return rows;
+        Map<UUID, String> names = new HashMap<>();
+        for (Object[] row : attachmentRepository.findNamesByRequestIds(rows.stream().map(LeaveRequestResponse::getId).toList())) {
+            names.put((UUID) row[0], (String) row[1]);
+        }
+        rows.forEach(r -> r.setAttachmentName(names.get(r.getId())));
+        return rows;
     }
 
     /**
@@ -460,7 +589,7 @@ public class LeaveService {
         rows.addAll(penaltyDeductionRows(actor.getId(), employeeName(actor.getId()), codesById.get(actor.getId())));
         rows.sort(Comparator.comparing(LeaveRequestResponse::getCreatedAt,
                 Comparator.nullsLast(Comparator.reverseOrder())));
-        return rows;
+        return withAttachmentNames(rows);
     }
 
     /**
@@ -553,9 +682,9 @@ public class LeaveService {
                     .collect(Collectors.toList());
             Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
             Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
-            return requests.stream()
+            return withAttachmentNames(requests.stream()
                     .map(r -> toRequestResponse(r, namesById, codesById))
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toList()));
         }
         List<UUID> reportIds = historyRepository.findByManagerUserIdAndEffectiveToIsNull(actor.getId()).stream()
                 .map(EmployeeManagerHistory::getEmployeeUserId)
@@ -566,9 +695,9 @@ public class LeaveService {
         List<LeaveRequest> requests = leaveRequestRepository.findByEmployeeUserIdInAndStatusOrderByCreatedAtAsc(reportIds, "PENDING");
         Map<UUID, String> namesById = namesByUserIds(collectNameIds(requests));
         Map<UUID, String> codesById = codesByUserIds(collectEmployeeIds(requests));
-        return requests.stream()
+        return withAttachmentNames(requests.stream()
                 .map(r -> toRequestResponse(r, namesById, codesById))
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 
     /**
@@ -645,6 +774,14 @@ public class LeaveService {
         if (!"PENDING".equals(request.getStatus())) {
             throw new IllegalStateException("Leave request has already been decided");
         }
+
+        // LV-02: the plan's rules are checked again (everything except notice) — they may have changed,
+        // or another request may since have been approved next to this one.
+        ruleValidator.validate(new LeaveRuleValidator.Candidate(request.getEmployeeUserId(), request.getLeaveType(),
+                request.getStartDate(), request.getEndDate(), request.getTotalDays(), request.isHalfDay(),
+                LeaveDurationType.HOURLY.equals(request.getDurationType()) ? request.getLeaveHours() : null,
+                attachmentRepository.existsByLeaveRequestId(request.getId()), request.getId()),
+                LocalDate.now(ZoneId.of(attendanceProperties.getZone())), true);
 
         // Paid leave deducts from the type's OWN balance (split across leave years, carried-forward
         // days used in the type's configured priority) or, for Maternity-style types, from the
@@ -979,6 +1116,11 @@ public class LeaveService {
                 .halfDay(r.isHalfDay())
                 .halfDaySession(r.getHalfDaySession())
                 .totalDays(r.getTotalDays())
+                .durationType(r.getDurationType())
+                .hours(LeaveDurationType.HOURLY.equals(r.getDurationType()) ? r.getLeaveHours() : null)
+                .attachmentName(r.getId() == null ? null
+                        : attachmentRepository.findNamesByRequestIds(List.of(r.getId())).stream()
+                                .map(row -> (String) row[1]).findFirst().orElse(null))
                 .daysByYear(yearBreakdown(r))
                 .status(r.getStatus())
                 .employeeReason(r.getEmployeeReason())
@@ -1013,6 +1155,8 @@ public class LeaveService {
                 .halfDay(r.isHalfDay())
                 .halfDaySession(r.getHalfDaySession())
                 .totalDays(r.getTotalDays())
+                .durationType(r.getDurationType())
+                .hours(LeaveDurationType.HOURLY.equals(r.getDurationType()) ? r.getLeaveHours() : null)
                 .daysByYear(yearBreakdown(r))
                 .status(r.getStatus())
                 .employeeReason(r.getEmployeeReason())

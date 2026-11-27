@@ -8,6 +8,7 @@ import com.nforce.onehr.dto.LeavePlanDtos.CreatePlanRequest;
 import com.nforce.onehr.dto.LeavePlanDtos.PlanDetail;
 import com.nforce.onehr.dto.LeavePlanDtos.PlanSummary;
 import com.nforce.onehr.dto.LeavePlanDtos.SaveVersionRequest;
+import com.nforce.onehr.dto.LeavePlanDtos.RuleLimits;
 import com.nforce.onehr.dto.LeavePlanDtos.TypeRuleDto;
 import com.nforce.onehr.dto.LeavePlanDtos.TypeRuleRequest;
 import com.nforce.onehr.dto.LeavePlanDtos.UpdatePlanRequest;
@@ -17,6 +18,7 @@ import com.nforce.onehr.entity.LeaveEntitlementPolicy;
 import com.nforce.onehr.entity.LeavePlan;
 import com.nforce.onehr.entity.LeavePlanTypeEligibility;
 import com.nforce.onehr.entity.LeavePlanTypeOverride;
+import com.nforce.onehr.entity.LeavePlanTypeClubbing;
 import com.nforce.onehr.entity.LeavePlanTypeRule;
 import com.nforce.onehr.entity.LeavePlanVersion;
 import com.nforce.onehr.entity.LeaveType;
@@ -28,6 +30,7 @@ import com.nforce.onehr.repository.LeavePlanAllocationRepository;
 import com.nforce.onehr.repository.LeavePlanRepository;
 import com.nforce.onehr.repository.LeavePlanTypeEligibilityRepository;
 import com.nforce.onehr.repository.LeavePlanTypeOverrideRepository;
+import com.nforce.onehr.repository.LeavePlanTypeClubbingRepository;
 import com.nforce.onehr.repository.LeavePlanTypeRuleRepository;
 import com.nforce.onehr.repository.LeavePlanVersionRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
@@ -37,6 +40,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -45,6 +49,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -77,6 +82,7 @@ public class LeavePlanService {
     private final LeavePlanRepository planRepository;
     private final LeavePlanVersionRepository versionRepository;
     private final LeavePlanTypeRuleRepository ruleRepository;
+    private final LeavePlanTypeClubbingRepository clubbingRepository;
     private final LeavePlanTypeEligibilityRepository eligibilityRepository;
     private final LeavePlanTypeOverrideRepository overrideRepository;
     private final LeavePlanAllocationRepository allocationRepository;
@@ -202,7 +208,7 @@ public class LeavePlanService {
         VersionDetail source = currentVersion(planId);
         List<TypeRuleRequest> rules = source.rules().stream().map(r -> new TypeRuleRequest(r.leaveTypeId(), r.days(),
                 r.creditFrequency(), r.carryForwardEnabled(), r.carryForwardMaxDays(), r.carryForwardExpiryMonths(),
-                r.carryForwardPriority(), r.eligibility())).toList();
+                r.carryForwardPriority(), r.eligibility(), r.limits())).toList();
         LeavePlan from = requirePlan(planId);
         PlanDetail created = create(new CreatePlanRequest(req.name(), from.getDescription(), from.getLeaveYearStartMonth(), rules), actorEmail);
         User actor = requireActor(actorEmail);
@@ -358,9 +364,18 @@ public class LeavePlanService {
             LeaveType type = leaveTypeRepository.findById(r.leaveTypeId())
                     .orElseThrow(() -> new NoSuchElementException("Leave type not found: " + r.leaveTypeId()));
             types.put(type.getId(), type);
-            if (type.isPaid() && r.days() == null) {
+            RuleLimits l = limitsOf(r);
+            String mode = modeOf(type, l);
+            if (!LeavePlanTypeRule.MODE_QUOTA.equals(mode) && !type.isAnnualBalance() && !type.isCompOff()) {
+                throw new IllegalArgumentException(type.getName() + ": only regular paid leave can be unlimited or earned-only.");
+            }
+            if (type.isPaid() && r.days() == null && LeavePlanTypeRule.MODE_QUOTA.equals(mode)) {
                 throw new IllegalArgumentException(type.getName() + ": days are required for a paid leave type.");
             }
+            if (r.carryForwardEnabled() && LeavePlanTypeRule.MODE_UNLIMITED.equals(mode)) {
+                throw new IllegalArgumentException(type.getName() + ": unlimited leave has no balance to carry forward.");
+            }
+            validateLimits(type, l);
             if (r.carryForwardEnabled() && !type.isAnnualBalance()) {
                 throw new IllegalArgumentException(type.getName() + ": carry-forward is only available for regular paid leave "
                         + "(not unpaid or per-occurrence leave such as Maternity).");
@@ -378,10 +393,27 @@ public class LeavePlanService {
         for (TypeRuleRequest req : rules) {
             LeaveType type = types.get(req.leaveTypeId());
             boolean annual = type.isAnnualBalance();
+            RuleLimits l = limitsOf(req);
+            String mode = modeOf(type, l);
+            boolean quota = LeavePlanTypeRule.MODE_QUOTA.equals(mode);
             LeavePlanTypeRule rule = ruleRepository.save(LeavePlanTypeRule.builder()
                     .versionId(versionId)
                     .leaveTypeId(type.getId())
-                    .days(type.isPaid() ? req.days() : null)
+                    .days(!type.isPaid() ? null : quota ? req.days() : BigDecimal.ZERO)
+                    .entitlementMode(mode)
+                    .minDaysPerRequest(l.minDaysPerRequest())
+                    .maxDaysPerRequest(l.maxDaysPerRequest())
+                    .maxRequestsPerMonth(l.maxRequestsPerMonth())
+                    .maxRequestsPerYear(l.maxRequestsPerYear())
+                    .maxConsecutiveDays(l.maxConsecutiveDays())
+                    .noticeDays(l.noticeDays())
+                    .noticeAppliesOverDays(l.noticeDays() == null ? null : l.noticeAppliesOverDays())
+                    .allowHalfDay(l.allowHalfDay() == null || l.allowHalfDay())
+                    .allowHourly(l.allowHourly())
+                    .minHours(l.allowHourly() ? l.minHours() : null)
+                    .attachmentRequiredOverDays(l.attachmentRequiredOverDays())
+                    .attachmentAllowedTypes(normalizedExtensions(l.attachmentAllowedTypes()))
+                    .attachmentMaxMb(l.attachmentMaxMb())
                     .creditFrequency(annual && req.creditFrequency() != null ? req.creditFrequency() : LeaveEntitlementPolicy.YEARLY)
                     .carryForwardEnabled(annual && req.carryForwardEnabled())
                     .carryForwardMaxDays(annual && req.carryForwardEnabled() ? req.carryForwardMaxDays() : null)
@@ -401,7 +433,73 @@ public class LeavePlanService {
             c.excludeEmployeeIds().forEach(id -> overrides.add(LeavePlanTypeOverride.builder()
                     .ruleId(rule.getId()).employeeUserId(id).mode(LeavePlanTypeOverride.EXCLUDE).build()));
             overrideRepository.saveAll(overrides);
+            clubbingRepository.saveAll(nullSafe(l.notNextToTypeIds()).stream().distinct()
+                    .map(id -> LeavePlanTypeClubbing.builder().ruleId(rule.getId()).blockedLeaveTypeId(id).build()).toList());
         }
+    }
+
+    /** The entitlement mode to store: Comp-Off is always earned-only (its days come from the comp-off ledger). */
+    static String modeOf(LeaveType type, RuleLimits l) {
+        if (type.isCompOff()) return LeavePlanTypeRule.MODE_EARNED_ONLY;
+        return l.entitlementMode() == null ? LeavePlanTypeRule.MODE_QUOTA : l.entitlementMode();
+    }
+
+    private static RuleLimits limitsOf(TypeRuleRequest r) {
+        return r.limits() == null ? RuleLimits.DEFAULTS : r.limits();
+    }
+
+    /** LV-02: the limits must make sense together. */
+    private void validateLimits(LeaveType type, RuleLimits l) {
+        String n = type.getName() + ": ";
+        if (l.minDaysPerRequest() != null && l.maxDaysPerRequest() != null && l.minDaysPerRequest().compareTo(l.maxDaysPerRequest()) > 0) {
+            throw new IllegalArgumentException(n + "the minimum days per request can't be more than the maximum.");
+        }
+        if (l.maxDaysPerRequest() != null && l.maxConsecutiveDays() != null && l.maxConsecutiveDays().compareTo(l.maxDaysPerRequest()) < 0) {
+            throw new IllegalArgumentException(n + "the maximum days in a row can't be less than the maximum days per request.");
+        }
+        if (l.maxRequestsPerMonth() != null && l.maxRequestsPerYear() != null && l.maxRequestsPerMonth() > l.maxRequestsPerYear()) {
+            throw new IllegalArgumentException(n + "the requests allowed a month can't be more than a year.");
+        }
+        if (l.minHours() != null && !l.allowHourly()) {
+            throw new IllegalArgumentException(n + "minimum hours only applies when leave by the hour is allowed.");
+        }
+        if (l.noticeAppliesOverDays() != null && l.noticeDays() == null) {
+            throw new IllegalArgumentException(n + "set the notice days for \"notice applies over\" to mean anything.");
+        }
+        String ext = l.attachmentAllowedTypes();
+        if (ext != null && !ext.isBlank()) {
+            for (String e : ext.split(",")) {
+                String x = e.trim().toLowerCase(Locale.ROOT).replaceFirst("^\\.", "");
+                if (!x.isEmpty() && !x.matches("[a-z0-9]{1,10}")) {
+                    throw new IllegalArgumentException(n + "\"" + e.trim() + "\" isn't a file extension (e.g. pdf, jpg).");
+                }
+            }
+        }
+        for (UUID id : nullSafe(l.notNextToTypeIds())) {
+            if (id.equals(type.getId())) {
+                throw new IllegalArgumentException(n + "a leave type can't block itself; use the maximum days in a row.");
+            }
+            if (leaveTypeRepository.findById(id).isEmpty()) {
+                throw new NoSuchElementException("Leave type not found: " + id);
+            }
+        }
+    }
+
+    /** "PDF, .jpg " -> "pdf,jpg"; null when blank. */
+    static String normalizedExtensions(String csv) {
+        if (csv == null) return null;
+        String out = java.util.Arrays.stream(csv.split(",")).map(e -> e.trim().toLowerCase(Locale.ROOT).replaceFirst("^\\.", ""))
+                .filter(e -> !e.isEmpty()).distinct().collect(java.util.stream.Collectors.joining(","));
+        return out.isEmpty() ? null : out;
+    }
+
+    /** The stored rule's limits in request/response form. */
+    private RuleLimits limitsDto(LeavePlanTypeRule r) {
+        return new RuleLimits(r.getEntitlementMode(), r.getMinDaysPerRequest(), r.getMaxDaysPerRequest(),
+                r.getMaxRequestsPerMonth(), r.getMaxRequestsPerYear(), r.getMaxConsecutiveDays(), r.getNoticeDays(),
+                r.getNoticeAppliesOverDays(), r.isAllowHalfDay(), r.isAllowHourly(), r.getMinHours(),
+                r.getAttachmentRequiredOverDays(), r.getAttachmentAllowedTypes(), r.getAttachmentMaxMb(),
+                planRuleService.clubbingOf(r.getId()));
     }
 
     private static LeavePlanTypeEligibility eligibility(UUID ruleId, String type, String value) {
@@ -412,7 +510,7 @@ public class LeavePlanService {
     private List<TypeRuleRequest> requestsOf(UUID versionId) {
         return ruleRepository.findByVersionId(versionId).stream().map(r -> new TypeRuleRequest(r.getLeaveTypeId(), r.getDays(),
                 r.getCreditFrequency(), r.isCarryForwardEnabled(), r.getCarryForwardMaxDays(), r.getCarryForwardExpiryMonths(),
-                r.getCarryForwardPriority(), planRuleService.eligibilityConfig(r.getId()))).toList();
+                r.getCarryForwardPriority(), planRuleService.eligibilityConfig(r.getId()), limitsDto(r))).toList();
     }
 
     /** Canonical JSON of a rule set (sorted, normalised), used both for "unchanged?" and for the audit trail. */
@@ -440,10 +538,32 @@ public class LeavePlanService {
             m.put("employmentTypes", e.employmentTypes().stream().map(LeaveEligibilityService::norm).sorted().toList());
             m.put("includeEmployeeIds", e.includeEmployeeIds().stream().map(UUID::toString).sorted().toList());
             m.put("excludeEmployeeIds", e.excludeEmployeeIds().stream().map(UUID::toString).sorted().toList());
+            RuleLimits l = limitsOf(r);
+            String mode = modeOf(t, l);
+            if (!LeavePlanTypeRule.MODE_QUOTA.equals(mode) && t.isPaid()) m.put("days", null);
+            m.put("entitlementMode", mode);
+            m.put("minDaysPerRequest", plain(l.minDaysPerRequest()));
+            m.put("maxDaysPerRequest", plain(l.maxDaysPerRequest()));
+            m.put("maxRequestsPerMonth", l.maxRequestsPerMonth());
+            m.put("maxRequestsPerYear", l.maxRequestsPerYear());
+            m.put("maxConsecutiveDays", plain(l.maxConsecutiveDays()));
+            m.put("noticeDays", l.noticeDays());
+            m.put("noticeAppliesOverDays", l.noticeDays() == null ? null : plain(l.noticeAppliesOverDays()));
+            m.put("allowHalfDay", l.allowHalfDay() == null || l.allowHalfDay());
+            m.put("allowHourly", l.allowHourly());
+            m.put("minHours", l.allowHourly() ? plain(l.minHours()) : null);
+            m.put("attachmentRequiredOverDays", plain(l.attachmentRequiredOverDays()));
+            m.put("attachmentAllowedTypes", normalizedExtensions(l.attachmentAllowedTypes()));
+            m.put("attachmentMaxMb", l.attachmentMaxMb());
+            m.put("notNextTo", nullSafe(l.notNextToTypeIds()).stream().map(UUID::toString).distinct().sorted().toList());
             out.add(m);
         }
         out.sort(Comparator.comparing(m -> (String) m.get("leaveTypeCode")));
         return auditSnapshot.toJson(Map.of("types", out));
+    }
+
+    private static String plain(BigDecimal d) {
+        return d == null ? null : d.stripTrailingZeros().toPlainString();
     }
 
     private String rulesSnapshot(UUID versionId) {
@@ -454,7 +574,8 @@ public class LeavePlanService {
         return new TypeRuleDto(t.getId(), t.getCode(), t.getName(), t.getClassification(),
                 t.isPaid() ? t.getEntitlementBasis() : "UNLIMITED", t.isActive(), r.getDays(),
                 t.isAnnualBalance() ? r.getCreditFrequency() : null, r.isCarryForwardEnabled(), r.getCarryForwardMaxDays(),
-                r.getCarryForwardExpiryMonths(), r.getCarryForwardPriority(), planRuleService.eligibilityConfig(r.getId()));
+                r.getCarryForwardExpiryMonths(), r.getCarryForwardPriority(), planRuleService.eligibilityConfig(r.getId()),
+                limitsDto(r));
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────────────────────

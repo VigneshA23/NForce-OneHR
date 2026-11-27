@@ -2,7 +2,9 @@ package com.nforce.onehr.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.config.AttendanceProperties;
+import com.nforce.onehr.dto.LeavePlanDtos;
 import com.nforce.onehr.dto.LeavePlanDtos.CreatePlanRequest;
+import org.mockito.ArgumentCaptor;
 import com.nforce.onehr.dto.LeavePlanDtos.SaveVersionRequest;
 import com.nforce.onehr.dto.LeavePlanDtos.TypeRuleRequest;
 import com.nforce.onehr.entity.LeavePlan;
@@ -48,6 +50,7 @@ class LeavePlanServiceTest {
     @Mock private LeavePlanRepository planRepo;
     @Mock private LeavePlanVersionRepository versionRepo;
     @Mock private LeavePlanTypeRuleRepository ruleRepo;
+    @Mock private com.nforce.onehr.repository.LeavePlanTypeClubbingRepository clubbingRepo;
     @Mock private LeavePlanTypeEligibilityRepository eligibilityRepo;
     @Mock private LeavePlanTypeOverrideRepository overrideRepo;
     @Mock private LeavePlanAllocationRepository allocationRepo;
@@ -72,7 +75,7 @@ class LeavePlanServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new LeavePlanService(planRepo, versionRepo, ruleRepo, eligibilityRepo, overrideRepo, allocationRepo, assignmentRuleRepo,
+        service = new LeavePlanService(planRepo, versionRepo, ruleRepo, clubbingRepo, eligibilityRepo, overrideRepo, allocationRepo, assignmentRuleRepo,
                 ruleAssignmentRepo, typeRepo, employeeRepo, userRepo, planRuleService, accrual, audit,
                 new AuditSnapshotSerializer(new ObjectMapper()), new AttendanceProperties());
         lenient().when(userRepo.findByEmail("hr@test.com")).thenReturn(Optional.of(hr));
@@ -189,6 +192,61 @@ class LeavePlanServiceTest {
         assertEquals(2, service.validateRules(List.of(
                 new TypeRuleRequest(paid.getId(), BigDecimal.TEN, null, false, null, null, null, null),
                 new TypeRuleRequest(unpaid.getId(), null, null, false, null, null, null, null))).size());
+    }
+
+    private static LeavePlanDtos.RuleLimits limits(BigDecimal minDays, BigDecimal maxDays, String mode, List<UUID> notNextTo,
+                                                   BigDecimal minHours, boolean hourly, String types) {
+        return new LeavePlanDtos.RuleLimits(mode, minDays, maxDays, null, null, null, null, null, true, hourly, minHours,
+                null, types, null, notNextTo);
+    }
+
+    @Test
+    void limits_mustMakeSenseTogether() {
+        java.util.function.Function<LeavePlanDtos.RuleLimits, List<TypeRuleRequest>> paidWith = l -> List.of(
+                new TypeRuleRequest(paid.getId(), BigDecimal.TEN, null, false, null, null, null, null, l));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> service.validateRules(paidWith.apply(
+                limits(new BigDecimal("3"), new BigDecimal("2"), null, null, null, false, null)))).getMessage().contains("minimum days"));
+        assertThrows(IllegalArgumentException.class, () -> service.validateRules(paidWith.apply(
+                limits(null, null, null, List.of(paid.getId()), null, false, null)))); // blocks itself
+        assertThrows(IllegalArgumentException.class, () -> service.validateRules(paidWith.apply(
+                limits(null, null, null, null, new BigDecimal("2"), false, null)))); // min hours without hourly
+        assertThrows(IllegalArgumentException.class, () -> service.validateRules(paidWith.apply(
+                limits(null, null, null, null, null, false, "pdf, ../exe")))); // not an extension
+        assertThrows(IllegalArgumentException.class, () -> service.validateRules(List.of(
+                new TypeRuleRequest(unpaid.getId(), null, null, false, null, null, null, null,
+                        limits(null, null, "EARNED_ONLY", null, null, false, null)))));
+        // Earned-only paid leave needs no days.
+        assertEquals(1, service.validateRules(List.of(new TypeRuleRequest(paid.getId(), null, null, false, null, null, null, null,
+                limits(null, null, "EARNED_ONLY", null, null, false, null)))).size());
+    }
+
+    @Test
+    void compOff_isAlwaysEarnedOnly_whateverTheEditorSends() {
+        LeaveType compOff = LeaveType.builder().id(UUID.randomUUID()).code("COMP_OFF").name("Comp-Off").build();
+        assertEquals("EARNED_ONLY", LeavePlanService.modeOf(compOff, LeavePlanDtos.RuleLimits.DEFAULTS));
+        assertEquals("QUOTA", LeavePlanService.modeOf(paid, LeavePlanDtos.RuleLimits.DEFAULTS));
+        when(typeRepo.findById(compOff.getId())).thenReturn(Optional.of(compOff));
+        // A seeded Comp-Off rule (EARNED_ONLY, days 0) re-saves without days.
+        assertEquals(1, service.validateRules(List.of(new TypeRuleRequest(compOff.getId(), null, null, false, null, null, null, null,
+                limits(null, null, "EARNED_ONLY", null, null, false, null)))).size());
+    }
+
+    @Test
+    void savingLimits_writesThemAndTheClubbing_andAChangedLimitIsANewVersion() {
+        version(1, jan1(), null, "15");
+        var l = limits(null, new BigDecimal("3"), null, List.of(unpaid.getId()), null, false, " PDF,.jpg ");
+        service.saveVersion(plan.getId(), new SaveVersionRequest(LocalDate.of(year, 7, 1),
+                List.of(new TypeRuleRequest(paid.getId(), new BigDecimal("15"), "YEARLY", false, null, null, null, null, l)), false),
+                "hr@test.com");
+
+        LeavePlanVersion v2 = versions.stream().filter(v -> v.getVersion() == 2).findFirst().orElseThrow();
+        LeavePlanTypeRule saved = rules.stream().filter(r -> r.getVersionId().equals(v2.getId())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("3").compareTo(saved.getMaxDaysPerRequest()));
+        assertEquals("pdf,jpg", saved.getAttachmentAllowedTypes());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<com.nforce.onehr.entity.LeavePlanTypeClubbing>> clubbing = ArgumentCaptor.forClass(List.class);
+        verify(clubbingRepo, atLeastOnce()).saveAll(clubbing.capture());
+        assertEquals(unpaid.getId(), clubbing.getAllValues().stream().flatMap(List::stream).findFirst().orElseThrow().getBlockedLeaveTypeId());
     }
 
     @Test

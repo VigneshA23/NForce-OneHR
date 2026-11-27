@@ -26,4 +26,6 @@ public class LeaveTypeResponse {
     private java.util.List<String> planNames;
     /** Records referencing this type; above zero means it can only be deactivated, not deleted. */
     private Long referenceCount;
+    /** LV-02, {@code /types/mine} only: the caller's plan rules for this type, shown on the apply form; null = no limits. */
+    private LeaveRuleSummary rules;
 }

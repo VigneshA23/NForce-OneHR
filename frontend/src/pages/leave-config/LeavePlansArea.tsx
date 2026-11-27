@@ -16,19 +16,101 @@ import {
   Badge, ConfirmDialog, Dialog, DialogActions, FormError, Table, days, errMsg, fmtDate, hintS, inputS, labelS,
   primaryBtn, secondaryBtn, tdS, type Confirm,
 } from './leaveConfigUi';
-import { firstOfNextMonth, formsFor, isoDate, toPayload, type RuleForm } from './planRules';
+import {
+  firstOfNextMonth, formsFor, isoDate, limitsPayload, modeFor, ruleLines, summaryOf, toPayload, type LimitsForm, type RuleForm,
+} from './planRules';
 import type { Lookups } from './LeaveConfigSection';
 
 // ── Rule rows ──────────────────────────────────────────────────────────────────
 
-function RuleRow({ type, form, onChange, lookups, token, readOnly }: {
+/** LV-02: how the type may be requested — limits, notice, half/hourly, attachments, clubbing. */
+function RequestRules({ type, limits, onChange, allTypes, readOnly }: {
+  type: LeaveType; limits: LimitsForm; onChange(next: LimitsForm): void; allTypes: LeaveType[]; readOnly: boolean;
+}) {
+  const set = (patch: Partial<LimitsForm>) => onChange({ ...limits, ...patch });
+  const small: React.CSSProperties = { ...inputS, width: 96 };
+  const field = (key: keyof LimitsForm, label: string, placeholder: string, step = 0.5, disabled = false) => (
+    <div>
+      <label style={labelS}>{label}</label>
+      <input type="number" min={0} step={step} style={small} value={limits[key] as string} placeholder={placeholder}
+        disabled={readOnly || disabled} aria-label={`${type.name} ${label.toLowerCase()}`}
+        onChange={e => set({ [key]: e.target.value } as Partial<LimitsForm>)} />
+    </div>
+  );
+  const others = allTypes.filter(t => t.id !== type.id && (t.active || limits.notNextToTypeIds.includes(t.id)));
+  const row: React.CSSProperties = { display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 };
+  return (
+    <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 12px' }}>
+      <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Request rules</legend>
+      <div style={row}>
+        {field('minDaysPerRequest', 'Min days / request', 'None')}
+        {field('maxDaysPerRequest', 'Max days / request', 'None')}
+        {field('maxConsecutiveDays', 'Max days in a row', 'None')}
+        {field('maxRequestsPerMonth', 'Requests / month', 'Any', 1)}
+        {field('maxRequestsPerYear', 'Requests / year', 'Any', 1)}
+      </div>
+      <div style={row}>
+        {field('noticeDays', 'Notice (days)', 'None', 1)}
+        {field('noticeAppliesOverDays', 'Notice only over (days)', 'Always', 0.5, limits.noticeDays.trim() === '')}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+          <input type="checkbox" checked={limits.allowHalfDay} disabled={readOnly} onChange={e => set({ allowHalfDay: e.target.checked })} />
+          Half days allowed
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+          <input type="checkbox" checked={limits.allowHourly} disabled={readOnly}
+            onChange={e => set({ allowHourly: e.target.checked, minHours: e.target.checked ? limits.minHours : '' })} />
+          By the hour
+        </label>
+        {field('minHours', 'Min hours', 'Any', 0.5, !limits.allowHourly)}
+      </div>
+      <div style={row}>
+        {field('attachmentRequiredOverDays', 'Attachment needed over (days)', 'Never')}
+        <div>
+          <label style={labelS}>File types</label>
+          <input style={{ ...inputS, width: 150 }} value={limits.attachmentAllowedTypes} placeholder="Any, e.g. pdf, jpg"
+            disabled={readOnly} aria-label={`${type.name} attachment file types`}
+            onChange={e => set({ attachmentAllowedTypes: e.target.value })} />
+        </div>
+        {field('attachmentMaxMb', 'Max size (MB)', '10', 1)}
+      </div>
+      {others.length > 0 && (
+        <div>
+          <label style={labelS}>Can't be taken next to</label>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {others.map(o => (
+              <label key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+                <input type="checkbox" checked={limits.notNextToTypeIds.includes(o.id)} disabled={readOnly}
+                  onChange={e => set({
+                    notNextToTypeIds: e.target.checked
+                      ? [...limits.notNextToTypeIds, o.id]
+                      : limits.notNextToTypeIds.filter(id => id !== o.id),
+                  })} />
+                {o.name}
+              </label>
+            ))}
+          </div>
+          <div style={{ ...hintS, marginTop: 4 }}>Blocks a request that starts or ends next to one of these, with only weekly offs or holidays in between.</div>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+function RuleRow({ type, form, onChange, lookups, token, readOnly, allTypes }: {
   type: LeaveType; form: RuleForm; onChange(next: RuleForm): void; lookups: Lookups; token: string; readOnly: boolean;
+  allTypes: LeaveType[];
 }) {
   const [open, setOpen] = useState(false);
   const paid = type.classification === 'PAID';
   const annual = paid && type.entitlementBasis !== 'PER_OCCURRENCE';
   const set = (patch: Partial<RuleForm>) => onChange({ ...form, ...patch });
   const small: React.CSSProperties = { ...inputS, width: 96 };
+  const mode = modeFor(type, form.limits);
+  const compOff = type.code === 'COMP_OFF';
+  const limits = limitsPayload(type, form.limits, mode);
+  const rulesText = typeof limits === 'string' ? []
+    : ruleLines(summaryOf(limits, id => allTypes.find(t => t.id === id)?.name ?? 'another type'))
+      .filter(l => !l.startsWith('Unlimited') && !l.startsWith('Only days'));
   return (
     <div data-testid={`plan-rule-${type.code}`} style={{ border: '1px solid var(--line)', borderRadius: 8, marginBottom: 8, background: form.included ? 'var(--panel)' : 'transparent' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', flexWrap: 'wrap' }}>
@@ -41,14 +123,24 @@ function RuleRow({ type, form, onChange, lookups, token, readOnly }: {
         </label>
         {form.included && (
           <>
-            {paid ? (
+            {annual && !compOff && (
+              <select style={{ ...inputS, width: 150 }} value={mode} disabled={readOnly} aria-label={`${type.name} entitlement`}
+                onChange={e => set({ limits: { ...form.limits, entitlementMode: e.target.value as LimitsForm['entitlementMode'] } })}>
+                <option value="QUOTA">Fixed days</option>
+                <option value="UNLIMITED">Unlimited</option>
+                <option value="EARNED_ONLY">Earned only</option>
+              </select>
+            )}
+            {paid && mode === 'QUOTA' ? (
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)' }}>
                 <input type="number" min={0} max={999} step={0.5} style={small} value={form.days} disabled={readOnly}
                   aria-label={`${type.name} days`} onChange={e => set({ days: e.target.value })} />
                 {annual ? 'days / year' : 'days / occurrence'}
               </label>
-            ) : <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Unlimited</span>}
-            {annual && (
+            ) : !paid ? <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Unlimited</span>
+              : mode === 'EARNED_ONLY' ? <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>Only days credited by HR or earned</span>
+                : <span style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No balance is deducted</span>}
+            {annual && mode === 'QUOTA' && (
               <select style={{ ...inputS, width: 150 }} value={form.creditFrequency} disabled={readOnly} aria-label={`${type.name} crediting`}
                 onChange={e => set({ creditFrequency: e.target.value as RuleForm['creditFrequency'] })}>
                 <option value="MONTHLY">Monthly (1st)</option>
@@ -65,14 +157,16 @@ function RuleRow({ type, form, onChange, lookups, token, readOnly }: {
       {form.included && !open && (
         <div style={{ padding: '0 12px 10px 36px', fontSize: 11.5, color: 'var(--txt-dim)' }}>
           Applies to: {appliesToSummary(form, lookups.departments, lookups.locations)}
-          {annual && (form.carryForwardEnabled
+          {annual && !compOff && mode !== 'UNLIMITED' && (form.carryForwardEnabled
             ? ` · carries forward ${form.carryForwardMaxDays ? `up to ${form.carryForwardMaxDays} day(s)` : 'all unused days'}${form.carryForwardExpiryMonths ? `, expiring after ${form.carryForwardExpiryMonths} month(s)` : ''}`
             : ' · unused days lapse at year end')}
+          {rulesText.length > 0 && ` · ${rulesText.join(' · ')}`}
         </div>
       )}
       {form.included && open && (
         <div style={{ padding: '4px 12px 4px 36px' }}>
-          {annual && (
+          <RequestRules type={type} limits={form.limits} onChange={l => set({ limits: l })} allTypes={allTypes} readOnly={readOnly} />
+          {annual && mode !== 'UNLIMITED' && (
             <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 12px' }}>
               <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Carry-forward</legend>
               <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -221,7 +315,7 @@ function PlanEditor({ planId, types, token, canConfigure, lookups, onClose, onSa
           {forms.map((f, i) => {
             const t = typeById.get(f.leaveTypeId);
             return t ? (
-              <RuleRow key={f.leaveTypeId} type={t} form={f} lookups={lookups} token={token} readOnly={readOnly}
+              <RuleRow key={f.leaveTypeId} type={t} form={f} lookups={lookups} token={token} readOnly={readOnly} allTypes={types}
                 onChange={next => setForms(forms.map((x, j) => (j === i ? next : x)))} />
             ) : null;
           })}

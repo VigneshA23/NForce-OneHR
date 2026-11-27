@@ -45,6 +45,33 @@ export interface LeaveType {
   planNames?: string[];
   /** Records still using the type: above zero means deactivate, not delete. */
   referenceCount?: number;
+  /** LV-02, listMyTypes only: the caller's plan rules for this type (null = no limits). */
+  rules?: LeaveRuleSummary | null;
+}
+
+/** LV-02: QUOTA = the plan's days; UNLIMITED = paid, nothing deducted; EARNED_ONLY = only what HR credits. */
+export type EntitlementMode = 'QUOTA' | 'UNLIMITED' | 'EARNED_ONLY';
+
+/** LV-02: a type's rules as the apply form shows them. Null numbers = no limit. */
+export interface LeaveRuleSummary {
+  entitlementMode: EntitlementMode;
+  minDaysPerRequest: number | null;
+  maxDaysPerRequest: number | null;
+  maxRequestsPerMonth: number | null;
+  maxRequestsPerYear: number | null;
+  maxConsecutiveDays: number | null;
+  noticeDays: number | null;
+  noticeAppliesOverDays: number | null;
+  allowHalfDay: boolean;
+  allowHourly: boolean;
+  minHours: number | null;
+  attachmentRequiredOverDays: number | null;
+  /** Lower-case extensions, e.g. ["pdf", "jpg"]; empty = any file. */
+  attachmentAllowedTypes: string[];
+  attachmentMaxMb: number | null;
+  /** Leave types that can't be taken directly before or after this one. */
+  notNextTo: string[];
+  hoursPerDay: number;
 }
 
 export interface CreateLeaveTypePayload {
@@ -119,6 +146,11 @@ export interface LeaveRequestRecord {
   halfDay: boolean;
   halfDaySession: 'FIRST_HALF' | 'SECOND_HALF' | null;
   totalDays: number;
+  durationType?: 'FULL_DAY' | 'HALF_DAY' | 'HOURLY' | 'QUARTER_DAY';
+  /** LV-02: hours of an hourly request. */
+  hours?: number | null;
+  /** LV-02: the attached file's name (download with leaveApi.downloadAttachment); null = none. */
+  attachmentName?: string | null;
   /** Leave year -> days, only for a request spanning two leave years (each part uses its own year's balance). */
   daysByYear?: Record<string, number> | null;
   /** PENALIZED = read-only row synthesized from an attendance penalty's leave deduction (own requests only). */
@@ -136,7 +168,18 @@ export interface SubmitLeaveRequestPayload {
   endDate: string;
   halfDay: boolean;
   halfDaySession?: 'FIRST_HALF' | 'SECOND_HALF';
+  /** LV-02: hours on a single day (hourly leave); omit for a full or half day. */
+  hours?: number | null;
   reason: string;
+}
+
+/** JSON alone, or multipart ("request" JSON part + "attachment" file) when there is a file. */
+function requestInit(method: string, payload: SubmitLeaveRequestPayload, token: string, file?: File | null): RequestInit {
+  if (!file) return { method, headers: authHeaders(token), body: JSON.stringify(payload) };
+  const form = new FormData();
+  form.append('request', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+  form.append('attachment', file);
+  return { method, headers: { Authorization: `Bearer ${token}` }, body: form };
 }
 
 export const leaveApi = {
@@ -156,12 +199,24 @@ export const leaveApi = {
   listTeamBalances: (token: string, year?: number) =>
     fetch(`${BASE}/balances/team${year != null ? `?year=${year}` : ''}`, { headers: authHeaders(token) }).then(handle<LeaveBalance[]>),
 
-  submit: (payload: SubmitLeaveRequestPayload, token: string) =>
-    fetch(`${BASE}/requests`, { method: 'POST', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),
+  submit: (payload: SubmitLeaveRequestPayload, token: string, file?: File | null) =>
+    fetch(`${BASE}/requests`, requestInit('POST', payload, token, file)).then(handle<LeaveRequestRecord>),
 
-  /** Edit a still-pending request — own requests only, PENDING status only (server-enforced). */
-  update: (id: string, payload: SubmitLeaveRequestPayload, token: string) =>
-    fetch(`${BASE}/requests/${id}`, { method: 'PATCH', headers: authHeaders(token), body: JSON.stringify(payload) }).then(handle<LeaveRequestRecord>),
+  /** Edit a still-pending request — own requests only, PENDING status only (server-enforced). A file replaces the attachment. */
+  update: (id: string, payload: SubmitLeaveRequestPayload, token: string, file?: File | null) =>
+    fetch(`${BASE}/requests/${id}`, requestInit('PATCH', payload, token, file)).then(handle<LeaveRequestRecord>),
+
+  /** LV-02: the request's attachment as a file download (the requester, or whoever may decide it). */
+  downloadAttachment: async (id: string, fileName: string, token: string) => {
+    const res = await fetch(`${BASE}/requests/${id}/attachment`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) await handle(res);
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 
   listMine: (token: string) =>
     fetch(`${BASE}/requests/mine`, { headers: authHeaders(token) }).then(handle<LeaveRequestRecord[]>),
@@ -239,6 +294,28 @@ export interface PlanTypeRule {
   carryForwardExpiryMonths: number | null;
   carryForwardPriority: CarryForwardPriority;
   eligibility: EligibilityConfig;
+  limits: PlanRuleLimits;
+}
+
+/** LV-02: how a type may be requested under a plan. Null numbers = no limit. */
+export interface PlanRuleLimits {
+  entitlementMode: EntitlementMode;
+  minDaysPerRequest: number | null;
+  maxDaysPerRequest: number | null;
+  maxRequestsPerMonth: number | null;
+  maxRequestsPerYear: number | null;
+  maxConsecutiveDays: number | null;
+  noticeDays: number | null;
+  noticeAppliesOverDays: number | null;
+  allowHalfDay: boolean;
+  allowHourly: boolean;
+  minHours: number | null;
+  attachmentRequiredOverDays: number | null;
+  /** Comma-separated extensions, e.g. "pdf,jpg"; blank = any. */
+  attachmentAllowedTypes: string | null;
+  attachmentMaxMb: number | null;
+  /** Leave type ids that can't be taken directly before or after this type. */
+  notNextToTypeIds: string[];
 }
 
 export interface LeavePlanVersionDetail {
@@ -258,6 +335,7 @@ export interface PlanTypeRulePayload {
   carryForwardExpiryMonths?: number | null;
   carryForwardPriority?: CarryForwardPriority;
   eligibility?: EligibilityConfig;
+  limits?: PlanRuleLimits;
 }
 
 export type PlanSource = 'ALLOCATION' | 'RULE' | 'DEFAULT';

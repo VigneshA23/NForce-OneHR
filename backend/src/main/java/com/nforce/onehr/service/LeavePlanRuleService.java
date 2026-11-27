@@ -3,6 +3,7 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.entity.AssignmentRuleAssignment;
 import com.nforce.onehr.entity.LeavePlan;
 import com.nforce.onehr.entity.LeavePlanAllocation;
+import com.nforce.onehr.entity.LeavePlanTypeClubbing;
 import com.nforce.onehr.entity.LeavePlanTypeEligibility;
 import com.nforce.onehr.entity.LeavePlanTypeOverride;
 import com.nforce.onehr.entity.LeavePlanTypeRule;
@@ -10,6 +11,7 @@ import com.nforce.onehr.entity.LeavePlanVersion;
 import com.nforce.onehr.repository.AssignmentRuleAssignmentRepository;
 import com.nforce.onehr.repository.LeavePlanAllocationRepository;
 import com.nforce.onehr.repository.LeavePlanRepository;
+import com.nforce.onehr.repository.LeavePlanTypeClubbingRepository;
 import com.nforce.onehr.repository.LeavePlanTypeEligibilityRepository;
 import com.nforce.onehr.repository.LeavePlanTypeOverrideRepository;
 import com.nforce.onehr.repository.LeavePlanTypeRuleRepository;
@@ -50,6 +52,7 @@ public class LeavePlanRuleService {
     private final LeavePlanTypeRuleRepository ruleRepository;
     private final LeavePlanTypeEligibilityRepository eligibilityRepository;
     private final LeavePlanTypeOverrideRepository overrideRepository;
+    private final LeavePlanTypeClubbingRepository clubbingRepository;
     private final LeavePlanAllocationRepository allocationRepository;
     private final AssignmentRuleAssignmentRepository ruleAssignmentRepository;
 
@@ -125,21 +128,42 @@ public class LeavePlanRuleService {
                 : eligibilityRepository.findByRuleIdIn(ruleIds).stream().collect(Collectors.groupingBy(LeavePlanTypeEligibility::getRuleId));
         Map<UUID, List<LeavePlanTypeOverride>> overrides = ruleIds.isEmpty() ? Map.of()
                 : overrideRepository.findByRuleIdIn(ruleIds).stream().collect(Collectors.groupingBy(LeavePlanTypeOverride::getRuleId));
+        Map<UUID, Set<UUID>> clubbing = new HashMap<>();
+        if (!ruleIds.isEmpty()) {
+            for (LeavePlanTypeClubbing c : clubbingRepository.findByRuleIdIn(ruleIds)) {
+                clubbing.computeIfAbsent(c.getRuleId(), k -> new HashSet<>()).add(c.getBlockedLeaveTypeId());
+            }
+        }
 
         Map<UUID, Map<UUID, LeavePlanCatalog.TypeRule>> byVersion = new HashMap<>();
         for (LeavePlanTypeRule r : rules) {
             LeavePlanCatalog.TypeRule tr = toTypeRule(r, planOfVersion.get(r.getVersionId()),
-                    eligibility.getOrDefault(r.getId(), List.of()), overrides.getOrDefault(r.getId(), List.of()));
+                    eligibility.getOrDefault(r.getId(), List.of()), overrides.getOrDefault(r.getId(), List.of()),
+                    clubbing.getOrDefault(r.getId(), Set.of()));
             byVersion.computeIfAbsent(r.getVersionId(), k -> new HashMap<>()).put(r.getLeaveTypeId(), tr);
         }
         return new Definitions(plans, versionsByPlan, byVersion);
     }
 
     static LeavePlanCatalog.TypeRule toTypeRule(LeavePlanTypeRule r, UUID planId, List<LeavePlanTypeEligibility> eligibility,
-                                                List<LeavePlanTypeOverride> overrides) {
+                                                List<LeavePlanTypeOverride> overrides, Set<UUID> clubbingBlocked) {
         return new LeavePlanCatalog.TypeRule(r.getId(), planId, r.getVersionId(), r.getLeaveTypeId(), r.getDays(),
                 r.getCreditFrequency(), r.isCarryForwardEnabled(), r.getCarryForwardMaxDays(), r.getCarryForwardExpiryMonths(),
-                r.getCarryForwardPriority(), eligibilityRules(eligibility, overrides));
+                r.getCarryForwardPriority(), eligibilityRules(eligibility, overrides), limitsOf(r, clubbingBlocked));
+    }
+
+    static LeavePlanCatalog.Limits limitsOf(LeavePlanTypeRule r, Set<UUID> clubbingBlocked) {
+        return new LeavePlanCatalog.Limits(r.getEntitlementMode() == null ? LeavePlanTypeRule.MODE_QUOTA : r.getEntitlementMode(),
+                r.getMinDaysPerRequest(), r.getMaxDaysPerRequest(), r.getMaxRequestsPerMonth(), r.getMaxRequestsPerYear(),
+                r.getMaxConsecutiveDays(), r.getNoticeDays(), r.getNoticeAppliesOverDays(), r.isAllowHalfDay(), r.isAllowHourly(),
+                r.getMinHours(), r.getAttachmentRequiredOverDays(), r.getAttachmentAllowedTypes(), r.getAttachmentMaxMb(),
+                Set.copyOf(clubbingBlocked));
+    }
+
+    /** The leave types a rule blocks from being taken adjacent to it (the plan editor). */
+    @Transactional(readOnly = true)
+    public List<UUID> clubbingOf(UUID ruleId) {
+        return clubbingRepository.findByRuleIdIn(List.of(ruleId)).stream().map(LeavePlanTypeClubbing::getBlockedLeaveTypeId).toList();
     }
 
     static LeaveEligibilityService.Rules eligibilityRules(List<LeavePlanTypeEligibility> eligibility,
