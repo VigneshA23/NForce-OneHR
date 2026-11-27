@@ -70,7 +70,7 @@ public class AssignmentRuleService {
                     .mapToInt(AssignmentRule::getPriority).max().orElse(0) + 10);
         }
         rule = ruleRepository.save(rule);
-        auditService.log(actor.getUserId(), "ASSIGNMENT_RULE_CREATED", rule.getId(), null, rule.getDomain() + ":" + rule.getName());
+        auditService.log(actor.getUserId(), "ASSIGNMENT_RULE_CREATED", rule.getId(), null, auditJson(rule));
         reevaluate(rule.getDomain());
         return toDtos(List.of(rule)).get(0);
     }
@@ -84,7 +84,7 @@ public class AssignmentRuleService {
         }
         apply(rule, req);
         rule = ruleRepository.save(rule);
-        auditService.log(actor.getUserId(), "ASSIGNMENT_RULE_UPDATED", rule.getId(), null, rule.getDomain() + ":" + rule.getName());
+        auditService.log(actor.getUserId(), "ASSIGNMENT_RULE_UPDATED", rule.getId(), null, auditJson(rule));
         reevaluate(rule.getDomain());
         return toDtos(List.of(rule)).get(0);
     }
@@ -95,7 +95,7 @@ public class AssignmentRuleService {
         Employee actor = requirePermission(actorEmail, rule.getDomain(), "DELETE");
         ruleRepository.delete(rule);
         ruleRepository.flush();
-        auditService.log(actor.getUserId(), "ASSIGNMENT_RULE_DELETED", id, rule.getDomain() + ":" + rule.getName(), null);
+        auditService.log(actor.getUserId(), "ASSIGNMENT_RULE_DELETED", id, auditJson(rule), null);
         reevaluate(rule.getDomain());
     }
 
@@ -114,7 +114,7 @@ public class AssignmentRuleService {
             p += 10;
         }
         ruleRepository.saveAll(byId.values());
-        auditService.log(actor.getUserId(), "ASSIGNMENT_RULES_REORDERED", null, null, req.getDomain());
+        auditService.log(actor.getUserId(), "ASSIGNMENT_RULES_REORDERED", null, null, json(java.util.Map.of("domain", req.getDomain())));
         reevaluate(req.getDomain());
         return toDtos(ruleRepository.findByDomainOrderByPriorityAscCreatedAtAsc(req.getDomain()));
     }
@@ -124,7 +124,7 @@ public class AssignmentRuleService {
     public ReevaluateResultResponse reevaluateAll(String actorEmail, String domain) {
         Employee actor = requirePermission(actorEmail, domain, "EDIT");
         int changed = reevaluate(domain);
-        auditService.log(actor.getUserId(), "ASSIGNMENT_RULES_REEVALUATED", null, null, domain + ":" + changed);
+        auditService.log(actor.getUserId(), "ASSIGNMENT_RULES_REEVALUATED", null, null, json(java.util.Map.of("domain", domain, "changed", changed)));
         return ReevaluateResultResponse.builder().domain(domain).changed(changed).build();
     }
 
@@ -180,6 +180,30 @@ public class AssignmentRuleService {
         if (req.getActive() != null) rule.setActive(req.getActive());
     }
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper AUDIT_JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /**
+     * audit_log.before_state/after_state are JSON columns: a bare "domain:name" string made every rule
+     * create/update/delete fail with a 500 (invalid input syntax for type json).
+     */
+    static String json(java.util.Map<String, Object> fields) {
+        try {
+            return AUDIT_JSON.writeValueAsString(fields);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static String auditJson(AssignmentRule r) {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("domain", r.getDomain());
+        m.put("name", r.getName());
+        m.put("targetId", r.getTargetId() == null ? null : r.getTargetId().toString());
+        m.put("priority", r.getPriority());
+        m.put("active", r.isActive());
+        return json(m);
+    }
+
     private AssignmentRule require(UUID id) {
         return ruleRepository.findById(id).orElseThrow(() -> new IllegalArgumentException("Assignment rule not found"));
     }
@@ -189,7 +213,7 @@ public class AssignmentRuleService {
                 .orElseThrow(() -> new IllegalArgumentException("Auto-assignment is not available for " + domain + " yet"));
         Employee actor = employeeRepository.findByUser_Email(actorEmail)
                 .orElseThrow(() -> new IllegalArgumentException("No employee profile found for this account."));
-        String authority = target.permissionModule() + ":" + action + ":ALL";
+        String authority = target.permissionModule() + ":" + target.permissionAction(action) + ":ALL";
         if (!effectivePermissionService.hasAuthority(actor.getUser(), authority)) {
             throw new AccessDeniedException("Missing " + authority);
         }

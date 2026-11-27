@@ -4,12 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.CreateLeaveTypeRequest;
 import com.nforce.onehr.dto.LeaveConfigDtos.BalanceAdjustmentRequest;
-import com.nforce.onehr.dto.LeaveConfigDtos.CarryForwardSettingsRequest;
-import com.nforce.onehr.dto.LeaveConfigDtos.EntitlementChangeRequest;
 import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.dto.UpdateLeaveTypeRequest;
 import com.nforce.onehr.entity.LeaveBalance;
-import com.nforce.onehr.entity.LeaveEntitlementPolicy;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.LeaveTypeClassification;
 import com.nforce.onehr.entity.User;
@@ -39,7 +36,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-/** V310 Leave Configuration: types, deletion safeguards, entitlements, carry-forward settings, audited adjustments. */
+/** Leave Configuration: the type catalogue (rules live in plans since LV-01), deletion safeguards, audited adjustments. */
 @ExtendWith(MockitoExtension.class)
 class LeaveTypeServiceTest {
 
@@ -53,6 +50,7 @@ class LeaveTypeServiceTest {
     @Mock private AuditService auditService;
     @Mock private LeaveYearEndService yearEndService;
     @Mock private LeaveAccrualService accrual;
+    @Mock private com.nforce.onehr.repository.LeavePlanTypeRuleRepository planRuleRepo;
 
     private LeaveTypeService service;
     private final User admin = User.builder().id(UUID.randomUUID()).email("hr@test.com").build();
@@ -62,7 +60,7 @@ class LeaveTypeServiceTest {
     void setUp() {
         LeaveBalanceService balances = TestLeaveBalances.over(typeRepo, balanceRepo, requestRepo, policyRepo, occurrenceRepo,
                 new AttendanceProperties());
-        service = new LeaveTypeService(typeRepo, policyRepo, balanceRepo, balances, yearEndService, accrual, TestLeaveBalances.everyoneEligible(), userRepo, employeeRepo,
+        service = new LeaveTypeService(typeRepo, planRuleRepo, balanceRepo, balances, yearEndService, accrual, TestLeaveBalances.everyoneEligible(), userRepo, employeeRepo,
                 auditService, new AuditSnapshotSerializer(new ObjectMapper()));
         annual = LeaveType.builder().id(UUID.randomUUID()).code("ANNUAL").name("Annual Leave").build();
         lenient().when(userRepo.findByEmail("hr@test.com")).thenReturn(Optional.of(admin));
@@ -74,49 +72,43 @@ class LeaveTypeServiceTest {
         lenient().when(typeRepo.findById(annual.getId())).thenReturn(Optional.of(annual));
     }
 
-    private CreateLeaveTypeRequest create(String code, String classification, String basis, String days) {
+    private CreateLeaveTypeRequest create(String code, String classification, String basis) {
         CreateLeaveTypeRequest r = new CreateLeaveTypeRequest();
         r.setCode(code);
         r.setName(code + " Leave");
         r.setClassification(classification);
         r.setEntitlementBasis(basis);
-        r.setEntitlementDays(days == null ? null : new BigDecimal(days));
         return r;
     }
 
     // ── create / edit ──
 
     @Test
-    void createPaidType_storesItsEntitlementAsAPolicy_andAudits() {
-        LeaveTypeResponse r = service.create(create("study", "PAID", null, "15"), "hr@test.com");
+    void createPaidType_isOnlyACatalogueEntry_inNoPlanYet_andAudited() {
+        LeaveTypeResponse r = service.create(create("study", "PAID", null), "hr@test.com");
 
         assertEquals("STUDY", r.getCode());
         assertEquals(LeaveType.BASIS_ANNUAL, r.getEntitlementBasis());
-        ArgumentCaptor<LeaveEntitlementPolicy> p = ArgumentCaptor.forClass(LeaveEntitlementPolicy.class);
-        verify(policyRepo).save(p.capture());
-        assertEquals(0, new BigDecimal("15").compareTo(p.getValue().getDays()));
+        assertEquals(List.of(), r.getPlanNames()); // LV-01: nobody can use it until a plan includes it
         verify(auditService).log(eq(admin.getId()), eq("LEAVE_TYPE_CREATED"), any(), isNull(), any());
     }
 
     @Test
-    void createUnpaidType_isUnlimited_noPolicy() {
-        LeaveTypeResponse r = service.create(create("UNPAID2", "UNPAID", null, null), "hr@test.com");
+    void createUnpaidType_isUnlimited() {
+        LeaveTypeResponse r = service.create(create("UNPAID2", "UNPAID", null), "hr@test.com");
         assertEquals("UNLIMITED", r.getEntitlementBasis());
-        assertNull(r.getCurrentEntitlementDays());
-        verify(policyRepo, never()).save(any());
     }
 
     @Test
     void duplicateCode_isRejected() {
         when(typeRepo.existsByCodeIgnoreCase("ANNUAL")).thenReturn(true);
-        assertThrows(IllegalArgumentException.class, () -> service.create(create("annual", "PAID", null, "15"), "hr@test.com"));
+        assertThrows(IllegalArgumentException.class, () -> service.create(create("annual", "PAID", null), "hr@test.com"));
         verify(typeRepo, never()).save(any());
     }
 
     @Test
-    void paidTypeWithoutEntitlement_isRejected_andPerOccurrenceNeedsAWindow() {
-        assertThrows(IllegalArgumentException.class, () -> service.create(create("X", "PAID", null, null), "hr@test.com"));
-        assertThrows(IllegalArgumentException.class, () -> service.create(create("MAT2", "PAID", "PER_OCCURRENCE", "182"), "hr@test.com"));
+    void perOccurrenceType_needsAWindow() {
+        assertThrows(IllegalArgumentException.class, () -> service.create(create("MAT2", "PAID", "PER_OCCURRENCE"), "hr@test.com"));
     }
 
     @Test
@@ -138,18 +130,17 @@ class LeaveTypeServiceTest {
     }
 
     @Test
-    void unpaidToPaid_needsAnEntitlement_whichBecomesItsPolicy() {
+    void paidAndUnpaid_canOnlySwitchWhileNothingUsesTheType() {
         LeaveType lop = LeaveType.builder().id(UUID.randomUUID()).code("LOP").name("LOP").classification("UNPAID").build();
         when(typeRepo.findById(lop.getId())).thenReturn(Optional.of(lop));
         UpdateLeaveTypeRequest req = new UpdateLeaveTypeRequest();
         req.setClassification(LeaveTypeClassification.PAID);
-        assertThrows(IllegalArgumentException.class, () -> service.update(lop.getId(), req, "hr@test.com"));
+        when(typeRepo.countReferences(lop.getId(), "LOP")).thenReturn(2L);
+        assertThrows(IllegalStateException.class, () -> service.update(lop.getId(), req, "hr@test.com"));
 
-        lop.setClassification("UNPAID");
-        req.setEntitlementDays(new BigDecimal("12"));
+        when(typeRepo.countReferences(lop.getId(), "LOP")).thenReturn(0L);
         service.update(lop.getId(), req, "hr@test.com");
         assertTrue(lop.isPaid());
-        verify(policyRepo).save(argThat(p -> new BigDecimal("12").compareTo(p.getDays()) == 0));
     }
 
     @Test
@@ -193,65 +184,6 @@ class LeaveTypeServiceTest {
         verify(auditService).log(eq(admin.getId()), eq("LEAVE_TYPE_REACTIVATED"), eq(annual.getId()), any(), any());
     }
 
-    // ── carry-forward ──
-
-    @Test
-    void carryForward_isRefusedForUnpaidAndMaternity_butAllowedForRegularPaid() {
-        LeaveType lop = LeaveType.builder().id(UUID.randomUUID()).code("LOP").name("LOP").classification("UNPAID").build();
-        LeaveType maternity = LeaveType.builder().id(UUID.randomUUID()).code("MATERNITY").name("Maternity")
-                .entitlementBasis(LeaveType.BASIS_PER_OCCURRENCE).occurrenceWindowMonths(12).build();
-        when(typeRepo.findById(lop.getId())).thenReturn(Optional.of(lop));
-        when(typeRepo.findById(maternity.getId())).thenReturn(Optional.of(maternity));
-        CarryForwardSettingsRequest on = new CarryForwardSettingsRequest(true, new BigDecimal("5"), 3, "CARRY_FORWARD_FIRST");
-
-        assertThrows(IllegalArgumentException.class, () -> service.updateCarryForward(lop.getId(), on, "hr@test.com"));
-        assertThrows(IllegalArgumentException.class, () -> service.updateCarryForward(maternity.getId(), on, "hr@test.com"));
-
-        service.updateCarryForward(annual.getId(), on, "hr@test.com");
-        assertTrue(annual.isCarryForwardEnabled());
-        assertEquals(0, new BigDecimal("5").compareTo(annual.getCarryForwardMaxDays()));
-        assertEquals(3, annual.getCarryForwardExpiryMonths());
-        verify(auditService).log(eq(admin.getId()), eq("LEAVE_CARRY_FORWARD_CONFIG_CHANGED"), eq(annual.getId()), any(), any());
-    }
-
-    @Test
-    void disablingCarryForward_neverTouchesBalances() {
-        annual.setCarryForwardEnabled(true);
-        service.updateCarryForward(annual.getId(), new CarryForwardSettingsRequest(false, null, null, null), "hr@test.com");
-        assertFalse(annual.isCarryForwardEnabled());
-        verifyNoInteractions(balanceRepo);
-    }
-
-    // ── entitlements ──
-
-    @Test
-    void entitlementChange_leavesExistingBalancesAlone_unlessAskedTo_andThenOnlyTheYearsItGoverns() {
-        when(policyRepo.findByLeaveTypeIdAndEffectiveYear(annual.getId(), 2027)).thenReturn(Optional.empty());
-        service.changeEntitlement(annual.getId(), new EntitlementChangeRequest(2027, new BigDecimal("18"), "MONTHLY", false), "hr@test.com");
-        verify(accrual, never()).recreditExisting(any(), anyInt(), anyInt());
-        ArgumentCaptor<LeaveEntitlementPolicy> saved = ArgumentCaptor.forClass(LeaveEntitlementPolicy.class);
-        verify(policyRepo).save(saved.capture());
-        assertEquals("MONTHLY", saved.getValue().getCreditFrequency());
-
-        when(policyRepo.findByLeaveTypeIdOrderByEffectiveYearDesc(annual.getId())).thenReturn(List.of(
-                LeaveEntitlementPolicy.builder().effectiveYear(2028).days(new BigDecimal("20")).build(),
-                LeaveEntitlementPolicy.builder().effectiveYear(2027).days(new BigDecimal("18")).build()));
-        service.changeEntitlement(annual.getId(), new EntitlementChangeRequest(2027, new BigDecimal("18"), null, true), "hr@test.com");
-        verify(accrual).recreditExisting(annual, 2027, 2028); // 2028 onwards is governed by the later policy
-        verify(auditService, times(2)).log(eq(admin.getId()), eq("LEAVE_ENTITLEMENT_CHANGED"), eq(annual.getId()), any(), any());
-    }
-
-    @Test
-    void entitlementChange_withoutFrequency_keepsTheFrequencyInForce() {
-        when(accrual.policyFor(annual, 2027)).thenReturn(Optional.of(LeaveEntitlementPolicy.builder()
-                .effectiveYear(2000).days(new BigDecimal("15")).creditFrequency("MONTHLY").build()));
-        when(policyRepo.findByLeaveTypeIdAndEffectiveYear(annual.getId(), 2027)).thenReturn(Optional.empty());
-        service.changeEntitlement(annual.getId(), new EntitlementChangeRequest(2027, new BigDecimal("12"), null, false), "hr@test.com");
-        ArgumentCaptor<LeaveEntitlementPolicy> saved = ArgumentCaptor.forClass(LeaveEntitlementPolicy.class);
-        verify(policyRepo).save(saved.capture());
-        assertEquals("MONTHLY", saved.getValue().getCreditFrequency());
-    }
-
     // ── built-in types ──
 
     @Test
@@ -270,14 +202,6 @@ class LeaveTypeServiceTest {
         service.update(paid.getId(), rename, "hr@test.com");
         assertEquals("Earned Leave", paid.getName());
         assertTrue(paid.isPaid());
-    }
-
-    @Test
-    void unpaidLeave_hasNoEntitlementToConfigure() {
-        LeaveType lop = LeaveType.builder().id(UUID.randomUUID()).code("LOP").name("LOP").classification("UNPAID").build();
-        when(typeRepo.findById(lop.getId())).thenReturn(Optional.of(lop));
-        assertThrows(IllegalArgumentException.class,
-                () -> service.changeEntitlement(lop.getId(), new EntitlementChangeRequest(2027, BigDecimal.TEN, null, false), "hr@test.com"));
     }
 
     // ── manual adjustment ──

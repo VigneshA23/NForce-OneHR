@@ -41,13 +41,8 @@ export interface LeaveType {
   systemKey?: 'PAID' | 'UNPAID' | null;
   // Filled only by the Leave Configuration listing (leaveConfigApi.listTypes).
   occurrenceWindowMonths?: number | null;
-  currentEntitlementDays?: number | null;
-  currentCreditFrequency?: CreditFrequency | null;
-  eligibility?: EligibilityConfig | null;
-  carryForwardEnabled?: boolean;
-  carryForwardMaxDays?: number | null;
-  carryForwardExpiryMonths?: number | null;
-  carryForwardPriority?: CarryForwardPriority;
+  /** LV-01: the leave plans that include this type (quotas and rules live there); empty = nobody can use it. */
+  planNames?: string[];
   /** Records still using the type: above zero means deactivate, not delete. */
   referenceCount?: number;
 }
@@ -57,18 +52,15 @@ export interface CreateLeaveTypePayload {
   name: string;
   classification: LeaveTypeClassification;
   entitlementBasis?: 'ANNUAL' | 'PER_OCCURRENCE';
-  entitlementDays?: number;
-  creditFrequency?: CreditFrequency;
   occurrenceWindowMonths?: number;
 }
 
 export interface UpdateLeaveTypePayload {
   name?: string;
+  /** Only while nothing uses the type yet. */
   classification?: LeaveTypeClassification;
   entitlementBasis?: 'ANNUAL' | 'PER_OCCURRENCE';
   occurrenceWindowMonths?: number;
-  /** Only used when an unpaid type becomes paid and has no entitlement yet. */
-  entitlementDays?: number;
 }
 
 export interface LeaveBalance {
@@ -200,20 +192,107 @@ export const leaveApi = {
 
 const CONFIG = `${API_ORIGIN}/api/leave-config`;
 
-export interface EntitlementPolicy {
+// ── LV-01 Leave Plans ──
+
+export interface LeavePlanSummary {
   id: string;
-  effectiveYear: number;
-  days: number;
-  creditFrequency: CreditFrequency;
+  name: string;
+  description: string | null;
+  leaveYearStartMonth: number;
+  status: 'ACTIVE' | 'INACTIVE';
+  orgDefault: boolean;
+  currentVersion: number | null;
+  currentVersionFrom: string | null;
+  leaveTypeCount: number;
+  /** Employees on the plan today (allocation, rule or default). */
+  employeeCount: number;
+  updatedAt: string;
+}
+
+export interface LeavePlanVersionSummary {
+  id: string;
+  version: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  status: 'PAST' | 'CURRENT' | 'SCHEDULED';
   createdByName: string;
   createdAt: string;
 }
 
-export interface CarryForwardSettings {
-  enabled: boolean;
-  maxDays: number | null;
-  expiryMonths: number | null;
-  priority: CarryForwardPriority;
+export interface LeavePlanDetail {
+  plan: LeavePlanSummary;
+  versions: LeavePlanVersionSummary[];
+}
+
+/** One leave type inside a plan version. */
+export interface PlanTypeRule {
+  leaveTypeId: string;
+  leaveTypeCode: string;
+  leaveTypeName: string;
+  classification: LeaveTypeClassification;
+  entitlementBasis: EntitlementBasis;
+  leaveTypeActive: boolean;
+  days: number | null;
+  creditFrequency: CreditFrequency | null;
+  carryForwardEnabled: boolean;
+  carryForwardMaxDays: number | null;
+  carryForwardExpiryMonths: number | null;
+  carryForwardPriority: CarryForwardPriority;
+  eligibility: EligibilityConfig;
+}
+
+export interface LeavePlanVersionDetail {
+  planId: string;
+  planName: string;
+  version: LeavePlanVersionSummary;
+  rules: PlanTypeRule[];
+}
+
+/** What the plan editor sends for one leave type. */
+export interface PlanTypeRulePayload {
+  leaveTypeId: string;
+  days?: number | null;
+  creditFrequency?: CreditFrequency | null;
+  carryForwardEnabled: boolean;
+  carryForwardMaxDays?: number | null;
+  carryForwardExpiryMonths?: number | null;
+  carryForwardPriority?: CarryForwardPriority;
+  eligibility?: EligibilityConfig;
+}
+
+export type PlanSource = 'ALLOCATION' | 'RULE' | 'DEFAULT';
+
+export interface PlanAllocation {
+  id: string;
+  employeeUserId: string;
+  planId: string;
+  planName: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  status: 'CURRENT' | 'FUTURE' | 'HISTORICAL';
+  createdAt: string;
+}
+
+export interface EmployeePlanRow {
+  employeeUserId: string;
+  employeeCode: string | null;
+  fullName: string;
+  active: boolean;
+  departmentId: string | null;
+  departmentName: string | null;
+  locationId: string | null;
+  locationName: string | null;
+  planId: string | null;
+  planName: string | null;
+  source: PlanSource | null;
+  ruleName: string | null;
+  currentAllocation: PlanAllocation | null;
+  upcomingAllocation: PlanAllocation | null;
+}
+
+export interface BulkResult {
+  succeededIds: string[];
+  failed: { employeeUserId: string; reason: string }[];
 }
 
 export interface CarryForwardTransfer {
@@ -328,12 +407,6 @@ export const leaveConfigApi = {
   setActive: (id: string, active: boolean, token: string) => send<LeaveType>('PATCH', `${CONFIG}/types/${id}/active`, token, { active }),
   deleteType: (id: string, token: string) => send<void>('DELETE', `${CONFIG}/types/${id}`, token),
 
-  listEntitlements: (id: string, token: string) => send<EntitlementPolicy[]>('GET', `${CONFIG}/types/${id}/entitlements`, token),
-  changeEntitlement: (id: string, payload: { effectiveYear: number; days: number; creditFrequency?: CreditFrequency; applyToExistingBalances: boolean }, token: string) =>
-    send<EntitlementPolicy[]>('POST', `${CONFIG}/types/${id}/entitlements`, token, payload),
-
-  updateEligibility: (id: string, config: EligibilityConfig, token: string) =>
-    send<LeaveType>('PUT', `${CONFIG}/types/${id}/eligibility`, token, config),
   previewEligibility: (config: EligibilityConfig, token: string) =>
     send<{ eligibleCount: number; totalCount: number }>('POST', `${CONFIG}/types/eligibility-preview`, token, config),
 
@@ -342,8 +415,6 @@ export const leaveConfigApi = {
   jobs: (token: string) => send<Partial<Record<'accrual' | 'yearEnd', LeaveJobRun>>>('GET', `${CONFIG}/jobs`, token),
   creditHistory: (balanceId: string, token: string) => send<AccrualCredit[]>('GET', `${CONFIG}/balances/${balanceId}/credits`, token),
 
-  updateCarryForward: (id: string, payload: CarryForwardSettings, token: string) =>
-    send<LeaveType>('PUT', `${CONFIG}/types/${id}/carry-forward`, token, payload),
   listTransfers: (fromYear: number, token: string) =>
     send<CarryForwardTransfer[]>('GET', `${CONFIG}/carry-forward/transfers?fromYear=${fromYear}`, token),
   runYearEnd: (fromYear: number, token: string) =>
@@ -362,4 +433,35 @@ export const leaveConfigApi = {
     send<LeaveBalance[]>('GET', `${CONFIG}/employees/${userId}/balances?year=${year}`, token),
   adjustBalance: (balanceId: string, payload: { entitlementDays: number; carriedForwardDays: number; reason: string }, token: string) =>
     send<LeaveBalance>('PATCH', `${CONFIG}/balances/${balanceId}`, token, payload),
+
+  // ── LV-01 Leave Plans ──
+  plans: (token: string) => send<LeavePlanSummary[]>('GET', `${CONFIG}/plans`, token),
+  plan: (id: string, token: string) => send<LeavePlanDetail>('GET', `${CONFIG}/plans/${id}`, token),
+  currentPlanVersion: (id: string, token: string) => send<LeavePlanVersionDetail>('GET', `${CONFIG}/plans/${id}/current-version`, token),
+  planVersion: (versionId: string, token: string) => send<LeavePlanVersionDetail>('GET', `${CONFIG}/plan-versions/${versionId}`, token),
+  createPlan: (payload: { name: string; description?: string; rules: PlanTypeRulePayload[] }, token: string) =>
+    send<LeavePlanDetail>('POST', `${CONFIG}/plans`, token, payload),
+  updatePlan: (id: string, payload: { name: string; description?: string }, token: string) =>
+    send<LeavePlanDetail>('PATCH', `${CONFIG}/plans/${id}`, token, payload),
+  savePlanVersion: (id: string, payload: { effectiveFrom: string; rules: PlanTypeRulePayload[]; recreditCredited: boolean }, token: string) =>
+    send<LeavePlanDetail>('POST', `${CONFIG}/plans/${id}/versions`, token, payload),
+  clonePlan: (id: string, name: string, token: string) => send<LeavePlanDetail>('POST', `${CONFIG}/plans/${id}/clone`, token, { name }),
+  setPlanActive: (id: string, active: boolean, token: string) => send<LeavePlanDetail>('PATCH', `${CONFIG}/plans/${id}/active`, token, { active }),
+  setDefaultPlan: (id: string, token: string) => send<LeavePlanDetail>('PATCH', `${CONFIG}/plans/${id}/default`, token),
+  deletePlan: (id: string, token: string) => send<void>('DELETE', `${CONFIG}/plans/${id}`, token),
+
+  planEmployees: (token: string) => send<EmployeePlanRow[]>('GET', `${CONFIG}/plan-allocations/employees`, token),
+  planEmployee: (userId: string, token: string) =>
+    send<{ row: EmployeePlanRow; history: PlanAllocation[] }>('GET', `${CONFIG}/plan-allocations/employees/${userId}`, token),
+  allocatePlan: (payload: { employeeUserId: string; planId: string; effectiveFrom: string; effectiveTo?: string | null }, token: string) =>
+    send<PlanAllocation>('POST', `${CONFIG}/plan-allocations`, token, payload),
+  updatePlanAllocation: (id: string, payload: { planId: string; effectiveFrom: string; effectiveTo?: string | null }, token: string) =>
+    send<PlanAllocation>('PUT', `${CONFIG}/plan-allocations/${id}`, token, payload),
+  removePlanAllocation: (id: string, token: string) => send<void>('DELETE', `${CONFIG}/plan-allocations/${id}`, token),
+  bulkAllocatePlan: (payload: { employeeUserIds: string[]; planId: string; effectiveFrom: string; effectiveTo?: string | null }, token: string) =>
+    send<BulkResult>('POST', `${CONFIG}/plan-allocations/bulk`, token, payload),
+  bulkRemovePlan: (employeeUserIds: string[], token: string) =>
+    send<BulkResult>('POST', `${CONFIG}/plan-allocations/bulk-remove`, token, { employeeUserIds }),
+  checkPlanConflicts: (payload: { employeeUserIds: string[]; effectiveFrom: string; effectiveTo?: string | null }, token: string) =>
+    send<Record<string, PlanAllocation>>('POST', `${CONFIG}/plan-allocations/check-conflicts`, token, payload),
 };

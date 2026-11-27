@@ -61,6 +61,7 @@ class AssignmentRuleServiceTest {
         lenient().when(employeeRepository.findByUser_Email("hr@x.com")).thenReturn(Optional.of(actor));
         lenient().when(engine.targetResolver(AssignmentDomain.PENALIZATION)).thenReturn(Optional.of(target));
         lenient().when(target.permissionModule()).thenReturn("penalization");
+        lenient().when(target.permissionAction(anyString())).thenAnswer(i -> i.getArgument(0)); // the interface default
         lenient().when(target.isUsable(policy)).thenReturn(true);
         lenient().when(attendanceProperties.getZone()).thenReturn("Asia/Kolkata");
         lenient().when(effectivePermissionService.hasAuthority(any(), anyString())).thenReturn(true);
@@ -116,6 +117,26 @@ class AssignmentRuleServiceTest {
         r.setDomain(AssignmentDomain.LEAVE_PLAN);
         when(engine.targetResolver(AssignmentDomain.LEAVE_PLAN)).thenReturn(Optional.empty());
         assertThrows(IllegalArgumentException.class, () -> service.create("hr@x.com", r));
+    }
+
+    @Test
+    void ruleChangesAreAuditedAsJson_theAuditColumnsAreJson() throws Exception {
+        service.create("hr@x.com", req());
+        org.mockito.ArgumentCaptor<String> after = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(auditService).log(any(), org.mockito.ArgumentMatchers.eq("ASSIGNMENT_RULE_CREATED"), any(), org.mockito.ArgumentMatchers.isNull(), after.capture());
+        com.fasterxml.jackson.databind.JsonNode json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(after.getValue());
+        assertEquals(AssignmentDomain.PENALIZATION, json.get("domain").asText());
+        assertEquals("Engineering", json.get("name").asText());
+    }
+
+    @Test
+    void leavePlanRules_needLeaveConfigurationConfigure_notACreateGrantItDoesNotHave() {
+        LeavePlanAssignmentTarget leave = new LeavePlanAssignmentTarget(null);
+        assertEquals("leave_configuration", leave.permissionModule());
+        assertEquals("VIEW", leave.permissionAction("VIEW"));
+        assertEquals("CONFIGURE", leave.permissionAction("CREATE"));
+        assertEquals("CONFIGURE", leave.permissionAction("EDIT"));
+        assertEquals("CONFIGURE", leave.permissionAction("DELETE"));
     }
 
     @Test

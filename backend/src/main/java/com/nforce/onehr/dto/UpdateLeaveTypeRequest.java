@@ -16,6 +16,7 @@ public class UpdateLeaveTypeRequest {
     @Size(max = 50)
     private String name;
 
+    /** Only changeable while nothing references the type. */
     @Pattern(regexp = "PAID|UNPAID", message = "classification must be PAID or UNPAID")
     private String classification;
 
@@ -27,8 +28,4 @@ public class UpdateLeaveTypeRequest {
     @Max(120)
     private Integer occurrenceWindowMonths;
 
-    /** Used only when an unpaid type becomes paid and has no entitlement policy yet. */
-    @DecimalMin("0")
-    @DecimalMax("999")
-    private BigDecimal entitlementDays;
 }

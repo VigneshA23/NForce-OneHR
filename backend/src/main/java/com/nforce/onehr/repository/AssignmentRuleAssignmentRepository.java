@@ -36,4 +36,11 @@ public interface AssignmentRuleAssignmentRepository extends JpaRepository<Assign
     List<AssignmentRuleAssignment> findByDomainAndEmployeeUserIdOrderByEffectiveFromDescCreatedAtDesc(String domain, UUID employeeUserId);
 
     List<AssignmentRuleAssignment> findByDomainAndEmployeeUserIdInAndEffectiveToIsNull(String domain, java.util.Collection<UUID> employeeUserIds);
+
+    /** Every row (history included) of some employees in a domain - leave plan resolution for any date (LV-01). */
+    List<AssignmentRuleAssignment> findByDomainAndEmployeeUserIdIn(String domain, java.util.Collection<UUID> employeeUserIds);
+
+    List<AssignmentRuleAssignment> findByDomain(String domain);
+
+    boolean existsByDomainAndTargetId(String domain, UUID targetId);
 }

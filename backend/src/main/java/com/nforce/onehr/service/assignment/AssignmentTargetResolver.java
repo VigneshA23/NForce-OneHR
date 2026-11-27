@@ -16,6 +16,14 @@ public interface AssignmentTargetResolver {
     /** Permission module guarding this domain's rules, e.g. "penalization" -> penalization:EDIT:ALL. */
     String permissionModule();
 
+    /**
+     * The action of {@link #permissionModule()} required for a rule action (VIEW, CREATE, EDIT, DELETE).
+     * By default the same action; a module without separate CREATE/EDIT/DELETE grants maps them to its own.
+     */
+    default String permissionAction(String action) {
+        return action;
+    }
+
     /** True when the target exists and is usable (e.g. an ACTIVE policy) - unusable targets never match. */
     boolean isUsable(UUID targetId);
 

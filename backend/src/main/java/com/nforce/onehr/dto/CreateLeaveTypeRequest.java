@@ -31,15 +31,6 @@ public class CreateLeaveTypeRequest {
     @Pattern(regexp = "ANNUAL|PER_OCCURRENCE", message = "entitlementBasis must be ANNUAL or PER_OCCURRENCE")
     private String entitlementBasis;
 
-    /** Required for paid types: days per leave year (ANNUAL) or per occurrence (PER_OCCURRENCE). */
-    @DecimalMin("0")
-    @DecimalMax("999")
-    private BigDecimal entitlementDays;
-
-    /** Annual paid types: YEARLY (all at once, default) or MONTHLY. */
-    @Pattern(regexp = "YEARLY|MONTHLY", message = "creditFrequency must be YEARLY or MONTHLY")
-    private String creditFrequency;
-
     /** Required for PER_OCCURRENCE. */
     @Min(1)
     @Max(120)

@@ -94,6 +94,12 @@ public enum AuditActionCategory {
             // LeaveTypeService — Organization Masters > Leave configuration changes, same
             // treatment as PenalizationPolicyService above.
             "LEAVE_TYPE_CREATED", "LEAVE_TYPE_UPDATED",
+            // LeavePlanService / LeavePlanAllocationService — LV-01 leave plans and who is on them,
+            // same treatment (all plan changes must reach the audit trail).
+            "LEAVE_PLAN_CREATED", "LEAVE_PLAN_UPDATED", "LEAVE_PLAN_CLONED", "LEAVE_PLAN_STATUS_CHANGED",
+            "LEAVE_PLAN_SET_AS_DEFAULT", "LEAVE_PLAN_DELETED", "LEAVE_PLAN_VERSION_SAVED",
+            "LEAVE_PLAN_ALLOCATION_ASSIGNED", "LEAVE_PLAN_ALLOCATION_UPDATED", "LEAVE_PLAN_ALLOCATION_REMOVED",
+            "LEAVE_PLAN_ALLOCATION_BULK_ASSIGNED", "LEAVE_PLAN_ALLOCATION_BULK_REMOVED",
             // SalaryStructureService — Payroll Epic (ONEHR-579) US-C01: defining a Salary
             // Structure template is HR configuration, not a self-submitted request, same
             // treatment as LeaveTypeService above.

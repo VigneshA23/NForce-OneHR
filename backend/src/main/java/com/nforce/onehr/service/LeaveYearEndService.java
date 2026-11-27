@@ -41,7 +41,8 @@ import static java.math.BigDecimal.ZERO;
  *   <li><b>Transfer</b>: one {@link LeaveCarryForwardTransfer} per (employee, type, from-year), guarded by
  *       a UNIQUE constraint. Unused = current-year days left + carried-forward still valid at year end
  *       - pending leave still reserved in that year (an approval after year-end then still fits).
- *       Carried = min(cap, unused) when carry-forward is enabled, else 0 (everything lapses). The
+ *       Carried = min(cap, unused) when carry-forward is enabled in the employee's leave plan on the last
+ *       day of the year (LV-01), else 0 (everything lapses). The
  *       carried days land in the next year's balance as a separate bucket with its own expiry date.</li>
  *   <li><b>Top-up</b>: if a pending request reserved at year-end is later rejected, the freed days are
  *       carried too (up to the cap, never after the bucket expired) — see {@link #refreshTransfers}.
@@ -63,6 +64,7 @@ public class LeaveYearEndService {
     private final LeaveRequestRepository leaveRequestRepository;
     private final EmployeeRepository employeeRepository;
     private final LeaveBalanceService leaveBalanceService;
+    private final LeavePlanRuleService planRuleService;
     private final AuditService auditService;
     private final AuditSnapshotSerializer auditSnapshot;
     private final PlatformTransactionManager transactionManager;
@@ -134,10 +136,13 @@ public class LeaveYearEndService {
         }
         LeaveBalance from = leaveBalanceService.ensureBalance(employeeId, type, fromYear);
         BigDecimal unused = unusedAtYearEnd(from);
-        BigDecimal carried = target(type, unused);
-        LocalDate expiresOn = type.isCarryForwardEnabled() && type.getCarryForwardExpiryMonths() != null
-                ? LeaveBalanceService.yearStart(fromYear + 1).plusMonths(type.getCarryForwardExpiryMonths()).minusDays(1)
-                : null;
+        // LV-01: the carry-forward rules of the employee's leave plan on the last day of the year.
+        Optional<LeavePlanCatalog.TypeRule> rule = closingRule(employeeId, type, fromYear);
+        BigDecimal carried = target(rule, unused);
+        LocalDate expiresOn = rule.filter(LeavePlanCatalog.TypeRule::carryForwardEnabled)
+                .map(LeavePlanCatalog.TypeRule::carryForwardExpiryMonths)
+                .map(months -> LeaveBalanceService.yearStart(fromYear + 1).plusMonths(months).minusDays(1))
+                .orElse(null);
         LeaveCarryForwardTransfer transfer = transferRepository.save(LeaveCarryForwardTransfer.builder()
                 .employeeUserId(employeeId)
                 .leaveType(type)
@@ -166,8 +171,10 @@ public class LeaveYearEndService {
     public void refreshTransfers(UUID employeeId, LeaveType type, LocalDate start, LocalDate end) {
         int currentYear = LeaveBalanceService.leaveYearOf(leaveBalanceService.today());
         for (int year = LeaveBalanceService.leaveYearOf(start); year <= LeaveBalanceService.leaveYearOf(end); year++) {
-            if (year >= currentYear || !type.isAnnualBalance() || !type.isCarryForwardEnabled()) continue;
+            if (year >= currentYear || !type.isAnnualBalance()) continue;
             int fromYear = year;
+            Optional<LeavePlanCatalog.TypeRule> rule = closingRule(employeeId, type, fromYear);
+            if (rule.isEmpty() || !rule.get().carryForwardEnabled()) continue;
             Optional<LeaveCarryForwardTransfer> existing =
                     transferRepository.findByEmployeeUserIdAndLeaveTypeIdAndFromYear(employeeId, type.getId(), fromYear);
             if (existing.isEmpty()) continue;
@@ -176,7 +183,7 @@ public class LeaveYearEndService {
             LeaveBalance from = leaveBalanceRepository.findByEmployeeUserIdAndLeaveTypeIdAndYear(employeeId, type.getId(), fromYear).orElse(null);
             if (from == null) continue;
             BigDecimal unused = unusedAtYearEnd(from);
-            BigDecimal carried = target(type, unused);
+            BigDecimal carried = target(rule, unused);
             if (carried.compareTo(t.getCarriedDays()) <= 0) continue;
 
             BigDecimal delta = carried.subtract(t.getCarriedDays());
@@ -237,9 +244,15 @@ public class LeaveYearEndService {
         return p.currentAvailable().add(validCf).subtract(p.pendingDays()).max(ZERO);
     }
 
-    private static BigDecimal target(LeaveType type, BigDecimal unused) {
-        if (!type.isCarryForwardEnabled()) return ZERO;
-        return type.getCarryForwardMaxDays() == null ? unused : unused.min(type.getCarryForwardMaxDays());
+    /** The type's rules in the employee's plan on the last day of {@code fromYear}. */
+    private Optional<LeavePlanCatalog.TypeRule> closingRule(UUID employeeId, LeaveType type, int fromYear) {
+        return planRuleService.ruleFor(employeeId, type.getId(), LeaveBalanceService.yearEnd(fromYear));
+    }
+
+    private static BigDecimal target(Optional<LeavePlanCatalog.TypeRule> rule, BigDecimal unused) {
+        if (rule.isEmpty() || !rule.get().carryForwardEnabled()) return ZERO;
+        BigDecimal max = rule.get().carryForwardMaxDays();
+        return max == null ? unused : unused.min(max);
     }
 
     // ── History ─────────────────────────────────────────────────────────────────────────────────

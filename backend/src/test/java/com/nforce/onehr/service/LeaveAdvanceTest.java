@@ -55,8 +55,8 @@ class LeaveAdvanceTest {
 
     @BeforeEach
     void setUp() {
-        service = new LeaveBalanceService(typeRepo, balanceRepo, requestRepo, policyRepo, occurrenceRepo, new AttendanceProperties(),
-                accrual, eligibility);
+        service = new LeaveBalanceService(typeRepo, balanceRepo, requestRepo, TestLeaveBalances.plansFromPolicies(policyRepo, typeRepo),
+                occurrenceRepo, new AttendanceProperties(), accrual, eligibility);
         // 2 days credited so far (Jan, Feb of a 12-day monthly quota), 10 still to come.
         balance = LeaveBalance.builder().id(UUID.randomUUID()).employeeUserId(emp).leaveType(paid).year(Y)
                 .totalDays(new BigDecimal("2")).usedDays(BigDecimal.ZERO).build();

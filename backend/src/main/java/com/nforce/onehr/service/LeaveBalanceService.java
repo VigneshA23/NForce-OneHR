@@ -3,12 +3,10 @@ package com.nforce.onehr.service;
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.entity.LeaveBalance;
-import com.nforce.onehr.entity.LeaveEntitlementPolicy;
 import com.nforce.onehr.entity.LeaveOccurrence;
 import com.nforce.onehr.entity.LeaveRequest;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.repository.LeaveBalanceRepository;
-import com.nforce.onehr.repository.LeaveEntitlementPolicyRepository;
 import com.nforce.onehr.repository.LeaveOccurrenceRepository;
 import com.nforce.onehr.repository.LeaveRequestRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
@@ -40,7 +38,7 @@ import static java.math.BigDecimal.ZERO;
  *
  * <ul>
  *   <li><b>ANNUAL</b> paid types: one {@link LeaveBalance} per employee, type and leave year, with a
- *       current-year bucket (entitlement from {@link LeaveEntitlementPolicy}) and a carried-forward
+ *       current-year bucket (credited by {@link LeaveAccrualService} from the employee's leave plan) and a carried-forward
  *       bucket that can only cover leave dated on/before its expiry date. Rows are created lazily.</li>
  *   <li><b>PER_OCCURRENCE</b> paid types (Maternity): a {@link LeaveOccurrence}, not a yearly balance.</li>
  *   <li><b>UNPAID</b> types: unlimited — nothing is ever created, read or deducted.</li>
@@ -63,7 +61,7 @@ public class LeaveBalanceService {
     private final LeaveTypeRepository leaveTypeRepository;
     private final LeaveBalanceRepository leaveBalanceRepository;
     private final LeaveRequestRepository leaveRequestRepository;
-    private final LeaveEntitlementPolicyRepository policyRepository;
+    private final LeavePlanRuleService planRuleService;
     private final LeaveOccurrenceRepository occurrenceRepository;
     private final AttendanceProperties attendanceProperties;
     private final LeaveAccrualService accrualService;
@@ -119,13 +117,14 @@ public class LeaveBalanceService {
 
     // ── Entitlement ─────────────────────────────────────────────────────────────────────────────
 
-    /** Policy days in force for {@code year}; empty for unpaid (unlimited). A paid type with no policy has 0. */
-    public Optional<BigDecimal> entitlementDays(LeaveType type, int year) {
+    /**
+     * Days of {@code type} in the employee's leave plan on {@code date} (per year, or per occurrence);
+     * empty for unpaid (unlimited). A paid type not in the plan has 0.
+     */
+    public Optional<BigDecimal> entitlementDays(UUID employeeUserId, LeaveType type, LocalDate date) {
         if (!type.isPaid()) return Optional.empty();
-        return Optional.of(policyRepository
-                .findFirstByLeaveTypeIdAndEffectiveYearLessThanEqualOrderByEffectiveYearDesc(type.getId(), year)
-                .map(LeaveEntitlementPolicy::getDays)
-                .orElse(ZERO));
+        return Optional.of(planRuleService.ruleFor(employeeUserId, type.getId(), date)
+                .map(LeavePlanCatalog.TypeRule::days).orElse(ZERO));
     }
 
     /**
@@ -230,7 +229,7 @@ public class LeaveBalanceService {
         BigDecimal pending = sum(pendings.stream()
                 .filter(r -> occurrenceRepository.findCovering(employeeUserId, type.getId(), r.getStartDate()).isEmpty())
                 .filter(r -> r.getStartDate().isAfter(date.minusMonths(months)) && r.getStartDate().isBefore(date.plusMonths(months))));
-        return new OccurrencePosition(null, entitlementDays(type, leaveYearOf(date)).orElse(ZERO), ZERO, pending);
+        return new OccurrencePosition(null, entitlementDays(employeeUserId, type, date).orElse(ZERO), ZERO, pending);
     }
 
     private static BigDecimal sum(java.util.stream.Stream<LeaveRequest> requests) {
@@ -308,7 +307,10 @@ public class LeaveBalanceService {
             BigDecimal cfAvailable = carriedForwardAvailable(b);
             BigDecimal current = b.getTotalDays().subtract(b.getUsedDays());
             BigDecimal fromCf;
-            if (LeaveType.CURRENT_FIRST.equals(type.getCarryForwardPriority())) {
+            LocalDate segmentStart = start.isAfter(yearStart(seg.getKey())) ? start : yearStart(seg.getKey());
+            String priority = planRuleService.ruleFor(employeeUserId, type.getId(), segmentStart)
+                    .map(LeavePlanCatalog.TypeRule::carryForwardPriority).orElse(LeaveType.CF_FIRST);
+            if (LeaveType.CURRENT_FIRST.equals(priority)) {
                 // Days after expiry can only come from the current year; whatever current is left covers
                 // the eligible days next, and only the rest falls back to carried-forward.
                 BigDecimal currentLeftForEligible = current.subtract(days.subtract(eligible)).max(ZERO);
@@ -340,7 +342,7 @@ public class LeaveBalanceService {
                 .leaveType(type)
                 .startDate(start)
                 .windowEndDate(start.plusMonths(windowMonths(type)).minusDays(1))
-                .entitlementDays(entitlementDays(type, leaveYearOf(start)).orElse(ZERO))
+                .entitlementDays(entitlementDays(employeeUserId, type, start).orElse(ZERO))
                 .build());
     }
 

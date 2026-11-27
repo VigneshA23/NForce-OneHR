@@ -28,6 +28,11 @@ public interface LeaveBalanceRepository extends JpaRepository<LeaveBalance, UUID
     /** Year-end job input: every balance of one type for one leave year. */
     List<LeaveBalance> findByLeaveTypeIdAndYear(UUID leaveTypeId, Integer year);
 
+    /** LV-01 re-crediting after a plan change: every row from {@code year} on, optionally only some employees. */
+    List<LeaveBalance> findByYearGreaterThanEqual(Integer year);
+
+    List<LeaveBalance> findByEmployeeUserIdInAndYearGreaterThanEqual(Collection<UUID> employeeUserIds, Integer year);
+
     /** Expiry job input: carried-forward buckets whose expiry date has passed. */
     // Only buckets with days still neither used nor expired: once processed they drop out, so a
     // daily run stays cheap. (Days still claimed by pending leave dated before expiry keep the row in.)

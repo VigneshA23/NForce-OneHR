@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
-import { leaveConfigApi, type DirectoryEmployee, type EligibilityConfig, type LeaveType } from '../../api/leave';
+import { leaveConfigApi, type DirectoryEmployee, type EligibilityConfig } from '../../api/leave';
 
 /**
  * "Applies to" for a leave type (V314): gender, departments, locations, employment types, plus
@@ -29,7 +29,7 @@ export function sameEligibility(a: EligibilityConfig, b: EligibilityConfig): boo
 }
 
 /** "Female · Hyderabad" / "Everyone", for the leave types table. */
-export function appliesToSummary(t: LeaveType, departments: NamedOption[], locations: NamedOption[]): string {
+export function appliesToSummary(t: { eligibility?: EligibilityConfig | null }, departments: NamedOption[], locations: NamedOption[]): string {
   const e = t.eligibility;
   if (!e) return 'Everyone';
   const name = (list: NamedOption[], id: string) => list.find(x => x.id === id)?.name ?? 'Unknown';

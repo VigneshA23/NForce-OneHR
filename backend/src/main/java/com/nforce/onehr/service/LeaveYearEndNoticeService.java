@@ -8,7 +8,6 @@ import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.repository.AuditLogRepository;
 import com.nforce.onehr.repository.EmployeeManagerHistoryRepository;
 import com.nforce.onehr.repository.EmployeeRepository;
-import com.nforce.onehr.repository.LeaveTypeRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -28,7 +27,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -62,7 +60,7 @@ public class LeaveYearEndNoticeService {
     private static final int MAX_NAMES_IN_DIGEST = 25;
 
     private final LeaveBalanceService leaveBalanceService;
-    private final LeaveTypeRepository leaveTypeRepository;
+    private final LeavePlanRuleService planRuleService;
     private final EmployeeRepository employeeRepository;
     private final EmployeeManagerHistoryRepository historyRepository;
     private final NotificationService notificationService;
@@ -78,7 +76,7 @@ public class LeaveYearEndNoticeService {
     private final Set<MonthDay> newYearDates;
     private final BigDecimal managerThresholdDays;
 
-    public LeaveYearEndNoticeService(LeaveBalanceService leaveBalanceService, LeaveTypeRepository leaveTypeRepository,
+    public LeaveYearEndNoticeService(LeaveBalanceService leaveBalanceService, LeavePlanRuleService planRuleService,
                                      EmployeeRepository employeeRepository, EmployeeManagerHistoryRepository historyRepository,
                                      NotificationService notificationService, EmailService emailService,
                                      AuditService auditService, AuditSnapshotSerializer auditSnapshot,
@@ -90,7 +88,7 @@ public class LeaveYearEndNoticeService {
                                      @Value("${app.leave.notices.new-year-dates:01-01}") String newYearDates,
                                      @Value("${app.leave.notices.manager-threshold-days:5}") BigDecimal managerThresholdDays) {
         this.leaveBalanceService = leaveBalanceService;
-        this.leaveTypeRepository = leaveTypeRepository;
+        this.planRuleService = planRuleService;
         this.employeeRepository = employeeRepository;
         this.historyRepository = historyRepository;
         this.notificationService = notificationService;
@@ -178,14 +176,15 @@ public class LeaveYearEndNoticeService {
     // ── Reminders ───────────────────────────────────────────────────────────────────────────────
 
     private int sendReminders(Map<UUID, Recipient> people, Map<UUID, List<Unused>> unused, int year) {
-        Map<UUID, LeaveType> types = leaveTypeRepository.findAll().stream().collect(Collectors.toMap(LeaveType::getId, Function.identity()));
+        LeavePlanCatalog catalog = planRuleService.catalog(unused.keySet());
         int count = 0;
         for (Map.Entry<UUID, List<Unused>> e : unused.entrySet()) {
             Recipient r = people.get(e.getKey());
             if (r == null) continue;
             List<String> lines = new ArrayList<>();
             for (Unused u : e.getValue()) {
-                lines.add(reminderLine(u, types.get(u.typeId()), year));
+                // LV-01: the carry-forward rules of this employee's plan on the last day of the year.
+                lines.add(reminderLine(u, catalog.ruleFor(e.getKey(), u.typeId(), LeaveBalanceService.yearEnd(year)).orElse(null), year));
             }
             String message = String.join(" ", lines);
             notificationService.send(r.userId(), "LEAVE_YEAR_END_REMINDER", "Plan your remaining " + year + " leave", message, "/leave");
@@ -201,18 +200,18 @@ public class LeaveYearEndNoticeService {
     }
 
     /** "You have 6 days of Paid Leave left in 2026. Under the current policy, ... applies after 31 Dec 2026." */
-    static String reminderLine(Unused u, LeaveType type, int year) {
+    static String reminderLine(Unused u, LeavePlanCatalog.TypeRule rule, int year) {
         return "You have " + days(u.days()) + " of " + u.typeName() + " left in " + year + ". After 31 Dec " + year
-                + ", under the current policy, " + policyText(type, year) + ".";
+                + ", under the current policy, " + policyText(rule, year) + ".";
     }
 
-    /** What the configured carry-forward does with unused days of {@code type} at the end of {@code year}. */
-    static String policyText(LeaveType type, int year) {
-        if (type == null || !type.isCarryForwardEnabled()) return "unused days lapse";
-        BigDecimal max = type.getCarryForwardMaxDays();
-        String expiry = type.getCarryForwardExpiryMonths() != null
+    /** What the plan's carry-forward does with unused days of the type at the end of {@code year} (null = not in the plan). */
+    static String policyText(LeavePlanCatalog.TypeRule rule, int year) {
+        if (rule == null || !rule.carryForwardEnabled()) return "unused days lapse";
+        BigDecimal max = rule.carryForwardMaxDays();
+        String expiry = rule.carryForwardExpiryMonths() != null
                 ? " (to be used by " + DAY.format(LeaveBalanceService.yearStart(year + 1)
-                        .plusMonths(type.getCarryForwardExpiryMonths()).minusDays(1)) + ")"
+                        .plusMonths(rule.carryForwardExpiryMonths()).minusDays(1)) + ")"
                 : "";
         return max == null
                 ? "all unused days carry forward to " + (year + 1) + expiry

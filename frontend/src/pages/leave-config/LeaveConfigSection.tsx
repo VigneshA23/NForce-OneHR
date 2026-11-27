@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { X } from 'lucide-react';
 import { TabBar } from '../../components/TabBar';
 import { KebabMenu, type KebabItem } from '../../components/KebabMenu';
 import { usePaged } from '../../components/usePaged';
@@ -8,8 +7,8 @@ import { useCan } from '../../lib/access';
 import { useToast } from '../../context/ToastContext';
 import {
   leaveConfigApi,
-  type AccrualCredit, type CarryForwardPriority, type CarryForwardTransfer, type CreditFrequency, type DirectoryEmployee,
-  type EligibilityConfig, type EntitlementPolicy, type LeaveBalance, type LeaveType, type LeaveTypeClassification,
+  type AccrualCredit, type CarryForwardTransfer, type DirectoryEmployee,
+  type LeaveBalance, type LeaveType, type LeaveTypeClassification,
   type LeaveJobRun, type OpeningBalanceUploadRow, type OpeningBalanceValidation,
 } from '../../api/leave';
 import { orgApi } from '../../api/org';
@@ -18,195 +17,49 @@ import { autoSizeColumns } from '../../lib/xlsxColumns';
 import {
   OPENING_BALANCE_HEADERS, OPENING_BALANCE_INSTRUCTIONS, OPENING_BALANCE_SHEET, errorReportRows, parseUploadRows, templateSheetRows,
 } from './openingBalances';
-import { AppliesToEditor, EMPTY_ELIGIBILITY, appliesToSummary, sameEligibility, type NamedOption } from './AppliesTo';
+import { type NamedOption } from './AppliesTo';
+import {
+  Badge, ConfirmDialog, CURRENT_YEAR, Dialog, DialogActions, FormError, MONTHS, Table, days, errMsg, fmtDate, frequencyLabel,
+  hintS, inputS, labelS, primaryBtn, secondaryBtn, tdS, type Confirm,
+} from './leaveConfigUi';
+import LeavePlansArea from './LeavePlansArea';
+import LeavePlanAssignment from './LeavePlanAssignment';
 
 /**
- * Organization Masters / Organization Structure > Leave (V310, V314). Three areas: Leave Types (incl.
- * who each type applies to), Leave Entitlements (yearly quota, all-at-once or monthly crediting, an
- * employee's balances and manual adjustment) and Carry-Forward Settings (incl. year-end processing). Everything is gated by leave_configuration on the server; the buttons here
- * only follow the same permission: VIEW reads, CONFIGURE changes policy, EDIT adjusts a balance.
+ * Organization Masters / Organization Structure > Leave (V310, V314, LV-01). Areas: Leave Types (the
+ * catalogue), Leave Plans (each plan's types with their quota, crediting, carry-forward and "applies to",
+ * versioned by effective date), Assignment (who is on which plan: explicit allocations and rules),
+ * Balances (crediting, an employee's balances, adjustments, opening balances) and Year-End. Everything is
+ * gated by leave_configuration on the server; the buttons here only follow the same permission: VIEW
+ * reads, CONFIGURE changes policy, EDIT adjusts a balance.
  */
 
-type Area = 'types' | 'entitlements' | 'carryforward';
+type Area = 'types' | 'plans' | 'assignment' | 'balances' | 'yearend';
 
 /** Departments, locations and employees for the "applies to" editor and summaries. */
-interface Lookups { departments: NamedOption[]; locations: NamedOption[]; employees: DirectoryEmployee[] }
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-const CURRENT_YEAR = new Date().getFullYear();
-
-const inputS: React.CSSProperties = {
-  background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6, padding: '8px 10px',
-  fontSize: 13, color: 'var(--txt)', width: '100%', boxSizing: 'border-box',
-};
-const labelS: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--txt-mut)', display: 'block', marginBottom: 5 };
-const thS: React.CSSProperties = {
-  padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: 'var(--txt-dim)', borderBottom: '1px solid var(--line)',
-  whiteSpace: 'nowrap', fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase', background: 'var(--raised)',
-};
-const tdS: React.CSSProperties = { padding: '10px 16px', color: 'var(--txt-mut)', fontSize: 12.5, borderBottom: '1px solid var(--line)' };
-const hintS: React.CSSProperties = { margin: '0 0 14px', fontSize: 12.5, color: 'var(--txt-mut)', lineHeight: 1.55 };
-const primaryBtn = (disabled = false): React.CSSProperties => ({
-  padding: '7px 16px', background: 'var(--brand)', border: 'none', borderRadius: 6, fontSize: 12.5, fontWeight: 600,
-  color: '#fff', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1, whiteSpace: 'nowrap',
-});
-const secondaryBtn: React.CSSProperties = {
-  padding: '7px 14px', background: 'var(--raised)', border: '1px solid var(--line2)', borderRadius: 6,
-  fontSize: 12.5, color: 'var(--txt-mut)', cursor: 'pointer', whiteSpace: 'nowrap',
-};
-
-function days(n: number | null | undefined): string {
-  if (n == null) return '–';
-  return `${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-}
-
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '–';
-  const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-function errMsg(e: unknown) {
-  return e instanceof Error ? e.message : 'Something went wrong';
-}
-
-function entitlementLabel(t: LeaveType): string {
-  if (t.classification === 'UNPAID') return 'Unlimited';
-  if (t.entitlementBasis === 'PER_OCCURRENCE') return `${days(t.currentEntitlementDays)} days per occurrence`;
-  return `${days(t.currentEntitlementDays)} days per year`;
-}
-
-function frequencyLabel(f: CreditFrequency | null | undefined): string {
-  return f === 'MONTHLY' ? 'Monthly' : 'All at once';
-}
-
-/** One month's share of a yearly quota, as the server credits it (exact over the year). */
-function monthlyShare(quota: number): number {
-  return Math.round((quota / 12) * 100) / 100;
-}
-
-function CreditFrequencyField({ value, onChange, quota, name }: {
-  value: CreditFrequency; onChange(v: CreditFrequency): void; quota: number; name: string;
-}) {
-  const share = isNaN(quota) || quota <= 0 ? null : monthlyShare(quota);
-  return (
-    <fieldset style={{ border: 'none', padding: 0, margin: '0 0 14px' }}>
-      <legend style={labelS}>Crediting</legend>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-          <input type="radio" name={name} checked={value === 'MONTHLY'} onChange={() => onChange('MONTHLY')} style={{ marginTop: 3 }} />
-          <span>
-            Monthly, on the 1st of each month
-            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--txt-dim)' }}>
-              {share != null ? `About ${days(share)} day(s) a month. ` : ''}Employees may apply for up to the full year's quota in advance; later credits cover it.
-            </span>
-          </span>
-        </label>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-          <input type="radio" name={name} checked={value === 'YEARLY'} onChange={() => onChange('YEARLY')} style={{ marginTop: 3 }} />
-          <span>
-            All at once, on 1 January
-            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--txt-dim)' }}>
-              Someone who joins mid-year gets the months left (counting the joining month), rounded to half a day.
-            </span>
-          </span>
-        </label>
-      </div>
-    </fieldset>
-  );
-}
-
-function Badge({ tone, children }: { tone: 'ok' | 'warn' | 'dim' | 'info'; children: React.ReactNode }) {
-  const colors = {
-    ok: ['rgba(47,182,124,.15)', 'var(--ok)'],
-    warn: ['rgba(228,155,15,.15)', 'var(--warn, #b7791f)'],
-    dim: ['rgba(107,114,128,.15)', 'var(--txt-dim)'],
-    info: ['rgba(79,110,247,.14)', 'var(--brand)'],
-  }[tone];
-  return (
-    <span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: colors[0], color: colors[1], whiteSpace: 'nowrap' }}>
-      {children}
-    </span>
-  );
-}
-
-/** Same overlay/card chrome as the other Organization Masters dialogs (orgSetupModals.css). */
-function Dialog({ title, kind = 'edit', width = 460, onClose, children }: {
-  title: string; kind?: 'add' | 'edit' | 'warn'; width?: number; onClose(): void; children: React.ReactNode;
-}) {
-  return (
-    <div className="nf-om-dlg" role="dialog" aria-modal="true" aria-label={title}
-      style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,.55)', backdropFilter: 'blur(4px)' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="nf-om-card" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12, padding: 28, width, maxWidth: '94vw', maxHeight: '92vh', overflowY: 'auto', position: 'relative' }}>
-        <h2 data-kind={kind}>{title}</h2>
-        <button onClick={onClose} aria-label="Close" className="nf-om-x"><X size={16} /></button>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function FormError({ error }: { error: string }) {
-  return error ? <div role="alert" style={{ color: 'var(--risk)', fontSize: 12, marginBottom: 12 }}>{error}</div> : null;
-}
-
-function DialogActions({ busy, label, onCancel, danger }: { busy: boolean; label: string; onCancel(): void; danger?: boolean }) {
-  return (
-    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-      <button type="button" onClick={onCancel} disabled={busy} style={secondaryBtn}>Cancel</button>
-      <button type="submit" disabled={busy} style={{ ...primaryBtn(busy), background: danger ? 'var(--risk)' : 'var(--brand)' }}>
-        {busy ? 'Please wait…' : label}
-      </button>
-    </div>
-  );
-}
-
-function Table({ head, children, empty }: { head: string[]; children: React.ReactNode; empty?: string | false }) {
-  return (
-    <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-        <thead><tr>{head.map(h => <th key={h} style={thS}>{h}</th>)}</tr></thead>
-        <tbody>
-          {children}
-          {empty && <tr><td colSpan={head.length} style={{ ...tdS, textAlign: 'center', padding: '28px 16px', color: 'var(--txt-dim)' }}>{empty}</td></tr>}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+export interface Lookups { departments: NamedOption[]; locations: NamedOption[]; employees: DirectoryEmployee[] }
 
 // ── Leave type dialog ──────────────────────────────────────────────────────────
 
-function LeaveTypeDialog({ editRow, token, lookups, onClose, onSaved }: {
-  editRow?: LeaveType; token: string; lookups: Lookups; onClose(): void; onSaved(saved: LeaveType): void;
+function LeaveTypeDialog({ editRow, token, onClose, onSaved }: {
+  editRow?: LeaveType; token: string; onClose(): void; onSaved(saved: LeaveType): void;
 }) {
   const isEdit = !!editRow;
   const isSystem = !!editRow?.systemKey;
-  const originalEligibility = editRow?.eligibility ?? EMPTY_ELIGIBILITY;
-  const [eligibility, setEligibility] = useState<EligibilityConfig>(originalEligibility);
-  const [frequency, setFrequency] = useState<CreditFrequency>('MONTHLY');
   const [name, setName] = useState(editRow?.name ?? '');
   const [code, setCode] = useState(editRow?.code ?? '');
   const [classification, setClassification] = useState<LeaveTypeClassification>(editRow?.classification ?? 'PAID');
   const [basis, setBasis] = useState<'ANNUAL' | 'PER_OCCURRENCE'>(editRow?.entitlementBasis === 'PER_OCCURRENCE' ? 'PER_OCCURRENCE' : 'ANNUAL');
-  // Prefill only — the server stores whatever is saved here as the type's entitlement policy.
-  const [entitlement, setEntitlement] = useState('15');
   const [windowMonths, setWindowMonths] = useState(String(editRow?.occurrenceWindowMonths ?? 12));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   const referenced = (editRow?.referenceCount ?? 0) > 0;
-  const becomingPaid = isEdit && editRow?.classification === 'UNPAID' && classification === 'PAID';
-  const needsDays = classification === 'PAID' && (!isEdit || becomingPaid);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setError('Name is required'); return; }
     if (!isEdit && !/^[A-Za-z0-9_]{1,20}$/.test(code.trim())) { setError('Code is required: letters, digits or underscores, up to 20'); return; }
-    const daysN = Number(entitlement);
-    if (needsDays && (entitlement.trim() === '' || isNaN(daysN) || daysN < 0)) { setError('Entitlement days must be zero or more'); return; }
     const monthsN = Number(windowMonths);
     if (classification === 'PAID' && basis === 'PER_OCCURRENCE' && (!Number.isInteger(monthsN) || monthsN < 1)) {
       setError('Occurrence window must be a whole number of months'); return;
@@ -221,18 +74,13 @@ function LeaveTypeDialog({ editRow, token, lookups, onClose, onSaved }: {
             classification,
             ...(classification === 'PAID' && !referenced ? { entitlementBasis: basis } : {}),
             ...(perOccurrence ? { occurrenceWindowMonths: monthsN } : {}),
-            ...(becomingPaid ? { entitlementDays: daysN } : {}),
           }, token)
         : await leaveConfigApi.createType({
             code: code.trim(), name: name.trim(), classification,
-            ...(classification === 'PAID' ? { entitlementBasis: basis, entitlementDays: daysN } : {}),
-            ...(classification === 'PAID' && basis === 'ANNUAL' ? { creditFrequency: frequency } : {}),
+            ...(classification === 'PAID' ? { entitlementBasis: basis } : {}),
             ...(perOccurrence ? { occurrenceWindowMonths: monthsN } : {}),
           }, token);
-      const final = sameEligibility(eligibility, originalEligibility)
-        ? saved
-        : await leaveConfigApi.updateEligibility(saved.id, eligibility, token);
-      onSaved(final);
+      onSaved(saved);
       onClose();
     } catch (err) {
       setError(errMsg(err));
@@ -242,7 +90,7 @@ function LeaveTypeDialog({ editRow, token, lookups, onClose, onSaved }: {
   }
 
   return (
-    <Dialog title={isEdit ? 'Edit Leave Type' : 'Add Leave Type'} kind={isEdit ? 'edit' : 'add'} width={580} onClose={onClose}>
+    <Dialog title={isEdit ? 'Edit Leave Type' : 'Add Leave Type'} kind={isEdit ? 'edit' : 'add'} width={520} onClose={onClose}>
       <form onSubmit={submit}>
         <div style={{ marginBottom: 14 }}>
           <label style={labelS} htmlFor="lt-name">Leave Type Name *</label>
@@ -258,37 +106,25 @@ function LeaveTypeDialog({ editRow, token, lookups, onClose, onSaved }: {
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
             {(['PAID', 'UNPAID'] as const).map(c => (
               <label key={c} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, cursor: isSystem ? 'default' : 'pointer' }}>
-                <input type="radio" name="lt-classification" checked={classification === c} disabled={isSystem} onChange={() => setClassification(c)} />
+                <input type="radio" name="lt-classification" checked={classification === c} disabled={isSystem || referenced} onChange={() => setClassification(c)} />
                 {c === 'PAID' ? 'Paid' : 'Unpaid (unlimited, never uses paid balances)'}
               </label>
             ))}
           </div>
-          {isSystem && <p style={{ ...hintS, margin: '6px 0 0', fontSize: 11.5 }}>Built-in type: it can be renamed and restricted, but not reclassified.</p>}
+          {isSystem && <p style={{ ...hintS, margin: '6px 0 0', fontSize: 11.5 }}>Built-in type: it can be renamed, but not reclassified.</p>}
+          {!isSystem && referenced && <p style={{ ...hintS, margin: '6px 0 0', fontSize: 11.5 }}>Already in use, so it can no longer switch between paid and unpaid.</p>}
         </fieldset>
         {classification === 'PAID' && (
           <>
             <div style={{ marginBottom: 14 }}>
               <label style={labelS} htmlFor="lt-basis">Entitlement basis</label>
               <select id="lt-basis" style={inputS} value={basis} disabled={referenced || isSystem}
-                onChange={e => {
-                  const v = e.target.value as 'ANNUAL' | 'PER_OCCURRENCE';
-                  setBasis(v);
-                  if (!isEdit) setEntitlement(v === 'PER_OCCURRENCE' ? '182' : '15');
-                }}>
+                onChange={e => setBasis(e.target.value as 'ANNUAL' | 'PER_OCCURRENCE')}>
                 <option value="ANNUAL">Per leave year (own balance, can carry forward)</option>
                 <option value="PER_OCCURRENCE">Per eligible occurrence (e.g. Maternity)</option>
               </select>
               {referenced && <p style={{ ...hintS, margin: '6px 0 0', fontSize: 11.5 }}>Already in use, so the basis can no longer change.</p>}
             </div>
-            {needsDays && (
-              <div style={{ marginBottom: 14 }}>
-                <label style={labelS} htmlFor="lt-days">{basis === 'PER_OCCURRENCE' ? 'Days per occurrence *' : 'Days per year *'}</label>
-                <input id="lt-days" type="number" min={0} max={999} step={0.5} style={inputS} value={entitlement} onChange={e => setEntitlement(e.target.value)} />
-              </div>
-            )}
-            {!isEdit && basis === 'ANNUAL' && (
-              <CreditFrequencyField value={frequency} onChange={setFrequency} quota={Number(entitlement)} name="lt-frequency" />
-            )}
             {basis === 'PER_OCCURRENCE' && (
               <div style={{ marginBottom: 14 }}>
                 <label style={labelS} htmlFor="lt-window">Occurrence window (months) *</label>
@@ -300,11 +136,10 @@ function LeaveTypeDialog({ editRow, token, lookups, onClose, onSaved }: {
             )}
           </>
         )}
-        {isEdit && classification === 'PAID' && !becomingPaid && (
-          <p style={{ ...hintS, fontSize: 11.5 }}>Change the number of days and how they're credited under Leave Entitlements, with an effective year.</p>
-        )}
-        <AppliesToEditor value={eligibility} onChange={setEligibility} departments={lookups.departments} locations={lookups.locations}
-          employees={lookups.employees} token={token} />
+        <p style={{ ...hintS, fontSize: 11.5 }}>
+          Days, crediting, carry-forward and who it applies to are set per leave plan (Leave Plans tab). A new type is not
+          offered to anyone until a plan includes it.
+        </p>
         <FormError error={error} />
         <DialogActions busy={busy} label={isEdit ? 'Save Changes' : 'Add'} onCancel={onClose} />
       </form>
@@ -312,35 +147,10 @@ function LeaveTypeDialog({ editRow, token, lookups, onClose, onSaved }: {
   );
 }
 
-/** Confirm-or-explain dialog, the Document Types deletion pattern. */
-function ConfirmDialog({ title, body, confirmLabel, danger, onConfirm, onClose }: {
-  title: string; body: string; confirmLabel?: string; danger?: boolean; onConfirm?: () => Promise<void>; onClose(): void;
-}) {
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!onConfirm) { onClose(); return; }
-    setBusy(true);
-    try { await onConfirm(); onClose(); } catch (err) { setError(errMsg(err)); setBusy(false); }
-  }
-  return (
-    <Dialog title={title} kind={danger ? 'warn' : 'edit'} width={420} onClose={onClose}>
-      <form onSubmit={submit}>
-        <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--txt-mut)', lineHeight: 1.55 }}>{body}</p>
-        <FormError error={error} />
-        <DialogActions busy={busy} label={confirmLabel ?? 'Got it'} danger={danger} onCancel={onClose} />
-      </form>
-    </Dialog>
-  );
-}
-
-type Confirm = { title: string; body: string; confirmLabel?: string; danger?: boolean; onConfirm?: () => Promise<void> };
-
 // ── Area 1: Leave Types ────────────────────────────────────────────────────────
 
-function LeaveTypesArea({ types, token, canConfigure, lookups, reload }: {
-  types: LeaveType[]; token: string; canConfigure: boolean; lookups: Lookups; reload(): Promise<void>;
+function LeaveTypesArea({ types, token, canConfigure, reload }: {
+  types: LeaveType[]; token: string; canConfigure: boolean; reload(): Promise<void>;
 }) {
   const { showToast } = useToast();
   const [dialog, setDialog] = useState<{ row?: LeaveType; key: number } | null>(null);
@@ -383,7 +193,7 @@ function LeaveTypesArea({ types, token, canConfigure, lookups, reload }: {
     }
     setConfirm({
       title: `Delete "${t.name}"`,
-      body: `"${t.name}" and its entitlement settings will be permanently deleted. Nothing references it yet.`,
+      body: `"${t.name}" will be permanently deleted and removed from every leave plan. Nothing references it yet.`,
       confirmLabel: 'Delete',
       danger: true,
       onConfirm: async () => {
@@ -408,13 +218,13 @@ function LeaveTypesArea({ types, token, canConfigure, lookups, reload }: {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <p style={{ ...hintS, margin: 0, maxWidth: 640 }}>
-          Paid Leave and Unpaid Leave are built in: they can be renamed and restricted but not removed. Every paid type keeps
-          its own balance; unpaid types are unlimited. Use "Applies to" to limit a type to some employees (e.g. Maternity to
-          female employees). Types already used by requests or balances can be deactivated but not deleted.
+          The catalogue of leave types. Paid Leave and Unpaid Leave are built in: they can be renamed but not removed. Every
+          paid type keeps its own balance; unpaid types are unlimited. How many days, how they're credited, carry-forward and
+          who a type applies to are set in each leave plan. Types already used can be deactivated but not deleted.
         </p>
         {canConfigure && <button style={primaryBtn()} onClick={() => setDialog({ key: Date.now() })}>Add Leave Type</button>}
       </div>
-      <Table head={['Leave Type', 'Code', 'Classification', 'Entitlement', 'Applies to', 'Usage', 'Status', '']}
+      <Table head={['Leave Type', 'Code', 'Classification', 'Basis', 'In plans', 'Usage', 'Status', '']}
         empty={types.length === 0 && 'No leave types configured yet. Add one to start collecting leave requests.'}>
         {types.map(t => (
           <tr key={t.id}>
@@ -423,13 +233,11 @@ function LeaveTypesArea({ types, token, canConfigure, lookups, reload }: {
             </td>
             <td style={{ ...tdS, fontFamily: 'var(--font-mono, monospace)', fontSize: 12 }}>{t.code}</td>
             <td style={tdS}><Badge tone={t.classification === 'PAID' ? 'ok' : 'warn'}>{t.classification === 'PAID' ? 'Paid' : 'Unpaid'}</Badge></td>
-            <td style={tdS}>
-              {entitlementLabel(t)}
-              {t.classification === 'PAID' && t.entitlementBasis === 'ANNUAL' && (
-                <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>{frequencyLabel(t.currentCreditFrequency)}</div>
-              )}
+            <td style={tdS}>{t.classification === 'UNPAID' ? 'Unlimited' : t.entitlementBasis === 'PER_OCCURRENCE' ? 'Per occurrence' : 'Per leave year'}</td>
+            <td style={{ ...tdS, maxWidth: 260 }}>
+              {(t.planNames ?? []).length > 0 ? t.planNames!.join(', ')
+                : <span title="Nobody can apply for it until a leave plan includes it"><Badge tone="warn">Not in any plan</Badge></span>}
             </td>
-            <td style={{ ...tdS, maxWidth: 260 }}>{appliesToSummary(t, lookups.departments, lookups.locations)}</td>
             <td style={tdS}>{t.referenceCount ?? 0}</td>
             <td style={tdS}><Badge tone={t.active ? 'ok' : 'dim'}>{t.active ? 'Active' : 'Inactive'}</Badge></td>
             <td style={{ ...tdS, textAlign: 'right', width: 52 }}><KebabMenu items={items(t)} /></td>
@@ -437,95 +245,11 @@ function LeaveTypesArea({ types, token, canConfigure, lookups, reload }: {
         ))}
       </Table>
       {dialog && (
-        <LeaveTypeDialog key={dialog.key} editRow={dialog.row} token={token} lookups={lookups} onClose={() => setDialog(null)}
+        <LeaveTypeDialog key={dialog.key} editRow={dialog.row} token={token} onClose={() => setDialog(null)}
           onSaved={saved => { showToast('success', dialog.row ? 'Leave type updated' : `"${saved.name}" created`); void reload(); }} />
       )}
       {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
     </div>
-  );
-}
-
-// ── Area 2: Leave Entitlements ─────────────────────────────────────────────────
-
-function EntitlementDialog({ type, token, onClose, onSaved }: { type: LeaveType; token: string; onClose(): void; onSaved(): void }) {
-  const [history, setHistory] = useState<EntitlementPolicy[] | null>(null);
-  const [year, setYear] = useState(String(CURRENT_YEAR + 1));
-  const [value, setValue] = useState(String(type.currentEntitlementDays ?? ''));
-  const [frequency, setFrequency] = useState<CreditFrequency>(type.currentCreditFrequency ?? 'YEARLY');
-  const [apply, setApply] = useState(false);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const perOccurrence = type.entitlementBasis === 'PER_OCCURRENCE';
-
-  useEffect(() => {
-    leaveConfigApi.listEntitlements(type.id, token).then(setHistory).catch(e => setError(errMsg(e)));
-  }, [type.id, token]);
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    const y = Number(year), d = Number(value);
-    if (!Number.isInteger(y) || y < 2000 || y > 2100) { setError('Effective year must be between 2000 and 2100'); return; }
-    if (value.trim() === '' || isNaN(d) || d < 0 || d > 999) { setError('Days must be between 0 and 999'); return; }
-    setBusy(true);
-    setError('');
-    try {
-      await leaveConfigApi.changeEntitlement(type.id, {
-        effectiveYear: y, days: d, applyToExistingBalances: apply && !perOccurrence,
-        ...(perOccurrence ? {} : { creditFrequency: frequency }),
-      }, token);
-      onSaved();
-      onClose();
-    } catch (err) {
-      setError(errMsg(err));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Dialog title={`${type.name} entitlement`} width={500} onClose={onClose}>
-      <form onSubmit={submit}>
-        <p style={hintS}>
-          {perOccurrence
-            ? 'Days granted for each eligible occurrence. An occurrence already open keeps the entitlement it started with.'
-            : 'Days granted per leave year from the effective year onwards, and how they reach employees. Months not credited yet follow the new figure; days already credited stay unless you choose to update them.'}
-        </p>
-        <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 140px' }}>
-            <label style={labelS} htmlFor="ent-year">Effective from year *</label>
-            <input id="ent-year" type="number" min={2000} max={2100} style={inputS} value={year} onChange={e => setYear(e.target.value)} />
-          </div>
-          <div style={{ flex: '1 1 140px' }}>
-            <label style={labelS} htmlFor="ent-days">{perOccurrence ? 'Days per occurrence *' : 'Days per year *'}</label>
-            <input id="ent-days" type="number" min={0} max={999} step={0.5} style={inputS} value={value} onChange={e => setValue(e.target.value)} />
-          </div>
-        </div>
-        {!perOccurrence && <CreditFrequencyField value={frequency} onChange={setFrequency} quota={Number(value)} name="ent-frequency" />}
-        {!perOccurrence && (
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12.5, color: 'var(--txt-mut)', marginBottom: 16, cursor: 'pointer' }}>
-            <input type="checkbox" checked={apply} onChange={e => setApply(e.target.checked)} style={{ marginTop: 2 }} />
-            Also re-credit days already credited in these years at the new figure (used and carried-forward days are kept).
-          </label>
-        )}
-        <h3 style={{ fontSize: 12, fontWeight: 700, color: 'var(--txt-mut)', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '.04em' }}>History</h3>
-        <div style={{ marginBottom: 16 }}>
-          {history === null ? <p style={hintS}>Loading…</p> : (
-            <Table head={perOccurrence ? ['From year', 'Days', 'Set by'] : ['From year', 'Days', 'Crediting', 'Set by']}
-              empty={history.length === 0 && 'No entitlement configured yet.'}>
-              {history.map(h => (
-                <tr key={h.id}>
-                  <td style={tdS}>{h.effectiveYear <= 2000 ? 'Default (all years)' : h.effectiveYear}</td>
-                  <td style={tdS}>{days(h.days)}</td>
-                  {!perOccurrence && <td style={tdS}>{frequencyLabel(h.creditFrequency)}</td>}
-                  <td style={tdS}>{h.createdByName}</td>
-                </tr>
-              ))}
-            </Table>
-          )}
-        </div>
-        <FormError error={error} />
-        <DialogActions busy={busy} label="Save Entitlement" onCancel={onClose} />
-      </form>
-    </Dialog>
   );
 }
 
@@ -740,44 +464,16 @@ function EmployeeBalances({ token, canEdit }: { token: string; canEdit: boolean 
   );
 }
 
-function EntitlementsArea({ types, token, canConfigure, canEdit, reload }: {
-  types: LeaveType[]; token: string; canConfigure: boolean; canEdit: boolean; reload(): Promise<void>;
-}) {
-  const { showToast } = useToast();
-  const [editing, setEditing] = useState<LeaveType | null>(null);
+// ── Balances ───────────────────────────────────────────────────────────────────
+
+function BalancesArea({ token, canConfigure, canEdit }: { token: string; canConfigure: boolean; canEdit: boolean }) {
   return (
     <div>
       <p style={hintS}>
-        Regular paid leave has a yearly quota (January–December), each type on its own balance, credited either all at once
-        on 1 January or a twelfth on the 1st of each month. With monthly crediting employees may apply for up to the whole
-        year's quota in advance. Per-occurrence leave such as Maternity is granted once per eligible occurrence. Unpaid leave
-        is unlimited.
+        Balances are credited from each employee's leave plan: a type's yearly quota all at once on 1 January or a twelfth
+        on the 1st of each month. With monthly crediting employees may apply for up to the whole year's quota in advance.
+        Per-occurrence leave such as Maternity is granted once per eligible occurrence; unpaid leave is unlimited.
       </p>
-      <Table head={['Leave Type', 'Basis', `Entitlement in ${CURRENT_YEAR}`, 'Crediting', '']} empty={types.length === 0 && 'No leave types configured yet.'}>
-        {types.map(t => (
-          <tr key={t.id}>
-            <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 500 }}>
-              {t.name}{!t.active && <span style={{ marginLeft: 8 }}><Badge tone="dim">Inactive</Badge></span>}
-            </td>
-            <td style={tdS}>{t.classification === 'UNPAID' ? 'Unpaid' : t.entitlementBasis === 'PER_OCCURRENCE' ? 'Per occurrence' : 'Per leave year'}</td>
-            <td style={tdS}>{t.classification === 'UNPAID' ? <Badge tone="info">Unlimited</Badge> : entitlementLabel(t)}</td>
-            <td style={tdS}>
-              {t.classification === 'PAID' && t.entitlementBasis === 'ANNUAL' ? frequencyLabel(t.currentCreditFrequency) : '–'}
-            </td>
-            <td style={{ ...tdS, textAlign: 'right' }}>
-              {t.classification === 'PAID' && (
-                <button style={secondaryBtn} onClick={() => setEditing(t)}>{canConfigure ? 'Change' : 'History'}</button>
-              )}
-            </td>
-          </tr>
-        ))}
-      </Table>
-      {editing && (canConfigure ? (
-        <EntitlementDialog type={editing} token={token} onClose={() => setEditing(null)}
-          onSaved={() => { showToast('success', `${editing.name} entitlement saved`); void reload(); }} />
-      ) : (
-        <EntitlementHistoryDialog type={editing} token={token} onClose={() => setEditing(null)} />
-      ))}
       <CreditingRun token={token} canConfigure={canConfigure} />
       <EmployeeBalances token={token} canEdit={canEdit} />
       {canEdit && <OpeningBalanceUpload token={token} />}
@@ -998,82 +694,6 @@ function OpeningBalanceUpload({ token }: { token: string }) {
   );
 }
 
-function EntitlementHistoryDialog({ type, token, onClose }: { type: LeaveType; token: string; onClose(): void }) {
-  const [history, setHistory] = useState<EntitlementPolicy[] | null>(null);
-  const [error, setError] = useState('');
-  useEffect(() => { leaveConfigApi.listEntitlements(type.id, token).then(setHistory).catch(e => setError(errMsg(e))); }, [type.id, token]);
-  return (
-    <ConfirmDialog title={`${type.name} entitlement history`} onClose={onClose}
-      body={error || (history === null ? 'Loading…' : history.map(h => `${h.effectiveYear <= 2000 ? 'Default' : `From ${h.effectiveYear}`}: ${days(h.days)} days${type.entitlementBasis === 'ANNUAL' ? `, ${frequencyLabel(h.creditFrequency).toLowerCase()}` : ''}`).join(' · ') || 'None')} />
-  );
-}
-
-// ── Area 3: Carry-Forward Settings ─────────────────────────────────────────────
-
-function CarryForwardRow({ type, token, canConfigure, onSaved }: { type: LeaveType; token: string; canConfigure: boolean; onSaved(): void }) {
-  const { showToast } = useToast();
-  const [enabled, setEnabled] = useState(!!type.carryForwardEnabled);
-  const [maxDays, setMaxDays] = useState(type.carryForwardMaxDays == null ? '' : String(type.carryForwardMaxDays));
-  const [expiry, setExpiry] = useState(type.carryForwardExpiryMonths == null ? '' : String(type.carryForwardExpiryMonths));
-  const [priority, setPriority] = useState<CarryForwardPriority>(type.carryForwardPriority ?? 'CARRY_FORWARD_FIRST');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const dirty = enabled !== !!type.carryForwardEnabled
-    || maxDays !== (type.carryForwardMaxDays == null ? '' : String(type.carryForwardMaxDays))
-    || expiry !== (type.carryForwardExpiryMonths == null ? '' : String(type.carryForwardExpiryMonths))
-    || priority !== (type.carryForwardPriority ?? 'CARRY_FORWARD_FIRST');
-
-  async function save() {
-    const max = maxDays.trim() === '' ? null : Number(maxDays);
-    const months = expiry.trim() === '' ? null : Number(expiry);
-    if (max != null && (isNaN(max) || max < 0)) { setError('Maximum must be zero or more'); return; }
-    if (months != null && (!Number.isInteger(months) || months < 1 || months > 24)) { setError('Expiry must be 1–24 months'); return; }
-    setBusy(true);
-    setError('');
-    try {
-      await leaveConfigApi.updateCarryForward(type.id, { enabled, maxDays: max, expiryMonths: months, priority }, token);
-      showToast('success', `${type.name} carry-forward saved`);
-      onSaved();
-    } catch (e) {
-      setError(errMsg(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const disabled = !canConfigure;
-  return (
-    <tr>
-      <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 500 }}>{type.name}</td>
-      <td style={tdS}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: disabled ? 'default' : 'pointer' }}>
-          <input type="checkbox" checked={enabled} disabled={disabled} onChange={e => setEnabled(e.target.checked)} aria-label={`Carry forward ${type.name}`} />
-          {enabled ? 'Enabled' : 'Disabled'}
-        </label>
-      </td>
-      <td style={tdS}>
-        <input type="number" min={0} max={999} step={0.5} style={{ ...inputS, width: 90 }} value={maxDays} disabled={disabled || !enabled}
-          placeholder="No cap" aria-label={`${type.name} maximum carry-forward days`} onChange={e => setMaxDays(e.target.value)} />
-      </td>
-      <td style={tdS}>
-        <input type="number" min={1} max={24} style={{ ...inputS, width: 90 }} value={expiry} disabled={disabled || !enabled}
-          placeholder="Never" aria-label={`${type.name} expiry in months`} onChange={e => setExpiry(e.target.value)} />
-      </td>
-      <td style={tdS}>
-        <select style={{ ...inputS, width: 170 }} value={priority} disabled={disabled || !enabled} aria-label={`${type.name} consumption priority`}
-          onChange={e => setPriority(e.target.value as CarryForwardPriority)}>
-          <option value="CARRY_FORWARD_FIRST">Carried-forward first</option>
-          <option value="CURRENT_FIRST">Current year first</option>
-        </select>
-      </td>
-      <td style={{ ...tdS, textAlign: 'right' }}>
-        {canConfigure && <button style={primaryBtn(busy || !dirty)} disabled={busy || !dirty} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>}
-        {error && <div role="alert" style={{ color: 'var(--risk)', fontSize: 11.5, marginTop: 6, whiteSpace: 'normal' }}>{error}</div>}
-      </td>
-    </tr>
-  );
-}
-
 function YearEndProcessing({ token, canConfigure }: { token: string; canConfigure: boolean }) {
   const lastRun = useLastRun(token, 'yearEnd');
   const { showToast } = useToast();
@@ -1108,9 +728,9 @@ function YearEndProcessing({ token, canConfigure }: { token: string; canConfigur
     <div style={{ marginTop: 28 }}>
       <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Year-end processing</h2>
       <p style={hintS}>
-        Runs automatically every night once a leave year has ended: unused days up to the maximum move into the next year's
-        carried-forward balance, the rest lapse, and carried-forward days expire on their expiry date. Running it again never
-        transfers twice. Leave still pending at year-end stays reserved in the old year.
+        Runs automatically every night once a leave year has ended: unused days up to the maximum set in each employee's
+        leave plan move into the next year's carried-forward balance, the rest lapse, and carried-forward days expire on their
+        expiry date. Running it again never transfers twice. Leave still pending at year-end stays reserved in the old year.
       </p>
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 14 }}>
         <div style={{ width: 140 }}>
@@ -1142,33 +762,6 @@ function YearEndProcessing({ token, canConfigure }: { token: string; canConfigur
           {rows.length > 0 && <TablePagination {...paged.pagerProps} noun="transfers" />}
         </>
       )}
-    </div>
-  );
-}
-
-function CarryForwardArea({ types, token, canConfigure, reload }: { types: LeaveType[]; token: string; canConfigure: boolean; reload(): Promise<void> }) {
-  const eligible = types.filter(t => t.classification === 'PAID' && t.entitlementBasis === 'ANNUAL');
-  const ineligible = types.filter(t => !eligible.includes(t));
-  return (
-    <div>
-      <p style={hintS}>
-        Choose, per regular paid leave type, whether unused days move into the next leave year, the most that may move, when
-        they expire (months into the new year; blank = never) and which days are used first. Disabling carry-forward never
-        removes days already carried.
-      </p>
-      <Table head={['Leave Type', 'Carry forward', 'Maximum days', 'Expires after (months)', 'Use first', '']}
-        empty={eligible.length === 0 && 'No regular paid leave types.'}>
-        {eligible.map(t => (
-          <CarryForwardRow key={`${t.id}:${t.carryForwardEnabled}:${t.carryForwardMaxDays}:${t.carryForwardExpiryMonths}:${t.carryForwardPriority}`}
-            type={t} token={token} canConfigure={canConfigure} onSaved={() => void reload()} />
-        ))}
-      </Table>
-      {ineligible.length > 0 && (
-        <p style={{ ...hintS, marginTop: 10, fontSize: 11.5 }}>
-          Not eligible for carry-forward: {ineligible.map(t => t.name).join(', ')} (unpaid or per-occurrence leave).
-        </p>
-      )}
-      <YearEndProcessing token={token} canConfigure={canConfigure} />
     </div>
   );
 }
@@ -1205,8 +798,10 @@ export default function LeaveConfigSection({ token }: { token: string }) {
 
   const tabs = useMemo(() => [
     { key: 'types' as const, label: 'Leave Types' },
-    { key: 'entitlements' as const, label: 'Leave Entitlements' },
-    { key: 'carryforward' as const, label: 'Carry-Forward Settings' },
+    { key: 'plans' as const, label: 'Leave Plans' },
+    { key: 'assignment' as const, label: 'Assignment' },
+    { key: 'balances' as const, label: 'Balances' },
+    { key: 'yearend' as const, label: 'Year-End' },
   ], []);
 
   return (
@@ -1216,9 +811,11 @@ export default function LeaveConfigSection({ token }: { token: string }) {
       {types === null && !error ? (
         <p style={hintS}>Loading…</p>
       ) : types && (
-        area === 'types' ? <LeaveTypesArea types={types} token={token} canConfigure={canConfigure} lookups={lookups} reload={reload} />
-          : area === 'entitlements' ? <EntitlementsArea types={types} token={token} canConfigure={canConfigure} canEdit={canEdit} reload={reload} />
-            : <CarryForwardArea types={types} token={token} canConfigure={canConfigure} reload={reload} />
+        area === 'types' ? <LeaveTypesArea types={types} token={token} canConfigure={canConfigure} reload={reload} />
+          : area === 'plans' ? <LeavePlansArea types={types} token={token} canConfigure={canConfigure} lookups={lookups} />
+            : area === 'assignment' ? <LeavePlanAssignment token={token} canConfigure={canConfigure} />
+              : area === 'balances' ? <BalancesArea token={token} canConfigure={canConfigure} canEdit={canEdit} />
+                : <YearEndProcessing token={token} canConfigure={canConfigure} />
       )}
     </div>
   );

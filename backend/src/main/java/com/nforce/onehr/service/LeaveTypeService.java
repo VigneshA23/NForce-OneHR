@@ -4,21 +4,16 @@ import com.nforce.onehr.dto.CreateLeaveTypeRequest;
 import com.nforce.onehr.dto.LeaveBalanceResponse;
 import com.nforce.onehr.dto.LeaveConfigDtos.BalanceAdjustmentRequest;
 import com.nforce.onehr.dto.LeaveConfigDtos.AccrualCreditResponse;
-import com.nforce.onehr.dto.LeaveConfigDtos.CarryForwardSettingsRequest;
 import com.nforce.onehr.dto.LeaveConfigDtos.EligibilityConfig;
 import com.nforce.onehr.dto.LeaveConfigDtos.EligibilityPreview;
-import com.nforce.onehr.dto.LeaveConfigDtos.EntitlementChangeRequest;
-import com.nforce.onehr.dto.LeaveConfigDtos.EntitlementPolicyResponse;
 import com.nforce.onehr.dto.LeaveTypeResponse;
 import com.nforce.onehr.dto.UpdateLeaveTypeRequest;
 import com.nforce.onehr.entity.LeaveBalance;
-import com.nforce.onehr.entity.LeaveEntitlementPolicy;
 import com.nforce.onehr.entity.LeaveType;
 import com.nforce.onehr.entity.LeaveTypeClassification;
 import com.nforce.onehr.entity.User;
 import com.nforce.onehr.repository.EmployeeRepository;
 import com.nforce.onehr.repository.LeaveBalanceRepository;
-import com.nforce.onehr.repository.LeaveEntitlementPolicyRepository;
 import com.nforce.onehr.repository.LeaveTypeRepository;
 import com.nforce.onehr.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,17 +22,16 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Leave Configuration (Organization Masters > Leave, permission {@code leave_configuration}):
- * leave types, entitlement policies, carry-forward settings and manual balance adjustments.
+ * Leave Configuration (Organization Masters > Leave, permission {@code leave_configuration}): the leave
+ * type catalogue and manual balance adjustments. Since LV-01 a type is only its name, code, paid/unpaid
+ * and basis; quotas, crediting, carry-forward and "applies to" live in leave plans ({@link LeavePlanService}).
  * {@link LeaveService} keeps the read-only public type list and all request logic;
  * {@link LeaveBalanceService} owns how balances are calculated. Every change here is audited.
  */
@@ -46,7 +40,7 @@ import java.util.UUID;
 public class LeaveTypeService {
 
     private final LeaveTypeRepository leaveTypeRepository;
-    private final LeaveEntitlementPolicyRepository policyRepository;
+    private final com.nforce.onehr.repository.LeavePlanTypeRuleRepository planRuleRepository;
     private final LeaveBalanceRepository leaveBalanceRepository;
     private final LeaveBalanceService leaveBalanceService;
     private final LeaveYearEndService leaveYearEndService;
@@ -75,9 +69,6 @@ public class LeaveTypeService {
         }
         boolean paid = LeaveTypeClassification.PAID.equals(req.getClassification());
         String basis = paid && req.getEntitlementBasis() != null ? req.getEntitlementBasis() : LeaveType.BASIS_ANNUAL;
-        if (paid && req.getEntitlementDays() == null) {
-            throw new IllegalArgumentException("Entitlement days are required for a paid leave type");
-        }
         if (LeaveType.BASIS_PER_OCCURRENCE.equals(basis) && req.getOccurrenceWindowMonths() == null) {
             throw new IllegalArgumentException("An occurrence window (months) is required for per-occurrence leave");
         }
@@ -88,11 +79,7 @@ public class LeaveTypeService {
                 .entitlementBasis(basis)
                 .occurrenceWindowMonths(LeaveType.BASIS_PER_OCCURRENCE.equals(basis) ? req.getOccurrenceWindowMonths() : null)
                 .build());
-        // Existing employees get a balance on first use (LeaveBalanceService#ensureBalance) from this policy.
-        if (paid) {
-            savePolicy(type.getId(), currentYear(), req.getEntitlementDays(),
-                    req.getCreditFrequency() != null ? req.getCreditFrequency() : LeaveEntitlementPolicy.YEARLY, actor.getId());
-        }
+        // Nobody can use it until it is added to a leave plan (LV-01).
         auditService.log(actor.getId(), "LEAVE_TYPE_CREATED", type.getId(), null, snapshot(type));
         return toResponse(type, currentYear());
     }
@@ -123,16 +110,15 @@ public class LeaveTypeService {
             type.setOccurrenceWindowMonths(req.getOccurrenceWindowMonths());
         }
         if (req.getClassification() != null && !req.getClassification().equals(type.getClassification())) {
-            type.setClassification(req.getClassification());
-            if (type.isPaid() && policyRepository.findByLeaveTypeIdOrderByEffectiveYearDesc(type.getId()).isEmpty()) {
-                if (req.getEntitlementDays() == null) {
-                    throw new IllegalArgumentException("Entitlement days are required to make this leave type paid");
-                }
-                savePolicy(type.getId(), currentYear(), req.getEntitlementDays(), LeaveEntitlementPolicy.YEARLY, actor.getId());
+            long refs = leaveTypeRepository.countReferences(type.getId(), type.getCode());
+            if (refs > 0) {
+                throw new IllegalStateException("\"" + type.getName() + "\" can't change between paid and unpaid: "
+                        + refs + " record(s) already use it.");
             }
+            type.setClassification(req.getClassification());
         }
         if (!type.isAnnualBalance()) {
-            // Unpaid and per-occurrence leave never carry forward (also a DB check constraint).
+            // Unpaid and per-occurrence leave never carry forward (also a DB check constraint on leave_types).
             type.setCarryForwardEnabled(false);
         }
         if (type.isPerOccurrence() && type.getOccurrenceWindowMonths() == null) {
@@ -178,148 +164,15 @@ public class LeaveTypeService {
                     + " leave record(s). Deactivate it instead to stop new requests while keeping history.");
         }
         String before = snapshot(type);
-        leaveTypeRepository.delete(type); // its own entitlement policies go with it (ON DELETE CASCADE)
+        leaveTypeRepository.delete(type); // its plan rules go with it (ON DELETE CASCADE)
         auditService.log(actor.getId(), "LEAVE_TYPE_DELETED", id, before, null);
     }
 
-    // ── Entitlements ────────────────────────────────────────────────────────────────────────────
-
-    @Transactional(readOnly = true)
-    public List<EntitlementPolicyResponse> listPolicies(UUID typeId) {
-        requireType(typeId);
-        List<LeaveEntitlementPolicy> policies = policyRepository.findByLeaveTypeIdOrderByEffectiveYearDesc(typeId);
-        Map<UUID, String> names = new HashMap<>();
-        java.util.Set<UUID> creatorIds = policies.stream().map(LeaveEntitlementPolicy::getCreatedBy)
-                .filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
-        if (!creatorIds.isEmpty()) {
-            for (Object[] row : employeeRepository.findNamesByUserIds(creatorIds)) {
-                names.put((UUID) row[0], (String) row[1]);
-            }
-        }
-        return policies.stream().map(p -> new EntitlementPolicyResponse(p.getId(), p.getEffectiveYear(), p.getDays(),
-                p.getCreditFrequency(), p.getCreatedBy() == null ? "System default" : names.getOrDefault(p.getCreatedBy(), "Unknown"), p.getCreatedAt())).toList();
-    }
-
-    /**
-     * New entitlement (days and crediting frequency) from {@code effectiveYear}. Months not credited
-     * yet follow it automatically; months already credited keep their days unless
-     * {@code applyToExistingBalances}, which re-credits them at the new rate, only in the years this
-     * policy actually governs (up to the next later policy); used/carried-forward days are untouched.
-     * Per-occurrence types: an occurrence keeps the entitlement it opened with; the change applies
-     * to occurrences opened later.
-     */
-    @Transactional
-    public List<EntitlementPolicyResponse> changeEntitlement(UUID typeId, EntitlementChangeRequest req, String actorEmail) {
-        User actor = requireActor(actorEmail);
-        LeaveType type = requireType(typeId);
-        if (!type.isPaid()) {
-            throw new IllegalArgumentException("Unpaid leave is unlimited, so it has no entitlement to configure.");
-        }
-        java.util.Optional<LeaveEntitlementPolicy> previousPolicy = accrualService.policyFor(type, req.effectiveYear());
-        BigDecimal previous = leaveBalanceService.entitlementDays(type, req.effectiveYear()).orElse(null);
-        String previousFrequency = LeaveAccrualService.frequencyOf(previousPolicy);
-        String frequency = req.creditFrequency() != null ? req.creditFrequency() : previousFrequency;
-        savePolicy(type.getId(), req.effectiveYear(), req.days(), frequency, actor.getId());
-
-        int balancesUpdated = 0;
-        if (req.applyToExistingBalances() && type.isAnnualBalance()) {
-            int nextPolicyYear = policyRepository.findByLeaveTypeIdOrderByEffectiveYearDesc(type.getId()).stream()
-                    .map(LeaveEntitlementPolicy::getEffectiveYear)
-                    .filter(y -> y > req.effectiveYear())
-                    .min(Integer::compare).orElse(Integer.MAX_VALUE);
-            balancesUpdated = accrualService.recreditExisting(type, req.effectiveYear(), nextPolicyYear);
-        }
-        Map<String, Object> after = new LinkedHashMap<>();
-        after.put("leaveTypeCode", type.getCode());
-        after.put("effectiveYear", req.effectiveYear());
-        after.put("days", req.days());
-        after.put("creditFrequency", frequency);
-        after.put("appliedToExistingBalances", req.applyToExistingBalances());
-        after.put("balancesUpdated", balancesUpdated);
-        Map<String, Object> before = new LinkedHashMap<>();
-        before.put("leaveTypeCode", type.getCode());
-        before.put("effectiveYear", req.effectiveYear());
-        before.put("days", previous);
-        before.put("creditFrequency", previousFrequency);
-        auditService.log(actor.getId(), "LEAVE_ENTITLEMENT_CHANGED", type.getId(), auditSnapshot.toJson(before), auditSnapshot.toJson(after));
-        return listPolicies(typeId);
-    }
-
-    private void savePolicy(UUID typeId, int effectiveYear, BigDecimal days, String creditFrequency, UUID actorId) {
-        LeaveEntitlementPolicy policy = policyRepository.findByLeaveTypeIdAndEffectiveYear(typeId, effectiveYear)
-                .orElseGet(() -> LeaveEntitlementPolicy.builder().leaveTypeId(typeId).effectiveYear(effectiveYear).build());
-        policy.setDays(days);
-        policy.setCreditFrequency(creditFrequency);
-        policy.setCreatedBy(actorId);
-        policyRepository.save(policy);
-    }
-
-    // ── Who a type applies to ───────────────────────────────────────────────────────────────────
-
-    @Transactional
-    public LeaveTypeResponse updateEligibility(UUID typeId, EligibilityConfig config, String actorEmail) {
-        User actor = requireActor(actorEmail);
-        LeaveType type = requireType(typeId);
-        for (String id : nullSafe(config.departmentIds())) parseUuid(id, "department");
-        for (String id : nullSafe(config.locationIds())) parseUuid(id, "location");
-        String before = auditSnapshot.toJson(eligibilityMap(eligibilityService.configOf(typeId)));
-        eligibilityService.replace(typeId, config);
-        String after = auditSnapshot.toJson(eligibilityMap(eligibilityService.configOf(typeId)));
-        if (!java.util.Objects.equals(before, after)) {
-            auditService.log(actor.getId(), "LEAVE_TYPE_APPLICABILITY_CHANGED", typeId, before, after);
-        }
-        return toResponse(type, currentYear());
-    }
-
+    /** How many current employees a set of "applies to" rules would cover (the plan editor's live count). */
     @Transactional(readOnly = true)
     public EligibilityPreview previewEligibility(EligibilityConfig config) {
         int[] counts = eligibilityService.preview(config);
         return new EligibilityPreview(counts[0], counts[1]);
-    }
-
-    private static Map<String, Object> eligibilityMap(EligibilityConfig c) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("genders", c.genders());
-        m.put("departmentIds", c.departmentIds());
-        m.put("locationIds", c.locationIds());
-        m.put("employmentTypes", c.employmentTypes());
-        m.put("includeEmployeeIds", c.includeEmployeeIds().stream().map(UUID::toString).sorted().toList());
-        m.put("excludeEmployeeIds", c.excludeEmployeeIds().stream().map(UUID::toString).sorted().toList());
-        return m;
-    }
-
-    private static <T> List<T> nullSafe(List<T> values) {
-        return values == null ? List.of() : values;
-    }
-
-    private static void parseUuid(String value, String what) {
-        if (value == null || value.isBlank()) return;
-        try {
-            UUID.fromString(value.trim());
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid " + what + " id: " + value);
-        }
-    }
-
-    // ── Carry-forward ───────────────────────────────────────────────────────────────────────────
-
-    /** Settings used by the next year-end run. Disabling never touches days already carried forward. */
-    @Transactional
-    public LeaveTypeResponse updateCarryForward(UUID typeId, CarryForwardSettingsRequest req, String actorEmail) {
-        User actor = requireActor(actorEmail);
-        LeaveType type = requireType(typeId);
-        if (req.enabled() && !type.isAnnualBalance()) {
-            throw new IllegalArgumentException("Carry-forward is only available for regular paid leave types "
-                    + "(not unpaid or per-occurrence leave such as Maternity).");
-        }
-        String before = cfSnapshot(type);
-        type.setCarryForwardEnabled(req.enabled());
-        type.setCarryForwardMaxDays(req.maxDays());
-        type.setCarryForwardExpiryMonths(req.expiryMonths());
-        type.setCarryForwardPriority(req.priority() != null ? req.priority() : LeaveType.CF_FIRST);
-        type = leaveTypeRepository.save(type);
-        auditService.log(actor.getId(), "LEAVE_CARRY_FORWARD_CONFIG_CHANGED", type.getId(), before, cfSnapshot(type));
-        return toResponse(type, currentYear());
     }
 
     // ── Employee balances ───────────────────────────────────────────────────────────────────────
@@ -422,16 +275,6 @@ public class LeaveTypeService {
         return auditSnapshot.toJson(m);
     }
 
-    private String cfSnapshot(LeaveType t) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("leaveTypeCode", t.getCode());
-        m.put("enabled", t.isCarryForwardEnabled());
-        m.put("maxDays", t.getCarryForwardMaxDays());
-        m.put("expiryMonths", t.getCarryForwardExpiryMonths());
-        m.put("priority", t.getCarryForwardPriority());
-        return auditSnapshot.toJson(m);
-    }
-
     private LeaveTypeResponse toResponse(LeaveType t, int year) {
         return LeaveTypeResponse.builder()
                 .id(t.getId())
@@ -442,13 +285,7 @@ public class LeaveTypeService {
                 .active(t.isActive())
                 .systemKey(t.getSystemKey())
                 .occurrenceWindowMonths(t.getOccurrenceWindowMonths())
-                .currentEntitlementDays(leaveBalanceService.entitlementDays(t, year).orElse(null))
-                .currentCreditFrequency(t.isAnnualBalance() ? LeaveAccrualService.frequencyOf(accrualService.policyFor(t, year)) : null)
-                .eligibility(t.getId() == null ? null : eligibilityService.configOf(t.getId()))
-                .carryForwardEnabled(t.isCarryForwardEnabled())
-                .carryForwardMaxDays(t.getCarryForwardMaxDays())
-                .carryForwardExpiryMonths(t.getCarryForwardExpiryMonths())
-                .carryForwardPriority(t.getCarryForwardPriority())
+                .planNames(t.getId() == null ? List.of() : planRuleRepository.findPlanNamesUsingType(t.getId()))
                 .referenceCount(t.getId() == null ? 0L : leaveTypeRepository.countReferences(t.getId(), t.getCode()))
                 .build();
     }

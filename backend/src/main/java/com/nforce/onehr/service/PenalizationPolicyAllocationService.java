@@ -450,9 +450,7 @@ public class PenalizationPolicyAllocationService {
     }
 
     private void validateRange(LocalDate from, LocalDate to) {
-        if (to != null && to.isBefore(from)) {
-            throw new IllegalArgumentException("Effective To cannot be before Effective From");
-        }
+        AllocationRanges.validate(from, to);
     }
 
     /** Non-destructive overlap prevention: reject rather than silently truncate/delete the conflicting row. */
@@ -509,9 +507,7 @@ public class PenalizationPolicyAllocationService {
     }
 
     private String status(PenalizationPolicyAllocation a, LocalDate today) {
-        if (a.getEffectiveTo() != null && a.getEffectiveTo().isBefore(today)) return "HISTORICAL";
-        if (a.getEffectiveFrom().isAfter(today)) return "FUTURE";
-        return "CURRENT";
+        return AllocationRanges.status(a.getEffectiveFrom(), a.getEffectiveTo(), today);
     }
 
     private Employee findEmployee(UUID employeeUserId) {

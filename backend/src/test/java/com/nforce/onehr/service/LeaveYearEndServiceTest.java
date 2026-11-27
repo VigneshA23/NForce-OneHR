@@ -69,7 +69,7 @@ class LeaveYearEndServiceTest {
         LeaveBalanceService balances = TestLeaveBalances.over(typeRepo, balanceRepo, requestRepo, policyRepo, occurrenceRepo,
                 new AttendanceProperties());
         service = new LeaveYearEndService(typeRepo, balanceRepo, transferRepo, requestRepo, employeeRepo, balances,
-                auditService, new AuditSnapshotSerializer(new ObjectMapper()), txManager, jobMonitor);
+                TestLeaveBalances.plansFromPolicies(policyRepo, typeRepo), auditService, new AuditSnapshotSerializer(new ObjectMapper()), txManager, jobMonitor);
 
         lenient().when(typeRepo.findById(any())).thenAnswer(inv ->
                 List.of(annual, sick).stream().filter(t -> t.getId().equals(inv.getArgument(0))).findFirst());

@@ -61,9 +61,15 @@ class LeaveConfigEndpointsSecurityTest {
             return new LeaveConfigController(mock(LeaveTypeService.class), mock(LeaveYearEndService.class), mock(com.nforce.onehr.service.LeaveAccrualService.class), users,
                     mock(com.nforce.onehr.service.LeaveJobMonitor.class), mock(com.nforce.onehr.service.LeaveOpeningBalanceService.class));
         }
+
+        @Bean com.nforce.onehr.controller.LeavePlanController leavePlanController() {
+            return new com.nforce.onehr.controller.LeavePlanController(mock(com.nforce.onehr.service.LeavePlanService.class),
+                    mock(com.nforce.onehr.service.LeavePlanAllocationService.class));
+        }
     }
 
     @Autowired LeaveConfigController controller;
+    @Autowired com.nforce.onehr.controller.LeavePlanController planController;
 
     private static final String ID = "11111111-1111-1111-1111-111111111111";
     private static final String VIEW = "leave_configuration:VIEW:ALL";
@@ -73,13 +79,31 @@ class LeaveConfigEndpointsSecurityTest {
     static Stream<Arguments> gatedEndpoints() {
         return Stream.of(
                 Arguments.of("GET", "/api/leave-config/types", null, VIEW),
-                Arguments.of("POST", "/api/leave-config/types", "{\"code\":\"STUDY\",\"name\":\"Study\",\"classification\":\"PAID\",\"entitlementDays\":5}", CONFIGURE),
+                Arguments.of("POST", "/api/leave-config/types", "{\"code\":\"STUDY\",\"name\":\"Study\",\"classification\":\"PAID\"}", CONFIGURE),
                 Arguments.of("PATCH", "/api/leave-config/types/" + ID, "{\"name\":\"Study Leave\"}", CONFIGURE),
                 Arguments.of("PATCH", "/api/leave-config/types/" + ID + "/active", "{\"active\":false}", CONFIGURE),
                 Arguments.of("DELETE", "/api/leave-config/types/" + ID, null, CONFIGURE),
-                Arguments.of("GET", "/api/leave-config/types/" + ID + "/entitlements", null, VIEW),
-                Arguments.of("POST", "/api/leave-config/types/" + ID + "/entitlements", "{\"effectiveYear\":2027,\"days\":18}", CONFIGURE),
-                Arguments.of("PUT", "/api/leave-config/types/" + ID + "/carry-forward", "{\"enabled\":true,\"maxDays\":5,\"expiryMonths\":3}", CONFIGURE),
+                Arguments.of("POST", "/api/leave-config/types/eligibility-preview", "{}", VIEW),
+                // LV-01 leave plans
+                Arguments.of("GET", "/api/leave-config/plans", null, VIEW),
+                Arguments.of("GET", "/api/leave-config/plans/" + ID, null, VIEW),
+                Arguments.of("GET", "/api/leave-config/plans/" + ID + "/current-version", null, VIEW),
+                Arguments.of("GET", "/api/leave-config/plan-versions/" + ID, null, VIEW),
+                Arguments.of("POST", "/api/leave-config/plans", "{\"name\":\"Interns\",\"rules\":[]}", CONFIGURE),
+                Arguments.of("PATCH", "/api/leave-config/plans/" + ID, "{\"name\":\"Interns 2\"}", CONFIGURE),
+                Arguments.of("POST", "/api/leave-config/plans/" + ID + "/versions", "{\"effectiveFrom\":\"2027-01-01\",\"rules\":[]}", CONFIGURE),
+                Arguments.of("POST", "/api/leave-config/plans/" + ID + "/clone", "{\"name\":\"Copy\"}", CONFIGURE),
+                Arguments.of("PATCH", "/api/leave-config/plans/" + ID + "/active", "{\"active\":false}", CONFIGURE),
+                Arguments.of("PATCH", "/api/leave-config/plans/" + ID + "/default", null, CONFIGURE),
+                Arguments.of("DELETE", "/api/leave-config/plans/" + ID, null, CONFIGURE),
+                Arguments.of("GET", "/api/leave-config/plan-allocations/employees", null, VIEW),
+                Arguments.of("GET", "/api/leave-config/plan-allocations/employees/" + ID, null, VIEW),
+                Arguments.of("POST", "/api/leave-config/plan-allocations", "{\"employeeUserId\":\"" + ID + "\",\"planId\":\"" + ID + "\",\"effectiveFrom\":\"2027-01-01\"}", CONFIGURE),
+                Arguments.of("PUT", "/api/leave-config/plan-allocations/" + ID, "{\"planId\":\"" + ID + "\",\"effectiveFrom\":\"2027-01-01\"}", CONFIGURE),
+                Arguments.of("DELETE", "/api/leave-config/plan-allocations/" + ID, null, CONFIGURE),
+                Arguments.of("POST", "/api/leave-config/plan-allocations/bulk", "{\"employeeUserIds\":[\"" + ID + "\"],\"planId\":\"" + ID + "\",\"effectiveFrom\":\"2027-01-01\"}", CONFIGURE),
+                Arguments.of("POST", "/api/leave-config/plan-allocations/bulk-remove", "{\"employeeUserIds\":[\"" + ID + "\"]}", CONFIGURE),
+                Arguments.of("POST", "/api/leave-config/plan-allocations/check-conflicts", "{\"employeeUserIds\":[\"" + ID + "\"],\"effectiveFrom\":\"2027-01-01\"}", VIEW),
                 Arguments.of("GET", "/api/leave-config/carry-forward/transfers?fromYear=2026", null, VIEW),
                 Arguments.of("POST", "/api/leave-config/carry-forward/run?fromYear=2025", null, CONFIGURE),
                 Arguments.of("GET", "/api/leave-config/jobs", null, VIEW),
@@ -114,6 +138,7 @@ class LeaveConfigEndpointsSecurityTest {
     @Test
     void viewAloneCannotChangeConfiguration_orAdjustBalances() throws Exception {
         assertEquals(403, call("POST", "/api/leave-config/carry-forward/run?fromYear=2025", null, VIEW));
+        assertEquals(403, call("PATCH", "/api/leave-config/plans/" + ID + "/default", null, VIEW, EDIT));
         assertEquals(403, call("PATCH", "/api/leave-config/balances/" + ID,
                 "{\"entitlementDays\":15,\"carriedForwardDays\":0,\"reason\":\"x\"}", VIEW, CONFIGURE));
     }
@@ -149,7 +174,7 @@ class LeaveConfigEndpointsSecurityTest {
     private int call(String method, String path, String body, String... authorities) throws Exception {
         Authentication auth = new TestingAuthenticationToken("user@test.com", "n/a", authorities);
         SecurityContextHolder.getContext().setAuthentication(auth);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller, planController).setControllerAdvice(new GlobalExceptionHandler()).build();
         MockHttpServletRequestBuilder req = switch (method) {
             case "GET" -> get(path);
             case "POST" -> post(path);
