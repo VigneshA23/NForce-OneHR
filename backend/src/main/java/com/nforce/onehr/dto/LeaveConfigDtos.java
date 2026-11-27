@@ -81,7 +81,23 @@ public final class LeaveConfigDtos {
 
     /** {@code failedEmployees}: codes of the employees whose crediting failed (retried on the next run). */
     public record AccrualRunResult(Integer year, int employeesChecked, int creditsAdded, int failures,
-                                   List<String> failedEmployees) {}
+                                   List<String> failedEmployees, int creditsPaused) {
+
+        public AccrualRunResult(Integer year, int employeesChecked, int creditsAdded, int failures, List<String> failedEmployees) {
+            this(year, employeesChecked, creditsAdded, failures, failedEmployees, 0);
+        }
+    }
+
+    /**
+     * LV-03 dry run: one credit a run would post. {@code months} 1-12 credited together; {@code status} CREDIT, or
+     * PAUSED with {@code reason}.
+     */
+    public record AccrualPreviewLine(UUID employeeUserId, String employeeName, String employeeCode, UUID leaveTypeId,
+                                     String leaveTypeName, int year, List<Integer> months, BigDecimal days, LocalDate creditDate,
+                                     String frequency, String status, String reason) {}
+
+    /** {@code employees}: employees with something due; {@code creditDays}: days that would be credited (paused excluded). */
+    public record AccrualPreview(LocalDate asOf, int employees, BigDecimal creditDays, int paused, List<AccrualPreviewLine> lines) {}
 
     /** {@code failedEmployees}: codes of the employees whose carry-forward or expiry failed (retried on the next run). */
     public record YearEndRunResult(Integer fromYear, int balancesChecked, int transfersCreated,

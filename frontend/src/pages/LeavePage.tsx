@@ -132,7 +132,8 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
   const available = Math.max(0, balanceDays);
   // V314: monthly crediting. A negative balance = days taken in advance of credits still to come.
   const inAdvance = balanceDays < 0 ? roundDays(-balanceDays) : 0;
-  const monthly = balance.creditFrequency === 'MONTHLY';
+  // Credited in parts through the year (monthly, quarterly, half-yearly), not all at once (LV-03).
+  const periodic = balance.creditFrequency != null && balance.creditFrequency !== 'YEARLY';
   const quota = balance.annualQuotaDays != null ? Number(balance.annualQuotaDays) : null;
   // roundDays strips the IEEE-754 noise this subtraction can reintroduce even on two already-exact
   // BigDecimal-derived values (e.g. 15 - 13.7 rendering as 1.3000000000000007) - see utils/leaveDays.ts.
@@ -168,13 +169,20 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
           <div style={{ fontSize: 12, color: 'var(--txt-dim)' }}>No quota assigned</div>
         ) : (
           <>
+            {!perOccurrence && (
+              // LV-03: what has been credited (accrued) so far this year, separately from what is available.
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 4 }}>
+                <span style={{ width: 7, height: 7, borderRadius: 2, background: 'transparent', border: '1px solid var(--line2)', flexShrink: 0 }} />
+                Accrued to date <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{total}d</span>
+              </div>
+            )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)', marginBottom: 4 }}>
-              <span style={{ width: 7, height: 7, borderRadius: 2, background: ringColor, flexShrink: 0 }} />
-              Available <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{available}d</span>
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--line2)', flexShrink: 0 }} />
+              {pending > 0 ? 'Used & pending' : 'Used'} <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{consumed}d</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--txt-mut)' }}>
-              <span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--line2)', flexShrink: 0 }} />
-              {pending > 0 ? 'Used & pending' : 'Consumed'} <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{consumed}d</span>
+              <span style={{ width: 7, height: 7, borderRadius: 2, background: ringColor, flexShrink: 0 }} />
+              Available <span style={{ marginLeft: 'auto', color: 'var(--txt)', fontWeight: 700 }}>{available}d</span>
             </div>
             {pending > 0 && (
               <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{roundDays(pending)}d awaiting approval</div>
@@ -184,7 +192,7 @@ function LeaveBalanceRingCard({ balance, accent }: { balance: LeaveBalance; acce
                 {inAdvance}d taken in advance, covered by your next credits
               </div>
             )}
-            {!perOccurrence && monthly && quota != null && (
+            {!perOccurrence && quota != null && (periodic || balance.nextCreditDate) && (
               <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>
                 {roundDays(Number(balance.totalDays))}d of {roundDays(quota)}d credited this year
                 {balance.nextCreditDate && balance.nextCreditDays != null
@@ -220,7 +228,8 @@ function ExpectedBalanceCard({ balance, accent }: { balance: LeaveBalance; accen
   const used = Number(balance.usedDays ?? 0);
   const available = roundDays(Math.max(0, Number(balance.availableToApplyDays ?? quota - pending - used)));
   const pct = quota > 0 ? Math.min(100, Math.round((available / quota) * 100)) : 0;
-  const monthly = balance.creditFrequency === 'MONTHLY';
+  const how = balance.creditFrequency === 'MONTHLY' ? 'monthly' : balance.creditFrequency === 'QUARTERLY' ? 'quarterly'
+    : balance.creditFrequency === 'HALF_YEARLY' ? 'half-yearly' : null;
   return (
     <div className="nf-section-enter nf-leave-balance-card" style={{
       background: 'var(--panel)', border: '1px dashed var(--line2)', borderTop: `3px dashed ${accent}`, borderRadius: 16,
@@ -248,7 +257,8 @@ function ExpectedBalanceCard({ balance, accent }: { balance: LeaveBalance; accen
               Expected <b style={{ color: 'var(--txt)' }}>{roundDays(quota)}d</b> in {balance.year}
             </div>
             <div style={{ fontSize: 11, color: 'var(--txt-dim)' }}>
-              {monthly ? `Credited monthly from 1 Jan ${balance.year}` : `Credited on 1 Jan ${balance.year}`}
+              {how ? `Credited ${how} from ${balance.nextCreditDate ? shortDate(balance.nextCreditDate) : `1 Jan ${balance.year}`}`
+                : `Credited on ${balance.nextCreditDate ? shortDate(balance.nextCreditDate) : `1 Jan ${balance.year}`}`}
             </div>
             {pending + used > 0 && (
               <div style={{ fontSize: 11, color: 'var(--txt-dim)', marginTop: 4 }}>{roundDays(pending + used)}d already requested for {balance.year}</div>
@@ -495,7 +505,7 @@ function RequestLeaveModal({ types, balances, currentYear, editingRequest, onClo
               {yearChecks.some(c => c.loading) && <div className="nf-lv-bal">Checking balance…</div>}
               {advanceDays > 0 && (
                 <div className="nf-lv-warn">
-                  {advanceDays} day{advanceDays === 1 ? '' : 's'} of this request will be taken in advance and covered by your upcoming monthly credits.
+                  {advanceDays} day{advanceDays === 1 ? '' : 's'} of this request will be taken in advance and covered by your upcoming credits.
                 </div>
               )}
               {blockedUnpaidWithPaidBalance && (

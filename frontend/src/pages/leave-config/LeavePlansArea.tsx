@@ -17,7 +17,8 @@ import {
   primaryBtn, secondaryBtn, tdS, type Confirm,
 } from './leaveConfigUi';
 import {
-  firstOfNextMonth, formsFor, isoDate, limitsPayload, modeFor, prorationExample, ruleLines, summaryOf, toPayload, type LimitsForm, type RuleForm,
+  accrualSummary, firstOfNextMonth, formsFor, isoDate, limitsPayload, modeFor, prorationExample, ruleLines, summaryOf, toPayload,
+  type AccrualForm, type LimitsForm, type RuleForm,
 } from './planRules';
 import type { Lookups } from './LeaveConfigSection';
 
@@ -168,8 +169,17 @@ function RuleRow({ type, form, onChange, lookups, token, readOnly, allTypes }: {
             {annual && mode === 'QUOTA' && (
               <select style={{ ...inputS, width: 150 }} value={form.creditFrequency} disabled={readOnly} aria-label={`${type.name} crediting`}
                 onChange={e => set({ creditFrequency: e.target.value as RuleForm['creditFrequency'] })}>
-                <option value="MONTHLY">Monthly (1st)</option>
-                <option value="YEARLY">All at once (1 Jan)</option>
+                <option value="MONTHLY">Monthly</option>
+                <option value="QUARTERLY">Quarterly</option>
+                <option value="HALF_YEARLY">Half-yearly</option>
+                <option value="YEARLY">All at once (yearly)</option>
+              </select>
+            )}
+            {annual && mode === 'QUOTA' && (
+              <select style={{ ...inputS, width: 170 }} value={form.accrual.timing} disabled={readOnly} aria-label={`${type.name} credit timing`}
+                onChange={e => set({ accrual: { ...form.accrual, timing: e.target.value as AccrualForm['timing'] } })}>
+                <option value="START">at the start of the period</option>
+                <option value="END">at the end of the period</option>
               </select>
             )}
             <button type="button" onClick={() => setOpen(!open)} style={{ ...secondaryBtn, display: 'inline-flex', alignItems: 'center', gap: 4 }}
@@ -185,12 +195,37 @@ function RuleRow({ type, form, onChange, lookups, token, readOnly, allTypes }: {
           {annual && !compOff && mode !== 'UNLIMITED' && (form.carryForwardEnabled
             ? ` · carries forward ${form.carryForwardMaxDays ? `up to ${form.carryForwardMaxDays} day(s)` : 'all unused days'}${form.carryForwardExpiryMonths ? `, expiring after ${form.carryForwardExpiryMonths} month(s)` : ''}`
             : ' · unused days lapse at year end')}
+          {annual && mode === 'QUOTA' && ` · ${accrualSummary(form.creditFrequency, form.accrual)}`}
           {rulesText.length > 0 && ` · ${rulesText.join(' · ')}`}
         </div>
       )}
       {form.included && open && (
         <div style={{ padding: '4px 12px 4px 36px' }}>
           <RequestRules type={type} limits={form.limits} onChange={l => set({ limits: l })} allTypes={allTypes} readOnly={readOnly} />
+          {annual && mode === 'QUOTA' && (
+            <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 12px' }}>
+              <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Crediting pauses</legend>
+              <p style={{ fontSize: 11.5, color: 'var(--txt-dim)', margin: '0 0 8px' }}>
+                Withhold a period&apos;s credit when the employee had more than this many days in the period it depends on: the
+                period itself when credited at the end, the period before it when credited at the start. Loss of pay is
+                payroll&apos;s calculated figure. Blank = never withheld.
+              </p>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div>
+                  <label style={labelS}>Loss of pay over (days)</label>
+                  <input type="number" min={0} max={366} step={0.5} style={small} value={form.accrual.pauseLopOverDays} placeholder="Never"
+                    disabled={readOnly} aria-label={`${type.name} pause after loss of pay`}
+                    onChange={e => set({ accrual: { ...form.accrual, pauseLopOverDays: e.target.value } })} />
+                </div>
+                <div>
+                  <label style={labelS}>Unpaid leave over (days)</label>
+                  <input type="number" min={0} max={366} step={0.5} style={small} value={form.accrual.pauseUnpaidOverDays} placeholder="Never"
+                    disabled={readOnly} aria-label={`${type.name} pause after unpaid leave`}
+                    onChange={e => set({ accrual: { ...form.accrual, pauseUnpaidOverDays: e.target.value } })} />
+                </div>
+              </div>
+            </fieldset>
+          )}
           {annual && mode !== 'UNLIMITED' && (
             <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 12px' }}>
               <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Carry-forward</legend>

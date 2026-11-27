@@ -121,6 +121,14 @@ public class LeaveConfigController {
         return leaveAccrualService.run(actor.getId());
     }
 
+    /** LV-03 dry run: what crediting on {@code asOf} (default today) would post, credited or paused; writes nothing. */
+    @GetMapping("/accrual/preview")
+    @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")
+    public com.nforce.onehr.dto.LeaveConfigDtos.AccrualPreview previewAccrual(
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate asOf) {
+        return leaveAccrualService.preview(asOf);
+    }
+
     /** YE-07: when the nightly crediting and year-end jobs last ran, who ran them and what they did. */
     @GetMapping("/jobs")
     @PreAuthorize("hasAuthority('leave_configuration:VIEW:ALL')")

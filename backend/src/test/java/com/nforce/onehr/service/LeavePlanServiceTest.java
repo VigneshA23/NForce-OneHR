@@ -250,6 +250,29 @@ class LeavePlanServiceTest {
     }
 
     @Test
+    void accrualSettings_areSavedForCreditedTypes_ignoredForUnpaid_andAChangeIsANewVersion() {
+        version(1, jan1(), null, "15");
+        var accrualSettings = new LeavePlanDtos.AccrualSettings("END", new BigDecimal("3"), null);
+        service.saveVersion(plan.getId(), new SaveVersionRequest(LocalDate.of(year, 7, 1), List.of(
+                new TypeRuleRequest(paid.getId(), new BigDecimal("15"), "QUARTERLY", false, null, null, null, null, null, accrualSettings),
+                new TypeRuleRequest(unpaid.getId(), null, "QUARTERLY", false, null, null, null, null, null, accrualSettings)), false),
+                "hr@test.com");
+
+        LeavePlanVersion v2 = versions.stream().filter(v -> v.getVersion() == 2).findFirst().orElseThrow();
+        LeavePlanTypeRule savedPaid = rules.stream().filter(r -> r.getVersionId().equals(v2.getId()) && r.getLeaveTypeId().equals(paid.getId()))
+                .findFirst().orElseThrow();
+        assertEquals("QUARTERLY", savedPaid.getCreditFrequency());
+        assertEquals("END", savedPaid.getCreditTiming());
+        assertEquals(0, new BigDecimal("3").compareTo(savedPaid.getAccrualPauseLopOverDays()));
+        assertNull(savedPaid.getAccrualPauseUnpaidOverDays());
+        LeavePlanTypeRule savedUnpaid = rules.stream().filter(r -> r.getVersionId().equals(v2.getId()) && r.getLeaveTypeId().equals(unpaid.getId()))
+                .findFirst().orElseThrow();
+        assertEquals("YEARLY", savedUnpaid.getCreditFrequency());
+        assertEquals("START", savedUnpaid.getCreditTiming());
+        assertNull(savedUnpaid.getAccrualPauseLopOverDays());
+    }
+
+    @Test
     void changingTheProration_recreditsThisYear_andAnUnchangedOneDoesNot() {
         service.update(plan.getId(), new LeavePlanDtos.UpdatePlanRequest(plan.getName(), null, 1, null), "hr@test.com");
         verify(accrual, never()).reconcile(any(), any(), anyBoolean());

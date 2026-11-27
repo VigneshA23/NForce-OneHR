@@ -17,8 +17,20 @@ export type LeaveTypeClassification = 'PAID' | 'UNPAID';
 /** ANNUAL = a yearly balance; PER_OCCURRENCE = e.g. Maternity, per eligible occurrence; UNLIMITED = unpaid. */
 export type EntitlementBasis = 'ANNUAL' | 'PER_OCCURRENCE' | 'UNLIMITED';
 export type CarryForwardPriority = 'CARRY_FORWARD_FIRST' | 'CURRENT_FIRST';
-/** YEARLY = the whole quota at once on 1 January; MONTHLY = quota / 12 on the 1st of each month. */
-export type CreditFrequency = 'YEARLY' | 'MONTHLY';
+/**
+ * YEARLY = the whole quota at once; HALF_YEARLY / QUARTERLY = six / three months' share together; MONTHLY = quota / 12
+ * each month. When in the period it arrives is the plan's {@link CreditTiming} (LV-03).
+ */
+export type CreditFrequency = 'YEARLY' | 'HALF_YEARLY' | 'QUARTERLY' | 'MONTHLY';
+/** LV-03: START = on the period's first day; END = once the period is over. */
+export type CreditTiming = 'START' | 'END';
+
+/** LV-03: when a period's days are credited and when they are withheld (null limits = never paused). */
+export interface PlanAccrualSettings {
+  timing: CreditTiming;
+  pauseLopOverDays: number | null;
+  pauseUnpaidOverDays: number | null;
+}
 
 /** Who a leave type applies to. Empty lists = no restriction of that kind. */
 export interface EligibilityConfig {
@@ -365,6 +377,8 @@ export interface PlanTypeRule {
   carryForwardPriority: CarryForwardPriority;
   eligibility: EligibilityConfig;
   limits: PlanRuleLimits;
+  /** Regular paid (annual) types only; null for others. */
+  accrual?: PlanAccrualSettings | null;
 }
 
 /** LV-02: how a type may be requested under a plan. Null numbers = no limit. */
@@ -411,6 +425,7 @@ export interface PlanTypeRulePayload {
   carryForwardPriority?: CarryForwardPriority;
   eligibility?: EligibilityConfig;
   limits?: PlanRuleLimits;
+  accrual?: PlanAccrualSettings | null;
 }
 
 export type PlanSource = 'ALLOCATION' | 'RULE' | 'DEFAULT';
@@ -481,6 +496,34 @@ export interface AccrualRunResult {
   failures: number;
   /** Codes of the employees that failed (retried on the next run). */
   failedEmployees?: string[];
+  /** LV-03: months withheld (accrual paused for loss of pay / unpaid leave). */
+  creditsPaused?: number;
+}
+
+/** LV-03 dry run: one credit a run would post. */
+export interface AccrualPreviewLine {
+  employeeUserId: string;
+  employeeName: string | null;
+  employeeCode: string | null;
+  leaveTypeId: string;
+  leaveTypeName: string;
+  year: number;
+  /** Months 1-12 credited together. */
+  months: number[];
+  days: number;
+  creditDate: string;
+  frequency: CreditFrequency;
+  status: 'CREDIT' | 'PAUSED';
+  reason: string | null;
+}
+
+export interface AccrualPreview {
+  asOf: string;
+  employees: number;
+  /** Days that would be credited (paused credits excluded). */
+  creditDays: number;
+  paused: number;
+  lines: AccrualPreviewLine[];
 }
 
 /** YE-02: one employee x leave type row of the opening-balance template. */
@@ -539,7 +582,8 @@ export interface AccrualCredit {
   month: number;
   days: number;
   /** ACCRUAL = a real credit; MIGRATION = a month covered by a balance from before crediting existed. */
-  source: 'ACCRUAL' | 'MIGRATION';
+  /** PAUSED (LV-03): the month's credit was withheld for loss of pay / unpaid leave; 0 days. */
+  source: 'ACCRUAL' | 'MIGRATION' | 'PAUSED';
   creditedAt: string;
 }
 
@@ -564,6 +608,9 @@ export const leaveConfigApi = {
     send<{ eligibleCount: number; totalCount: number }>('POST', `${CONFIG}/types/eligibility-preview`, token, config),
 
   runAccrual: (token: string) => send<AccrualRunResult>('POST', `${CONFIG}/accrual/run`, token),
+  /** LV-03 dry run: what crediting on asOf (default today) would post; writes nothing. */
+  previewAccrual: (token: string, asOf?: string) =>
+    send<AccrualPreview>('GET', `${CONFIG}/accrual/preview${asOf ? `?asOf=${asOf}` : ''}`, token),
   /** Last run of the crediting ("accrual") and year-end ("yearEnd") jobs; a job that never ran is absent. */
   jobs: (token: string) => send<Partial<Record<'accrual' | 'yearEnd', LeaveJobRun>>>('GET', `${CONFIG}/jobs`, token),
   creditHistory: (balanceId: string, token: string) => send<AccrualCredit[]>('GET', `${CONFIG}/balances/${balanceId}/credits`, token),

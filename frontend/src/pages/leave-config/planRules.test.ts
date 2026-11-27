@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EMPTY_ELIGIBILITY, appliesToSummary, sameEligibility } from './AppliesTo';
 import type { LeavePreview, LeaveRuleSummary, LeaveType, PlanTypeRule } from '../../api/leave';
 import {
-  EMPTY_LIMITS, EMPTY_RULE_ELIGIBILITY, attachmentProblem, firstOfNextMonth, formsFor, hourlyDays, limitsPayload, modeFor, previewNotes, prorationExample, ruleLines, toPayload,
+  DEFAULT_ACCRUAL, EMPTY_LIMITS, EMPTY_RULE_ELIGIBILITY, accrualSummary, attachmentProblem, firstOfNextMonth, formsFor, hourlyDays, limitsPayload, modeFor, previewNotes, prorationExample, ruleLines, toPayload,
 } from './planRules';
 
 const paid: LeaveType = { id: 'p', code: 'PAID', name: 'Paid Leave', classification: 'PAID', entitlementBasis: 'ANNUAL', active: true };
@@ -198,5 +198,33 @@ describe('proration example (LV-04)', () => {
       .toBe('Example: 15 days a year, joined 16 Oct → 3.15 days for Oct–Dec, rounded to 3.');
     expect(prorationExample({ method: 'CALENDAR_DAYS', cutoffDay: null, rounding: 'UP_HALF' })).toContain('rounded to 3.5');
     expect(prorationExample({ method: 'MONTHS', cutoffDay: null, rounding: 'DOWN_HALF' })).toContain('rounded to 3.5');
+  });
+});
+
+describe('crediting periods, timing and pauses (LV-03)', () => {
+  it('reads the plan rule, defaulting to the start of the period with no pause', () => {
+    expect(formsFor(types, [paidRule])[0].accrual).toEqual(DEFAULT_ACCRUAL);
+    const quarterly = { ...paidRule, creditFrequency: 'QUARTERLY' as const, accrual: { timing: 'END' as const, pauseLopOverDays: 3, pauseUnpaidOverDays: null } };
+    expect(formsFor(types, [quarterly])[0]).toMatchObject({
+      creditFrequency: 'QUARTERLY', accrual: { timing: 'END', pauseLopOverDays: '3', pauseUnpaidOverDays: '' },
+    });
+  });
+
+  it('sends the settings for regular paid leave only, and checks the pause limits', () => {
+    const forms = formsFor(types, [paidRule]).map(f => ({ ...f, included: true,
+      accrual: { timing: 'END' as const, pauseLopOverDays: '2.5', pauseUnpaidOverDays: '' } }));
+    const { rules } = toPayload(forms, types);
+    expect(rules.find(r => r.leaveTypeId === 'p')?.accrual).toEqual({ timing: 'END', pauseLopOverDays: 2.5, pauseUnpaidOverDays: null });
+    expect(rules.find(r => r.leaveTypeId === 'u')?.accrual).toBeNull();
+    expect(rules.find(r => r.leaveTypeId === 'm')?.accrual).toBeNull();
+    const bad = [{ ...forms[0], accrual: { ...forms[0].accrual, pauseUnpaidOverDays: '-1' } }];
+    expect(toPayload(bad, types).error).toBe('Paid Leave: the unpaid-leave pause limit must be between 0 and 366');
+  });
+
+  it('describes how a type is credited', () => {
+    expect(accrualSummary('MONTHLY', DEFAULT_ACCRUAL)).toBe('credited monthly, at the start of each month');
+    expect(accrualSummary('HALF_YEARLY', { timing: 'END', pauseLopOverDays: '3', pauseUnpaidOverDays: '5' }))
+      .toBe('credited half-yearly, at the end of each half-year; withheld after more than 3 day(s) of loss of pay or more than 5 day(s) of unpaid leave');
+    expect(accrualSummary('YEARLY', DEFAULT_ACCRUAL)).toBe('credited all at once, at the start of each year');
   });
 });

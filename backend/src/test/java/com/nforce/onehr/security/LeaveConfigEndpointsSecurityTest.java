@@ -85,6 +85,7 @@ class LeaveConfigEndpointsSecurityTest {
                 Arguments.of("PATCH", "/api/leave-config/types/" + ID + "/active", "{\"active\":false}", CONFIGURE),
                 Arguments.of("DELETE", "/api/leave-config/types/" + ID, null, CONFIGURE),
                 Arguments.of("POST", "/api/leave-config/types/eligibility-preview", "{}", VIEW),
+                Arguments.of("GET", "/api/leave-config/accrual/preview?asOf=2027-01-01", null, VIEW),
                 // LV-01 leave plans
                 Arguments.of("GET", "/api/leave-config/plans", null, VIEW),
                 Arguments.of("GET", "/api/leave-config/plans/" + ID, null, VIEW),

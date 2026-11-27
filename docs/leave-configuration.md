@@ -1,4 +1,4 @@
-# Leave configuration (V310, V314, V321, V322, V323, V324, V325)
+# Leave configuration (V310, V314, V321, V322, V323, V324, V325, V326)
 
 Leave types, leave plans (each type's days, crediting, carry-forward and who it applies to), who is on which
 plan, balances and year-end live in **Organization Masters / Organization Structure → Leave** (the
@@ -130,6 +130,7 @@ to repeat). `leave_balances.total_days` now means **credited so far**.
   `used_days` can exceed `total_days` (a negative balance, recovered by later credits). The displayed
   balance, the "use paid leave before unpaid" rule and penalty debits count credited days only.
   At exit, payroll's leave-encashment figure is negative when days were taken in advance.
+- LV-03 adds quarterly and half-yearly crediting, end-of-period timing and pauses: see the next section.
 - `LeaveAccrualService` runs nightly (`app.leave.accrual.cron`, default 00:15 in the business zone;
   in January it also finishes the previous year). HR can run it from Balances → Run crediting now. Balances are also brought up to date whenever they are read.
 - "Re-credit months already credited" when saving plan rules re-credits those months at the new rate and
@@ -138,6 +139,42 @@ to repeat). `leave_balances.total_days` now means **credited so far**.
   months, so those years count as fully credited and nothing is added on top. Future-year rows restart
   at 0 credited. Paid Leave's policy is 15 days `YEARLY` up to the migration year and 15 days `MONTHLY`
   from the next year.
+
+## Accrual periods, timing and pauses (V326, LV-03 / ONEHR-889)
+
+Per leave type in a plan (Leave Plans → a type's row and its **More** panel), for regular paid types with fixed days:
+
+| Setting | Values | Effect |
+|---|---|---|
+| Frequency | Monthly, Quarterly, Half-yearly, All at once (yearly) | How many months' share is credited together: 1, 3 (Jan, Apr, Jul, Oct), 6 (Jan, Jul) or 12. |
+| Timing | Start / end of the period | **Start**: on the period's first day (as before LV-03). **End**: once the period is over, i.e. the day after it ends. A leaver's last period is credited the day after the last working day. |
+| Pause after loss of pay over N days | blank = never | The period's credit is withheld. |
+| Pause after unpaid leave over N days | blank = never | Same, for approved leave of an Unpaid-classified type. |
+
+- The ledger stays **one row per month** (`leave_accrual_credits`), so idempotency, re-crediting after plan
+  changes, proration (LV-04) and exit settlements work unchanged. A quarter's three months are simply
+  posted together on the quarter's credit date.
+- Months credited together that don't make up a whole period (a joiner, a leaver, a plan switch) are rounded
+  per the plan's proration rounding. Example: 10 days a year, quarterly, joined 10 February: Feb + Mar =
+  0.84 + 0.83 = 1.67, rounded to 1.5.
+- **Which period a pause looks at**: credited at the **end**, the period itself; credited at the **start**, the
+  period before it (its own period hasn't happened yet). "Over N" means strictly more than N.
+- **Loss of pay** is payroll's LOP calculation (`payroll_lop_calculations`, HR's override when set) for every
+  pay cycle that **ends** inside that period. A cycle payroll hasn't calculated yet counts as 0, so with
+  start-of-period crediting the previous period's LOP must be calculated before the credit date to take effect.
+  **Unpaid leave** is approved Unpaid-type leave, counted by the dates it is charged for.
+- A withheld month is recorded as a 0-day `PAUSED` row: it shows as "Paused" in the credit history, a re-run
+  never credits it, and re-crediting after a plan change leaves it withheld. To give the days anyway, adjust
+  the balance.
+- **Dry run**: Balances → Crediting → **Preview** (any date) lists every credit a run on that date would post:
+  employee, type, period, days, credit date, and Credit or Paused with the reason. Nothing is written
+  (`GET /api/leave-config/accrual/preview?asOf=`, leave configuration VIEW). "Run crediting now" also reports
+  how many months were paused.
+- **Employees** see, per paid type: accrued to date (credited so far, plus carried forward), used, available,
+  and the next credit's amount and date.
+- Defaults (start of period, no pause) are exactly the behaviour before LV-03.
+- **Not built**: the unified leave ledger (`leave_ledger_entries` with every movement and an employee statement)
+  is LV-11. The per-credit ledger the story asks for is `leave_accrual_credits`.
 
 ## Proration and exits (V325, LV-04 / ONEHR-890)
 
@@ -280,6 +317,13 @@ Drop `leave_plan_allocations`, `leave_plan_type_overrides`, `leave_plan_type_eli
 `leave_plan_type_rules`, `leave_plan_versions` and `leave_plans`, and delete `assignment_rules` /
 `assignment_rule_assignments` rows of domain `LEAVE_PLAN`. The app before LV-01 reads the old tables, which
 V321 left untouched.
+
+## Rollback (V326)
+
+Delete `leave_accrual_credits` rows with `source = 'PAUSED'` (the next run then credits those months), set
+`QUARTERLY` / `HALF_YEARLY` rules back to `MONTHLY`, restore the two CHECK constraints (`credit_frequency IN
+('YEARLY','MONTHLY')`, `source IN ('ACCRUAL','MIGRATION')`) and drop `leave_plan_type_rules.credit_timing`,
+`accrual_pause_lop_over_days` and `accrual_pause_unpaid_over_days`.
 
 ## Rollback (V325)
 

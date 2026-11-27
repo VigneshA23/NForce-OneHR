@@ -51,7 +51,23 @@ public final class LeavePlanDtos {
     public record TypeRuleDto(UUID leaveTypeId, String leaveTypeCode, String leaveTypeName, String classification,
                               String entitlementBasis, boolean leaveTypeActive, BigDecimal days, String creditFrequency,
                               boolean carryForwardEnabled, BigDecimal carryForwardMaxDays, Integer carryForwardExpiryMonths,
-                              String carryForwardPriority, LeaveConfigDtos.EligibilityConfig eligibility, RuleLimits limits) {}
+                              String carryForwardPriority, LeaveConfigDtos.EligibilityConfig eligibility, RuleLimits limits,
+                              AccrualSettings accrual) {}
+
+    /**
+     * LV-03: when a period's days are credited — {@code timing} START (its first day) or END (once the period is
+     * over) — and when they are withheld: more than {@code pauseLopOverDays} of loss of pay or more than
+     * {@code pauseUnpaidOverDays} of approved unpaid leave in the period the credit depends on (the period itself
+     * at END, the one before it at START). Null = never paused.
+     */
+    public record AccrualSettings(
+            @Pattern(regexp = "START|END") String timing,
+            @DecimalMin("0") @DecimalMax("366") BigDecimal pauseLopOverDays,
+            @DecimalMin("0") @DecimalMax("366") BigDecimal pauseUnpaidOverDays) {
+
+        /** Credited at the start of each period, never paused (how crediting worked before LV-03). */
+        public static final AccrualSettings DEFAULTS = new AccrualSettings("START", null, null);
+    }
 
     /**
      * LV-02: how a type may be requested under the plan. Null numbers = no limit. {@code entitlementMode}: QUOTA
@@ -106,13 +122,22 @@ public final class LeavePlanDtos {
     public record TypeRuleRequest(
             @NotNull UUID leaveTypeId,
             @DecimalMin("0") @DecimalMax("999") BigDecimal days,
-            @Pattern(regexp = "YEARLY|MONTHLY") String creditFrequency,
+            @Pattern(regexp = "YEARLY|HALF_YEARLY|QUARTERLY|MONTHLY") String creditFrequency,
             boolean carryForwardEnabled,
             @DecimalMin("0") @DecimalMax("999") BigDecimal carryForwardMaxDays,
             @Min(1) @Max(24) Integer carryForwardExpiryMonths,
             @Pattern(regexp = "CARRY_FORWARD_FIRST|CURRENT_FIRST") String carryForwardPriority,
             @Valid LeaveConfigDtos.EligibilityConfig eligibility,
-            @Valid RuleLimits limits) {
+            @Valid RuleLimits limits,
+            @Valid AccrualSettings accrual) {
+
+        /** Without LV-03 accrual settings (= {@link AccrualSettings#DEFAULTS}). */
+        public TypeRuleRequest(UUID leaveTypeId, BigDecimal days, String creditFrequency, boolean carryForwardEnabled,
+                               BigDecimal carryForwardMaxDays, Integer carryForwardExpiryMonths, String carryForwardPriority,
+                               LeaveConfigDtos.EligibilityConfig eligibility, RuleLimits limits) {
+            this(leaveTypeId, days, creditFrequency, carryForwardEnabled, carryForwardMaxDays, carryForwardExpiryMonths,
+                    carryForwardPriority, eligibility, limits, null);
+        }
 
         /** Without LV-02 limits (= {@link RuleLimits#DEFAULTS}). */
         public TypeRuleRequest(UUID leaveTypeId, BigDecimal days, String creditFrequency, boolean carryForwardEnabled,

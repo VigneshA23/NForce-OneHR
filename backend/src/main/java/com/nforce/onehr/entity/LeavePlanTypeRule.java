@@ -30,7 +30,7 @@ public class LeavePlanTypeRule {
     private BigDecimal days;
 
     /** {@link LeaveEntitlementPolicy#YEARLY} or {@link LeaveEntitlementPolicy#MONTHLY}. */
-    @Column(name = "credit_frequency", nullable = false, length = 10)
+    @Column(name = "credit_frequency", nullable = false, length = 12)
     @Builder.Default
     private String creditFrequency = LeaveEntitlementPolicy.YEARLY;
 
@@ -139,4 +139,22 @@ public class LeavePlanTypeRule {
     @Column(name = "sandwich_across_requests", nullable = false)
     @Builder.Default
     private boolean sandwichAcrossRequests = false;
+
+    // ── LV-03: accrual period timing and pausing ──
+
+    public static final String TIMING_START = "START";
+    public static final String TIMING_END = "END";
+
+    /** START: a period's days are credited on its first day; END: once the period is over. */
+    @Column(name = "credit_timing", nullable = false, length = 5)
+    @Builder.Default
+    private String creditTiming = TIMING_START;
+
+    /** A period's credit is withheld when loss of pay in the period it depends on exceeds this; null = never. */
+    @Column(name = "accrual_pause_lop_over_days")
+    private BigDecimal accrualPauseLopOverDays;
+
+    /** A period's credit is withheld when approved unpaid leave in the period it depends on exceeds this; null = never. */
+    @Column(name = "accrual_pause_unpaid_over_days")
+    private BigDecimal accrualPauseUnpaidOverDays;
 }

@@ -44,7 +44,7 @@ export function errMsg(e: unknown) {
 }
 
 export function frequencyLabel(f: CreditFrequency | null | undefined): string {
-  return f === 'MONTHLY' ? 'Monthly' : 'All at once';
+  return f === 'MONTHLY' ? 'Monthly' : f === 'QUARTERLY' ? 'Quarterly' : f === 'HALF_YEARLY' ? 'Half-yearly' : 'All at once';
 }
 
 export function Badge({ tone, children }: { tone: 'ok' | 'warn' | 'dim' | 'info'; children: React.ReactNode }) {

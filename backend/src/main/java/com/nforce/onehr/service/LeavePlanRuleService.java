@@ -150,7 +150,12 @@ public class LeavePlanRuleService {
         return new LeavePlanCatalog.TypeRule(r.getId(), planId, r.getVersionId(), r.getLeaveTypeId(), r.getDays(),
                 r.getCreditFrequency(), r.isCarryForwardEnabled(), r.getCarryForwardMaxDays(), r.getCarryForwardExpiryMonths(),
                 r.getCarryForwardPriority(), eligibilityRules(eligibility, overrides, r.getMinTenureMonths(), r.isAllowedDuringProbation()),
-                limitsOf(r, clubbingBlocked));
+                limitsOf(r, clubbingBlocked), accrualOf(r));
+    }
+
+    static LeavePlanCatalog.Accrual accrualOf(LeavePlanTypeRule r) {
+        return new LeavePlanCatalog.Accrual(r.getCreditTiming() == null ? LeavePlanTypeRule.TIMING_START : r.getCreditTiming(),
+                r.getAccrualPauseLopOverDays(), r.getAccrualPauseUnpaidOverDays());
     }
 
     static LeavePlanCatalog.Limits limitsOf(LeavePlanTypeRule r, Set<UUID> clubbingBlocked) {

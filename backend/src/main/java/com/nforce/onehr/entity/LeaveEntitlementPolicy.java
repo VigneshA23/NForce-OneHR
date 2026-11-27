@@ -22,6 +22,10 @@ public class LeaveEntitlementPolicy {
     public static final String YEARLY = "YEARLY";
     /** Days / 12 credited on the 1st of every month (V314). */
     public static final String MONTHLY = "MONTHLY";
+    /** LV-03 (leave plans only): three months' share credited together, each quarter (Jan, Apr, Jul, Oct). */
+    public static final String QUARTERLY = "QUARTERLY";
+    /** LV-03 (leave plans only): six months' share credited together, each half-year (Jan, Jul). */
+    public static final String HALF_YEARLY = "HALF_YEARLY";
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

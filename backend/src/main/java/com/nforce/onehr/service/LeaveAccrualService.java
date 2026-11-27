@@ -2,6 +2,8 @@ package com.nforce.onehr.service;
 
 import com.nforce.onehr.config.AttendanceProperties;
 import com.nforce.onehr.dto.LeaveConfigDtos.AccrualCreditResponse;
+import com.nforce.onehr.dto.LeaveConfigDtos.AccrualPreview;
+import com.nforce.onehr.dto.LeaveConfigDtos.AccrualPreviewLine;
 import com.nforce.onehr.dto.LeaveConfigDtos.AccrualRunResult;
 import com.nforce.onehr.dto.LeaveEmployeeProfile;
 import com.nforce.onehr.entity.LeaveAccrualCredit;
@@ -61,6 +63,10 @@ import static java.math.BigDecimal.ZERO;
  *       month has arrived. A part-year run (joiner, leaver, plan switch) is rounded per the plan (by default
  *       to the nearest 0.5), the difference on its last month.</li>
  * </ul>
+ * LV-03 adds QUARTERLY and HALF_YEARLY crediting (a quarter's / half-year's months credited together), credit
+ * timing (START: on the period's first day; END: once the period is over) and pausing: a period's credit is
+ * withheld, as a 0-day PAUSED ledger row, when loss of pay or unpaid leave in the period it depends on is over
+ * the plan's limit. {@link #preview} shows what a run would post without posting it.
  * Worked example: quota 15, joined 1 October, whole months → 3 × 1.25 = 3.75, nearest 0.5 → 4.
  * A credit is added to {@code leave_balances.total_days} only when its ledger row is inserted, so
  * running this again (nightly, on view, from "Run now", on two instances) never double-credits.
@@ -83,6 +89,7 @@ public class LeaveAccrualService {
     private final AttendanceProperties attendanceProperties;
     private final PlatformTransactionManager transactionManager;
     private final LeaveJobMonitor jobMonitor;
+    private final LeaveAccrualPauseFacts pauseFacts;
 
     // ── The schedule (pure) ─────────────────────────────────────────────────────────────────────
 
@@ -141,19 +148,47 @@ public class LeaveAccrualService {
         }
     }
 
-    /** What governs one month's credit: the plan (null in single-rule calls), the yearly quota and the frequency. */
-    public record MonthRule(UUID planId, BigDecimal quota, String frequency, Proration proration) {
+    /**
+     * What governs one month's credit: the plan (null in single-rule calls), the yearly quota, the frequency, the
+     * plan's proration and (LV-03) when the period is credited and whether it can be paused.
+     */
+    public record MonthRule(UUID planId, BigDecimal quota, String frequency, Proration proration, LeavePlanCatalog.Accrual accrual) {
 
         public MonthRule(UUID planId, BigDecimal quota, String frequency) {
-            this(planId, quota, frequency, Proration.DEFAULT);
+            this(planId, quota, frequency, Proration.DEFAULT, LeavePlanCatalog.Accrual.DEFAULT);
         }
 
-        boolean yearly() {
-            return !LeaveEntitlementPolicy.MONTHLY.equals(frequency);
+        public MonthRule(UUID planId, BigDecimal quota, String frequency, Proration proration) {
+            this(planId, quota, frequency, proration, LeavePlanCatalog.Accrual.DEFAULT);
+        }
+
+        String freq() {
+            return frequency == null ? LeaveEntitlementPolicy.YEARLY : frequency;
+        }
+
+        /** Months in one credit period: 1 (MONTHLY), 3 (QUARTERLY), 6 (HALF_YEARLY) or 12 (YEARLY). */
+        int periodMonths() {
+            return switch (freq()) {
+                case LeaveEntitlementPolicy.MONTHLY -> 1;
+                case LeaveEntitlementPolicy.QUARTERLY -> 3;
+                case LeaveEntitlementPolicy.HALF_YEARLY -> 6;
+                default -> 12;
+            };
+        }
+
+        /** The first month of the credit period that month {@code m} belongs to. */
+        int periodStart(int m) {
+            int n = periodMonths();
+            return (m - 1) / n * n + 1;
+        }
+
+        boolean atEnd() {
+            return accrual != null && accrual.atEnd();
         }
 
         boolean sameRun(MonthRule o) {
-            return o != null && Objects.equals(planId, o.planId) && yearly() == o.yearly() && quota.compareTo(o.quota) == 0;
+            return o != null && Objects.equals(planId, o.planId) && freq().equals(o.freq())
+                    && quota.compareTo(o.quota) == 0 && atEnd() == o.atEnd();
         }
     }
 
@@ -168,8 +203,9 @@ public class LeaveAccrualService {
      * month → days for every eligible month of {@code year}: from the joining month to the month of the
      * last working day, each month's share from that month's rule; a month with no rule or a 0 quota is
      * not credited. The joining and exit months are prorated by their plan's {@link Proration} (a month that
-     * doesn't count at all is left out). A YEARLY run (see {@link #runs}) that isn't the whole year is rounded
-     * per its plan, the difference on its last month; a partly-served MONTHLY month is rounded likewise.
+     * doesn't count at all is left out). Months credited together (see {@link #periodGroups}) that don't make up a
+     * whole period (a joiner, a leaver, a plan switch, a partly-served month) are rounded per the plan, the
+     * difference on the last month.
      */
     public static Map<Integer, BigDecimal> schedule(IntFunction<MonthRule> ruleOfMonth, LocalDate joining,
                                                     LocalDate lastWorkingDay, int year) {
@@ -193,20 +229,19 @@ public class LeaveAccrualService {
             rules.put(m, r);
             out.put(m, share);
         }
-        for (List<Integer> run : runs(out.keySet(), rules)) {
-            MonthRule r = rules.get(run.get(0));
+        for (List<Integer> group : periodGroups(out.keySet(), rules)) {
+            MonthRule r = rules.get(group.get(0));
             Proration p = r.proration() == null ? Proration.DEFAULT : r.proration();
-            if (!r.yearly()) {
-                for (int m : run) if (partial.contains(m)) out.put(m, p.round(out.get(m)));
-                continue;
-            }
-            if (run.get(0) == 1 && run.get(run.size() - 1) == 12) continue;
-            BigDecimal total = run.stream().map(out::get).reduce(ZERO, BigDecimal::add);
-            // The difference goes on the run's last month; a rounding-down larger than that month (a short
+            int gFirst = group.get(0), gLast = group.get(group.size() - 1);
+            boolean wholePeriod = gFirst == r.periodStart(gFirst) && gLast == r.periodStart(gFirst) + r.periodMonths() - 1
+                    && group.stream().noneMatch(partial::contains);
+            if (wholePeriod) continue;
+            BigDecimal total = group.stream().map(out::get).reduce(ZERO, BigDecimal::add);
+            // The difference goes on the group's last month; a rounding-down larger than that month (a short
             // exit month) continues on the months before it, so no month goes negative.
             BigDecimal diff = p.round(total).subtract(total);
-            for (int i = run.size() - 1; i >= 0 && diff.signum() != 0; i--) {
-                int month = run.get(i);
+            for (int i = group.size() - 1; i >= 0 && diff.signum() != 0; i--) {
+                int month = group.get(i);
                 BigDecimal adjusted = out.get(month).add(diff);
                 if (adjusted.signum() >= 0 || i == 0) {
                     out.put(month, adjusted.max(ZERO));
@@ -236,26 +271,131 @@ public class LeaveAccrualService {
         return out;
     }
 
+    /**
+     * LV-03: months credited together, meaning consecutive months of one run (same plan, quota, frequency and
+     * timing) in the same credit period: a single month (MONTHLY), a quarter, a half-year or the year (YEARLY).
+     */
+    static List<List<Integer>> periodGroups(Collection<Integer> months, Map<Integer, MonthRule> rules) {
+        List<List<Integer>> out = new ArrayList<>();
+        for (List<Integer> run : runs(months, rules)) {
+            List<Integer> current = null;
+            int start = -1;
+            for (int m : run) {
+                int periodStart = rules.get(m).periodStart(m);
+                if (current == null || periodStart != start) {
+                    current = new ArrayList<>();
+                    out.add(current);
+                    start = periodStart;
+                }
+                current.add(m);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * LV-03: one credit: the months credited together, under {@code rule}, on {@code creditDate}. A pause looks at
+     * [{@code pauseFrom}, {@code pauseTo}]: the period itself when credited at the END, the period before it when
+     * credited at the START (its own period hasn't happened yet).
+     */
+    public record Credit(List<Integer> months, MonthRule rule, LocalDate creditDate, LocalDate pauseFrom, LocalDate pauseTo) {}
+
+    /**
+     * The credits of {@code schedule} in date order. START: on the 1st of the first month (a joiner's first months
+     * at once). END: the day after the period's last day, or after the last working day for a leaver's last period.
+     */
+    public static List<Credit> credits(Map<Integer, BigDecimal> schedule, IntFunction<MonthRule> ruleOfMonth, int year,
+                                       LocalDate lastWorkingDay) {
+        Map<Integer, MonthRule> rules = new HashMap<>();
+        for (int m : schedule.keySet()) rules.put(m, ruleOfMonth.apply(m));
+        List<Credit> out = new ArrayList<>();
+        for (List<Integer> group : periodGroups(schedule.keySet(), rules)) {
+            int first = group.get(0), last = group.get(group.size() - 1);
+            MonthRule r = rules.get(first);
+            LocalDate periodStart = LocalDate.of(year, r.periodStart(first), 1);
+            if (r.atEnd()) {
+                LocalDate end = java.time.YearMonth.of(year, last).atEndOfMonth();
+                if (lastWorkingDay != null && lastWorkingDay.isBefore(end)) end = lastWorkingDay;
+                out.add(new Credit(List.copyOf(group), r, end.plusDays(1), LocalDate.of(year, first, 1), end));
+            } else {
+                out.add(new Credit(List.copyOf(group), r, LocalDate.of(year, first, 1),
+                        periodStart.minusMonths(r.periodMonths()), periodStart.minusDays(1)));
+            }
+        }
+        return out;
+    }
+
     /** The months of {@code schedule} whose credit date has arrived by {@code today} (one quota and frequency). */
     public static Set<Integer> dueMonths(Map<Integer, BigDecimal> schedule, String frequency, int year, LocalDate today) {
         MonthRule r = new MonthRule(null, BigDecimal.ONE, frequency);
         return dueMonths(schedule, m -> r, year, today);
     }
 
-    /** MONTHLY months are due on their 1st; a YEARLY run's months once the first month of the run has arrived. */
     public static Set<Integer> dueMonths(Map<Integer, BigDecimal> schedule, IntFunction<MonthRule> ruleOfMonth, int year,
                                          LocalDate today) {
+        return dueMonths(schedule, ruleOfMonth, year, today, null);
+    }
+
+    /** The months whose credit (see {@link #credits}) is dated on or before {@code today}. */
+    public static Set<Integer> dueMonths(Map<Integer, BigDecimal> schedule, IntFunction<MonthRule> ruleOfMonth, int year,
+                                         LocalDate today, LocalDate lastWorkingDay) {
         Set<Integer> due = new HashSet<>();
-        if (schedule.isEmpty()) return due;
-        Map<Integer, MonthRule> rules = new HashMap<>();
-        for (int m : schedule.keySet()) rules.put(m, ruleOfMonth.apply(m));
-        for (List<Integer> run : runs(schedule.keySet(), rules)) {
-            boolean yearly = rules.get(run.get(0)).yearly();
-            for (int m : run) {
-                if (!LocalDate.of(year, yearly ? run.get(0) : m, 1).isAfter(today)) due.add(m);
-            }
+        for (Credit c : credits(schedule, ruleOfMonth, year, lastWorkingDay)) {
+            if (!c.creditDate().isAfter(today)) due.addAll(c.months());
         }
         return due;
+    }
+
+    /**
+     * LV-03: why {@code c} is withheld, or null when it isn't: more loss of pay, or more approved unpaid leave, in
+     * the period it depends on than its rule allows.
+     */
+    static String pauseReason(Credit c, LeaveAccrualPauseFacts.Facts facts) {
+        LeavePlanCatalog.Accrual a = c.rule().accrual();
+        if (a == null || !a.pauses()) return null;
+        String period = c.pauseFrom() + " to " + c.pauseTo();
+        if (a.pauseLopOverDays() != null) {
+            BigDecimal lop = facts.lopDays(c.pauseFrom(), c.pauseTo());
+            if (lop.compareTo(a.pauseLopOverDays()) > 0) {
+                return "Loss of pay " + plain(lop) + " day(s) from " + period + " (more than " + plain(a.pauseLopOverDays()) + ")";
+            }
+        }
+        if (a.pauseUnpaidOverDays() != null) {
+            BigDecimal unpaid = facts.unpaidDays(c.pauseFrom(), c.pauseTo());
+            if (unpaid.compareTo(a.pauseUnpaidOverDays()) > 0) {
+                return "Unpaid leave " + plain(unpaid) + " day(s) from " + period + " (more than " + plain(a.pauseUnpaidOverDays()) + ")";
+            }
+        }
+        return null;
+    }
+
+    private static String plain(BigDecimal d) {
+        return d.stripTrailingZeros().toPlainString();
+    }
+
+    /** LV-03: a credit that is due and not yet posted: its open months, their days, and why it is paused (null = credit it). */
+    public record Due(Credit credit, List<Integer> months, BigDecimal days, String pauseReason) {
+        public boolean paused() {
+            return pauseReason != null;
+        }
+    }
+
+    /**
+     * The credits dated on or before {@code asOf} with months not yet in the ledger ({@code posted}), each either to
+     * credit or, when its rule's pause applies, to withhold. Months of 0 days are left out.
+     */
+    static List<Due> dues(Map<Integer, BigDecimal> schedule, IntFunction<MonthRule> ruleOfMonth, int year, LocalDate lastWorkingDay,
+                          Set<Integer> posted, LocalDate asOf, LeaveAccrualPauseFacts.Facts facts) {
+        List<Due> out = new ArrayList<>();
+        for (Credit c : credits(schedule, ruleOfMonth, year, lastWorkingDay)) {
+            if (c.creditDate().isAfter(asOf)) continue;
+            List<Integer> open = c.months().stream()
+                    .filter(m -> !posted.contains(m) && schedule.get(m) != null && schedule.get(m).signum() != 0).toList();
+            if (open.isEmpty()) continue;
+            BigDecimal days = open.stream().map(schedule::get).reduce(ZERO, BigDecimal::add);
+            out.add(new Due(c, open, days, pauseReason(c, facts)));
+        }
+        return out;
     }
 
     /**
@@ -275,7 +415,8 @@ public class LeaveAccrualService {
                         .filter(r -> r.eligibility().tenureMet(employeeUserId, profile, on))
                 : catalog.ruleFor(employeeUserId, type.getId(), date);
         return rule.map(r -> new MonthRule(r.planId(), r.creditedQuota(), r.creditFrequency(),
-                catalog.plan(r.planId()).map(Proration::of).orElse(Proration.DEFAULT))).orElse(null);
+                catalog.plan(r.planId()).map(Proration::of).orElse(Proration.DEFAULT),
+                r.accrual() == null ? LeavePlanCatalog.Accrual.DEFAULT : r.accrual())).orElse(null);
     }
 
     /**
@@ -296,9 +437,9 @@ public class LeaveAccrualService {
     }
 
     /**
-     * Credits every due, not-yet-credited month of (employee, type, year) and returns the days added.
-     * Creates the balance row (0 credited) if needed. Nothing for an employee no longer employed, for
-     * inactive types, or for anything but regular paid leave.
+     * Credits every due, not-yet-credited month of (employee, type, year) and returns the days added; a due credit
+     * whose pause applies (LV-03) is recorded as PAUSED instead. Creates the balance row (0 credited) if needed.
+     * Nothing for an employee no longer employed, for inactive types, or for anything but regular paid leave.
      */
     @Transactional
     public BigDecimal accrue(UUID employeeUserId, LeaveType type, int year) {
@@ -306,14 +447,44 @@ public class LeaveAccrualService {
         LeaveEmployeeProfile profile = employeeRepository.findLeaveProfile(employeeUserId).orElse(null);
         if (profile == null || !profile.employed()) return ZERO;
         LeavePlanCatalog catalog = planRuleService.catalog(List.of(employeeUserId));
-        if (heldForProbation(catalog, employeeUserId, profile, type, today())) return ZERO;
-        IntFunction<MonthRule> rules = m -> monthRule(catalog, employeeUserId, profile, type, year, m, true);
-        Map<Integer, BigDecimal> schedule = schedule(rules, profile.joiningDate(), profile.lastWorkingDay(), year);
-        Set<Integer> due = dueMonths(schedule, rules, year, today());
-        if (due.isEmpty()) return ZERO;
+        Posting posting = plan(catalog, profile, type, year, postedMonths(employeeUserId, type, year), today());
+        return posting == null ? ZERO : post(posting)[0];
+    }
+
+    private Set<Integer> postedMonths(UUID employeeUserId, LeaveType type, int year) {
+        Set<Integer> out = new HashSet<>();
         creditRepository.findByEmployeeUserIdAndLeaveTypeIdAndYearOrderByMonthAsc(employeeUserId, type.getId(), year)
-                .forEach(c -> due.remove(c.getMonth()));
-        return credit(employeeUserId, type, year, schedule, due);
+                .forEach(c -> out.add(c.getMonth()));
+        return out;
+    }
+
+    /** LV-03: what a run would post for one (employee, type, year): the due credits, each credited or paused. */
+    public record Posting(UUID employeeUserId, LeaveType type, int year, Map<Integer, BigDecimal> schedule, List<Due> dues) {}
+
+    /**
+     * What is due for (employee, type, year) by {@code asOf} and not yet {@code posted}; null when nothing is (or the
+     * type is held while the employee is on probation, LV-06).
+     */
+    private Posting plan(LeavePlanCatalog catalog, LeaveEmployeeProfile p, LeaveType type, int year, Set<Integer> posted, LocalDate asOf) {
+        if (heldForProbation(catalog, p.userId(), p, type, asOf)) return null;
+        IntFunction<MonthRule> rules = m -> monthRule(catalog, p.userId(), p, type, year, m, true);
+        Map<Integer, BigDecimal> schedule = schedule(rules, p.joiningDate(), p.lastWorkingDay(), year);
+        if (schedule.isEmpty()) return null;
+        List<Due> dues = dues(schedule, rules, year, p.lastWorkingDay(), posted, asOf, pauseFacts.of(p.userId()));
+        return dues.isEmpty() ? null : new Posting(p.userId(), type, year, schedule, dues);
+    }
+
+    /** Posts {@code posting}: {days credited, months paused}. Only rows this call inserts count (re-runs add nothing). */
+    private BigDecimal[] post(Posting posting) {
+        Set<Integer> credit = new HashSet<>(), pause = new HashSet<>();
+        for (Due d : posting.dues()) (d.paused() ? pause : credit).addAll(d.months());
+        BigDecimal added = credit(posting.employeeUserId(), posting.type(), posting.year(), posting.schedule(), credit);
+        int paused = 0;
+        for (int m : sortedMonths(pause)) {
+            paused += creditRepository.insertPausedIfAbsent(UUID.randomUUID(), posting.employeeUserId(), posting.type().getId(),
+                    posting.year(), m);
+        }
+        return new BigDecimal[] {added, BigDecimal.valueOf(paused)};
     }
 
     private BigDecimal credit(UUID employeeUserId, LeaveType type, int year, Map<Integer, BigDecimal> schedule, Set<Integer> months) {
@@ -354,22 +525,24 @@ public class LeaveAccrualService {
         LeaveEmployeeProfile profile = employeeRepository.findLeaveProfile(employeeUserId).orElse(null);
         if (profile == null || !profile.employed()) return new Projection(frequency, ZERO, null, null);
         IntFunction<MonthRule> rules = m -> monthRule(catalog, employeeUserId, profile, type, year, m, true);
-        Map<Integer, BigDecimal> full = schedule(rules, profile.joiningDate(), profile.lastWorkingDay(), year);
-        Map<Integer, BigDecimal> schedule = new TreeMap<>(full);
-        creditRepository.findByEmployeeUserIdAndLeaveTypeIdAndYearOrderByMonthAsc(employeeUserId, type.getId(), year)
-                .forEach(c -> schedule.remove(c.getMonth()));
-        if (schedule.isEmpty()) return new Projection(frequency, ZERO, null, null);
-        BigDecimal upcoming = schedule.values().stream().reduce(ZERO, BigDecimal::add);
-        int next = ((TreeMap<Integer, BigDecimal>) schedule).firstKey();
-        MonthRule nextRule = rules.apply(next);
-        BigDecimal nextDays = schedule.get(next);
-        if (nextRule != null && nextRule.yearly()) {
-            // the rest of the run starting at `next` arrives together
-            for (int m = next + 1; m <= 12 && schedule.containsKey(m) && nextRule.sameRun(rules.apply(m)); m++) {
-                nextDays = nextDays.add(schedule.get(m));
+        Map<Integer, BigDecimal> schedule = schedule(rules, profile.joiningDate(), profile.lastWorkingDay(), year);
+        Set<Integer> posted = postedMonths(employeeUserId, type, year);
+        BigDecimal upcoming = ZERO;
+        Credit next = null;
+        BigDecimal nextDays = ZERO;
+        for (Credit c : credits(schedule, rules, year, profile.lastWorkingDay())) {
+            BigDecimal open = c.months().stream().filter(m -> !posted.contains(m)).map(schedule::get).reduce(ZERO, BigDecimal::add);
+            boolean anyOpen = c.months().stream().anyMatch(m -> !posted.contains(m));
+            if (!anyOpen) continue;
+            upcoming = upcoming.add(open);
+            if (next == null) {
+                next = c;
+                nextDays = open;
             }
         }
-        return new Projection(nextRule != null ? nextRule.frequency() : frequency, upcoming, LocalDate.of(year, next, 1), nextDays);
+        if (next == null) return new Projection(frequency, ZERO, null, null);
+        // the credit arrives on its date: the 1st of its first month (START) or once its period is over (END)
+        return new Projection(next.rule().freq(), upcoming, next.creditDate(), nextDays);
     }
 
     /** The frequency to show for a year: this month's rule for the current year, January's for a later year, December's for an earlier one. */
@@ -445,6 +618,8 @@ public class LeaveAccrualService {
                 List<LeaveAccrualCredit> touched = new ArrayList<>();
                 for (LeaveAccrualCredit r : rows) {
                     if (r.getMonth() < fromMonth) continue;
+                    // LV-03: a withheld month stays withheld
+                    if (LeaveAccrualCredit.SOURCE_PAUSED.equals(r.getSource())) continue;
                     BigDecimal share = schedule.getOrDefault(r.getMonth(), ZERO);
                     if (share.compareTo(r.getDays()) == 0) continue;
                     delta = delta.add(share.subtract(r.getDays()));
@@ -484,47 +659,89 @@ public class LeaveAccrualService {
         if (today.getMonthValue() == 1) {
             AccrualRunResult previous = runYear(year - 1, today, failed);
             result = new AccrualRunResult(year, result.employeesChecked() + previous.employeesChecked(),
-                    result.creditsAdded() + previous.creditsAdded(), result.failures() + previous.failures(), List.of());
+                    result.creditsAdded() + previous.creditsAdded(), result.failures() + previous.failures(), List.of(),
+                    result.creditsPaused() + previous.creditsPaused());
         }
         // YE-07: every run leaves one audit entry (its "last run" status) and alerts Super Admins on failures.
         List<String> failedCodes = jobMonitor.recordRun(LeaveJobMonitor.ACCRUAL, "Leave crediting", actorId, Map.of(
                 "year", year, "employeesChecked", result.employeesChecked(),
-                "creditsAdded", result.creditsAdded(), "failures", result.failures()), failed);
-        return new AccrualRunResult(result.year(), result.employeesChecked(), result.creditsAdded(), result.failures(), failedCodes);
+                "creditsAdded", result.creditsAdded(), "creditsPaused", result.creditsPaused(), "failures", result.failures()), failed);
+        return new AccrualRunResult(result.year(), result.employeesChecked(), result.creditsAdded(), result.failures(), failedCodes,
+                result.creditsPaused());
+    }
+
+    /** Every (employee, type) of {@code year} with something due by {@code asOf}; nothing is written. */
+    private List<Posting> plans(int year, LocalDate asOf) {
+        List<LeaveEmployeeProfile> employees = employeeRepository.findLeaveProfiles().stream()
+                .filter(LeaveEmployeeProfile::employed).toList();
+        LeavePlanCatalog catalog = planRuleService.catalogForAll();
+        List<Posting> out = new ArrayList<>();
+        for (LeaveType type : leaveTypeRepository.findByActiveTrueOrderByNameAsc()) {
+            if (!type.isAnnualBalance()) continue;
+            Map<UUID, Set<Integer>> posted = new HashMap<>();
+            for (Object[] row : creditRepository.findCreditedMonths(type.getId(), year)) {
+                posted.computeIfAbsent((UUID) row[0], k -> new HashSet<>()).add((Integer) row[1]);
+            }
+            for (LeaveEmployeeProfile p : employees) {
+                Posting posting = plan(catalog, p, type, year, posted.getOrDefault(p.userId(), Set.of()), asOf);
+                if (posting != null) out.add(posting);
+            }
+        }
+        return out;
     }
 
     private AccrualRunResult runYear(int year, LocalDate today, Set<UUID> failed) {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
-        List<LeaveEmployeeProfile> employees = employeeRepository.findLeaveProfiles().stream()
-                .filter(LeaveEmployeeProfile::employed).toList();
-        LeavePlanCatalog catalog = planRuleService.catalogForAll();
-        int checked = 0, added = 0, failures = 0;
-        for (LeaveType type : leaveTypeRepository.findByActiveTrueOrderByNameAsc()) {
-            if (!type.isAnnualBalance()) continue;
-            Map<UUID, Set<Integer>> credited = new HashMap<>();
-            for (Object[] row : creditRepository.findCreditedMonths(type.getId(), year)) {
-                credited.computeIfAbsent((UUID) row[0], k -> new HashSet<>()).add((Integer) row[1]);
-            }
-            for (LeaveEmployeeProfile p : employees) {
-                if (heldForProbation(catalog, p.userId(), p, type, today)) continue;
-                IntFunction<MonthRule> rules = m -> monthRule(catalog, p.userId(), p, type, year, m, true);
-                Map<Integer, BigDecimal> schedule = schedule(rules, p.joiningDate(), p.lastWorkingDay(), year);
-                Set<Integer> due = dueMonths(schedule, rules, year, today);
-                due.removeAll(credited.getOrDefault(p.userId(), Set.of()));
-                due.removeIf(m -> schedule.get(m).signum() == 0);
-                if (due.isEmpty()) continue;
-                checked++;
-                try {
-                    BigDecimal days = tx.execute(s -> credit(p.userId(), type, year, schedule, due));
-                    if (days != null && days.signum() != 0) added++;
-                } catch (Exception e) {
-                    failures++;
-                    failed.add(p.userId());
-                    log.warn("Leave crediting failed for employee {} type {} year {}: {}", p.userId(), type.getCode(), year, e.getMessage());
-                }
+        int checked = 0, added = 0, paused = 0, failures = 0;
+        for (Posting posting : plans(year, today)) {
+            checked++;
+            try {
+                BigDecimal[] r = tx.execute(s -> post(posting));
+                if (r != null && r[0].signum() != 0) added++;
+                if (r != null) paused += r[1].intValue();
+            } catch (Exception e) {
+                failures++;
+                failed.add(posting.employeeUserId());
+                log.warn("Leave crediting failed for employee {} type {} year {}: {}", posting.employeeUserId(),
+                        posting.type().getCode(), year, e.getMessage());
             }
         }
-        return new AccrualRunResult(year, checked, added, failures, List.of());
+        return new AccrualRunResult(year, checked, added, failures, List.of(), paused);
+    }
+
+    /**
+     * LV-03 dry run: what a crediting run on {@code asOf} (default today) would post, without writing anything. One line
+     * per credit: credited, or paused with the reason. In January it includes what is still due for the previous year.
+     */
+    @Transactional(readOnly = true)
+    public AccrualPreview preview(LocalDate asOf) {
+        LocalDate on = asOf != null ? asOf : today();
+        int year = LeaveBalanceService.leaveYearOf(on);
+        List<Posting> postings = new ArrayList<>(plans(year, on));
+        if (on.getMonthValue() == 1) postings.addAll(plans(year - 1, on));
+        Set<UUID> ids = new HashSet<>();
+        postings.forEach(p -> ids.add(p.employeeUserId()));
+        Map<UUID, String> names = new HashMap<>(), codes = new HashMap<>();
+        if (!ids.isEmpty()) {
+            employeeRepository.findNamesByUserIds(ids).forEach(r -> names.put((UUID) r[0], (String) r[1]));
+            employeeRepository.findCodesByUserIds(ids).forEach(r -> codes.put((UUID) r[0], (String) r[1]));
+        }
+        List<AccrualPreviewLine> lines = new ArrayList<>();
+        BigDecimal credited = ZERO;
+        int pausedCount = 0;
+        for (Posting p : postings) {
+            for (Due d : p.dues()) {
+                lines.add(new AccrualPreviewLine(p.employeeUserId(), names.get(p.employeeUserId()), codes.get(p.employeeUserId()),
+                        p.type().getId(), p.type().getName(), p.year(), d.months(), d.days(), d.credit().creditDate(),
+                        d.credit().rule().freq(), d.paused() ? "PAUSED" : "CREDIT", d.pauseReason()));
+                if (d.paused()) pausedCount++;
+                else credited = credited.add(d.days());
+            }
+        }
+        lines.sort(java.util.Comparator.comparing((AccrualPreviewLine l) -> l.employeeName() == null ? "" : l.employeeName())
+                .thenComparing(AccrualPreviewLine::leaveTypeName).thenComparing(AccrualPreviewLine::year)
+                .thenComparing(l -> l.months().get(0)));
+        return new AccrualPreview(on, ids.size(), credited, pausedCount, lines);
     }
 
     static List<Integer> sortedMonths(Set<Integer> months) {

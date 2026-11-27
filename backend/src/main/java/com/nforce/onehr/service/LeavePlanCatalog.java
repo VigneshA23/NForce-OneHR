@@ -35,7 +35,16 @@ public final class LeavePlanCatalog {
     public record TypeRule(UUID ruleId, UUID planId, UUID versionId, UUID leaveTypeId, BigDecimal days,
                            String creditFrequency, boolean carryForwardEnabled, BigDecimal carryForwardMaxDays,
                            Integer carryForwardExpiryMonths, String carryForwardPriority,
-                           LeaveEligibilityService.Rules eligibility, Limits limits) {
+                           LeaveEligibilityService.Rules eligibility, Limits limits, Accrual accrual) {
+
+        /** Without LV-03 accrual settings (credited at the start of each period, never paused). */
+        public TypeRule(UUID ruleId, UUID planId, UUID versionId, UUID leaveTypeId, BigDecimal days,
+                        String creditFrequency, boolean carryForwardEnabled, BigDecimal carryForwardMaxDays,
+                        Integer carryForwardExpiryMonths, String carryForwardPriority,
+                        LeaveEligibilityService.Rules eligibility, Limits limits) {
+            this(ruleId, planId, versionId, leaveTypeId, days, creditFrequency, carryForwardEnabled, carryForwardMaxDays,
+                    carryForwardExpiryMonths, carryForwardPriority, eligibility, limits, Accrual.DEFAULT);
+        }
 
         /** A rule with no LV-02 limits (quota mode, half-day allowed, nothing else restricted). */
         public TypeRule(UUID ruleId, UUID planId, UUID versionId, UUID leaveTypeId, BigDecimal days,
@@ -98,6 +107,23 @@ public final class LeavePlanCatalog {
 
         public boolean countsWeekOffs() {
             return enabled && !com.nforce.onehr.entity.LeavePlanTypeRule.SANDWICH_HOLIDAYS.equals(appliesTo);
+        }
+    }
+
+    /**
+     * LV-03: when a period's days are credited — {@code timing} START (its first day) or END (once it is over) — and
+     * when they are withheld: more than {@code pauseLopOverDays} of loss of pay, or more than
+     * {@code pauseUnpaidOverDays} of approved unpaid leave, in the period the credit depends on (null = never).
+     */
+    public record Accrual(String timing, BigDecimal pauseLopOverDays, BigDecimal pauseUnpaidOverDays) {
+        public static final Accrual DEFAULT = new Accrual(com.nforce.onehr.entity.LeavePlanTypeRule.TIMING_START, null, null);
+
+        public boolean atEnd() {
+            return com.nforce.onehr.entity.LeavePlanTypeRule.TIMING_END.equals(timing);
+        }
+
+        public boolean pauses() {
+            return pauseLopOverDays != null || pauseUnpaidOverDays != null;
         }
     }
 

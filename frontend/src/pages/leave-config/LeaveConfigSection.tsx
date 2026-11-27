@@ -7,7 +7,7 @@ import { useCan } from '../../lib/access';
 import { useToast } from '../../context/ToastContext';
 import {
   leaveConfigApi,
-  type AccrualCredit, type CarryForwardTransfer, type DirectoryEmployee,
+  type AccrualCredit, type AccrualPreview, type CarryForwardTransfer, type DirectoryEmployee,
   type LeaveBalance, type LeaveType, type LeaveTypeClassification,
   type LeaveJobRun, type OpeningBalanceUploadRow, type OpeningBalanceValidation,
 } from '../../api/leave';
@@ -332,7 +332,9 @@ function CreditHistoryDialog({ balance, employeeName, token, onClose }: {
           {rows.map(r => (
             <tr key={r.month}>
               <td style={tdS}>{MONTHS[r.month - 1]} {r.year}</td>
-              <td style={{ ...tdS, color: 'var(--txt)' }}>{days(r.days)}</td>
+              <td style={{ ...tdS, color: 'var(--txt)' }}>
+                {r.source === 'PAUSED' ? <Badge tone="warn">Paused</Badge> : days(r.days)}
+              </td>
               <td style={tdS}>{fmtDate(r.creditedAt)}</td>
             </tr>
           ))}
@@ -514,12 +516,26 @@ function CreditingRun({ token, canConfigure }: { token: string; canConfigure: bo
   const { showToast } = useToast();
   const [busy, setBusy] = useState(false);
   const lastRun = useLastRun(token, 'accrual');
+  const [asOf, setAsOf] = useState(() => new Date().toLocaleDateString('en-CA'));
+  const [previewing, setPreviewing] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+  const [result, setResult] = useState<AccrualPreview | null>(null);
+  async function preview() {
+    setPreviewing(true); setPreviewError('');
+    try {
+      setResult(await leaveConfigApi.previewAccrual(token, asOf || undefined));
+    } catch (e) {
+      setPreviewError(errMsg(e));
+    } finally {
+      setPreviewing(false);
+    }
+  }
   async function run() {
     setBusy(true);
     try {
       const r = await leaveConfigApi.runAccrual(token);
       showToast(r.failures > 0 ? 'error' : 'success',
-        `${r.creditsAdded} employee balance(s) credited${r.failures > 0 ? `, ${r.failures} failed (${(r.failedEmployees ?? []).join(', ')}) — run again to retry` : ''}`);
+        `${r.creditsAdded} employee balance(s) credited${r.creditsPaused ? `, ${r.creditsPaused} month(s) paused` : ''}${r.failures > 0 ? `, ${r.failures} failed (${(r.failedEmployees ?? []).join(', ')}) — run again to retry` : ''}`);
       lastRun.reload();
     } catch (e) {
       showToast('error', errMsg(e));
@@ -532,12 +548,59 @@ function CreditingRun({ token, canConfigure }: { token: string; canConfigure: bo
       <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Crediting</h2>
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <p style={{ ...hintS, maxWidth: 640 }}>
-          Runs automatically every night: whatever is due is credited, once. New joiners get their joining month in full.
-          Nothing more is credited after an employee's last working month, or for a type that no longer applies to them.
+          Runs automatically every night: whatever is due is credited, once, on the date each plan says (the start or the
+          end of its month, quarter, half-year or year). A credit whose pause applies is recorded as paused instead.
+          Nothing more is credited after an employee's last working day, or for a type that no longer applies to them.
         </p>
-        {canConfigure && <button style={primaryBtn(busy)} disabled={busy} onClick={run}>{busy ? 'Crediting…' : 'Run crediting now'}</button>}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input type="date" style={{ ...inputS, width: 150 }} value={asOf} onChange={e => setAsOf(e.target.value)}
+            aria-label="Preview crediting as of" />
+          <button style={secondaryBtn} disabled={previewing} onClick={preview}>{previewing ? 'Checking…' : 'Preview'}</button>
+          {canConfigure && <button style={primaryBtn(busy)} disabled={busy} onClick={run}>{busy ? 'Crediting…' : 'Run crediting now'}</button>}
+        </div>
       </div>
-      <LastRun run={lastRun.run} summary={d => `${Number(d.creditsAdded ?? 0)} balance(s) credited for ${d.year ?? ''}, ${Number(d.employeesChecked ?? 0)} checked`} />
+      <LastRun run={lastRun.run} summary={d => `${Number(d.creditsAdded ?? 0)} balance(s) credited for ${d.year ?? ''}, ${Number(d.employeesChecked ?? 0)} checked`
+        + (Number(d.creditsPaused ?? 0) > 0 ? `, ${Number(d.creditsPaused)} month(s) paused` : '')} />
+      <FormError error={previewError} />
+      {result && <CreditingPreview preview={result} onClose={() => setResult(null)} />}
+    </div>
+  );
+}
+
+/** LV-03 dry run: what a crediting run on a date would post, credited or paused. Nothing is written. */
+function CreditingPreview({ preview, onClose }: { preview: AccrualPreview; onClose(): void }) {
+  const paged = usePaged(preview.lines, [preview]);
+  const periodOf = (m: number[]) => m.length === 1 ? MONTHS[m[0] - 1] : `${MONTHS[m[0] - 1]}–${MONTHS[m[m.length - 1] - 1]}`;
+  return (
+    <div style={{ marginTop: 14 }} data-testid="accrual-preview">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+        <p style={{ ...hintS, margin: '0 0 8px' }}>
+          Dry run for {fmtDate(preview.asOf)}: {days(preview.creditDays)} day(s) would be credited
+          {preview.paused > 0 ? `, ${preview.paused} credit(s) paused` : ''}, for {preview.employees} employee(s). Nothing has been posted.
+        </p>
+        <button type="button" style={secondaryBtn} onClick={onClose}>Close preview</button>
+      </div>
+      <Table head={['Employee', 'Leave type', 'Period', 'Days', 'Credit date', 'Result']}
+        empty={preview.lines.length === 0 && 'Nothing is due: every credit up to this date has been posted.'}>
+        {paged.pageRows.map((l, i) => (
+          <tr key={`${l.employeeUserId}-${l.leaveTypeId}-${l.year}-${l.months[0]}-${i}`}>
+            <td style={tdS}>
+              <span style={{ color: 'var(--txt)' }}>{l.employeeName ?? l.employeeUserId}</span>
+              {l.employeeCode && <span style={{ color: 'var(--txt-dim)' }}> · {l.employeeCode}</span>}
+            </td>
+            <td style={tdS}>{l.leaveTypeName}</td>
+            <td style={tdS}>{periodOf(l.months)} {l.year} <span style={{ color: 'var(--txt-dim)' }}>({frequencyLabel(l.frequency).toLowerCase()})</span></td>
+            <td style={{ ...tdS, color: 'var(--txt)' }}>{days(l.days)}</td>
+            <td style={tdS}>{fmtDate(l.creditDate)}</td>
+            <td style={tdS}>
+              {l.status === 'PAUSED'
+                ? <><Badge tone="warn">Paused</Badge> <span style={{ fontSize: 11.5 }}>{l.reason}</span></>
+                : <Badge tone="ok">Credit</Badge>}
+            </td>
+          </tr>
+        ))}
+      </Table>
+      {preview.lines.length > 0 && <TablePagination {...paged.pagerProps} noun="credits" />}
     </div>
   );
 }

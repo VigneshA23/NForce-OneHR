@@ -93,6 +93,19 @@ final class TestLeavePlans {
         return this;
     }
 
+    /** LV-03: credit timing / pause of {@code type} in every version (call after the other settings: they rebuild the rule). */
+    TestLeavePlans accrual(LeaveType type, LeavePlanCatalog.Accrual accrual) {
+        versions.values().forEach(v -> {
+            LeavePlanCatalog.TypeRule r = v.get(type.getId());
+            if (r != null) {
+                v.put(type.getId(), new LeavePlanCatalog.TypeRule(r.ruleId(), r.planId(), r.versionId(), r.leaveTypeId(), r.days(),
+                        r.creditFrequency(), r.carryForwardEnabled(), r.carryForwardMaxDays(), r.carryForwardExpiryMonths(),
+                        r.carryForwardPriority(), r.eligibility(), r.limits(), accrual));
+            }
+        });
+        return this;
+    }
+
     TestLeavePlans without(LeaveType type) {
         versions.values().forEach(v -> v.remove(type.getId()));
         return this;

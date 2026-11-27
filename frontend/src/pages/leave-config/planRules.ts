@@ -3,7 +3,7 @@
  * editable form rows (one per catalogue type, included or not), validation, and the request payload.
  */
 import type {
-  CarryForwardPriority, CreditFrequency, EligibilityConfig, EntitlementMode, LeaveRuleSummary, LeaveType, PlanRuleLimits,
+  CarryForwardPriority, CreditFrequency, CreditTiming, EligibilityConfig, EntitlementMode, LeaveRuleSummary, LeaveType, PlanRuleLimits,
   LeavePreview, PlanProration, PlanTypeRule, PlanTypeRulePayload, SandwichAppliesTo,
 } from '../../api/leave';
 
@@ -23,7 +23,17 @@ export interface RuleForm {
   carryForwardPriority: CarryForwardPriority;
   eligibility: EligibilityConfig;
   limits: LimitsForm;
+  accrual: AccrualForm;
 }
+
+/** LV-03 crediting timing and pause limits as typed in the editor ('' = never paused). */
+export interface AccrualForm {
+  timing: CreditTiming;
+  pauseLopOverDays: string;
+  pauseUnpaidOverDays: string;
+}
+
+export const DEFAULT_ACCRUAL: AccrualForm = { timing: 'START', pauseLopOverDays: '', pauseUnpaidOverDays: '' };
 
 /** LV-02 request rules as typed in the editor ('' = no limit). */
 export interface LimitsForm {
@@ -85,12 +95,15 @@ export function formsFor(types: LeaveType[], rules: PlanTypeRule[]): RuleForm[] 
           carryForwardEnabled: r.carryForwardEnabled, carryForwardMaxDays: str(r.carryForwardMaxDays),
           carryForwardExpiryMonths: str(r.carryForwardExpiryMonths), carryForwardPriority: r.carryForwardPriority,
           eligibility: r.eligibility ?? EMPTY_RULE_ELIGIBILITY, limits: limitsForm(r.limits),
+          accrual: r.accrual
+            ? { timing: r.accrual.timing ?? 'START', pauseLopOverDays: str(r.accrual.pauseLopOverDays), pauseUnpaidOverDays: str(r.accrual.pauseUnpaidOverDays) }
+            : DEFAULT_ACCRUAL,
         };
       }
       return {
         leaveTypeId: t.id, included: false, days: t.entitlementBasis === 'PER_OCCURRENCE' ? '182' : '15', creditFrequency: 'MONTHLY',
         carryForwardEnabled: false, carryForwardMaxDays: '', carryForwardExpiryMonths: '', carryForwardPriority: 'CARRY_FORWARD_FIRST',
-        eligibility: EMPTY_RULE_ELIGIBILITY, limits: EMPTY_LIMITS,
+        eligibility: EMPTY_RULE_ELIGIBILITY, limits: EMPTY_LIMITS, accrual: DEFAULT_ACCRUAL,
       };
     });
 }
@@ -122,6 +135,10 @@ export function toPayload(forms: RuleForm[], types: LeaveType[]): { rules: PlanT
     const limits = limitsPayload(t, f.limits, mode);
     if (typeof limits === 'string') return { rules: [], error: limits };
     if (cf && mode === 'UNLIMITED') return { rules: [], error: `${t.name}: unlimited leave has no balance to carry forward` };
+    const lop = num(f.accrual.pauseLopOverDays, `${t.name}: the loss-of-pay pause limit`, 0, 366);
+    if (typeof lop === 'string') return { rules: [], error: lop };
+    const unpaid = num(f.accrual.pauseUnpaidOverDays, `${t.name}: the unpaid-leave pause limit`, 0, 366);
+    if (typeof unpaid === 'string') return { rules: [], error: unpaid };
     rules.push({
       leaveTypeId: t.id,
       days: paid ? (mode === 'QUOTA' ? daysN : 0) : null,
@@ -132,6 +149,7 @@ export function toPayload(forms: RuleForm[], types: LeaveType[]): { rules: PlanT
       carryForwardPriority: f.carryForwardPriority,
       eligibility: f.eligibility,
       limits,
+      accrual: annual ? { timing: f.accrual.timing, pauseLopOverDays: lop, pauseUnpaidOverDays: unpaid } : null,
     });
   }
   return { rules };
@@ -314,4 +332,16 @@ export function prorationExample(p: PlanProration): string {
   const rounded = p.rounding === 'NONE' ? raw : p.rounding === 'DOWN_HALF' ? half(raw, Math.floor)
     : p.rounding === 'UP_HALF' ? half(raw, Math.ceil) : half(raw, Math.round);
   return `Example: 15 days a year, joined 16 Oct → ${raw} days for Oct–Dec${rounded !== raw ? `, rounded to ${rounded}` : ''}.`;
+}
+
+const PERIOD_NAME: Record<CreditFrequency, string> = { MONTHLY: 'month', QUARTERLY: 'quarter', HALF_YEARLY: 'half-year', YEARLY: 'year' };
+
+/** LV-03: how a type is credited, in words, e.g. "credited quarterly, at the end of each quarter; paused after more than 3 days of LOP". */
+export function accrualSummary(frequency: CreditFrequency, a: AccrualForm): string {
+  const how = frequency === 'YEARLY' ? 'credited all at once' : `credited ${frequency === 'HALF_YEARLY' ? 'half-yearly' : frequency.toLowerCase()}`;
+  const when = a.timing === 'END' ? `at the end of each ${PERIOD_NAME[frequency]}` : `at the start of each ${PERIOD_NAME[frequency]}`;
+  const pauses: string[] = [];
+  if (a.pauseLopOverDays.trim() !== '') pauses.push(`more than ${Number(a.pauseLopOverDays)} day(s) of loss of pay`);
+  if (a.pauseUnpaidOverDays.trim() !== '') pauses.push(`more than ${Number(a.pauseUnpaidOverDays)} day(s) of unpaid leave`);
+  return `${how}, ${when}${pauses.length ? `; withheld after ${pauses.join(' or ')}` : ''}`;
 }

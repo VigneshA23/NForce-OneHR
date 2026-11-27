@@ -44,7 +44,7 @@ public class LeaveBalanceResponse {
     private BigDecimal carriedForwardRemainingDays;
     private LocalDate carriedForwardExpiresOn;
     // ── Crediting (V314, ANNUAL only) ──
-    /** YEARLY (all at once) or MONTHLY. */
+    /** YEARLY (all at once), HALF_YEARLY, QUARTERLY or MONTHLY (LV-03). */
     private String creditFrequency;
     /** This year's full entitlement for this employee: credited so far plus credits still to come. */
     private BigDecimal annualQuotaDays;

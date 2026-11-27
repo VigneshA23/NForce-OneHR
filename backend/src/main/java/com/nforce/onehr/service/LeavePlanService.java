@@ -8,6 +8,7 @@ import com.nforce.onehr.dto.LeavePlanDtos.CreatePlanRequest;
 import com.nforce.onehr.dto.LeavePlanDtos.PlanDetail;
 import com.nforce.onehr.dto.LeavePlanDtos.PlanSummary;
 import com.nforce.onehr.dto.LeavePlanDtos.SaveVersionRequest;
+import com.nforce.onehr.dto.LeavePlanDtos.AccrualSettings;
 import com.nforce.onehr.dto.LeavePlanDtos.RuleLimits;
 import com.nforce.onehr.dto.LeavePlanDtos.TypeRuleDto;
 import com.nforce.onehr.dto.LeavePlanDtos.TypeRuleRequest;
@@ -217,7 +218,7 @@ public class LeavePlanService {
         VersionDetail source = currentVersion(planId);
         List<TypeRuleRequest> rules = source.rules().stream().map(r -> new TypeRuleRequest(r.leaveTypeId(), r.days(),
                 r.creditFrequency(), r.carryForwardEnabled(), r.carryForwardMaxDays(), r.carryForwardExpiryMonths(),
-                r.carryForwardPriority(), r.eligibility(), r.limits())).toList();
+                r.carryForwardPriority(), r.eligibility(), r.limits(), r.accrual())).toList();
         LeavePlan from = requirePlan(planId);
         PlanDetail created = create(new CreatePlanRequest(req.name(), from.getDescription(), from.getLeaveYearStartMonth(), rules,
                 prorationDto(from)), actorEmail);
@@ -429,6 +430,9 @@ public class LeavePlanService {
                     .sandwichMinDays(sandwichOn(type, l) ? l.sandwichMinDays() : null)
                     .sandwichAcrossRequests(sandwichOn(type, l) && l.sandwichAcrossRequests())
                     .creditFrequency(annual && req.creditFrequency() != null ? req.creditFrequency() : LeaveEntitlementPolicy.YEARLY)
+                    .creditTiming(accrualOf(type, req).timing())
+                    .accrualPauseLopOverDays(accrualOf(type, req).pauseLopOverDays())
+                    .accrualPauseUnpaidOverDays(accrualOf(type, req).pauseUnpaidOverDays())
                     .carryForwardEnabled(annual && req.carryForwardEnabled())
                     .carryForwardMaxDays(annual && req.carryForwardEnabled() ? req.carryForwardMaxDays() : null)
                     .carryForwardExpiryMonths(annual && req.carryForwardEnabled() ? req.carryForwardExpiryMonths() : null)
@@ -539,7 +543,7 @@ public class LeavePlanService {
     private List<TypeRuleRequest> requestsOf(UUID versionId) {
         return ruleRepository.findByVersionId(versionId).stream().map(r -> new TypeRuleRequest(r.getLeaveTypeId(), r.getDays(),
                 r.getCreditFrequency(), r.isCarryForwardEnabled(), r.getCarryForwardMaxDays(), r.getCarryForwardExpiryMonths(),
-                r.getCarryForwardPriority(), planRuleService.eligibilityConfig(r.getId()), limitsDto(r))).toList();
+                r.getCarryForwardPriority(), planRuleService.eligibilityConfig(r.getId()), limitsDto(r), accrualDto(r))).toList();
     }
 
     /** Canonical JSON of a rule set (sorted, normalised), used both for "unchanged?" and for the audit trail. */
@@ -594,6 +598,10 @@ public class LeavePlanService {
             m.put("sandwichAppliesTo", sandwich ? sandwichAppliesTo(l) : null);
             m.put("sandwichMinDays", sandwich ? plain(l.sandwichMinDays()) : null);
             m.put("sandwichAcrossRequests", sandwich && l.sandwichAcrossRequests());
+            AccrualSettings a = accrualOf(t, r);
+            m.put("creditTiming", a.timing());
+            m.put("accrualPauseLopOverDays", plain(a.pauseLopOverDays()));
+            m.put("accrualPauseUnpaidOverDays", plain(a.pauseUnpaidOverDays()));
             out.add(m);
         }
         out.sort(Comparator.comparing(m -> (String) m.get("leaveTypeCode")));
@@ -613,7 +621,20 @@ public class LeavePlanService {
                 t.isPaid() ? t.getEntitlementBasis() : "UNLIMITED", t.isActive(), r.getDays(),
                 t.isAnnualBalance() ? r.getCreditFrequency() : null, r.isCarryForwardEnabled(), r.getCarryForwardMaxDays(),
                 r.getCarryForwardExpiryMonths(), r.getCarryForwardPriority(), planRuleService.eligibilityConfig(r.getId()),
-                limitsDto(r));
+                limitsDto(r), t.isAnnualBalance() ? accrualDto(r) : null);
+    }
+
+    static AccrualSettings accrualDto(LeavePlanTypeRule r) {
+        return new AccrualSettings(r.getCreditTiming() == null ? LeavePlanTypeRule.TIMING_START : r.getCreditTiming(),
+                r.getAccrualPauseLopOverDays(), r.getAccrualPauseUnpaidOverDays());
+    }
+
+    /** LV-03: the accrual settings to store — only regular paid (annual) types are credited, so only they have any. */
+    static AccrualSettings accrualOf(LeaveType type, TypeRuleRequest r) {
+        if (!type.isAnnualBalance() || r.accrual() == null) return AccrualSettings.DEFAULTS;
+        AccrualSettings a = r.accrual();
+        return new AccrualSettings(a.timing() == null ? LeavePlanTypeRule.TIMING_START : a.timing(),
+                a.pauseLopOverDays(), a.pauseUnpaidOverDays());
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────────────────────
