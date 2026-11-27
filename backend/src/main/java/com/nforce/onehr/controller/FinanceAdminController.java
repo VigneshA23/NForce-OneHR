@@ -152,7 +152,7 @@ public class FinanceAdminController {
 
     // ── configuration (F17) ──
     @GetMapping("/windows")
-    public List<TaxDeclarationService.WindowView> windows() { return List.of(declarations.window("DECLARATION"), declarations.window("PROOF")); }
+    public List<TaxDeclarationService.WindowView> windows() { return List.of(declarations.window("DECLARATION"), declarations.window("PROOF"), taxProfile.regimeWindow()); }
 
     @PutMapping("/windows/{kind}")
     public void setWindow(@PathVariable String kind, @RequestBody WindowBody b, Principal p) {
@@ -173,6 +173,9 @@ public class FinanceAdminController {
 
     @DeleteMapping("/partners/{id}")
     public void deletePartner(@PathVariable UUID id, Principal p) { config.deletePartner(actor(p), id); }
+
+    @GetMapping("/filing/{fy}/due-date")
+    public DueDateBody getDueDate(@PathVariable int fy) { return new DueDateBody(config.filing(fy).itrDueDate()); }
 
     @PutMapping("/filing/{fy}/due-date")
     public void dueDate(@PathVariable int fy, @RequestBody DueDateBody b, Principal p) { config.setDueDate(actor(p), fy, b.dueDate()); }

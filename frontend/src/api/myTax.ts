@@ -156,6 +156,7 @@ export const financeAdminApi = (token: string) => {
     savePartner: (p: Partial<Partner> & Pick<Partner, 'kind' | 'name' | 'url'>) => p.id
       ? call<Partner>('PUT', `${b}/partners/${p.id}`, token, p) : call<Partner>('POST', `${b}/partners`, token, p),
     deletePartner: (id: string) => call<void>('DELETE', `${b}/partners/${id}`, token),
+    getDueDate: (fy: number) => call<{ dueDate: string | null }>('GET', `${b}/filing/${fy}/due-date`, token),
     setDueDate: (fy: number, dueDate: string) => call<void>('PUT', `${b}/filing/${fy}/due-date`, token, { dueDate }),
     rules: (fy: number, regime: 'OLD' | 'NEW') => call<TaxRules>('GET', `${b}/rules?fy=${fy}&regime=${regime}`, token),
     saveRules: (r: TaxRules) => call<TaxRules>('PUT', `${b}/rules`, token, r),

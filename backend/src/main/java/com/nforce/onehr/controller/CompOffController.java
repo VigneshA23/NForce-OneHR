@@ -50,6 +50,13 @@ public class CompOffController {
         return compOffService.mine(principal.getName());
     }
 
+    public record RequestForDate(@jakarta.validation.constraints.NotNull LocalDate workDate) {}
+
+    @PostMapping("/request")
+    public DetectResult requestCompOff(@Valid @RequestBody RequestForDate req, Principal principal) {
+        return compOffService.requestForDate(req.workDate(), principal.getName());
+    }
+
     @PostMapping("/claims/{id}/choose")
     public ClaimDto choose(@PathVariable UUID id, @Valid @RequestBody ChooseRequest req, Principal principal) {
         return compOffService.choose(id, req.choice(), principal.getName());
