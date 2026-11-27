@@ -67,8 +67,13 @@ class LeaveConfigEndpointsSecurityTest {
                     mock(com.nforce.onehr.service.LeavePlanAllocationService.class), mock(com.nforce.onehr.service.LeaveExitService.class),
                     mock(com.nforce.onehr.repository.EmployeeRepository.class), mock(com.nforce.onehr.repository.LeaveTypeRepository.class));
         }
+
+        @Bean com.nforce.onehr.controller.LeaveYearEndController leaveYearEndController() {
+            return new com.nforce.onehr.controller.LeaveYearEndController(mock(com.nforce.onehr.service.LeaveYearEndWizardService.class));
+        }
     }
 
+    @Autowired com.nforce.onehr.controller.LeaveYearEndController yearEndController;
     @Autowired LeaveConfigController controller;
     @Autowired com.nforce.onehr.controller.LeavePlanController planController;
 
@@ -111,6 +116,12 @@ class LeaveConfigEndpointsSecurityTest {
                 Arguments.of("GET", "/api/leave-config/carry-forward/transfers?fromYear=2026", null, VIEW),
                 Arguments.of("POST", "/api/leave-config/carry-forward/run?fromYear=2025", null, CONFIGURE),
                 Arguments.of("GET", "/api/leave-config/jobs", null, VIEW),
+                Arguments.of("GET", "/api/leave-config/year-end/runs?fromYear=2026", null, VIEW),
+                Arguments.of("GET", "/api/leave-config/year-end/runs/" + ID, null, VIEW),
+                Arguments.of("POST", "/api/leave-config/year-end/runs", "{\"fromYear\":2026}", CONFIGURE),
+                Arguments.of("PATCH", "/api/leave-config/year-end/runs/" + ID + "/lines/" + ID, "{\"carryDays\":1,\"encashDays\":0}", CONFIGURE),
+                Arguments.of("POST", "/api/leave-config/year-end/runs/" + ID + "/confirm", null, CONFIGURE),
+                Arguments.of("POST", "/api/leave-config/year-end/runs/" + ID + "/rollback", null, CONFIGURE),
                 Arguments.of("GET", "/api/leave-config/opening-balances?year=2027", null, EDIT),
                 Arguments.of("POST", "/api/leave-config/opening-balances/validate?year=2027", "[]", EDIT),
                 Arguments.of("POST", "/api/leave-config/opening-balances/apply?year=2027", "[]", EDIT),
@@ -178,7 +189,7 @@ class LeaveConfigEndpointsSecurityTest {
     private int call(String method, String path, String body, String... authorities) throws Exception {
         Authentication auth = new TestingAuthenticationToken("user@test.com", "n/a", authorities);
         SecurityContextHolder.getContext().setAuthentication(auth);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller, planController).setControllerAdvice(new GlobalExceptionHandler()).build();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller, planController, yearEndController).setControllerAdvice(new GlobalExceptionHandler()).build();
         MockHttpServletRequestBuilder req = switch (method) {
             case "GET" -> get(path);
             case "POST" -> post(path);

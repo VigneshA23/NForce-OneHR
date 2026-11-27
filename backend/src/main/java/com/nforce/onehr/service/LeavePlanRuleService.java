@@ -150,7 +150,14 @@ public class LeavePlanRuleService {
         return new LeavePlanCatalog.TypeRule(r.getId(), planId, r.getVersionId(), r.getLeaveTypeId(), r.getDays(),
                 r.getCreditFrequency(), r.isCarryForwardEnabled(), r.getCarryForwardMaxDays(), r.getCarryForwardExpiryMonths(),
                 r.getCarryForwardPriority(), eligibilityRules(eligibility, overrides, r.getMinTenureMonths(), r.isAllowedDuringProbation()),
-                limitsOf(r, clubbingBlocked), accrualOf(r));
+                limitsOf(r, clubbingBlocked), accrualOf(r), yearEndOf(r));
+    }
+
+    static LeavePlanCatalog.YearEnd yearEndOf(LeavePlanTypeRule r) {
+        return new LeavePlanCatalog.YearEnd(r.getCarryForwardMaxPercent(), r.getCarryForwardExpiryMonth(), r.getCarryForwardExpiryDay(),
+                r.isEncashEnabled(), r.getEncashMaxDays(),
+                r.getEncashBasis() == null ? LeavePlanTypeRule.ENCASH_BASIC : r.getEncashBasis(),
+                r.getEncashDivisor() == null ? 30 : r.getEncashDivisor());
     }
 
     static LeavePlanCatalog.Accrual accrualOf(LeavePlanTypeRule r) {

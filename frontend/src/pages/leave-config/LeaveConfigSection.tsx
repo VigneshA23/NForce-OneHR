@@ -7,7 +7,7 @@ import { useCan } from '../../lib/access';
 import { useToast } from '../../context/ToastContext';
 import {
   leaveConfigApi,
-  type AccrualCredit, type AccrualPreview, type CarryForwardTransfer, type DirectoryEmployee,
+  type AccrualCredit, type AccrualPreview, type DirectoryEmployee,
   type LeaveBalance, type LeaveType, type LeaveTypeClassification,
   type LeaveJobRun, type OpeningBalanceUploadRow, type OpeningBalanceValidation,
 } from '../../api/leave';
@@ -25,6 +25,7 @@ import {
 import LeavePlansArea from './LeavePlansArea';
 import LeavePlanAssignment from './LeavePlanAssignment';
 import LeaveExitsArea from './LeaveExitsArea';
+import YearEndWizard from './YearEndWizard';
 
 /**
  * Organization Masters / Organization Structure > Leave (V310, V314, LV-01). Areas: Leave Types (the
@@ -761,72 +762,34 @@ function OpeningBalanceUpload({ token }: { token: string }) {
 function YearEndProcessing({ token, canConfigure }: { token: string; canConfigure: boolean }) {
   const lastRun = useLastRun(token, 'yearEnd');
   const { showToast } = useToast();
-  const [fromYear, setFromYear] = useState(CURRENT_YEAR - 1);
-  const [rows, setRows] = useState<CarryForwardTransfer[] | null>(null);
-  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const paged = usePaged(rows ?? [], [fromYear]);
 
-  const load = useCallback(async () => {
-    setError('');
-    try { setRows(await leaveConfigApi.listTransfers(fromYear, token)); } catch (e) { setError(errMsg(e)); }
-  }, [fromYear, token]);
-  useEffect(() => { void load(); }, [load]);
-
-  async function run() {
+  // LV-05: the nightly job only applies carried-forward expiries now; closing a year is the wizard's job.
+  async function runExpiries() {
     setBusy(true);
     try {
-      const r = await leaveConfigApi.runYearEnd(fromYear, token);
+      const r = await leaveConfigApi.runYearEnd(CURRENT_YEAR - 1, token);
       showToast(r.failures > 0 ? 'error' : 'success',
-        `${r.transfersCreated} transfer(s) recorded, ${r.expiriesUpdated} expiry update(s)${r.failures > 0 ? `, ${r.failures} failed (${(r.failedEmployees ?? []).join(', ')}) — run again to retry` : ''}`);
+        `${r.expiriesUpdated} expiry update(s)${r.failures > 0 ? `, ${r.failures} failed (${(r.failedEmployees ?? []).join(', ')}) — run again to retry` : ''}`);
       lastRun.reload();
-      await load();
     } catch (e) {
-      setError(errMsg(e));
+      showToast('error', errMsg(e));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div style={{ marginTop: 28 }}>
-      <h2 style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700 }}>Year-end processing</h2>
-      <p style={hintS}>
-        Runs automatically every night once a leave year has ended: unused days up to the maximum set in each employee's
-        leave plan move into the next year's carried-forward balance, the rest lapse, and carried-forward days expire on their
-        expiry date. Running it again never transfers twice. Leave still pending at year-end stays reserved in the old year.
-      </p>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 14 }}>
-        <div style={{ width: 140 }}>
-          <label style={labelS} htmlFor="ye-year">Leave year</label>
-          <select id="ye-year" style={inputS} value={fromYear} onChange={e => setFromYear(Number(e.target.value))}>
-            {[CURRENT_YEAR - 1, CURRENT_YEAR - 2, CURRENT_YEAR - 3].map(y => <option key={y} value={y}>{y} → {y + 1}</option>)}
-          </select>
-        </div>
-        {canConfigure && <button style={primaryBtn(busy)} disabled={busy} onClick={run}>{busy ? 'Processing…' : 'Run now'}</button>}
+    <YearEndWizard token={token} canConfigure={canConfigure} lastRun={(
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <LastRun run={lastRun.run} summary={d => `carried-forward expiry, ${Number(d.expiriesUpdated ?? 0)} update(s)`} />
+        {canConfigure && (
+          <button type="button" style={{ ...secondaryBtn, padding: '3px 10px', fontSize: 11.5 }} disabled={busy} onClick={runExpiries}>
+            {busy ? 'Applying…' : 'Apply expiries now'}
+          </button>
+        )}
       </div>
-      <LastRun run={lastRun.run} summary={d => `${d.fromYear ?? ''} → ${Number(d.fromYear ?? 0) + 1}: ${Number(d.transfersCreated ?? 0)} transfer(s), ${Number(d.expiriesUpdated ?? 0)} expiry update(s)`} />
-      <FormError error={error} />
-      {rows && (
-        <>
-          <Table head={['Employee', 'Leave Type', 'Unused', 'Carried', 'Lapsed', 'Expires', 'Processed']}
-            empty={rows.length === 0 && `Leave year ${fromYear} hasn't been processed yet.`}>
-            {paged.pageRows.map(t => (
-              <tr key={t.id}>
-                <td style={{ ...tdS, color: 'var(--txt)' }}>{t.employeeName}{t.employeeCode ? <span style={{ color: 'var(--txt-dim)' }}> · {t.employeeCode}</span> : null}</td>
-                <td style={tdS}>{t.leaveTypeName}</td>
-                <td style={tdS}>{days(t.unusedDays)}</td>
-                <td style={{ ...tdS, color: 'var(--txt)', fontWeight: 600 }}>{days(t.carriedDays)}</td>
-                <td style={tdS}>{days(t.lapsedDays)}</td>
-                <td style={tdS}>{t.carriedDays > 0 ? (t.expiresOn ? fmtDate(t.expiresOn) : 'Never') : '–'}</td>
-                <td style={tdS}>{fmtDate(t.updatedAt ?? t.processedAt)}</td>
-              </tr>
-            ))}
-          </Table>
-          {rows.length > 0 && <TablePagination {...paged.pagerProps} noun="transfers" />}
-        </>
-      )}
-    </div>
+    )} />
   );
 }
 

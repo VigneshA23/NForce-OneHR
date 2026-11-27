@@ -35,7 +35,16 @@ public final class LeavePlanCatalog {
     public record TypeRule(UUID ruleId, UUID planId, UUID versionId, UUID leaveTypeId, BigDecimal days,
                            String creditFrequency, boolean carryForwardEnabled, BigDecimal carryForwardMaxDays,
                            Integer carryForwardExpiryMonths, String carryForwardPriority,
-                           LeaveEligibilityService.Rules eligibility, Limits limits, Accrual accrual) {
+                           LeaveEligibilityService.Rules eligibility, Limits limits, Accrual accrual, YearEnd yearEnd) {
+
+        /** Without LV-05 year-end settings (no percent cap, no fixed expiry date, no encashment). */
+        public TypeRule(UUID ruleId, UUID planId, UUID versionId, UUID leaveTypeId, BigDecimal days,
+                        String creditFrequency, boolean carryForwardEnabled, BigDecimal carryForwardMaxDays,
+                        Integer carryForwardExpiryMonths, String carryForwardPriority,
+                        LeaveEligibilityService.Rules eligibility, Limits limits, Accrual accrual) {
+            this(ruleId, planId, versionId, leaveTypeId, days, creditFrequency, carryForwardEnabled, carryForwardMaxDays,
+                    carryForwardExpiryMonths, carryForwardPriority, eligibility, limits, accrual, YearEnd.NONE);
+        }
 
         /** Without LV-03 accrual settings (credited at the start of each period, never paused). */
         public TypeRule(UUID ruleId, UUID planId, UUID versionId, UUID leaveTypeId, BigDecimal days,
@@ -125,6 +134,18 @@ public final class LeavePlanCatalog {
         public boolean pauses() {
             return pauseLopOverDays != null || pauseUnpaidOverDays != null;
         }
+    }
+
+    /**
+     * LV-05: year-end settings beyond the carry-forward days cap. {@code carryForwardMaxPercent}: carry at most this %
+     * of the unused days; {@code expiryMonth}/{@code expiryDay}: carried days expire on that date of the next year
+     * (null = by months, or never); encashment: on/off, max days (null = all the rest), basis BASIC / BASIC_DA and
+     * divisor 26 / 30.
+     */
+    public record YearEnd(BigDecimal carryForwardMaxPercent, Integer expiryMonth, Integer expiryDay, boolean encashEnabled,
+                          BigDecimal encashMaxDays, String encashBasis, int encashDivisor) {
+        public static final YearEnd NONE = new YearEnd(null, null, null, false, null,
+                com.nforce.onehr.entity.LeavePlanTypeRule.ENCASH_BASIC, 30);
     }
 
     /** The plan an employee is on for a date, and why. {@code ruleName} only for {@link #SOURCE_RULE}. */

@@ -103,6 +103,9 @@ public enum AuditActionCategory {
             "LEAVE_PLAN_SET_AS_DEFAULT", "LEAVE_PLAN_DELETED", "LEAVE_PLAN_VERSION_SAVED",
             "LEAVE_PLAN_ALLOCATION_ASSIGNED", "LEAVE_PLAN_ALLOCATION_UPDATED", "LEAVE_PLAN_ALLOCATION_REMOVED",
             "LEAVE_PLAN_ALLOCATION_BULK_ASSIGNED", "LEAVE_PLAN_ALLOCATION_BULK_REMOVED",
+            // LeaveYearEndWizardService — LV-05 closing a leave year, HR's adjustments and rollbacks.
+            "LEAVE_YEAR_END_RUN_PREVIEWED", "LEAVE_YEAR_END_LINE_ADJUSTED", "LEAVE_YEAR_END_RUN_CONFIRMED",
+            "LEAVE_YEAR_END_RUN_ROLLED_BACK",
             // SalaryStructureService — Payroll Epic (ONEHR-579) US-C01: defining a Salary
             // Structure template is HR configuration, not a self-submitted request, same
             // treatment as LeaveTypeService above.

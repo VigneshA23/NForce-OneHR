@@ -4,7 +4,7 @@
  */
 import type {
   CarryForwardPriority, CreditFrequency, CreditTiming, EligibilityConfig, EntitlementMode, LeaveRuleSummary, LeaveType, PlanRuleLimits,
-  LeavePreview, PlanProration, PlanTypeRule, PlanTypeRulePayload, SandwichAppliesTo,
+  LeavePreview, PlanProration, PlanTypeRule, PlanTypeRulePayload, PlanYearEndSettings, SandwichAppliesTo,
 } from '../../api/leave';
 
 export const EMPTY_RULE_ELIGIBILITY: EligibilityConfig = {
@@ -24,6 +24,32 @@ export interface RuleForm {
   eligibility: EligibilityConfig;
   limits: LimitsForm;
   accrual: AccrualForm;
+  yearEnd: YearEndForm;
+}
+
+/** LV-05 year-end settings as typed in the editor ('' = none). */
+export interface YearEndForm {
+  carryForwardMaxPercent: string;
+  /** A fixed expiry date in the next year: month '1'-'12' and day, or both ''. */
+  expiryMonth: string;
+  expiryDay: string;
+  encashEnabled: boolean;
+  encashMaxDays: string;
+  encashBasis: PlanYearEndSettings['encashBasis'];
+  encashDivisor: '26' | '30';
+}
+
+export const DEFAULT_YEAR_END: YearEndForm = {
+  carryForwardMaxPercent: '', expiryMonth: '', expiryDay: '', encashEnabled: false, encashMaxDays: '', encashBasis: 'BASIC', encashDivisor: '30',
+};
+
+function yearEndForm(y: PlanYearEndSettings | null | undefined): YearEndForm {
+  if (!y) return DEFAULT_YEAR_END;
+  return {
+    carryForwardMaxPercent: str(y.carryForwardMaxPercent), expiryMonth: str(y.carryForwardExpiryMonth), expiryDay: str(y.carryForwardExpiryDay),
+    encashEnabled: y.encashEnabled, encashMaxDays: str(y.encashMaxDays), encashBasis: y.encashBasis ?? 'BASIC',
+    encashDivisor: y.encashDivisor === 26 ? '26' : '30',
+  };
 }
 
 /** LV-03 crediting timing and pause limits as typed in the editor ('' = never paused). */
@@ -98,12 +124,13 @@ export function formsFor(types: LeaveType[], rules: PlanTypeRule[]): RuleForm[] 
           accrual: r.accrual
             ? { timing: r.accrual.timing ?? 'START', pauseLopOverDays: str(r.accrual.pauseLopOverDays), pauseUnpaidOverDays: str(r.accrual.pauseUnpaidOverDays) }
             : DEFAULT_ACCRUAL,
+          yearEnd: yearEndForm(r.yearEnd),
         };
       }
       return {
         leaveTypeId: t.id, included: false, days: t.entitlementBasis === 'PER_OCCURRENCE' ? '182' : '15', creditFrequency: 'MONTHLY',
         carryForwardEnabled: false, carryForwardMaxDays: '', carryForwardExpiryMonths: '', carryForwardPriority: 'CARRY_FORWARD_FIRST',
-        eligibility: EMPTY_RULE_ELIGIBILITY, limits: EMPTY_LIMITS, accrual: DEFAULT_ACCRUAL,
+        eligibility: EMPTY_RULE_ELIGIBILITY, limits: EMPTY_LIMITS, accrual: DEFAULT_ACCRUAL, yearEnd: DEFAULT_YEAR_END,
       };
     });
 }
@@ -139,6 +166,8 @@ export function toPayload(forms: RuleForm[], types: LeaveType[]): { rules: PlanT
     if (typeof lop === 'string') return { rules: [], error: lop };
     const unpaid = num(f.accrual.pauseUnpaidOverDays, `${t.name}: the unpaid-leave pause limit`, 0, 366);
     if (typeof unpaid === 'string') return { rules: [], error: unpaid };
+    const yearEnd = annual && mode !== 'UNLIMITED' ? yearEndPayload(t, f, cf) : null;
+    if (typeof yearEnd === 'string') return { rules: [], error: yearEnd };
     rules.push({
       leaveTypeId: t.id,
       days: paid ? (mode === 'QUOTA' ? daysN : 0) : null,
@@ -150,6 +179,7 @@ export function toPayload(forms: RuleForm[], types: LeaveType[]): { rules: PlanT
       eligibility: f.eligibility,
       limits,
       accrual: annual ? { timing: f.accrual.timing, pauseLopOverDays: lop, pauseUnpaidOverDays: unpaid } : null,
+      yearEnd,
     });
   }
   return { rules };
@@ -344,4 +374,50 @@ export function accrualSummary(frequency: CreditFrequency, a: AccrualForm): stri
   if (a.pauseLopOverDays.trim() !== '') pauses.push(`more than ${Number(a.pauseLopOverDays)} day(s) of loss of pay`);
   if (a.pauseUnpaidOverDays.trim() !== '') pauses.push(`more than ${Number(a.pauseUnpaidOverDays)} day(s) of unpaid leave`);
   return `${how}, ${when}${pauses.length ? `; withheld after ${pauses.join(' or ')}` : ''}`;
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/** LV-05: the year-end payload for a regular paid type, or the first problem. Mirrors the server's checks. */
+export function yearEndPayload(t: LeaveType, f: RuleForm, cf: boolean): PlanYearEndSettings | string {
+  const y = f.yearEnd;
+  const pct = cf ? num(y.carryForwardMaxPercent, `${t.name}: the carry-forward percentage`, 0, 100) : null;
+  if (typeof pct === 'string') return pct;
+  let month: number | null = null, day: number | null = null;
+  if (cf && (y.expiryMonth !== '' || y.expiryDay.trim() !== '')) {
+    month = Number(y.expiryMonth);
+    day = Number(y.expiryDay);
+    if (!y.expiryMonth || !Number.isInteger(day) || day < 1 || day > MONTH_DAYS[month - 1]) {
+      return `${t.name}: the carry-forward expiry date isn't a valid day and month`;
+    }
+    if (f.carryForwardExpiryMonths.trim() !== '') {
+      return `${t.name}: choose either an expiry after N months or a fixed date, not both`;
+    }
+  }
+  const encashMax = y.encashEnabled ? num(y.encashMaxDays, `${t.name}: the encashment maximum`, 0, 999) : null;
+  if (typeof encashMax === 'string') return encashMax;
+  return {
+    carryForwardMaxPercent: pct, carryForwardExpiryMonth: month, carryForwardExpiryDay: day,
+    encashEnabled: y.encashEnabled, encashMaxDays: encashMax, encashBasis: y.encashBasis, encashDivisor: y.encashDivisor === '26' ? 26 : 30,
+  };
+}
+
+/** LV-05: what happens to unused days at year-end, in words (the plan editor's summary line). */
+export function yearEndSummary(f: RuleForm): string {
+  const y = f.yearEnd;
+  const parts: string[] = [];
+  if (f.carryForwardEnabled) {
+    const caps = [f.carryForwardMaxDays && `${f.carryForwardMaxDays} day(s)`, y.carryForwardMaxPercent && `${y.carryForwardMaxPercent}%`]
+      .filter(Boolean);
+    let s = `carries forward ${caps.length ? `up to ${caps.join(' or ')}` : 'all unused days'}`;
+    if (y.expiryMonth && y.expiryDay) s += `, use by ${Number(y.expiryDay)} ${MONTH_NAMES[Number(y.expiryMonth) - 1]}`;
+    else if (f.carryForwardExpiryMonths) s += `, expiring after ${f.carryForwardExpiryMonths} month(s)`;
+    parts.push(s);
+  }
+  if (y.encashEnabled) {
+    parts.push(`encashes ${y.encashMaxDays ? `up to ${y.encashMaxDays} day(s)` : 'the rest'} at ${y.encashBasis === 'BASIC_DA' ? 'Basic + DA' : 'Basic'} ÷ ${y.encashDivisor}`);
+  }
+  if (!f.carryForwardEnabled && !y.encashEnabled) return 'unused days lapse at year end';
+  return `${parts.join('; ')}; the rest lapses`;
 }

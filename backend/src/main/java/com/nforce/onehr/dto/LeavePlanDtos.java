@@ -52,7 +52,27 @@ public final class LeavePlanDtos {
                               String entitlementBasis, boolean leaveTypeActive, BigDecimal days, String creditFrequency,
                               boolean carryForwardEnabled, BigDecimal carryForwardMaxDays, Integer carryForwardExpiryMonths,
                               String carryForwardPriority, LeaveConfigDtos.EligibilityConfig eligibility, RuleLimits limits,
-                              AccrualSettings accrual) {}
+                              AccrualSettings accrual, YearEndSettings yearEnd) {}
+
+    /**
+     * LV-05: year-end settings of a regular paid type. {@code carryForwardMaxPercent}: carry at most this % of the
+     * unused days (with the max days, the lower of both). {@code carryForwardExpiryMonth}/{@code Day}: carried days
+     * expire on that date of the next year, instead of after N months. Encashment: days beyond the carry-forward are
+     * paid, up to {@code encashMaxDays} (null = all), at days × monthly {@code encashBasis} (BASIC or BASIC_DA) ÷
+     * {@code encashDivisor} (26 or 30); the rest lapses.
+     */
+    public record YearEndSettings(
+            @DecimalMin("0") @DecimalMax("100") BigDecimal carryForwardMaxPercent,
+            @Min(1) @Max(12) Integer carryForwardExpiryMonth,
+            @Min(1) @Max(31) Integer carryForwardExpiryDay,
+            boolean encashEnabled,
+            @DecimalMin("0") @DecimalMax("999") BigDecimal encashMaxDays,
+            @Pattern(regexp = "BASIC|BASIC_DA") String encashBasis,
+            @Min(26) @Max(30) Integer encashDivisor) {
+
+        /** No percent cap, no fixed expiry date, no encashment. */
+        public static final YearEndSettings DEFAULTS = new YearEndSettings(null, null, null, false, null, "BASIC", 30);
+    }
 
     /**
      * LV-03: when a period's days are credited — {@code timing} START (its first day) or END (once the period is
@@ -129,7 +149,16 @@ public final class LeavePlanDtos {
             @Pattern(regexp = "CARRY_FORWARD_FIRST|CURRENT_FIRST") String carryForwardPriority,
             @Valid LeaveConfigDtos.EligibilityConfig eligibility,
             @Valid RuleLimits limits,
-            @Valid AccrualSettings accrual) {
+            @Valid AccrualSettings accrual,
+            @Valid YearEndSettings yearEnd) {
+
+        /** Without LV-05 year-end settings (= {@link YearEndSettings#DEFAULTS}). */
+        public TypeRuleRequest(UUID leaveTypeId, BigDecimal days, String creditFrequency, boolean carryForwardEnabled,
+                               BigDecimal carryForwardMaxDays, Integer carryForwardExpiryMonths, String carryForwardPriority,
+                               LeaveConfigDtos.EligibilityConfig eligibility, RuleLimits limits, AccrualSettings accrual) {
+            this(leaveTypeId, days, creditFrequency, carryForwardEnabled, carryForwardMaxDays, carryForwardExpiryMonths,
+                    carryForwardPriority, eligibility, limits, accrual, null);
+        }
 
         /** Without LV-03 accrual settings (= {@link AccrualSettings#DEFAULTS}). */
         public TypeRuleRequest(UUID leaveTypeId, BigDecimal days, String creditFrequency, boolean carryForwardEnabled,

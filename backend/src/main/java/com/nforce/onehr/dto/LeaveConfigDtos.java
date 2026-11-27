@@ -46,7 +46,36 @@ public final class LeaveConfigDtos {
     public record CarryForwardTransferResponse(UUID id, UUID employeeUserId, String employeeName, String employeeCode,
                                                String leaveTypeCode, String leaveTypeName, Integer fromYear,
                                                BigDecimal unusedDays, BigDecimal carriedDays, BigDecimal lapsedDays,
-                                               LocalDate expiresOn, LocalDateTime processedAt, LocalDateTime updatedAt) {}
+                                               LocalDate expiresOn, LocalDateTime processedAt, LocalDateTime updatedAt,
+                                               BigDecimal encashedDays) {}
+
+    // ── LV-05: year-end wizard ──
+
+    public record StartYearEndRequest(@NotNull @Min(2000) @Max(2100) Integer fromYear) {}
+
+    /** HR's split of one line's closing days: carry + encash ≤ closing, the rest lapses. */
+    public record AdjustYearEndLineRequest(@NotNull @DecimalMin("0") @DecimalMax("999") BigDecimal carryDays,
+                                           @NotNull @DecimalMin("0") @DecimalMax("999") BigDecimal encashDays) {}
+
+    /**
+     * A year-end run and its totals. {@code rollbackUntil}: the last moment a confirmed run can be rolled back
+     * ({@code canRollback} also needs nothing to have been used or paid since).
+     */
+    public record YearEndRunSummary(UUID id, int fromYear, String status, String createdByName, LocalDateTime createdAt,
+                                    String confirmedByName, LocalDateTime confirmedAt, LocalDateTime rollbackUntil,
+                                    String rolledBackByName, LocalDateTime rolledBackAt, int lines, int adjustedLines,
+                                    BigDecimal closingDays, BigDecimal carryDays, BigDecimal encashDays, BigDecimal lapseDays,
+                                    BigDecimal encashAmount) {}
+
+    /** {@code encashmentStatus}: PENDING / ADDED / CANCELLED once confirmed (null before, or nothing to pay). */
+    public record YearEndRunLineDto(UUID id, UUID employeeUserId, String employeeName, String employeeCode, UUID leaveTypeId,
+                                    String leaveTypeName, BigDecimal closingDays, BigDecimal suggestedCarry,
+                                    BigDecimal suggestedEncash, BigDecimal carryDays, BigDecimal encashDays, BigDecimal lapseDays,
+                                    LocalDate expiresOn, String encashBasis, Integer encashDivisor, BigDecimal monthlyBase,
+                                    BigDecimal encashAmount, String note, boolean adjusted, String encashmentStatus) {}
+
+    /** {@code alreadyClosed}: balances of the year closed before LV-05 (by the nightly job), not part of the run. */
+    public record YearEndRunDetail(YearEndRunSummary run, List<YearEndRunLineDto> lines, int alreadyClosed, int leaversSkipped) {}
 
     /** Who a leave type applies to (V314). Empty lists = no restriction of that kind. */
     /**

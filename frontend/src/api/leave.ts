@@ -25,6 +25,21 @@ export type CreditFrequency = 'YEARLY' | 'HALF_YEARLY' | 'QUARTERLY' | 'MONTHLY'
 /** LV-03: START = on the period's first day; END = once the period is over. */
 export type CreditTiming = 'START' | 'END';
 
+/**
+ * LV-05: year-end settings of a regular paid type. Carry up to the max days and/or percent of the unused days, expiring
+ * on a fixed date of the next year (month/day) or after N months; then encash up to encashMaxDays (null = all the rest)
+ * at days × monthly Basic (or Basic + DA) ÷ 26 or 30; the rest lapses.
+ */
+export interface PlanYearEndSettings {
+  carryForwardMaxPercent: number | null;
+  carryForwardExpiryMonth: number | null;
+  carryForwardExpiryDay: number | null;
+  encashEnabled: boolean;
+  encashMaxDays: number | null;
+  encashBasis: 'BASIC' | 'BASIC_DA';
+  encashDivisor: 26 | 30;
+}
+
 /** LV-03: when a period's days are credited and when they are withheld (null limits = never paused). */
 export interface PlanAccrualSettings {
   timing: CreditTiming;
@@ -379,6 +394,7 @@ export interface PlanTypeRule {
   limits: PlanRuleLimits;
   /** Regular paid (annual) types only; null for others. */
   accrual?: PlanAccrualSettings | null;
+  yearEnd?: PlanYearEndSettings | null;
 }
 
 /** LV-02: how a type may be requested under a plan. Null numbers = no limit. */
@@ -426,6 +442,7 @@ export interface PlanTypeRulePayload {
   eligibility?: EligibilityConfig;
   limits?: PlanRuleLimits;
   accrual?: PlanAccrualSettings | null;
+  yearEnd?: PlanYearEndSettings | null;
 }
 
 export type PlanSource = 'ALLOCATION' | 'RULE' | 'DEFAULT';
@@ -477,6 +494,65 @@ export interface CarryForwardTransfer {
   expiresOn: string | null;
   processedAt: string;
   updatedAt: string;
+  /** LV-05: days paid out at year-end. */
+  encashedDays?: number | null;
+}
+
+/** LV-05: a year-end wizard run. */
+export type YearEndRunStatus = 'PREVIEW' | 'CONFIRMED' | 'ROLLED_BACK';
+
+export interface YearEndRunSummary {
+  id: string;
+  fromYear: number;
+  status: YearEndRunStatus;
+  createdByName: string | null;
+  createdAt: string;
+  confirmedByName: string | null;
+  confirmedAt: string | null;
+  /** Confirmed runs: the last moment a rollback is allowed. */
+  rollbackUntil: string | null;
+  rolledBackByName: string | null;
+  rolledBackAt: string | null;
+  lines: number;
+  adjustedLines: number;
+  closingDays: number;
+  carryDays: number;
+  encashDays: number;
+  lapseDays: number;
+  encashAmount: number;
+}
+
+export interface YearEndRunLine {
+  id: string;
+  employeeUserId: string;
+  employeeName: string;
+  employeeCode: string | null;
+  leaveTypeId: string;
+  leaveTypeName: string;
+  closingDays: number;
+  suggestedCarry: number;
+  suggestedEncash: number;
+  carryDays: number;
+  encashDays: number;
+  lapseDays: number;
+  expiresOn: string | null;
+  encashBasis: 'BASIC' | 'BASIC_DA' | null;
+  encashDivisor: number | null;
+  monthlyBase: number | null;
+  encashAmount: number | null;
+  note: string | null;
+  adjusted: boolean;
+  /** Once confirmed: PENDING (waiting for payroll), ADDED (in a payroll draft) or CANCELLED. */
+  encashmentStatus: 'PENDING' | 'ADDED' | 'CANCELLED' | null;
+}
+
+export interface YearEndRunDetail {
+  run: YearEndRunSummary;
+  lines: YearEndRunLine[];
+  /** Balances closed before LV-05 by the nightly job, not part of the run. */
+  alreadyClosed: number;
+  /** Employees whose last working day is in the year: settled by their exit instead. */
+  leaversSkipped: number;
 }
 
 export interface YearEndRunResult {
@@ -619,6 +695,16 @@ export const leaveConfigApi = {
     send<CarryForwardTransfer[]>('GET', `${CONFIG}/carry-forward/transfers?fromYear=${fromYear}`, token),
   runYearEnd: (fromYear: number, token: string) =>
     send<YearEndRunResult>('POST', `${CONFIG}/carry-forward/run?fromYear=${fromYear}`, token),
+  // LV-05: the year-end wizard
+  yearEndRuns: (fromYear: number, token: string) =>
+    send<YearEndRunSummary[]>('GET', `${CONFIG}/year-end/runs?fromYear=${fromYear}`, token),
+  yearEndRun: (runId: string, token: string) => send<YearEndRunDetail>('GET', `${CONFIG}/year-end/runs/${runId}`, token),
+  previewYearEnd: (fromYear: number, token: string) =>
+    send<YearEndRunDetail>('POST', `${CONFIG}/year-end/runs`, token, { fromYear }),
+  adjustYearEndLine: (runId: string, lineId: string, carryDays: number, encashDays: number, token: string) =>
+    send<YearEndRunLine>('PATCH', `${CONFIG}/year-end/runs/${runId}/lines/${lineId}`, token, { carryDays, encashDays }),
+  confirmYearEnd: (runId: string, token: string) => send<YearEndRunDetail>('POST', `${CONFIG}/year-end/runs/${runId}/confirm`, token),
+  rollbackYearEnd: (runId: string, token: string) => send<YearEndRunDetail>('POST', `${CONFIG}/year-end/runs/${runId}/rollback`, token),
 
   /** YE-02: opening-balance template rows (the browser builds the .xlsx), row-level validation and apply. */
   openingBalanceTemplate: (year: number, token: string) =>

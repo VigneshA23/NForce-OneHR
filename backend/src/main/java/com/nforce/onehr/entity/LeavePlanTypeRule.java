@@ -157,4 +157,37 @@ public class LeavePlanTypeRule {
     /** A period's credit is withheld when approved unpaid leave in the period it depends on exceeds this; null = never. */
     @Column(name = "accrual_pause_unpaid_over_days")
     private BigDecimal accrualPauseUnpaidOverDays;
+
+    // ── LV-05: year-end carry-forward cap by percent, fixed-date expiry, encashment ──
+
+    public static final String ENCASH_BASIC = "BASIC";
+    public static final String ENCASH_BASIC_DA = "BASIC_DA";
+
+    /** Carry at most this % of the unused days (with a max days, the lower of both); null = no percent cap. */
+    @Column(name = "carry_forward_max_percent")
+    private BigDecimal carryForwardMaxPercent;
+
+    /** Carried days expire on this month/day of the next year (e.g. 3/31); null = no fixed date. */
+    @Column(name = "carry_forward_expiry_month")
+    private Integer carryForwardExpiryMonth;
+
+    @Column(name = "carry_forward_expiry_day")
+    private Integer carryForwardExpiryDay;
+
+    @Column(name = "encash_enabled", nullable = false)
+    @Builder.Default
+    private boolean encashEnabled = false;
+
+    /** Encash at most this many days; null = all days beyond the carry-forward. */
+    @Column(name = "encash_max_days")
+    private BigDecimal encashMaxDays;
+
+    @Column(name = "encash_basis", nullable = false, length = 8)
+    @Builder.Default
+    private String encashBasis = ENCASH_BASIC;
+
+    /** 26 or 30: amount = days × monthly basis ÷ divisor. */
+    @Column(name = "encash_divisor", nullable = false)
+    @Builder.Default
+    private Integer encashDivisor = 30;
 }

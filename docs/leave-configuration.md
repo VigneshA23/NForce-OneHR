@@ -1,4 +1,4 @@
-# Leave configuration (V310, V314, V321, V322, V323, V324, V325, V326)
+# Leave configuration (V310, V314, V321, V322, V323, V324, V325, V326, V327)
 
 Leave types, leave plans (each type's days, crediting, carry-forward and who it applies to), who is on which
 plan, balances and year-end live in **Organization Masters / Organization Structure → Leave** (the
@@ -259,24 +259,59 @@ pending requests.
   `carry_forward_priority`.
 - **Pending requests** reserve days in each leave year they touch. Approval deducts the days.
 
-## Year-end processing
+## Year-end processing (V327, LV-05 / ONEHR-891)
 
-`LeaveYearEndService` runs nightly (`app.leave.year-end.cron`, default 00:30 in the business zone). HR can
-also run it from Year-End → Run now. For the leave year that just ended:
+**Behaviour change:** a leave year is no longer closed by the nightly job. HR closes it in Year-End as a
+three-step wizard. Until then, last year's unused days stay in last year's balance and nothing is carried.
+The nightly job (`app.leave.year-end.cron`, default 00:30) still applies carried-forward **expiries** and
+**top-ups**; "Apply expiries now" runs it by hand.
 
-1. For every active employee and regular paid type, it computes unused days: current-year days left, plus
-   carried-forward days still valid at year end, minus pending leave still reserved in that year.
-2. When carry-forward is enabled in the employee's plan on the last day of the year, it carries
-   `min(unused, max days)` into next year's carried-forward bucket, with expiry N months into the new year.
-   Everything else lapses.
-3. It records a row in `leave_carry_forward_transfers`. `UNIQUE (employee, type, from_year)` makes duplicate
-   transfers impossible, so re-runs are no-ops.
-4. Buckets past their expiry date have their unused days marked expired. Days still claimed by pending
-   leave dated before expiry are kept.
+Per regular paid type in a plan (Leave Plans → **More**):
 
-Each employee is processed in its own transaction: a failure is counted and logged, and the next run picks
-it up. If a request pending at year-end is rejected later, `refreshTransfers` raises that transfer, up to
-the cap and only while the bucket hasn't expired. A transfer is never lowered.
+| Setting | Effect |
+|---|---|
+| Carry-forward max days / max % | Carry at most this; with both, the lower. The % is of the unused days, rounded down to 0.01. |
+| Expires after N months / or use by (day, month) | Carried days expire N months into the next year, or on that date of the next year. One or the other, not both. |
+| Encash unused days, max days | Days beyond the carry-forward are paid, up to the max (blank = all). |
+| Basis, divided by | Amount = days × monthly Basic (or Basic + DA) ÷ 30 (or 26). |
+
+Order: **carry up to its cap → encash up to its cap → the rest lapses.**
+
+1. **Preview** (`POST /api/leave-config/year-end/runs {fromYear}`). For every active employee and regular paid
+   type, the unused days on 31 December are computed as before (days left + carried-forward still valid −
+   pending leave reserved in the year) and split per the employee's plan on that day. Encashment is priced
+   from the salary structure in effect on 31 December (the component named "Basic", plus "DA" / "Dearness
+   Allowance" for Basic + DA, annual ÷ 12). Without one, the line says so and nothing is paid.
+   Leavers (last working day in or before the year) are left out: their exit settlement (LV-04) covers them,
+   so nothing is encashed twice. Balances already closed by the nightly job before LV-05 are left out too.
+   A new preview replaces the previous one. Nothing changes until Confirm.
+2. **Adjust**: HR can change carry and encash per line (carry + encash ≤ unused; lapse is the rest). Each
+   change is audited (`LEAVE_YEAR_END_LINE_ADJUSTED`) and the line is marked Adjusted.
+3. **Confirm**, which does all of the following:
+   - Writes one `leave_carry_forward_transfers` row per line: unused, carried, encashed, lapsed, expiry, run
+     and adjusted.
+   - Adds the carried days to next year's carried-forward bucket and creates next year's balance row for
+     everyone in the run, including those carrying nothing.
+   - Queues each priced encashment in `leave_encashments` as PENDING.
+   - Sends every employee their outcome in the app (committed with the year-end) and by email
+     (`app.leave.notices.email`).
+   - Payroll then adds each pending encashment as a **"Leave Encashment" ad-hoc payment** to the next draft
+     it generates or regenerates that includes the employee (ADDED). If the component is missing or
+     inactive, the encashment waits.
+4. **Rollback** of the confirmed run is allowed within `app.leave.year-end.rollback-days` (default 7).
+   - It removes the run's transfers and the carried days from next year's balances.
+   - It cancels the encashments, removing their payments from draft payroll runs.
+   - It is refused when a carried-forward day has already been used or expired, or when an encashment is in
+     a payroll run past draft.
+   - Employees are not notified of a rollback. HR can then preview and confirm again.
+
+One PREVIEW and one CONFIRMED run per year (partial unique indexes). Top-ups (a request pending at
+year-end rejected later) raise a transfer's carry up to the cap, never past `unused − encashed`, and never
+for a line HR adjusted. A transfer is never lowered. Carried days of a transfer expire on its date, as
+before.
+
+**Not built:** every movement as a unified ledger entry (LV-11). The run lines, transfers and encashments
+are the record.
 
 ## Migration and reset (production)
 
@@ -318,6 +353,15 @@ Drop `leave_plan_allocations`, `leave_plan_type_overrides`, `leave_plan_type_eli
 `assignment_rule_assignments` rows of domain `LEAVE_PLAN`. The app before LV-01 reads the old tables, which
 V321 left untouched.
 
+## Rollback (V327)
+
+The previous leave year cannot be closed automatically again once these are dropped. Drop
+`leave_encashments` (cancel any PENDING / ADDED ones first: remove their ad-hoc payments from draft runs),
+`leave_year_end_run_lines` and `leave_year_end_runs`. Then drop `leave_carry_forward_transfers.encashed_days`,
+`run_id` and `adjusted`, and the seven `leave_plan_type_rules` year-end columns (`carry_forward_max_percent`,
+`carry_forward_expiry_month`, `carry_forward_expiry_day`, `encash_enabled`, `encash_max_days`,
+`encash_basis`, `encash_divisor`).
+
 ## Rollback (V326)
 
 Delete `leave_accrual_credits` rows with `source = 'PAUSED'` (the next run then credits those months), set
@@ -358,3 +402,7 @@ Leave plans (V321): `LEAVE_PLAN_CREATED`, `LEAVE_PLAN_UPDATED`, `LEAVE_PLAN_CLON
 `LEAVE_PLAN_SET_AS_DEFAULT`, `LEAVE_PLAN_DELETED`, `LEAVE_PLAN_VERSION_SAVED`, `LEAVE_PLAN_ALLOCATION_ASSIGNED`,
 `LEAVE_PLAN_ALLOCATION_UPDATED`, `LEAVE_PLAN_ALLOCATION_REMOVED`, `LEAVE_PLAN_ALLOCATION_BULK_ASSIGNED`,
 `LEAVE_PLAN_ALLOCATION_BULK_REMOVED`, and the shared `ASSIGNMENT_RULE_*` actions for rules.
+
+Year-end wizard (V327): `LEAVE_YEAR_END_RUN_PREVIEWED`, `LEAVE_YEAR_END_LINE_ADJUSTED`,
+`LEAVE_YEAR_END_RUN_CONFIRMED`, `LEAVE_YEAR_END_RUN_ROLLED_BACK`. Employees get a `LEAVE_YEAR_END_OUTCOME`
+notification.

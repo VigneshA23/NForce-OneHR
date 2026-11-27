@@ -18,7 +18,7 @@ import {
 } from './leaveConfigUi';
 import {
   accrualSummary, firstOfNextMonth, formsFor, isoDate, limitsPayload, modeFor, prorationExample, ruleLines, summaryOf, toPayload,
-  type AccrualForm, type LimitsForm, type RuleForm,
+  yearEndSummary, type AccrualForm, type LimitsForm, type RuleForm, type YearEndForm,
 } from './planRules';
 import type { Lookups } from './LeaveConfigSection';
 
@@ -130,6 +130,7 @@ function RuleRow({ type, form, onChange, lookups, token, readOnly, allTypes }: {
   const paid = type.classification === 'PAID';
   const annual = paid && type.entitlementBasis !== 'PER_OCCURRENCE';
   const set = (patch: Partial<RuleForm>) => onChange({ ...form, ...patch });
+  const setYearEnd = (patch: Partial<YearEndForm>) => onChange({ ...form, yearEnd: { ...form.yearEnd, ...patch } });
   const small: React.CSSProperties = { ...inputS, width: 96 };
   const mode = modeFor(type, form.limits);
   const compOff = type.code === 'COMP_OFF';
@@ -192,9 +193,7 @@ function RuleRow({ type, form, onChange, lookups, token, readOnly, allTypes }: {
       {form.included && !open && (
         <div style={{ padding: '0 12px 10px 36px', fontSize: 11.5, color: 'var(--txt-dim)' }}>
           Applies to: {appliesToSummary(form, lookups.departments, lookups.locations)}
-          {annual && !compOff && mode !== 'UNLIMITED' && (form.carryForwardEnabled
-            ? ` · carries forward ${form.carryForwardMaxDays ? `up to ${form.carryForwardMaxDays} day(s)` : 'all unused days'}${form.carryForwardExpiryMonths ? `, expiring after ${form.carryForwardExpiryMonths} month(s)` : ''}`
-            : ' · unused days lapse at year end')}
+          {annual && !compOff && mode !== 'UNLIMITED' && ` · ${yearEndSummary(form)}`}
           {annual && mode === 'QUOTA' && ` · ${accrualSummary(form.creditFrequency, form.accrual)}`}
           {rulesText.length > 0 && ` · ${rulesText.join(' · ')}`}
         </div>
@@ -242,10 +241,31 @@ function RuleRow({ type, form, onChange, lookups, token, readOnly, allTypes }: {
                     onChange={e => set({ carryForwardMaxDays: e.target.value })} />
                 </div>
                 <div>
+                  <label style={labelS}>Maximum %</label>
+                  <input type="number" min={0} max={100} step={1} style={small} value={form.yearEnd.carryForwardMaxPercent} placeholder="No cap"
+                    disabled={readOnly || !form.carryForwardEnabled} aria-label={`${type.name} maximum carry-forward percent`}
+                    onChange={e => setYearEnd({ carryForwardMaxPercent: e.target.value })} />
+                </div>
+                <div>
                   <label style={labelS}>Expires after (months)</label>
                   <input type="number" min={1} max={24} style={small} value={form.carryForwardExpiryMonths} placeholder="Never"
-                    disabled={readOnly || !form.carryForwardEnabled} aria-label={`${type.name} carry-forward expiry`}
+                    disabled={readOnly || !form.carryForwardEnabled || form.yearEnd.expiryMonth !== ''} aria-label={`${type.name} carry-forward expiry`}
                     onChange={e => set({ carryForwardExpiryMonths: e.target.value })} />
+                </div>
+                <div>
+                  <label style={labelS}>Or use by (next year)</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input type="number" min={1} max={31} style={{ ...inputS, width: 64 }} value={form.yearEnd.expiryDay} placeholder="Day"
+                      disabled={readOnly || !form.carryForwardEnabled || form.carryForwardExpiryMonths !== ''} aria-label={`${type.name} carry-forward expiry day`}
+                      onChange={e => setYearEnd({ expiryDay: e.target.value })} />
+                    <select style={{ ...inputS, width: 96 }} value={form.yearEnd.expiryMonth} aria-label={`${type.name} carry-forward expiry month`}
+                      disabled={readOnly || !form.carryForwardEnabled || form.carryForwardExpiryMonths !== ''}
+                      onChange={e => setYearEnd({ expiryMonth: e.target.value })}>
+                      <option value="">Month</option>
+                      {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, i) =>
+                        <option key={m} value={String(i + 1)}>{m}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label style={labelS}>Use first</label>
@@ -253,6 +273,46 @@ function RuleRow({ type, form, onChange, lookups, token, readOnly, allTypes }: {
                     onChange={e => set({ carryForwardPriority: e.target.value as RuleForm['carryForwardPriority'] })}>
                     <option value="CARRY_FORWARD_FIRST">Carried-forward first</option>
                     <option value="CURRENT_FIRST">Current year first</option>
+                  </select>
+                </div>
+              </div>
+            </fieldset>
+          )}
+          {annual && mode !== 'UNLIMITED' && (
+            <fieldset style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px', margin: '0 0 12px' }}>
+              <legend style={{ ...labelS, padding: '0 6px', marginBottom: 0 }}>Encashment at year end</legend>
+              <p style={{ fontSize: 11.5, color: 'var(--txt-dim)', margin: '0 0 8px' }}>
+                Unused days beyond the carry-forward are paid, up to the maximum; the rest lapses. Amount = days × monthly
+                basis ÷ divisor, paid with the next payroll after HR confirms the year-end.
+              </p>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
+                  <input type="checkbox" checked={form.yearEnd.encashEnabled} disabled={readOnly}
+                    onChange={e => setYearEnd({ encashEnabled: e.target.checked })} />
+                  Encash unused days
+                </label>
+                <div>
+                  <label style={labelS}>Maximum days</label>
+                  <input type="number" min={0} max={999} step={0.5} style={small} value={form.yearEnd.encashMaxDays} placeholder="No cap"
+                    disabled={readOnly || !form.yearEnd.encashEnabled} aria-label={`${type.name} maximum encashment days`}
+                    onChange={e => setYearEnd({ encashMaxDays: e.target.value })} />
+                </div>
+                <div>
+                  <label style={labelS}>Basis</label>
+                  <select style={{ ...inputS, width: 140 }} value={form.yearEnd.encashBasis} disabled={readOnly || !form.yearEnd.encashEnabled}
+                    aria-label={`${type.name} encashment basis`}
+                    onChange={e => setYearEnd({ encashBasis: e.target.value as YearEndForm['encashBasis'] })}>
+                    <option value="BASIC">Basic</option>
+                    <option value="BASIC_DA">Basic + DA</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelS}>Divided by</label>
+                  <select style={{ ...inputS, width: 90 }} value={form.yearEnd.encashDivisor} disabled={readOnly || !form.yearEnd.encashEnabled}
+                    aria-label={`${type.name} encashment divisor`}
+                    onChange={e => setYearEnd({ encashDivisor: e.target.value as YearEndForm['encashDivisor'] })}>
+                    <option value="30">30</option>
+                    <option value="26">26</option>
                   </select>
                 </div>
               </div>

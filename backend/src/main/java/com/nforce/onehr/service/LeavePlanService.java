@@ -15,6 +15,7 @@ import com.nforce.onehr.dto.LeavePlanDtos.TypeRuleRequest;
 import com.nforce.onehr.dto.LeavePlanDtos.UpdatePlanRequest;
 import com.nforce.onehr.dto.LeavePlanDtos.VersionDetail;
 import com.nforce.onehr.dto.LeavePlanDtos.VersionSummary;
+import com.nforce.onehr.dto.LeavePlanDtos.YearEndSettings;
 import com.nforce.onehr.entity.LeaveEntitlementPolicy;
 import com.nforce.onehr.entity.LeavePlan;
 import com.nforce.onehr.entity.LeavePlanTypeEligibility;
@@ -218,7 +219,7 @@ public class LeavePlanService {
         VersionDetail source = currentVersion(planId);
         List<TypeRuleRequest> rules = source.rules().stream().map(r -> new TypeRuleRequest(r.leaveTypeId(), r.days(),
                 r.creditFrequency(), r.carryForwardEnabled(), r.carryForwardMaxDays(), r.carryForwardExpiryMonths(),
-                r.carryForwardPriority(), r.eligibility(), r.limits(), r.accrual())).toList();
+                r.carryForwardPriority(), r.eligibility(), r.limits(), r.accrual(), r.yearEnd())).toList();
         LeavePlan from = requirePlan(planId);
         PlanDetail created = create(new CreatePlanRequest(req.name(), from.getDescription(), from.getLeaveYearStartMonth(), rules,
                 prorationDto(from)), actorEmail);
@@ -387,6 +388,7 @@ public class LeavePlanService {
                 throw new IllegalArgumentException(type.getName() + ": unlimited leave has no balance to carry forward.");
             }
             validateLimits(type, l);
+            validateYearEnd(type, r);
             if (r.carryForwardEnabled() && !type.isAnnualBalance()) {
                 throw new IllegalArgumentException(type.getName() + ": carry-forward is only available for regular paid leave "
                         + "(not unpaid or per-occurrence leave such as Maternity).");
@@ -433,6 +435,13 @@ public class LeavePlanService {
                     .creditTiming(accrualOf(type, req).timing())
                     .accrualPauseLopOverDays(accrualOf(type, req).pauseLopOverDays())
                     .accrualPauseUnpaidOverDays(accrualOf(type, req).pauseUnpaidOverDays())
+                    .carryForwardMaxPercent(yearEndOf(type, req, modeOf(type, limitsOf(req))).carryForwardMaxPercent())
+                    .carryForwardExpiryMonth(yearEndOf(type, req, modeOf(type, limitsOf(req))).carryForwardExpiryMonth())
+                    .carryForwardExpiryDay(yearEndOf(type, req, modeOf(type, limitsOf(req))).carryForwardExpiryDay())
+                    .encashEnabled(yearEndOf(type, req, modeOf(type, limitsOf(req))).encashEnabled())
+                    .encashMaxDays(yearEndOf(type, req, modeOf(type, limitsOf(req))).encashMaxDays())
+                    .encashBasis(yearEndOf(type, req, modeOf(type, limitsOf(req))).encashBasis())
+                    .encashDivisor(yearEndOf(type, req, modeOf(type, limitsOf(req))).encashDivisor())
                     .carryForwardEnabled(annual && req.carryForwardEnabled())
                     .carryForwardMaxDays(annual && req.carryForwardEnabled() ? req.carryForwardMaxDays() : null)
                     .carryForwardExpiryMonths(annual && req.carryForwardEnabled() ? req.carryForwardExpiryMonths() : null)
@@ -543,7 +552,8 @@ public class LeavePlanService {
     private List<TypeRuleRequest> requestsOf(UUID versionId) {
         return ruleRepository.findByVersionId(versionId).stream().map(r -> new TypeRuleRequest(r.getLeaveTypeId(), r.getDays(),
                 r.getCreditFrequency(), r.isCarryForwardEnabled(), r.getCarryForwardMaxDays(), r.getCarryForwardExpiryMonths(),
-                r.getCarryForwardPriority(), planRuleService.eligibilityConfig(r.getId()), limitsDto(r), accrualDto(r))).toList();
+                r.getCarryForwardPriority(), planRuleService.eligibilityConfig(r.getId()), limitsDto(r), accrualDto(r),
+                yearEndDto(r))).toList();
     }
 
     /** Canonical JSON of a rule set (sorted, normalised), used both for "unchanged?" and for the audit trail. */
@@ -602,6 +612,14 @@ public class LeavePlanService {
             m.put("creditTiming", a.timing());
             m.put("accrualPauseLopOverDays", plain(a.pauseLopOverDays()));
             m.put("accrualPauseUnpaidOverDays", plain(a.pauseUnpaidOverDays()));
+            YearEndSettings y = yearEndOf(t, r, mode);
+            m.put("carryForwardMaxPercent", plain(y.carryForwardMaxPercent()));
+            m.put("carryForwardExpiryMonth", y.carryForwardExpiryMonth());
+            m.put("carryForwardExpiryDay", y.carryForwardExpiryDay());
+            m.put("encashEnabled", y.encashEnabled());
+            m.put("encashMaxDays", plain(y.encashMaxDays()));
+            m.put("encashBasis", y.encashBasis());
+            m.put("encashDivisor", y.encashDivisor());
             out.add(m);
         }
         out.sort(Comparator.comparing(m -> (String) m.get("leaveTypeCode")));
@@ -621,7 +639,49 @@ public class LeavePlanService {
                 t.isPaid() ? t.getEntitlementBasis() : "UNLIMITED", t.isActive(), r.getDays(),
                 t.isAnnualBalance() ? r.getCreditFrequency() : null, r.isCarryForwardEnabled(), r.getCarryForwardMaxDays(),
                 r.getCarryForwardExpiryMonths(), r.getCarryForwardPriority(), planRuleService.eligibilityConfig(r.getId()),
-                limitsDto(r), t.isAnnualBalance() ? accrualDto(r) : null);
+                limitsDto(r), t.isAnnualBalance() ? accrualDto(r) : null, t.isAnnualBalance() ? yearEndDto(r) : null);
+    }
+
+    static YearEndSettings yearEndDto(LeavePlanTypeRule r) {
+        return new YearEndSettings(r.getCarryForwardMaxPercent(), r.getCarryForwardExpiryMonth(), r.getCarryForwardExpiryDay(),
+                r.isEncashEnabled(), r.getEncashMaxDays(),
+                r.getEncashBasis() == null ? LeavePlanTypeRule.ENCASH_BASIC : r.getEncashBasis(),
+                r.getEncashDivisor() == null ? 30 : r.getEncashDivisor());
+    }
+
+    /**
+     * LV-05: the year-end settings to store. Only regular paid types with fixed days have a year-end; the percent cap
+     * and the fixed expiry date only with carry-forward on; the encashment cap and basis only with encashment on.
+     */
+    static YearEndSettings yearEndOf(LeaveType type, TypeRuleRequest r, String mode) {
+        YearEndSettings y = r.yearEnd();
+        if (!type.isAnnualBalance() || y == null || LeavePlanTypeRule.MODE_UNLIMITED.equals(mode)) return YearEndSettings.DEFAULTS;
+        boolean cf = r.carryForwardEnabled();
+        boolean encash = y.encashEnabled();
+        return new YearEndSettings(cf ? y.carryForwardMaxPercent() : null, cf ? y.carryForwardExpiryMonth() : null,
+                cf ? y.carryForwardExpiryDay() : null, encash, encash ? y.encashMaxDays() : null,
+                y.encashBasis() == null ? LeavePlanTypeRule.ENCASH_BASIC : y.encashBasis(),
+                y.encashDivisor() == null ? 30 : y.encashDivisor());
+    }
+
+    /** LV-05: the year-end settings must make sense together. */
+    static void validateYearEnd(LeaveType type, TypeRuleRequest r) {
+        YearEndSettings y = r.yearEnd();
+        if (y == null || !type.isAnnualBalance()) return;
+        if ((y.carryForwardExpiryMonth() == null) != (y.carryForwardExpiryDay() == null)) {
+            throw new IllegalArgumentException(type.getName() + ": a fixed expiry date needs both a day and a month");
+        }
+        if (y.carryForwardExpiryMonth() != null) {
+            if (y.carryForwardExpiryDay() > java.time.Month.of(y.carryForwardExpiryMonth()).length(false)) {
+                throw new IllegalArgumentException(type.getName() + ": the carry-forward expiry date doesn't exist");
+            }
+            if (r.carryForwardEnabled() && r.carryForwardExpiryMonths() != null) {
+                throw new IllegalArgumentException(type.getName() + ": choose either an expiry after N months or a fixed date, not both");
+            }
+        }
+        if (y.encashDivisor() != null && y.encashDivisor() != 26 && y.encashDivisor() != 30) {
+            throw new IllegalArgumentException(type.getName() + ": the encashment divisor must be 26 or 30");
+        }
     }
 
     static AccrualSettings accrualDto(LeavePlanTypeRule r) {

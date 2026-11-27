@@ -273,6 +273,33 @@ class LeavePlanServiceTest {
     }
 
     @Test
+    void yearEndSettings_areSaved_andMustMakeSense() {
+        version(1, jan1(), null, "15");
+        var ye = new LeavePlanDtos.YearEndSettings(new BigDecimal("50"), 3, 31, true, new BigDecimal("5"), "BASIC_DA", 26);
+        service.saveVersion(plan.getId(), new SaveVersionRequest(LocalDate.of(year, 7, 1), List.of(
+                new TypeRuleRequest(paid.getId(), new BigDecimal("15"), "YEARLY", true, new BigDecimal("10"), null, null, null, null, null, ye)),
+                false), "hr@test.com");
+        LeavePlanVersion v2 = versions.stream().filter(v -> v.getVersion() == 2).findFirst().orElseThrow();
+        LeavePlanTypeRule saved = rules.stream().filter(r -> r.getVersionId().equals(v2.getId())).findFirst().orElseThrow();
+        assertEquals(0, new BigDecimal("50").compareTo(saved.getCarryForwardMaxPercent()));
+        assertEquals(3, saved.getCarryForwardExpiryMonth());
+        assertEquals(31, saved.getCarryForwardExpiryDay());
+        assertTrue(saved.isEncashEnabled());
+        assertEquals("BASIC_DA", saved.getEncashBasis());
+        assertEquals(26, saved.getEncashDivisor());
+
+        // a fixed date and "after N months" together, or a date that doesn't exist, are refused
+        assertThrows(IllegalArgumentException.class, () -> service.validateRules(List.of(new TypeRuleRequest(paid.getId(),
+                new BigDecimal("15"), "YEARLY", true, null, 3, null, null, null, null, ye))));
+        assertThrows(IllegalArgumentException.class, () -> service.validateRules(List.of(new TypeRuleRequest(paid.getId(),
+                new BigDecimal("15"), "YEARLY", true, null, null, null, null, null, null,
+                new LeavePlanDtos.YearEndSettings(null, 2, 30, false, null, null, null)))));
+        // without carry-forward the percent cap and the fixed date are not kept
+        assertNull(LeavePlanService.yearEndOf(paid, new TypeRuleRequest(paid.getId(), new BigDecimal("15"), "YEARLY", false, null, null,
+                null, null, null, null, ye), "QUOTA").carryForwardMaxPercent());
+    }
+
+    @Test
     void changingTheProration_recreditsThisYear_andAnUnchangedOneDoesNot() {
         service.update(plan.getId(), new LeavePlanDtos.UpdatePlanRequest(plan.getName(), null, 1, null), "hr@test.com");
         verify(accrual, never()).reconcile(any(), any(), anyBoolean());

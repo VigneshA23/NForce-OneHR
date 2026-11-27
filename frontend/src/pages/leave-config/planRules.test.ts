@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EMPTY_ELIGIBILITY, appliesToSummary, sameEligibility } from './AppliesTo';
 import type { LeavePreview, LeaveRuleSummary, LeaveType, PlanTypeRule } from '../../api/leave';
 import {
-  DEFAULT_ACCRUAL, EMPTY_LIMITS, EMPTY_RULE_ELIGIBILITY, accrualSummary, attachmentProblem, firstOfNextMonth, formsFor, hourlyDays, limitsPayload, modeFor, previewNotes, prorationExample, ruleLines, toPayload,
+  DEFAULT_ACCRUAL, DEFAULT_YEAR_END, EMPTY_LIMITS, EMPTY_RULE_ELIGIBILITY, accrualSummary, attachmentProblem, firstOfNextMonth, formsFor, hourlyDays, limitsPayload, modeFor, previewNotes, prorationExample, ruleLines, toPayload, yearEndPayload, yearEndSummary,
 } from './planRules';
 
 const paid: LeaveType = { id: 'p', code: 'PAID', name: 'Paid Leave', classification: 'PAID', entitlementBasis: 'ANNUAL', active: true };
@@ -226,5 +226,36 @@ describe('crediting periods, timing and pauses (LV-03)', () => {
     expect(accrualSummary('HALF_YEARLY', { timing: 'END', pauseLopOverDays: '3', pauseUnpaidOverDays: '5' }))
       .toBe('credited half-yearly, at the end of each half-year; withheld after more than 3 day(s) of loss of pay or more than 5 day(s) of unpaid leave');
     expect(accrualSummary('YEARLY', DEFAULT_ACCRUAL)).toBe('credited all at once, at the start of each year');
+  });
+});
+
+describe('year-end settings (LV-05)', () => {
+  const base = () => ({ ...formsFor(types, [paidRule])[0], carryForwardExpiryMonths: '' });
+
+  it('reads and sends the settings, with the fixed expiry date and encashment', () => {
+    expect(formsFor(types, [paidRule])[0].yearEnd).toEqual(DEFAULT_YEAR_END);
+    const f = { ...base(), yearEnd: { ...DEFAULT_YEAR_END, carryForwardMaxPercent: '50', expiryMonth: '3', expiryDay: '31',
+      encashEnabled: true, encashMaxDays: '5', encashBasis: 'BASIC_DA' as const, encashDivisor: '26' as const } };
+    expect(yearEndPayload(paid, f, true)).toEqual({ carryForwardMaxPercent: 50, carryForwardExpiryMonth: 3, carryForwardExpiryDay: 31,
+      encashEnabled: true, encashMaxDays: 5, encashBasis: 'BASIC_DA', encashDivisor: 26 });
+    const { rules } = toPayload([{ ...f, included: true }], types);
+    expect(rules[0].yearEnd?.encashDivisor).toBe(26);
+    expect(toPayload([{ ...formsFor(types, [])[1], included: true }], types).rules[0].yearEnd).toBeNull(); // unpaid
+  });
+
+  it('refuses a date that does not exist, or a date together with months', () => {
+    const bad = { ...base(), yearEnd: { ...DEFAULT_YEAR_END, expiryMonth: '2', expiryDay: '30' } };
+    expect(yearEndPayload(paid, bad, true)).toBe("Paid Leave: the carry-forward expiry date isn't a valid day and month");
+    const both = { ...base(), carryForwardExpiryMonths: '3', yearEnd: { ...DEFAULT_YEAR_END, expiryMonth: '3', expiryDay: '31' } };
+    expect(yearEndPayload(paid, both, true)).toBe('Paid Leave: choose either an expiry after N months or a fixed date, not both');
+    const pct = { ...base(), yearEnd: { ...DEFAULT_YEAR_END, carryForwardMaxPercent: '120' } };
+    expect(yearEndPayload(paid, pct, true)).toBe('Paid Leave: the carry-forward percentage must be between 0 and 100');
+  });
+
+  it('describes what happens to unused days', () => {
+    const f = { ...base(), carryForwardEnabled: true, carryForwardMaxDays: '10',
+      yearEnd: { ...DEFAULT_YEAR_END, carryForwardMaxPercent: '50', expiryMonth: '3', expiryDay: '31', encashEnabled: true, encashMaxDays: '5' } };
+    expect(yearEndSummary(f)).toBe('carries forward up to 10 day(s) or 50%, use by 31 Mar; encashes up to 5 day(s) at Basic ÷ 30; the rest lapses');
+    expect(yearEndSummary({ ...base(), carryForwardEnabled: false })).toBe('unused days lapse at year end');
   });
 });
